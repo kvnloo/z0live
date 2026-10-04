@@ -20,7 +20,7 @@ python -m pip install -e .
 Accept the NVIDIA PersonaPlex model license, export `HF_TOKEN`, then:
 
 ```bash
-./scripts/setup-personaplex-nf4.sh
+bash scripts/setup-personaplex-nf4.sh
 ```
 
 The setup script installs the modified Moshi runtime but does **not** start the model. It skips the 6.98 GB pre-quantized pickle and uses the repo's on-the-fly `--quantize-4bit` path.
@@ -31,7 +31,7 @@ With sibling `z0intelligence`, `z0live`, and `oh-my-pi` checkouts:
 
 ```bash
 cd ../oh-my-pi
-scripts/z0live-brainstorm.sh
+bash scripts/z0live-brainstorm.sh
 ```
 
 `z0intelligence` checks current free VRAM. On a busy GPU it refuses and prints the exact reclaim deficit instead of killing unrelated work.
