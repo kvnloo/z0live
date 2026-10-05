@@ -1,0 +1,14 @@
+{
+  "name": "z0live-omp",
+  "version": "0.2.0",
+  "private": true,
+  "description": "OMP Brainstorm Mode plugin for z0live",
+  "type": "module",
+  "omp": {
+    "name": "z0live",
+    "description": "On-demand realtime Brainstorm Mode backed by z0live + z0intelligence",
+    "extensions": [
+      "./plugins/omp/index.mjs"
+    ]
+  }
+}
