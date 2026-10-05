@@ -89,6 +89,16 @@ def _parser() -> argparse.ArgumentParser:
     speculation.add_argument("--min-p50-gain-ms", type=float, default=50.0)
     speculation.add_argument("--json", action="store_true")
 
+    warm_probe = sub.add_parser(
+        "warm-probe",
+        help="headlessly load/handshake/unload the selected actor",
+    )
+    warm_probe.add_argument("--plan", type=Path, required=True)
+    warm_probe.add_argument("--actor-command")
+    warm_probe.add_argument("--ready-timeout", type=float, default=300.0)
+    warm_probe.add_argument("--settle-seconds", type=float, default=1.0)
+    warm_probe.add_argument("--output", type=Path)
+
     status = sub.add_parser(
         "status",
         help="show active session state",
@@ -275,6 +285,26 @@ def main(argv: list[str] | None = None) -> int:
                 f"pass={result['pass']}"
             )
         return 0 if result["pass"] else 1
+
+    if args.cmd == "warm-probe":
+        from .probe import probe_actor
+
+        plan = load_plan(args.plan)
+        result = asyncio.run(
+            probe_actor(
+                plan,
+                actor_command=args.actor_command,
+                ready_timeout_seconds=args.ready_timeout,
+                settle_seconds=max(0.0, args.settle_seconds),
+            )
+        )
+        payload = json.dumps(result, indent=2, sort_keys=True) + "\n"
+        if args.output:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(payload, encoding="utf-8")
+        else:
+            print(payload, end="")
+        return 0 if result["ok"] else 1
 
     if args.cmd == "status":
         root = (
