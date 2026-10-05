@@ -1,0 +1,3077 @@
+{
+  "schema": "z0live.fixtures.v1",
+  "revision": "stress-v1",
+  "seed": 20261004,
+  "cases": [
+    {
+      "id": "stress-floor-000",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 80,
+          "payload": {
+            "backchannel": true
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 180,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 500,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "keep_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-001",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 87,
+          "payload": {
+            "backchannel": false
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 187,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 511,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "interrupt_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-002",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 94,
+          "payload": {
+            "backchannel": false
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 194,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 522,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "interrupt_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-003",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 101,
+          "payload": {
+            "backchannel": false
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 201,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 533,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "interrupt_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-004",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 108,
+          "payload": {
+            "backchannel": false
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 208,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 544,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "interrupt_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-005",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 115,
+          "payload": {
+            "backchannel": true
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 215,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 555,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "keep_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-006",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 122,
+          "payload": {
+            "backchannel": false
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 222,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 566,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "interrupt_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-007",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 129,
+          "payload": {
+            "backchannel": false
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 229,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 577,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "interrupt_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-008",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 136,
+          "payload": {
+            "backchannel": false
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 236,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 588,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "interrupt_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-009",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 143,
+          "payload": {
+            "backchannel": false
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 243,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 599,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "interrupt_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-010",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 150,
+          "payload": {
+            "backchannel": true
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 250,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 610,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "keep_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-011",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 157,
+          "payload": {
+            "backchannel": false
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 257,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 621,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "interrupt_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-012",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 164,
+          "payload": {
+            "backchannel": false
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 264,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 632,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "interrupt_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-013",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 171,
+          "payload": {
+            "backchannel": false
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 271,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 643,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "interrupt_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-014",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 178,
+          "payload": {
+            "backchannel": false
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 278,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 654,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "interrupt_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-015",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 185,
+          "payload": {
+            "backchannel": true
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 285,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 665,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "keep_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-016",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 192,
+          "payload": {
+            "backchannel": false
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 292,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 676,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "interrupt_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-017",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 199,
+          "payload": {
+            "backchannel": false
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 299,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 687,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "interrupt_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-018",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 206,
+          "payload": {
+            "backchannel": false
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 306,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 698,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "interrupt_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-019",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 213,
+          "payload": {
+            "backchannel": false
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 313,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 709,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "interrupt_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-020",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 220,
+          "payload": {
+            "backchannel": true
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 320,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 720,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "keep_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-021",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 227,
+          "payload": {
+            "backchannel": false
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 327,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 731,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "interrupt_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-022",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 234,
+          "payload": {
+            "backchannel": false
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 334,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 742,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "interrupt_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-023",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 241,
+          "payload": {
+            "backchannel": false
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 341,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 753,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "interrupt_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-024",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 248,
+          "payload": {
+            "backchannel": false
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 348,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 764,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "interrupt_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-025",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 255,
+          "payload": {
+            "backchannel": true
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 355,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 775,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "keep_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-026",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 262,
+          "payload": {
+            "backchannel": false
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 362,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 786,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "interrupt_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-027",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 269,
+          "payload": {
+            "backchannel": false
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 369,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 797,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "interrupt_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-028",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 276,
+          "payload": {
+            "backchannel": false
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 376,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 508,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "interrupt_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-floor-029",
+      "family": "floor-stress-v1",
+      "events": [
+        {
+          "kind": "assistant.speech.started",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {}
+        },
+        {
+          "kind": "user.speech.started",
+          "source": "fixture",
+          "at_ms": 283,
+          "payload": {
+            "backchannel": false
+          }
+        },
+        {
+          "kind": "user.speech.stopped",
+          "source": "fixture",
+          "at_ms": 383,
+          "payload": {}
+        },
+        {
+          "kind": "assistant.speech.stopped",
+          "source": "fixture",
+          "at_ms": 519,
+          "payload": {}
+        }
+      ],
+      "expected_actions": [
+        "assistant_takes_floor",
+        "interrupt_assistant",
+        "floor_idle"
+      ]
+    },
+    {
+      "id": "stress-attention-000",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "progress 0"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent"
+      ]
+    },
+    {
+      "id": "stress-attention-001",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 10,
+          "payload": {
+            "text": "verified 1",
+            "verified": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-attention-002",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 20,
+          "payload": {
+            "text": "unverified 2",
+            "verified": false
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent"
+      ]
+    },
+    {
+      "id": "stress-attention-003",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 30,
+          "payload": {
+            "text": "stale 3",
+            "verified": true,
+            "stale": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "drop"
+      ]
+    },
+    {
+      "id": "stress-attention-004",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.approval",
+          "source": "fixture",
+          "at_ms": 40,
+          "payload": {
+            "text": "approval 4"
+          }
+        }
+      ],
+      "expected_actions": [
+        "interrupt"
+      ]
+    },
+    {
+      "id": "stress-attention-005",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 50,
+          "payload": {
+            "text": "progress 5"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent"
+      ]
+    },
+    {
+      "id": "stress-attention-006",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 60,
+          "payload": {
+            "text": "verified 6",
+            "verified": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-attention-007",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 70,
+          "payload": {
+            "text": "unverified 7",
+            "verified": false
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent"
+      ]
+    },
+    {
+      "id": "stress-attention-008",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 80,
+          "payload": {
+            "text": "stale 8",
+            "verified": true,
+            "stale": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "drop"
+      ]
+    },
+    {
+      "id": "stress-attention-009",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.approval",
+          "source": "fixture",
+          "at_ms": 90,
+          "payload": {
+            "text": "approval 9"
+          }
+        }
+      ],
+      "expected_actions": [
+        "interrupt"
+      ]
+    },
+    {
+      "id": "stress-attention-010",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 100,
+          "payload": {
+            "text": "progress 10"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent"
+      ]
+    },
+    {
+      "id": "stress-attention-011",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 110,
+          "payload": {
+            "text": "verified 11",
+            "verified": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-attention-012",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 120,
+          "payload": {
+            "text": "unverified 12",
+            "verified": false
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent"
+      ]
+    },
+    {
+      "id": "stress-attention-013",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 130,
+          "payload": {
+            "text": "stale 13",
+            "verified": true,
+            "stale": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "drop"
+      ]
+    },
+    {
+      "id": "stress-attention-014",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.approval",
+          "source": "fixture",
+          "at_ms": 140,
+          "payload": {
+            "text": "approval 14"
+          }
+        }
+      ],
+      "expected_actions": [
+        "interrupt"
+      ]
+    },
+    {
+      "id": "stress-attention-015",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 150,
+          "payload": {
+            "text": "progress 15"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent"
+      ]
+    },
+    {
+      "id": "stress-attention-016",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 160,
+          "payload": {
+            "text": "verified 16",
+            "verified": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-attention-017",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 170,
+          "payload": {
+            "text": "unverified 17",
+            "verified": false
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent"
+      ]
+    },
+    {
+      "id": "stress-attention-018",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 180,
+          "payload": {
+            "text": "stale 18",
+            "verified": true,
+            "stale": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "drop"
+      ]
+    },
+    {
+      "id": "stress-attention-019",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.approval",
+          "source": "fixture",
+          "at_ms": 190,
+          "payload": {
+            "text": "approval 19"
+          }
+        }
+      ],
+      "expected_actions": [
+        "interrupt"
+      ]
+    },
+    {
+      "id": "stress-attention-020",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 200,
+          "payload": {
+            "text": "progress 20"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent"
+      ]
+    },
+    {
+      "id": "stress-attention-021",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 210,
+          "payload": {
+            "text": "verified 21",
+            "verified": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-attention-022",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 220,
+          "payload": {
+            "text": "unverified 22",
+            "verified": false
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent"
+      ]
+    },
+    {
+      "id": "stress-attention-023",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 230,
+          "payload": {
+            "text": "stale 23",
+            "verified": true,
+            "stale": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "drop"
+      ]
+    },
+    {
+      "id": "stress-attention-024",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.approval",
+          "source": "fixture",
+          "at_ms": 240,
+          "payload": {
+            "text": "approval 24"
+          }
+        }
+      ],
+      "expected_actions": [
+        "interrupt"
+      ]
+    },
+    {
+      "id": "stress-attention-025",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 250,
+          "payload": {
+            "text": "progress 25"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent"
+      ]
+    },
+    {
+      "id": "stress-attention-026",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 260,
+          "payload": {
+            "text": "verified 26",
+            "verified": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-attention-027",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 270,
+          "payload": {
+            "text": "unverified 27",
+            "verified": false
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent"
+      ]
+    },
+    {
+      "id": "stress-attention-028",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 280,
+          "payload": {
+            "text": "stale 28",
+            "verified": true,
+            "stale": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "drop"
+      ]
+    },
+    {
+      "id": "stress-attention-029",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.approval",
+          "source": "fixture",
+          "at_ms": 290,
+          "payload": {
+            "text": "approval 29"
+          }
+        }
+      ],
+      "expected_actions": [
+        "interrupt"
+      ]
+    },
+    {
+      "id": "stress-attention-030",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 300,
+          "payload": {
+            "text": "progress 30"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent"
+      ]
+    },
+    {
+      "id": "stress-attention-031",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 310,
+          "payload": {
+            "text": "verified 31",
+            "verified": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-attention-032",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 320,
+          "payload": {
+            "text": "unverified 32",
+            "verified": false
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent"
+      ]
+    },
+    {
+      "id": "stress-attention-033",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 330,
+          "payload": {
+            "text": "stale 33",
+            "verified": true,
+            "stale": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "drop"
+      ]
+    },
+    {
+      "id": "stress-attention-034",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.approval",
+          "source": "fixture",
+          "at_ms": 340,
+          "payload": {
+            "text": "approval 34"
+          }
+        }
+      ],
+      "expected_actions": [
+        "interrupt"
+      ]
+    },
+    {
+      "id": "stress-attention-035",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 350,
+          "payload": {
+            "text": "progress 35"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent"
+      ]
+    },
+    {
+      "id": "stress-attention-036",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 360,
+          "payload": {
+            "text": "verified 36",
+            "verified": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-attention-037",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 370,
+          "payload": {
+            "text": "unverified 37",
+            "verified": false
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent"
+      ]
+    },
+    {
+      "id": "stress-attention-038",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 380,
+          "payload": {
+            "text": "stale 38",
+            "verified": true,
+            "stale": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "drop"
+      ]
+    },
+    {
+      "id": "stress-attention-039",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.approval",
+          "source": "fixture",
+          "at_ms": 390,
+          "payload": {
+            "text": "approval 39"
+          }
+        }
+      ],
+      "expected_actions": [
+        "interrupt"
+      ]
+    },
+    {
+      "id": "stress-attention-040",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 400,
+          "payload": {
+            "text": "progress 40"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent"
+      ]
+    },
+    {
+      "id": "stress-attention-041",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 410,
+          "payload": {
+            "text": "verified 41",
+            "verified": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-attention-042",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 420,
+          "payload": {
+            "text": "unverified 42",
+            "verified": false
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent"
+      ]
+    },
+    {
+      "id": "stress-attention-043",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 430,
+          "payload": {
+            "text": "stale 43",
+            "verified": true,
+            "stale": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "drop"
+      ]
+    },
+    {
+      "id": "stress-attention-044",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.approval",
+          "source": "fixture",
+          "at_ms": 440,
+          "payload": {
+            "text": "approval 44"
+          }
+        }
+      ],
+      "expected_actions": [
+        "interrupt"
+      ]
+    },
+    {
+      "id": "stress-attention-045",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 450,
+          "payload": {
+            "text": "progress 45"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent"
+      ]
+    },
+    {
+      "id": "stress-attention-046",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 460,
+          "payload": {
+            "text": "verified 46",
+            "verified": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-attention-047",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 470,
+          "payload": {
+            "text": "unverified 47",
+            "verified": false
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent"
+      ]
+    },
+    {
+      "id": "stress-attention-048",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 480,
+          "payload": {
+            "text": "stale 48",
+            "verified": true,
+            "stale": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "drop"
+      ]
+    },
+    {
+      "id": "stress-attention-049",
+      "family": "attention-stress-v1",
+      "events": [
+        {
+          "kind": "harness.approval",
+          "source": "fixture",
+          "at_ms": 490,
+          "payload": {
+            "text": "approval 49"
+          }
+        }
+      ],
+      "expected_actions": [
+        "interrupt"
+      ]
+    },
+    {
+      "id": "stress-agent-000",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 100,
+          "payload": {
+            "text": "verified done",
+            "verified": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-agent-001",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 101,
+          "payload": {
+            "text": "stale done",
+            "verified": true,
+            "superseded": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "drop"
+      ]
+    },
+    {
+      "id": "stress-agent-002",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.error",
+          "source": "fixture",
+          "at_ms": 102,
+          "payload": {
+            "text": "failed"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-agent-003",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.approval",
+          "source": "fixture",
+          "at_ms": 103,
+          "payload": {
+            "text": "approval needed"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "interrupt"
+      ]
+    },
+    {
+      "id": "stress-agent-004",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 104,
+          "payload": {
+            "text": "verified done",
+            "verified": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-agent-005",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 105,
+          "payload": {
+            "text": "stale done",
+            "verified": true,
+            "superseded": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "drop"
+      ]
+    },
+    {
+      "id": "stress-agent-006",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.error",
+          "source": "fixture",
+          "at_ms": 106,
+          "payload": {
+            "text": "failed"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-agent-007",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.approval",
+          "source": "fixture",
+          "at_ms": 107,
+          "payload": {
+            "text": "approval needed"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "interrupt"
+      ]
+    },
+    {
+      "id": "stress-agent-008",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 108,
+          "payload": {
+            "text": "verified done",
+            "verified": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-agent-009",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 109,
+          "payload": {
+            "text": "stale done",
+            "verified": true,
+            "superseded": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "drop"
+      ]
+    },
+    {
+      "id": "stress-agent-010",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.error",
+          "source": "fixture",
+          "at_ms": 110,
+          "payload": {
+            "text": "failed"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-agent-011",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.approval",
+          "source": "fixture",
+          "at_ms": 111,
+          "payload": {
+            "text": "approval needed"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "interrupt"
+      ]
+    },
+    {
+      "id": "stress-agent-012",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 112,
+          "payload": {
+            "text": "verified done",
+            "verified": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-agent-013",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 113,
+          "payload": {
+            "text": "stale done",
+            "verified": true,
+            "superseded": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "drop"
+      ]
+    },
+    {
+      "id": "stress-agent-014",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.error",
+          "source": "fixture",
+          "at_ms": 114,
+          "payload": {
+            "text": "failed"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-agent-015",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.approval",
+          "source": "fixture",
+          "at_ms": 115,
+          "payload": {
+            "text": "approval needed"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "interrupt"
+      ]
+    },
+    {
+      "id": "stress-agent-016",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 116,
+          "payload": {
+            "text": "verified done",
+            "verified": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-agent-017",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 117,
+          "payload": {
+            "text": "stale done",
+            "verified": true,
+            "superseded": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "drop"
+      ]
+    },
+    {
+      "id": "stress-agent-018",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.error",
+          "source": "fixture",
+          "at_ms": 118,
+          "payload": {
+            "text": "failed"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-agent-019",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.approval",
+          "source": "fixture",
+          "at_ms": 119,
+          "payload": {
+            "text": "approval needed"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "interrupt"
+      ]
+    },
+    {
+      "id": "stress-agent-020",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 120,
+          "payload": {
+            "text": "verified done",
+            "verified": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-agent-021",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 121,
+          "payload": {
+            "text": "stale done",
+            "verified": true,
+            "superseded": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "drop"
+      ]
+    },
+    {
+      "id": "stress-agent-022",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.error",
+          "source": "fixture",
+          "at_ms": 122,
+          "payload": {
+            "text": "failed"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-agent-023",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.approval",
+          "source": "fixture",
+          "at_ms": 123,
+          "payload": {
+            "text": "approval needed"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "interrupt"
+      ]
+    },
+    {
+      "id": "stress-agent-024",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 124,
+          "payload": {
+            "text": "verified done",
+            "verified": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-agent-025",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 125,
+          "payload": {
+            "text": "stale done",
+            "verified": true,
+            "superseded": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "drop"
+      ]
+    },
+    {
+      "id": "stress-agent-026",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.error",
+          "source": "fixture",
+          "at_ms": 126,
+          "payload": {
+            "text": "failed"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-agent-027",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.approval",
+          "source": "fixture",
+          "at_ms": 127,
+          "payload": {
+            "text": "approval needed"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "interrupt"
+      ]
+    },
+    {
+      "id": "stress-agent-028",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 128,
+          "payload": {
+            "text": "verified done",
+            "verified": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-agent-029",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 129,
+          "payload": {
+            "text": "stale done",
+            "verified": true,
+            "superseded": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "drop"
+      ]
+    },
+    {
+      "id": "stress-agent-030",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.error",
+          "source": "fixture",
+          "at_ms": 130,
+          "payload": {
+            "text": "failed"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-agent-031",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.approval",
+          "source": "fixture",
+          "at_ms": 131,
+          "payload": {
+            "text": "approval needed"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "interrupt"
+      ]
+    },
+    {
+      "id": "stress-agent-032",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 132,
+          "payload": {
+            "text": "verified done",
+            "verified": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-agent-033",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 133,
+          "payload": {
+            "text": "stale done",
+            "verified": true,
+            "superseded": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "drop"
+      ]
+    },
+    {
+      "id": "stress-agent-034",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.error",
+          "source": "fixture",
+          "at_ms": 134,
+          "payload": {
+            "text": "failed"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-agent-035",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.approval",
+          "source": "fixture",
+          "at_ms": 135,
+          "payload": {
+            "text": "approval needed"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "interrupt"
+      ]
+    },
+    {
+      "id": "stress-agent-036",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 136,
+          "payload": {
+            "text": "verified done",
+            "verified": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-agent-037",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.result",
+          "source": "fixture",
+          "at_ms": 137,
+          "payload": {
+            "text": "stale done",
+            "verified": true,
+            "superseded": true
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "drop"
+      ]
+    },
+    {
+      "id": "stress-agent-038",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.error",
+          "source": "fixture",
+          "at_ms": 138,
+          "payload": {
+            "text": "failed"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "speak"
+      ]
+    },
+    {
+      "id": "stress-agent-039",
+      "family": "agent-stress-v1",
+      "events": [
+        {
+          "kind": "harness.progress",
+          "source": "fixture",
+          "at_ms": 0,
+          "payload": {
+            "text": "worker started"
+          }
+        },
+        {
+          "kind": "harness.approval",
+          "source": "fixture",
+          "at_ms": 139,
+          "payload": {
+            "text": "approval needed"
+          }
+        }
+      ],
+      "expected_actions": [
+        "silent",
+        "interrupt"
+      ]
+    }
+  ]
+}
