@@ -1,0 +1,19 @@
+{
+  "name": "z0live-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "copy-codecs": "node scripts/copy-codecs.mjs",
+    "build": "npm run copy-codecs && tsc --noEmit && vite build",
+    "dev": "npm run copy-codecs && vite",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "opus-recorder": "8.0.5"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vite": "5.4.20"
+  }
+}
