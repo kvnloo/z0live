@@ -235,8 +235,8 @@ async function connect(): Promise<void> {
     if (message.type === "hello") {
       const caps = message.actor_capabilities || {};
       codecEl.textContent = `${caps.input_codec || "?"}/${caps.input_sample_rate_hz || "?"}`;
-      if (caps.input_codec !== "opus" || Number(caps.input_sample_rate_hz) !== 24000) {
-        setStatus("this web client currently requires Opus/24k input");
+      if (caps.input_codec !== "ogg-opus" || Number(caps.input_sample_rate_hz) !== 24000) {
+        setStatus("this web client currently requires Ogg/Opus 24k input");
         socket.close();
         return;
       }
