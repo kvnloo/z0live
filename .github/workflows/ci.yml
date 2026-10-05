@@ -44,6 +44,7 @@ jobs:
         working-directory: web
       - run: npm run build
         working-directory: web
+      - run: ./web/node_modules/.bin/esbuild integrations/omp/z0live.ts --format=esm --platform=node --outfile=/tmp/z0live-omp.js
       - run: test -f web/dist/index.html
       - run: test -f web/dist/assets/encoderWorker.min.js
       - run: test -f web/dist/assets/decoderWorker.min.wasm
