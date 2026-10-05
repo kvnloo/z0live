@@ -28,6 +28,8 @@ There is no model-ranking policy in this repository.
 pip install -e .
 z0live smoke
 z0live replay fixtures/core-v1.json
+z0live replay fixtures/stress-v1.json
+z0live speculation-replay fixtures/speculation-v1.json
 ```
 
 For local PersonaPlex:
@@ -113,3 +115,52 @@ A selected `openai_realtime` VoicePlan uses the current OpenAI Python Realtime S
 pip install -e '.[test]'
 pytest -q
 ```
+
+
+## Full-duplex browser client
+
+z0live ships a small local browser client using the same Ogg/Opus worker transport as PersonaPlex.
+
+```bash
+bash scripts/setup-web.sh
+```
+
+`z0live serve` then serves the client at `http://127.0.0.1:8780` when `web/dist` exists. The browser connects to `z0live.gateway.v1` on port 8765, streams microphone Ogg/Opus pages, decodes assistant audio, and emits user/assistant speech boundaries from actual microphone/playback audio for latency receipts.
+
+## OMP plugin
+
+```bash
+bash scripts/install-omp-extension.sh
+```
+
+Then:
+
+```text
+/brainstorm on
+/brainstorm status
+/brainstorm off
+```
+
+OMP remains the execution/authorization authority. The extension forwards events and control; it does not add z0live-specific code to OMP core.
+
+## Speculation
+
+`speculation-v1` contains 180 frozen partial/final transcript cases. Partial speech may return a side-effect-free `prewarm` ticket, but only the final transcript returns `authority`.
+
+Measured prewarm traces are evaluated separately:
+
+```bash
+z0live speculation-eval measurements.jsonl
+```
+
+The pre-registered promotion gate is at least 50 ms p50 useful gain and exactly zero speculative mutations.
+
+## 3080 Ti dogfood
+
+After installing z0intelligence + z0live and the PersonaPlex runtime:
+
+```bash
+bash scripts/dogfood-rtx3080ti.sh
+```
+
+It preserves host inventory, exact VoicePlan, 20-case core replay, 120-case stress replay, 180-case speculation replay, smoke result, a headless PersonaPlex warm/handshake probe, before/after VRAM, and SHA-256s in one receipt directory. Headless success is not treated as a naturalness claim.
