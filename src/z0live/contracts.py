@@ -31,6 +31,8 @@ class EventKind(str, Enum):
     HARNESS_APPROVAL = "harness.approval"
     HARNESS_ERROR = "harness.error"
     ACTOR_ERROR = "actor.error"
+    TRANSCRIBER_READY = "transcriber.ready"
+    TRANSCRIBER_ERROR = "transcriber.error"
     RESOURCE_SAMPLE = "resource.sample"
     MARKER = "marker"
 
