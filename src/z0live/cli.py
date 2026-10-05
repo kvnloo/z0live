@@ -40,6 +40,14 @@ def _parser() -> argparse.ArgumentParser:
     serve.add_argument("--harness", type=_parse_hostport)
     serve.add_argument("--actor-command")
     serve.add_argument(
+        "--web",
+        type=_parse_hostport,
+        default=("127.0.0.1", 8780),
+        help="local media UI address",
+    )
+    serve.add_argument("--no-web", action="store_true")
+    serve.add_argument("--web-dir", type=Path)
+    serve.add_argument(
         "--ready-timeout",
         type=float,
         default=300.0,
@@ -61,6 +69,14 @@ def _parser() -> argparse.ArgumentParser:
     )
     brainstorm.add_argument("--harness", type=_parse_hostport)
     brainstorm.add_argument("--actor-command")
+    brainstorm.add_argument(
+        "--web",
+        type=_parse_hostport,
+        default=("127.0.0.1", 8780),
+        help="local media UI address",
+    )
+    brainstorm.add_argument("--no-web", action="store_true")
+    brainstorm.add_argument("--web-dir", type=Path)
     brainstorm.add_argument(
         "--ready-timeout",
         type=float,
@@ -127,6 +143,8 @@ def _run_service(args) -> int:
         harness_address=args.harness,
         actor_command=args.actor_command,
         ready_timeout_seconds=args.ready_timeout,
+        web_address=None if args.no_web else args.web,
+        web_dir=args.web_dir,
     )
 
     async def run() -> str:
