@@ -54,6 +54,17 @@ class TimelineMetrics:
 
     def observe(self, event: TimelineEvent) -> None:
         at = int(event.at_ms)
+        playback_delay = event.payload.get("playback_delay_ms", 0)
+        if (
+            event.kind in (
+                EventKind.ASSISTANT_SPEECH_STARTED,
+                EventKind.ASSISTANT_SPEECH_STOPPED,
+                EventKind.PLAYBACK_SILENCE,
+            )
+            and isinstance(playback_delay, (int, float))
+        ):
+            at += max(0, int(playback_delay))
+
         if event.kind == EventKind.USER_SPEECH_STOPPED:
             self._user_stop_ms = at
 
