@@ -28,6 +28,10 @@ let playbackAt = 0;
 let assistantSpeechActive = false;
 let assistantBelowSince = 0;
 let traceId = crypto.randomUUID();
+let transcriberCaps: Record<string, unknown> | null = null;
+let controlSource: MediaStreamAudioSourceNode | null = null;
+let controlProcessor: ScriptProcessorNode | null = null;
+let controlMute: GainNode | null = null;
 
 function setStatus(text: string): void {
   statusEl.textContent = text;
@@ -44,6 +48,90 @@ function sendEvent(kind: string, payload: Record<string, unknown> = {}): void {
       payload,
     },
   }));
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+function downsampleMono(input: Float32Array, inputRate: number, outputRate: number): Float32Array {
+  if (outputRate <= 0 || inputRate < outputRate) return new Float32Array(0);
+  if (inputRate === outputRate) return new Float32Array(input);
+  const ratio = inputRate / outputRate;
+  const outputLength = Math.max(1, Math.floor(input.length / ratio));
+  const output = new Float32Array(outputLength);
+  for (let i = 0; i < outputLength; i++) {
+    const start = Math.floor(i * ratio);
+    const end = Math.min(input.length, Math.max(start + 1, Math.floor((i + 1) * ratio)));
+    let sum = 0;
+    for (let j = start; j < end; j++) sum += input[j];
+    output[i] = sum / Math.max(1, end - start);
+  }
+  return output;
+}
+
+function pcm16Bytes(input: Float32Array): Uint8Array {
+  const bytes = new Uint8Array(input.length * 2);
+  const view = new DataView(bytes.buffer);
+  for (let i = 0; i < input.length; i++) {
+    const sample = Math.max(-1, Math.min(1, input[i]));
+    const value = sample < 0 ? Math.round(sample * 32768) : Math.round(sample * 32767);
+    view.setInt16(i * 2, value, true);
+  }
+  return bytes;
+}
+
+function startControlTap(stream: MediaStream): void {
+  if (!audioContext || !transcriberCaps || !ws) return;
+  const codec = String(transcriberCaps.input_codec || "");
+  const sampleRate = Number(transcriberCaps.input_sample_rate_hz || 0);
+  const channels = Number(transcriberCaps.channels || 1);
+  if (codec !== "pcm16" || sampleRate !== 16000 || channels !== 1) {
+    setStatus(`control lane unsupported: ${codec}/${sampleRate}/${channels}`);
+    return;
+  }
+
+  controlSource = audioContext.createMediaStreamSource(stream);
+  controlProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+  controlMute = audioContext.createGain();
+  controlMute.gain.value = 0;
+
+  controlProcessor.onaudioprocess = event => {
+    if (!ws || ws.readyState !== WebSocket.OPEN || !audioContext) return;
+    const mono = event.inputBuffer.getChannelData(0);
+    const pcm = downsampleMono(mono, audioContext.sampleRate, sampleRate);
+    if (!pcm.length) return;
+    const bytes = pcm16Bytes(pcm);
+    ws.send(JSON.stringify({
+      type: "transcriber.audio",
+      audio: {
+        codec: "pcm16",
+        sample_rate_hz: sampleRate,
+        channels: 1,
+        duration_ms: pcm.length * 1000 / sampleRate,
+        data_base64: bytesToBase64(bytes),
+      },
+    }));
+  };
+
+  controlSource.connect(controlProcessor);
+  controlProcessor.connect(controlMute);
+  controlMute.connect(audioContext.destination);
+}
+
+function stopControlTap(): void {
+  if (controlProcessor) controlProcessor.onaudioprocess = null;
+  controlSource?.disconnect();
+  controlProcessor?.disconnect();
+  controlMute?.disconnect();
+  controlSource = null;
+  controlProcessor = null;
+  controlMute = null;
 }
 
 function startVad(stream: MediaStream): void {
@@ -149,7 +237,9 @@ function initDecoder(): void {
     );
     observeAssistantPcm(pcm, playbackDelayMs);
     const buffer = audioContext.createBuffer(1, pcm.length, audioContext.sampleRate);
-    buffer.copyToChannel(pcm, 0);
+    const copy = new Float32Array(pcm.length);
+    copy.set(pcm);
+    buffer.copyToChannel(copy, 0);
     const source = audioContext.createBufferSource();
     source.buffer = buffer;
     source.connect(audioContext.destination);
@@ -187,11 +277,13 @@ async function startRecorder(): Promise<void> {
   recorder.onerror = (error: unknown) => setStatus(`mic error: ${String(error)}`);
   micStream = await recorder.initStream();
   startVad(micStream!);
+  startControlTap(micStream!);
   recorder.start();
   micEl.textContent = "live";
 }
 
 async function disconnect(): Promise<void> {
+  stopControlTap();
   stopVad();
   if (recorder) {
     try { recorder.stop(); } catch {}
@@ -215,6 +307,7 @@ async function disconnect(): Promise<void> {
   assistantBelowSince = 0;
   micEl.textContent = "off";
   codecEl.textContent = "—";
+  transcriberCaps = null;
   queueEl.textContent = "0 ms";
   connectButton.disabled = false;
   disconnectButton.disabled = true;
@@ -246,6 +339,7 @@ async function connect(): Promise<void> {
     const message = JSON.parse(event.data);
     if (message.type === "hello") {
       const caps = message.actor_capabilities || {};
+      transcriberCaps = message.transcriber_capabilities || null;
       codecEl.textContent = `${caps.input_codec || "?"}/${caps.input_sample_rate_hz || "?"}`;
       if (caps.input_codec !== "ogg-opus" || Number(caps.input_sample_rate_hz) !== 24000) {
         setStatus("this web client currently requires Ogg/Opus 24k input");
