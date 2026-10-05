@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 from dataclasses import dataclass
 
@@ -75,6 +77,16 @@ class RuntimeGateway:
                         if self.runtime.harness
                         else None
                     ),
+                    "transcriber_id": (
+                        self.runtime.transcriber.transcriber_id
+                        if self.runtime.transcriber
+                        else None
+                    ),
+                    "transcriber_capabilities": (
+                        self.runtime.transcriber.capabilities.to_dict()
+                        if self.runtime.transcriber
+                        else None
+                    ),
                 }
             )
         )
@@ -91,7 +103,53 @@ class RuntimeGateway:
                     continue
                 raw = json.loads(message)
                 typ = raw.get("type")
-                if typ == "event":
+                if typ == "transcriber.audio":
+                    if self.runtime.transcriber is None:
+                        await ws.send(
+                            json.dumps(
+                                {
+                                    "type": "error",
+                                    "code": "transcriber_unavailable",
+                                    "message": "VoicePlan did not attach an input transcriber",
+                                }
+                            )
+                        )
+                        continue
+                    audio = dict(raw.get("audio") or {})
+                    try:
+                        payload = base64.b64decode(
+                            str(audio.get("data_base64") or ""),
+                            validate=True,
+                        )
+                    except (ValueError, binascii.Error):
+                        await ws.send(
+                            json.dumps(
+                                {
+                                    "type": "error",
+                                    "code": "invalid_transcriber_audio",
+                                    "message": "data_base64 is not valid base64",
+                                }
+                            )
+                        )
+                        continue
+                    tcaps = self.runtime.transcriber.capabilities
+                    await self.runtime.send_transcriber_audio(
+                        AudioFrame(
+                            data=payload,
+                            codec=str(audio.get("codec") or tcaps.input_codec),
+                            sample_rate_hz=int(
+                                audio.get("sample_rate_hz")
+                                or tcaps.input_sample_rate_hz
+                            ),
+                            channels=int(audio.get("channels") or tcaps.channels),
+                            duration_ms=(
+                                None
+                                if audio.get("duration_ms") is None
+                                else float(audio["duration_ms"])
+                            ),
+                        )
+                    )
+                elif typ == "event":
                     await self.runtime.client_event(
                         TimelineEvent.from_dict(
                             dict(raw.get("event") or {})
