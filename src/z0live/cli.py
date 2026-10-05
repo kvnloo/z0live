@@ -1,139 +1,236 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
-import os
+import signal
 import sys
 from pathlib import Path
 
+from .actors.fake import FakeActor
+from .fixtures import load_corpus
+from .gateway import GatewayAddress
 from .plan import load_plan, validate_plan
-from .session import BrainstormSession, _home
+from .replay import replay_corpus
+from .runtime import ConversationRuntime, RuntimeHooks
+from .service import LiveService, home
+
+
+def _parse_hostport(value: str) -> tuple[str, int]:
+    host, sep, port = value.rpartition(":")
+    if not sep or not host:
+        raise argparse.ArgumentTypeError("expected HOST:PORT")
+    return host, int(port)
 
 
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="z0live")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    brainstorm = sub.add_parser("brainstorm", help="run one session-scoped realtime voice actor")
-    brainstorm.add_argument("--plan", type=Path, required=True)
-    brainstorm.add_argument(
-        "--actor-command",
-        help="override actor launch command; supports {host} {port} {ssl_dir} {python}",
+    serve = sub.add_parser(
+        "serve",
+        help="run a selected VoicePlan and local plugin gateway",
     )
-    brainstorm.add_argument("--ready-timeout", type=float, default=300.0)
-    brainstorm.add_argument("--activity-threshold-bytes", type=int, default=2048)
+    serve.add_argument("--plan", type=Path, required=True)
+    serve.add_argument(
+        "--listen",
+        type=_parse_hostport,
+        default=("127.0.0.1", 8765),
+    )
+    serve.add_argument("--harness", type=_parse_hostport)
+    serve.add_argument("--actor-command")
+    serve.add_argument(
+        "--ready-timeout",
+        type=float,
+        default=300.0,
+    )
 
-    touch = sub.add_parser("touch", help="mark the active brainstorm session as busy")
-    touch.add_argument("--home", type=Path)
+    brainstorm = sub.add_parser(
+        "brainstorm",
+        help="compatibility alias for serve",
+    )
+    brainstorm.add_argument(
+        "--plan",
+        type=Path,
+        required=True,
+    )
+    brainstorm.add_argument(
+        "--listen",
+        type=_parse_hostport,
+        default=("127.0.0.1", 8765),
+    )
+    brainstorm.add_argument("--harness", type=_parse_hostport)
+    brainstorm.add_argument("--actor-command")
+    brainstorm.add_argument(
+        "--ready-timeout",
+        type=float,
+        default=300.0,
+    )
 
-    status = sub.add_parser("status", help="show current brainstorm runtime state")
+    replay = sub.add_parser(
+        "replay",
+        help="run deterministic conversational fixtures",
+    )
+    replay.add_argument("fixture", type=Path)
+    replay.add_argument("--json", action="store_true")
+
+    status = sub.add_parser(
+        "status",
+        help="show active session state",
+    )
     status.add_argument("--home", type=Path)
 
-    smoke = sub.add_parser("smoke", help="run lifecycle/proxy smoke test with a fake actor")
-    smoke.add_argument("--idle", type=int, default=1)
+    smoke = sub.add_parser(
+        "smoke",
+        help="exercise the portable runtime with a fake actor",
+    )
+    smoke.add_argument(
+        "--seconds",
+        type=float,
+        default=0.05,
+    )
 
     return p
 
 
-def _smoke_plan(port: int, idle: int) -> dict:
-    return {
+def _run_service(args) -> int:
+    plan = load_plan(args.plan)
+    host, port = args.listen
+    service = LiveService(
+        plan,
+        listen=GatewayAddress(host, port),
+        harness_address=args.harness,
+        actor_command=args.actor_command,
+        ready_timeout_seconds=args.ready_timeout,
+    )
+
+    async def run() -> str:
+        task = asyncio.create_task(service.run())
+        loop = asyncio.get_running_loop()
+        stop = asyncio.Event()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(sig, stop.set)
+            except (
+                NotImplementedError,
+                RuntimeError,
+            ):
+                pass
+        stopper = asyncio.create_task(stop.wait())
+        done, _ = await asyncio.wait(
+            {task, stopper},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if stopper in done and not task.done():
+            await service.close("signal")
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            return "signal"
+        stopper.cancel()
+        return await task
+
+    try:
+        reason = asyncio.run(run())
+        print(
+            json.dumps(
+                {"ok": True, "reason": reason}
+            )
+        )
+        return 0
+    except Exception as exc:
+        print(f"z0live: {exc}", file=sys.stderr)
+        return 2
+
+
+def _smoke(seconds: float) -> int:
+    raw = {
         "schema": "z0int.voice_plan.v1",
         "plan_id": "vp_smoke",
         "profile": "brainstorm",
         "harness": "smoke",
-        "actor_id": "personaplex-7b-nf4",
+        "actor_id": "fake",
         "provider": "local",
         "model": "fake",
-        "model_revision": "fake",
-        "adapter": "personaplex",
-        "quantization": "nf4",
-        "device": {
-            "backend": "cuda",
-            "index": 0,
-            "name": "fake",
-            "total_vram_mb": 12288,
-            "free_vram_mb": 12288,
-        },
+        "adapter": "fake",
         "resource": {
             "residency": "session",
-            "reserved_vram_mb": 10240,
-            "idle_unload_seconds": idle,
-            "restore_previous_gpu_state": True,
+            "idle_unload_seconds": 0,
         },
-        "admission": {"status": "admitted", "admitted": True},
-        "endpoint": {"host": "127.0.0.1", "port": port, "scheme": "tcp"},
+        "admission": {
+            "admitted": True,
+            "status": "admitted",
+        },
     }
+    plan = validate_plan(raw)
+    actor = FakeActor(plan.actor_id)
+
+    async def go() -> bool:
+        runtime = ConversationRuntime(
+            actor,
+            hooks=RuntimeHooks(),
+        )
+        await runtime.start()
+        await asyncio.sleep(max(0, seconds))
+        ok = actor.started and not actor.closed
+        await runtime.close()
+        return ok and actor.closed
+
+    ok = asyncio.run(go())
+    print(json.dumps({"ok": ok}))
+    return 0 if ok else 1
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    if args.cmd == "brainstorm":
-        try:
-            plan = load_plan(args.plan)
-            session = BrainstormSession(
-                plan,
-                actor_command=args.actor_command,
-                ready_timeout_seconds=args.ready_timeout,
-                proxy_activity_threshold_bytes=args.activity_threshold_bytes,
+
+    if args.cmd in ("serve", "brainstorm"):
+        return _run_service(args)
+
+    if args.cmd == "replay":
+        result = replay_corpus(
+            load_corpus(args.fixture)
+        )
+        payload = result.to_dict()
+        if args.json:
+            print(json.dumps(payload, indent=2))
+        else:
+            passed = sum(
+                1 for c in result.cases
+                if c.passed
             )
             print(
-                f"z0live: warming {plan.actor_id}; public endpoint "
-                f"{plan.endpoint_host}:{plan.endpoint_port}",
-                file=sys.stderr,
+                "z0live replay: "
+                f"{passed}/{len(result.cases)} passed; "
+                f"revision={result.revision}"
             )
-            reason = session.run_foreground()
-            print(f"z0live: stopped ({reason})", file=sys.stderr)
-            return 0
-        except Exception as exc:
-            print(f"z0live: {exc}", file=sys.stderr)
-            return 2
-
-    if args.cmd == "touch":
-        home = (args.home or _home()).expanduser()
-        home.mkdir(parents=True, exist_ok=True)
-        (home / "brainstorm.activity").touch()
-        return 0
+            for case in result.cases:
+                if not case.passed:
+                    print(
+                        f"FAIL {case.fixture_id}: "
+                        f"expected={case.expected} "
+                        f"observed={case.observed}"
+                    )
+        return 0 if result.passed else 1
 
     if args.cmd == "status":
-        home = (args.home or _home()).expanduser()
-        path = home / "brainstorm.json"
+        root = (
+            args.home or home()
+        ).expanduser()
+        path = root / "session.json"
         if not path.exists():
             print(json.dumps({"active": False}))
             return 1
-        raw = json.loads(path.read_text(encoding="utf-8"))
-        print(json.dumps({"active": True, **raw}, indent=2))
+        print(
+            path.read_text(encoding="utf-8"),
+            end="",
+        )
         return 0
 
     if args.cmd == "smoke":
-        import socket
-        import tempfile
-
-        sock = socket.socket()
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
-        sock.close()
-        actor_cmd = (
-            f"{sys.executable} -m z0live.fake_actor --host {{host}} --port {{port}}"
-        )
-        plan = validate_plan(_smoke_plan(port, args.idle))
-        old_home = os.environ.get("Z0LIVE_HOME")
-        with tempfile.TemporaryDirectory(prefix="z0live-smoke-") as tmp:
-            os.environ["Z0LIVE_HOME"] = tmp
-            try:
-                reason = BrainstormSession(
-                    plan,
-                    actor_command=actor_cmd,
-                    ready_timeout_seconds=5,
-                    poll_seconds=0.05,
-                    proxy_activity_threshold_bytes=64,
-                ).run_foreground()
-            finally:
-                if old_home is None:
-                    os.environ.pop("Z0LIVE_HOME", None)
-                else:
-                    os.environ["Z0LIVE_HOME"] = old_home
-        print(json.dumps({"ok": reason == "idle_timeout", "reason": reason}))
-        return 0 if reason == "idle_timeout" else 1
+        return _smoke(args.seconds)
 
     return 2
 
