@@ -57,7 +57,7 @@ def test_personaplex_binary_protocol_translation():
         await actor.send_audio(
             AudioFrame(
                 b"in",
-                "opus",
+                "ogg-opus",
                 24000,
             )
         )
