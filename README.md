@@ -1,57 +1,115 @@
 # z0live
 
-Realtime conversation runtime for Zer0. `z0intelligence` selects/admisses the voice actor; `z0live` owns the session lifecycle; harnesses such as OMP own tools and agent execution.
-
-## Brainstorm Mode
-
-Heavy local voice is **not resident**. The first slice loads PersonaPlex NF4 only for an admitted brainstorm session and releases it on exit or idle timeout.
+Portable realtime conversational voice runtime for Zer0.
 
 ```text
-z0intelligence -> VoicePlan -> z0live -> OMP/Hermes
-                  admission    lifecycle
+hardware / policy
+      |
+      v
+z0intelligence -- VoicePlan --> z0live -- local gateway --> OMP/Hermes plugin
+                                  |
+                                  +-- PersonaPlex
+                                  +-- OpenAI Realtime (optional)
+                                  +-- deterministic fake actor
 ```
 
-### Install
+## Ownership
+
+- **z0intelligence** selects/admit actors and emits `z0int.voice_plan.v1`.
+- **z0live** owns actor lifecycle, floor/barge behavior, harness attention, replay, receipts, and provider adapters.
+- **OMP/Hermes plugins** own harness-native execution bindings and UI.
+- **z0evals** may pin exact fixture revisions; fixtures remain canonical here.
+
+There is no model-ranking policy in this repository.
+
+## Run
 
 ```bash
-python -m pip install -e .
+pip install -e .
+z0live smoke
+z0live replay fixtures/core-v1.json
 ```
 
-Accept the NVIDIA PersonaPlex model license, export `HF_TOKEN`, then:
+For local PersonaPlex:
 
 ```bash
+export HF_TOKEN=...
 bash scripts/setup-personaplex-nf4.sh
+z0live serve --plan /path/to/voice-plan.json
 ```
 
-The setup script installs the modified Moshi runtime but does **not** start the model. It skips the 6.98 GB pre-quantized pickle and uses the repo's on-the-fly `--quantize-4bit` path.
+PersonaPlex is session-scoped and never starts on import or normal harness startup.
 
-### Run from OMP
+## Plugin gateway
 
-With sibling `z0intelligence`, `z0live`, and `oh-my-pi` checkouts:
+Default: `ws://127.0.0.1:8765`.
+
+On connect, z0live sends `z0live.gateway.v1` `hello` with actor/harness capabilities.
+
+Client → z0live:
+
+- binary frame: one actor-native input-audio chunk
+- `event`: VAD/floor event such as `user.speech.started`
+- `harness.command`: submit/steer/redirect/cancel/approve
+- `interrupt`, `ping`, `close`
+
+z0live → client:
+
+- binary frame: actor-native output-audio chunk
+- `event`: canonical timeline event
+
+The hello payload declares codec/sample rate. PersonaPlex currently uses Opus/24k; OpenAI Realtime uses PCM16/24k.
+
+## Harness bridge
+
+`--harness HOST:PORT` attaches the generic NDJSON bridge. OMP/Hermes plugins expose this small contract; z0live does not import harness internals.
+
+```text
+harness -> hello(capabilities)
+z0live  -> command
+harness -> result(command_id)
+harness -> event(TimelineEvent)
+```
+
+Harness commands run in background tasks and never block the audio loop.
+
+## Fixtures
 
 ```bash
-cd ../oh-my-pi
-bash scripts/z0live-brainstorm.sh
+z0live replay fixtures/core-v1.json
 ```
 
-`z0intelligence` checks current free VRAM. On a busy GPU it refuses and prints the exact reclaim deficit instead of killing unrelated work.
+`core-v1` contains 20 deterministic fixtures: five each for floor, barge-in, attention, and agent-result semantics. Replay outputs include the exact fixture SHA-256.
 
-When ready, the PersonaPlex endpoint remains `https://localhost:8998`. z0live transparently proxies it to an internal actor port and uses meaningful transport traffic as the idle heartbeat. Ctrl-C tears down the actor immediately.
+## Actors
 
-### Smoke test without a GPU
+### PersonaPlex
+
+Implements NVIDIA PersonaPlex/Moshi binary WebSocket protocol:
+
+- `0x00`: handshake
+- `0x01`: Opus audio in/out
+- `0x02`: assistant text token out
+
+The current upstream prompt is startup-only, so dynamic quiet context/commentary injection is explicitly unsupported rather than faked.
+
+### OpenAI Realtime
+
+Optional:
 
 ```bash
-python -m z0live smoke
+pip install -e '.[openai]'
 ```
 
-This starts a fake actor and runs the same process/proxy/idle lifecycle without model weights.
+A selected `openai_realtime` VoicePlan uses the current OpenAI Python Realtime SDK. z0live maps audio/VAD/transcript events to the canonical timeline and supports response cancellation/context injection.
 
-## State / receipts
+## State
 
-Runtime state lives under `~/.z0live/`:
+`~/.z0live/session.json` exists only while active. Lifecycle + resource receipts append to `~/.z0live/receipts.jsonl`.
 
-- `brainstorm.json` while active
-- `brainstorm.activity` heartbeat
-- `receipts.jsonl` lifecycle receipts
+## Tests
 
-No actor starts at import time or normal OMP startup.
+```bash
+pip install -e '.[test]'
+pytest -q
+```
