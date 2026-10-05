@@ -74,6 +74,14 @@ def _parser() -> argparse.ArgumentParser:
     replay.add_argument("fixture", type=Path)
     replay.add_argument("--json", action="store_true")
 
+    speculation = sub.add_parser(
+        "speculation-eval",
+        help="evaluate measured side-effect-free prewarm traces",
+    )
+    speculation.add_argument("input", type=Path)
+    speculation.add_argument("--min-p50-gain-ms", type=float, default=50.0)
+    speculation.add_argument("--json", action="store_true")
+
     status = sub.add_parser(
         "status",
         help="show active session state",
@@ -214,6 +222,32 @@ def main(argv: list[str] | None = None) -> int:
                         f"observed={case.observed}"
                     )
         return 0 if result.passed else 1
+
+    if args.cmd == "speculation-eval":
+        from .speculation import SpeculationMeasurement, evaluate_speculation
+
+        rows = []
+        for line in args.input.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            raw = json.loads(line)
+            rows.append(SpeculationMeasurement(**raw))
+        result = evaluate_speculation(
+            rows,
+            min_p50_gain_ms=args.min_p50_gain_ms,
+        )
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            print(
+                "z0live speculation: "
+                f"p50_gain_ms={result['p50_useful_gain_ms']} "
+                f"mutations={result['speculative_mutations']} "
+                f"waste_rate={result['waste_rate']} "
+                f"pass={result['pass']}"
+            )
+        return 0 if result["pass"] else 1
 
     if args.cmd == "status":
         root = (
