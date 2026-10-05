@@ -16,6 +16,7 @@ from .receipts import ReceiptWriter
 from .registry import create_actor
 from .resources import ResourceTracker
 from .runtime import ConversationRuntime, RuntimeHooks
+from .transcriber_registry import create_transcriber
 from .webserver import StaticWebServer, default_web_dir
 
 
@@ -158,6 +159,7 @@ class LiveService:
                 *self.harness_address
             )
         actor = create_actor(self.plan)
+        transcriber = create_transcriber(self.plan)
 
         async def on_event(
             event: TimelineEvent,
@@ -171,6 +173,7 @@ class LiveService:
 
         self.runtime = ConversationRuntime(
             actor,
+            transcriber=transcriber,
             harness=harness,
             hooks=RuntimeHooks(
                 on_event=on_event,
@@ -221,12 +224,22 @@ class LiveService:
                 "port": self.listen.port,
             },
             capabilities=actor.capabilities.to_dict(),
+            transcriber=(
+                None
+                if transcriber is None
+                else {
+                    "id": transcriber.transcriber_id,
+                    "capabilities": transcriber.capabilities.to_dict(),
+                }
+            ),
         )
 
     async def run(self) -> str:
-        await self.start()
         reason = "explicit_exit"
+        started = False
         try:
+            await self.start()
+            started = True
             while True:
                 idle = self.plan.idle_unload_seconds
                 if (
@@ -246,6 +259,9 @@ class LiveService:
             raise
         except KeyboardInterrupt:
             reason = "explicit_exit"
+        except Exception:
+            reason = "runtime_error" if started else "startup_failure"
+            raise
         finally:
             await self.close(reason)
         return reason
