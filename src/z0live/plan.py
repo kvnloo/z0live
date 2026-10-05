@@ -61,6 +61,11 @@ class VoicePlan:
     def actor_options(self) -> dict[str, Any]:
         return dict(self.raw.get("actor_options") or {})
 
+    @property
+    def transcriber(self) -> dict[str, Any] | None:
+        raw = self.raw.get("transcriber")
+        return dict(raw) if isinstance(raw, dict) else None
+
 
 def validate_plan(raw: dict[str, Any]) -> VoicePlan:
     if raw.get("schema") != SUPPORTED_SCHEMA:
