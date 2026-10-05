@@ -11,9 +11,21 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server, type Socket } from "node:net";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 type JsonRecord = Record<string, unknown>;
+
+const Z0LIVE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+
+function pythonBin(): string {
+	return process.env.PYTHON || process.env.PYTHON_BIN || "python3";
+}
+
+function pythonPathFor(root: string): string {
+	const src = join(root, "src");
+	return process.env.PYTHONPATH ? `${src}${delimiter}${process.env.PYTHONPATH}` : src;
+}
 
 interface BridgeState {
 	server?: Server;
@@ -28,6 +40,7 @@ interface BridgeState {
 	lastContext?: ExtensionContext;
 	lastError?: string;
 	activeTraceId?: string;
+	stopPromise?: Promise<void>;
 }
 
 const state: BridgeState = {
@@ -271,39 +284,51 @@ function attachGatewayLogging(pi: ExtensionAPI, ws: WebSocket): void {
 }
 
 async function stopBrainstorm(ctx?: ExtensionContext): Promise<void> {
-	state.gateway?.close();
-	state.gateway = undefined;
+	if (state.stopPromise) return state.stopPromise;
+	const targetCtx = ctx ?? state.lastContext;
 
-	if (state.child && state.child.exitCode == null) {
-		state.child.kill("SIGTERM");
-		await new Promise<void>(resolve => {
-			const timer = setTimeout(() => {
-				if (state.child?.exitCode == null) state.child?.kill("SIGKILL");
-				resolve();
-			}, 5_000);
-			state.child?.once("exit", () => {
-				clearTimeout(timer);
-				resolve();
-			});
-		});
+	state.stopPromise = (async () => {
+		state.gateway?.close();
+		state.gateway = undefined;
+
+		const child = state.child;
+		state.child = undefined;
+		if (child && child.exitCode == null) {
+			child.kill("SIGTERM");
+			await Promise.race([
+				new Promise<void>(resolvePromise => child.once("exit", () => resolvePromise())),
+				new Promise<void>(resolvePromise => setTimeout(resolvePromise, 5_000)),
+			]);
+			if (child.exitCode == null) child.kill("SIGKILL");
+		}
+
+		state.socket?.destroy();
+		state.socket = undefined;
+		if (state.server) {
+			const server = state.server;
+			state.server = undefined;
+			await new Promise<void>(resolvePromise => server.close(() => resolvePromise()));
+		}
+		state.port = undefined;
+
+		if (state.tempDir) {
+			const tempDir = state.tempDir;
+			state.tempDir = undefined;
+			state.planPath = undefined;
+			await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+		}
+
+		state.phase = "off";
+		state.lastError = undefined;
+		state.activeTraceId = undefined;
+		updateStatus(targetCtx);
+	})();
+
+	try {
+		await state.stopPromise;
+	} finally {
+		state.stopPromise = undefined;
 	}
-	state.child = undefined;
-
-	state.socket?.destroy();
-	state.socket = undefined;
-	if (state.server) {
-		await new Promise<void>(resolve => state.server!.close(() => resolve()));
-	}
-	state.server = undefined;
-	state.port = undefined;
-
-	if (state.tempDir) await rm(state.tempDir, { recursive: true, force: true }).catch(() => {});
-	state.tempDir = undefined;
-	state.planPath = undefined;
-	state.phase = "off";
-	state.lastError = undefined;
-	state.activeTraceId = undefined;
-	updateStatus(ctx);
 }
 
 async function startBrainstorm(pi: ExtensionAPI, ctx: ExtensionContext): Promise<void> {
@@ -320,27 +345,44 @@ async function startBrainstorm(pi: ExtensionAPI, ctx: ExtensionContext): Promise
 	state.tempDir = await mkdtemp(join(tmpdir(), "omp-z0live-"));
 	state.planPath = join(state.tempDir, "voice-plan.json");
 
-	const voicePlanBin = process.env.Z0INT_VOICE_PLAN_BIN ?? "z0int-voice-plan";
-	const plan = await pi.exec(
-		voicePlanBin,
-		["brainstorm", "--harness", "omp", "--pretty", "--output", state.planPath],
-		{ timeout: 15_000 },
-	);
+	const z0intRoot = process.env.Z0INTELLIGENCE_ROOT
+		? resolve(process.env.Z0INTELLIGENCE_ROOT)
+		: undefined;
+	const planArgs = [
+		"-m",
+		"z0int.voice_plan",
+		"brainstorm",
+		"--harness",
+		"omp",
+		"--pretty",
+		"--output",
+		state.planPath,
+	];
+	const plan = z0intRoot
+		? await pi.exec(
+				"env",
+				[`PYTHONPATH=${pythonPathFor(z0intRoot)}`, pythonBin(), ...planArgs],
+				{ cwd: z0intRoot, timeout: 15_000 },
+			)
+		: await pi.exec(pythonBin(), planArgs, { timeout: 15_000 });
 	if (plan.code !== 0) {
+		const detail = (plan.stderr || plan.stdout || `VoicePlan exited ${plan.code}`).trim();
+		await stopBrainstorm(ctx);
 		state.phase = "error";
-		state.lastError = (plan.stderr || plan.stdout || `VoicePlan exited ${plan.code}`).trim();
+		state.lastError = detail;
 		updateStatus(ctx);
-		ctx.ui.notify(`Brainstorm admission refused:\n${state.lastError}`, "warning");
+		ctx.ui.notify(`Brainstorm admission refused:\n${detail}`, "warning");
 		return;
 	}
 
-	const z0liveBin = process.env.Z0LIVE_BIN ?? "z0live";
 	state.phase = "warming";
 	updateStatus(ctx);
 	const gatewayPort = String(process.env.Z0LIVE_GATEWAY_PORT ?? "8765");
 	const child = spawn(
-		z0liveBin,
+		pythonBin(),
 		[
+			"-m",
+			"z0live",
 			"serve",
 			"--plan",
 			state.planPath,
@@ -350,7 +392,11 @@ async function startBrainstorm(pi: ExtensionAPI, ctx: ExtensionContext): Promise
 			`127.0.0.1:${bridgePort}`,
 		],
 		{
-			env: process.env,
+			cwd: Z0LIVE_ROOT,
+			env: {
+				...process.env,
+				PYTHONPATH: pythonPathFor(Z0LIVE_ROOT),
+			},
 			stdio: ["ignore", "pipe", "pipe"],
 		},
 	);
@@ -359,12 +405,13 @@ async function startBrainstorm(pi: ExtensionAPI, ctx: ExtensionContext): Promise
 	child.stderr?.on("data", chunk => pi.logger.debug("z0live", { stream: "stderr", text: chunk.toString() }));
 	child.once("exit", (code, signal) => {
 		if (state.child !== child) return;
-		state.child = undefined;
-		if (state.phase !== "off") {
+		const detail = `z0live exited code=${code} signal=${signal}`;
+		const crashCtx = state.lastContext;
+		void stopBrainstorm(crashCtx).then(() => {
 			state.phase = "error";
-			state.lastError = `z0live exited code=${code} signal=${signal}`;
-			updateStatus();
-		}
+			state.lastError = detail;
+			updateStatus(crashCtx);
+		});
 	});
 
 	try {
@@ -381,10 +428,12 @@ async function startBrainstorm(pi: ExtensionAPI, ctx: ExtensionContext): Promise
 			"info",
 		);
 	} catch (error) {
+		const detail = String(error);
+		await stopBrainstorm(ctx);
 		state.phase = "error";
-		state.lastError = String(error);
+		state.lastError = detail;
 		updateStatus(ctx);
-		ctx.ui.notify(`Brainstorm failed: ${state.lastError}`, "error");
+		ctx.ui.notify(`Brainstorm failed: ${detail}`, "error");
 	}
 }
 
