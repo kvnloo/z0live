@@ -30,3 +30,4 @@ jobs:
       - run: python -m z0live speculation-replay fixtures/speculation-v1.json
       - run: python -m z0live smoke
       - run: python -m compileall -q src
+      - run: bash -n scripts/*.sh
