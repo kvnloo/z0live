@@ -30,6 +30,7 @@ async def probe_actor(
     started = time.monotonic()
     process_ready_s: float | None = None
     actor_ready_s: float | None = None
+    total_ready_s: float | None = None
     stop_result = None
     error: str | None = None
 
@@ -43,6 +44,7 @@ async def probe_actor(
         actor_start = time.monotonic()
         await actor.start()
         actor_ready_s = time.monotonic() - actor_start
+        total_ready_s = time.monotonic() - started
         warm = resources.capture().to_dict()
 
         if settle_seconds > 0:
@@ -78,7 +80,10 @@ async def probe_actor(
         "actor_handshake_ms": (
             None if actor_ready_s is None else round(actor_ready_s * 1000.0, 3)
         ),
-        "total_warm_ms": round((time.monotonic() - started) * 1000.0, 3),
+        "total_warm_ms": (
+            None if total_ready_s is None else round(total_ready_s * 1000.0, 3)
+        ),
+        "probe_duration_ms": round((time.monotonic() - started) * 1000.0, 3),
         "resources": {
             "before": before,
             "warm": warm,
