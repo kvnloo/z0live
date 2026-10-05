@@ -231,6 +231,21 @@ async function waitForGateway(timeoutMs = 180_000): Promise<WebSocket> {
 	throw new Error(`z0live gateway did not become ready: ${String(lastError)}`);
 }
 
+async function mediaUiAvailable(): Promise<string | null> {
+	const port = String(process.env.Z0LIVE_WEB_PORT ?? "8780");
+	const url = `http://127.0.0.1:${port}`;
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), 1_500);
+	try {
+		const response = await fetch(url, { signal: controller.signal });
+		return response.ok ? url : null;
+	} catch {
+		return null;
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
 function attachGatewayLogging(pi: ExtensionAPI, ws: WebSocket): void {
 	ws.addEventListener("message", event => {
 		if (typeof event.data !== "string") return;
@@ -358,7 +373,13 @@ async function startBrainstorm(pi: ExtensionAPI, ctx: ExtensionContext): Promise
 		attachGatewayLogging(pi, ws);
 		state.phase = "ready";
 		updateStatus(ctx);
-		ctx.ui.notify("Brainstorm ready. z0live is warm; OMP remains the execution authority.", "info");
+		const mediaUrl = await mediaUiAvailable();
+		ctx.ui.notify(
+			mediaUrl
+				? `Brainstorm ready. Open ${mediaUrl} for full-duplex mic/audio. OMP remains the execution authority.`
+				: "Brainstorm ready. OMP bridge is live; build z0live/web to enable the local mic/audio UI.",
+			"info",
+		);
 	} catch (error) {
 		state.phase = "error";
 		state.lastError = String(error);
