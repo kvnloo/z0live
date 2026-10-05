@@ -31,3 +31,19 @@ jobs:
       - run: python -m z0live smoke
       - run: python -m compileall -q src
       - run: bash -n scripts/*.sh
+
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install --no-audit --no-fund
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+      - run: test -f web/dist/index.html
+      - run: test -f web/dist/assets/encoderWorker.min.js
+      - run: test -f web/dist/assets/decoderWorker.min.wasm
