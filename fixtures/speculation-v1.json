@@ -1,0 +1,2288 @@
+{
+  "schema": "z0live.speculation_fixtures.v1",
+  "revision": "speculation-v1",
+  "seed": 20261004,
+  "min_chars": 12,
+  "cases": [
+    {
+      "id": "spec-prefix-000",
+      "trace_id": "prefix-0",
+      "partials": [
+        "open project file 0"
+      ],
+      "final": "open project file 0 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-001",
+      "trace_id": "prefix-1",
+      "partials": [
+        "open project file 1"
+      ],
+      "final": "open project file 1 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-002",
+      "trace_id": "prefix-2",
+      "partials": [
+        "open project file 2"
+      ],
+      "final": "open project file 2 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-003",
+      "trace_id": "prefix-3",
+      "partials": [
+        "open project file 3"
+      ],
+      "final": "open project file 3 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-004",
+      "trace_id": "prefix-4",
+      "partials": [
+        "open project file 4"
+      ],
+      "final": "open project file 4 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-005",
+      "trace_id": "prefix-5",
+      "partials": [
+        "open project file 5"
+      ],
+      "final": "open project file 5 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-006",
+      "trace_id": "prefix-6",
+      "partials": [
+        "open project file 6"
+      ],
+      "final": "open project file 6 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-007",
+      "trace_id": "prefix-7",
+      "partials": [
+        "open project file 7"
+      ],
+      "final": "open project file 7 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-008",
+      "trace_id": "prefix-8",
+      "partials": [
+        "open project file 8"
+      ],
+      "final": "open project file 8 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-009",
+      "trace_id": "prefix-9",
+      "partials": [
+        "open project file 9"
+      ],
+      "final": "open project file 9 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-010",
+      "trace_id": "prefix-10",
+      "partials": [
+        "open project file 10"
+      ],
+      "final": "open project file 10 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-011",
+      "trace_id": "prefix-11",
+      "partials": [
+        "open project file 11"
+      ],
+      "final": "open project file 11 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-012",
+      "trace_id": "prefix-12",
+      "partials": [
+        "open project file 12"
+      ],
+      "final": "open project file 12 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-013",
+      "trace_id": "prefix-13",
+      "partials": [
+        "open project file 13"
+      ],
+      "final": "open project file 13 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-014",
+      "trace_id": "prefix-14",
+      "partials": [
+        "open project file 14"
+      ],
+      "final": "open project file 14 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-015",
+      "trace_id": "prefix-15",
+      "partials": [
+        "open project file 15"
+      ],
+      "final": "open project file 15 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-016",
+      "trace_id": "prefix-16",
+      "partials": [
+        "open project file 16"
+      ],
+      "final": "open project file 16 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-017",
+      "trace_id": "prefix-17",
+      "partials": [
+        "open project file 17"
+      ],
+      "final": "open project file 17 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-018",
+      "trace_id": "prefix-18",
+      "partials": [
+        "open project file 18"
+      ],
+      "final": "open project file 18 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-019",
+      "trace_id": "prefix-19",
+      "partials": [
+        "open project file 19"
+      ],
+      "final": "open project file 19 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-020",
+      "trace_id": "prefix-20",
+      "partials": [
+        "open project file 20"
+      ],
+      "final": "open project file 20 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-021",
+      "trace_id": "prefix-21",
+      "partials": [
+        "open project file 21"
+      ],
+      "final": "open project file 21 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-022",
+      "trace_id": "prefix-22",
+      "partials": [
+        "open project file 22"
+      ],
+      "final": "open project file 22 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-023",
+      "trace_id": "prefix-23",
+      "partials": [
+        "open project file 23"
+      ],
+      "final": "open project file 23 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-024",
+      "trace_id": "prefix-24",
+      "partials": [
+        "open project file 24"
+      ],
+      "final": "open project file 24 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-025",
+      "trace_id": "prefix-25",
+      "partials": [
+        "open project file 25"
+      ],
+      "final": "open project file 25 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-026",
+      "trace_id": "prefix-26",
+      "partials": [
+        "open project file 26"
+      ],
+      "final": "open project file 26 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-027",
+      "trace_id": "prefix-27",
+      "partials": [
+        "open project file 27"
+      ],
+      "final": "open project file 27 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-028",
+      "trace_id": "prefix-28",
+      "partials": [
+        "open project file 28"
+      ],
+      "final": "open project file 28 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-029",
+      "trace_id": "prefix-29",
+      "partials": [
+        "open project file 29"
+      ],
+      "final": "open project file 29 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-030",
+      "trace_id": "prefix-30",
+      "partials": [
+        "open project file 30"
+      ],
+      "final": "open project file 30 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-031",
+      "trace_id": "prefix-31",
+      "partials": [
+        "open project file 31"
+      ],
+      "final": "open project file 31 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-032",
+      "trace_id": "prefix-32",
+      "partials": [
+        "open project file 32"
+      ],
+      "final": "open project file 32 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-033",
+      "trace_id": "prefix-33",
+      "partials": [
+        "open project file 33"
+      ],
+      "final": "open project file 33 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-034",
+      "trace_id": "prefix-34",
+      "partials": [
+        "open project file 34"
+      ],
+      "final": "open project file 34 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-035",
+      "trace_id": "prefix-35",
+      "partials": [
+        "open project file 35"
+      ],
+      "final": "open project file 35 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-036",
+      "trace_id": "prefix-36",
+      "partials": [
+        "open project file 36"
+      ],
+      "final": "open project file 36 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-037",
+      "trace_id": "prefix-37",
+      "partials": [
+        "open project file 37"
+      ],
+      "final": "open project file 37 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-038",
+      "trace_id": "prefix-38",
+      "partials": [
+        "open project file 38"
+      ],
+      "final": "open project file 38 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-039",
+      "trace_id": "prefix-39",
+      "partials": [
+        "open project file 39"
+      ],
+      "final": "open project file 39 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-040",
+      "trace_id": "prefix-40",
+      "partials": [
+        "open project file 40"
+      ],
+      "final": "open project file 40 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-041",
+      "trace_id": "prefix-41",
+      "partials": [
+        "open project file 41"
+      ],
+      "final": "open project file 41 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-042",
+      "trace_id": "prefix-42",
+      "partials": [
+        "open project file 42"
+      ],
+      "final": "open project file 42 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-043",
+      "trace_id": "prefix-43",
+      "partials": [
+        "open project file 43"
+      ],
+      "final": "open project file 43 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-044",
+      "trace_id": "prefix-44",
+      "partials": [
+        "open project file 44"
+      ],
+      "final": "open project file 44 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-045",
+      "trace_id": "prefix-45",
+      "partials": [
+        "open project file 45"
+      ],
+      "final": "open project file 45 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-046",
+      "trace_id": "prefix-46",
+      "partials": [
+        "open project file 46"
+      ],
+      "final": "open project file 46 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-047",
+      "trace_id": "prefix-47",
+      "partials": [
+        "open project file 47"
+      ],
+      "final": "open project file 47 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-048",
+      "trace_id": "prefix-48",
+      "partials": [
+        "open project file 48"
+      ],
+      "final": "open project file 48 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-049",
+      "trace_id": "prefix-49",
+      "partials": [
+        "open project file 49"
+      ],
+      "final": "open project file 49 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-050",
+      "trace_id": "prefix-50",
+      "partials": [
+        "open project file 50"
+      ],
+      "final": "open project file 50 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-051",
+      "trace_id": "prefix-51",
+      "partials": [
+        "open project file 51"
+      ],
+      "final": "open project file 51 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-052",
+      "trace_id": "prefix-52",
+      "partials": [
+        "open project file 52"
+      ],
+      "final": "open project file 52 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-053",
+      "trace_id": "prefix-53",
+      "partials": [
+        "open project file 53"
+      ],
+      "final": "open project file 53 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-054",
+      "trace_id": "prefix-54",
+      "partials": [
+        "open project file 54"
+      ],
+      "final": "open project file 54 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-055",
+      "trace_id": "prefix-55",
+      "partials": [
+        "open project file 55"
+      ],
+      "final": "open project file 55 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-056",
+      "trace_id": "prefix-56",
+      "partials": [
+        "open project file 56"
+      ],
+      "final": "open project file 56 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-057",
+      "trace_id": "prefix-57",
+      "partials": [
+        "open project file 57"
+      ],
+      "final": "open project file 57 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-058",
+      "trace_id": "prefix-58",
+      "partials": [
+        "open project file 58"
+      ],
+      "final": "open project file 58 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-prefix-059",
+      "trace_id": "prefix-59",
+      "partials": [
+        "open project file 59"
+      ],
+      "final": "open project file 59 and summarize it",
+      "expected_actions": [
+        "prewarm",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-000",
+      "trace_id": "diverge-0",
+      "partials": [
+        "run tests for module 0"
+      ],
+      "final": "actually inspect docs for module 0",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-001",
+      "trace_id": "diverge-1",
+      "partials": [
+        "run tests for module 1"
+      ],
+      "final": "actually inspect docs for module 1",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-002",
+      "trace_id": "diverge-2",
+      "partials": [
+        "run tests for module 2"
+      ],
+      "final": "actually inspect docs for module 2",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-003",
+      "trace_id": "diverge-3",
+      "partials": [
+        "run tests for module 3"
+      ],
+      "final": "actually inspect docs for module 3",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-004",
+      "trace_id": "diverge-4",
+      "partials": [
+        "run tests for module 4"
+      ],
+      "final": "actually inspect docs for module 4",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-005",
+      "trace_id": "diverge-5",
+      "partials": [
+        "run tests for module 5"
+      ],
+      "final": "actually inspect docs for module 5",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-006",
+      "trace_id": "diverge-6",
+      "partials": [
+        "run tests for module 6"
+      ],
+      "final": "actually inspect docs for module 6",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-007",
+      "trace_id": "diverge-7",
+      "partials": [
+        "run tests for module 7"
+      ],
+      "final": "actually inspect docs for module 7",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-008",
+      "trace_id": "diverge-8",
+      "partials": [
+        "run tests for module 8"
+      ],
+      "final": "actually inspect docs for module 8",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-009",
+      "trace_id": "diverge-9",
+      "partials": [
+        "run tests for module 9"
+      ],
+      "final": "actually inspect docs for module 9",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-010",
+      "trace_id": "diverge-10",
+      "partials": [
+        "run tests for module 10"
+      ],
+      "final": "actually inspect docs for module 10",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-011",
+      "trace_id": "diverge-11",
+      "partials": [
+        "run tests for module 11"
+      ],
+      "final": "actually inspect docs for module 11",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-012",
+      "trace_id": "diverge-12",
+      "partials": [
+        "run tests for module 12"
+      ],
+      "final": "actually inspect docs for module 12",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-013",
+      "trace_id": "diverge-13",
+      "partials": [
+        "run tests for module 13"
+      ],
+      "final": "actually inspect docs for module 13",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-014",
+      "trace_id": "diverge-14",
+      "partials": [
+        "run tests for module 14"
+      ],
+      "final": "actually inspect docs for module 14",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-015",
+      "trace_id": "diverge-15",
+      "partials": [
+        "run tests for module 15"
+      ],
+      "final": "actually inspect docs for module 15",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-016",
+      "trace_id": "diverge-16",
+      "partials": [
+        "run tests for module 16"
+      ],
+      "final": "actually inspect docs for module 16",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-017",
+      "trace_id": "diverge-17",
+      "partials": [
+        "run tests for module 17"
+      ],
+      "final": "actually inspect docs for module 17",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-018",
+      "trace_id": "diverge-18",
+      "partials": [
+        "run tests for module 18"
+      ],
+      "final": "actually inspect docs for module 18",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-019",
+      "trace_id": "diverge-19",
+      "partials": [
+        "run tests for module 19"
+      ],
+      "final": "actually inspect docs for module 19",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-020",
+      "trace_id": "diverge-20",
+      "partials": [
+        "run tests for module 20"
+      ],
+      "final": "actually inspect docs for module 20",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-021",
+      "trace_id": "diverge-21",
+      "partials": [
+        "run tests for module 21"
+      ],
+      "final": "actually inspect docs for module 21",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-022",
+      "trace_id": "diverge-22",
+      "partials": [
+        "run tests for module 22"
+      ],
+      "final": "actually inspect docs for module 22",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-023",
+      "trace_id": "diverge-23",
+      "partials": [
+        "run tests for module 23"
+      ],
+      "final": "actually inspect docs for module 23",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-024",
+      "trace_id": "diverge-24",
+      "partials": [
+        "run tests for module 24"
+      ],
+      "final": "actually inspect docs for module 24",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-025",
+      "trace_id": "diverge-25",
+      "partials": [
+        "run tests for module 25"
+      ],
+      "final": "actually inspect docs for module 25",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-026",
+      "trace_id": "diverge-26",
+      "partials": [
+        "run tests for module 26"
+      ],
+      "final": "actually inspect docs for module 26",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-027",
+      "trace_id": "diverge-27",
+      "partials": [
+        "run tests for module 27"
+      ],
+      "final": "actually inspect docs for module 27",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-028",
+      "trace_id": "diverge-28",
+      "partials": [
+        "run tests for module 28"
+      ],
+      "final": "actually inspect docs for module 28",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-029",
+      "trace_id": "diverge-29",
+      "partials": [
+        "run tests for module 29"
+      ],
+      "final": "actually inspect docs for module 29",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-030",
+      "trace_id": "diverge-30",
+      "partials": [
+        "run tests for module 30"
+      ],
+      "final": "actually inspect docs for module 30",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-031",
+      "trace_id": "diverge-31",
+      "partials": [
+        "run tests for module 31"
+      ],
+      "final": "actually inspect docs for module 31",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-032",
+      "trace_id": "diverge-32",
+      "partials": [
+        "run tests for module 32"
+      ],
+      "final": "actually inspect docs for module 32",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-033",
+      "trace_id": "diverge-33",
+      "partials": [
+        "run tests for module 33"
+      ],
+      "final": "actually inspect docs for module 33",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-034",
+      "trace_id": "diverge-34",
+      "partials": [
+        "run tests for module 34"
+      ],
+      "final": "actually inspect docs for module 34",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-035",
+      "trace_id": "diverge-35",
+      "partials": [
+        "run tests for module 35"
+      ],
+      "final": "actually inspect docs for module 35",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-036",
+      "trace_id": "diverge-36",
+      "partials": [
+        "run tests for module 36"
+      ],
+      "final": "actually inspect docs for module 36",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-037",
+      "trace_id": "diverge-37",
+      "partials": [
+        "run tests for module 37"
+      ],
+      "final": "actually inspect docs for module 37",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-038",
+      "trace_id": "diverge-38",
+      "partials": [
+        "run tests for module 38"
+      ],
+      "final": "actually inspect docs for module 38",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-039",
+      "trace_id": "diverge-39",
+      "partials": [
+        "run tests for module 39"
+      ],
+      "final": "actually inspect docs for module 39",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-040",
+      "trace_id": "diverge-40",
+      "partials": [
+        "run tests for module 40"
+      ],
+      "final": "actually inspect docs for module 40",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-041",
+      "trace_id": "diverge-41",
+      "partials": [
+        "run tests for module 41"
+      ],
+      "final": "actually inspect docs for module 41",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-042",
+      "trace_id": "diverge-42",
+      "partials": [
+        "run tests for module 42"
+      ],
+      "final": "actually inspect docs for module 42",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-043",
+      "trace_id": "diverge-43",
+      "partials": [
+        "run tests for module 43"
+      ],
+      "final": "actually inspect docs for module 43",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-044",
+      "trace_id": "diverge-44",
+      "partials": [
+        "run tests for module 44"
+      ],
+      "final": "actually inspect docs for module 44",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-045",
+      "trace_id": "diverge-45",
+      "partials": [
+        "run tests for module 45"
+      ],
+      "final": "actually inspect docs for module 45",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-046",
+      "trace_id": "diverge-46",
+      "partials": [
+        "run tests for module 46"
+      ],
+      "final": "actually inspect docs for module 46",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-047",
+      "trace_id": "diverge-47",
+      "partials": [
+        "run tests for module 47"
+      ],
+      "final": "actually inspect docs for module 47",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-048",
+      "trace_id": "diverge-48",
+      "partials": [
+        "run tests for module 48"
+      ],
+      "final": "actually inspect docs for module 48",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-049",
+      "trace_id": "diverge-49",
+      "partials": [
+        "run tests for module 49"
+      ],
+      "final": "actually inspect docs for module 49",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-050",
+      "trace_id": "diverge-50",
+      "partials": [
+        "run tests for module 50"
+      ],
+      "final": "actually inspect docs for module 50",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-051",
+      "trace_id": "diverge-51",
+      "partials": [
+        "run tests for module 51"
+      ],
+      "final": "actually inspect docs for module 51",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-052",
+      "trace_id": "diverge-52",
+      "partials": [
+        "run tests for module 52"
+      ],
+      "final": "actually inspect docs for module 52",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-053",
+      "trace_id": "diverge-53",
+      "partials": [
+        "run tests for module 53"
+      ],
+      "final": "actually inspect docs for module 53",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-054",
+      "trace_id": "diverge-54",
+      "partials": [
+        "run tests for module 54"
+      ],
+      "final": "actually inspect docs for module 54",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-055",
+      "trace_id": "diverge-55",
+      "partials": [
+        "run tests for module 55"
+      ],
+      "final": "actually inspect docs for module 55",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-056",
+      "trace_id": "diverge-56",
+      "partials": [
+        "run tests for module 56"
+      ],
+      "final": "actually inspect docs for module 56",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-057",
+      "trace_id": "diverge-57",
+      "partials": [
+        "run tests for module 57"
+      ],
+      "final": "actually inspect docs for module 57",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-058",
+      "trace_id": "diverge-58",
+      "partials": [
+        "run tests for module 58"
+      ],
+      "final": "actually inspect docs for module 58",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-diverge-059",
+      "trace_id": "diverge-59",
+      "partials": [
+        "run tests for module 59"
+      ],
+      "final": "actually inspect docs for module 59",
+      "expected_actions": [
+        "prewarm",
+        "cancel",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-000",
+      "trace_id": "duplicate-0",
+      "partials": [
+        "inspect package 0",
+        "inspect package 0"
+      ],
+      "final": "inspect package 0 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-001",
+      "trace_id": "duplicate-1",
+      "partials": [
+        "inspect package 1",
+        "inspect package 1"
+      ],
+      "final": "inspect package 1 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-002",
+      "trace_id": "duplicate-2",
+      "partials": [
+        "inspect package 2",
+        "inspect package 2"
+      ],
+      "final": "inspect package 2 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-003",
+      "trace_id": "duplicate-3",
+      "partials": [
+        "inspect package 3",
+        "inspect package 3"
+      ],
+      "final": "inspect package 3 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-004",
+      "trace_id": "duplicate-4",
+      "partials": [
+        "inspect package 4",
+        "inspect package 4"
+      ],
+      "final": "inspect package 4 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-005",
+      "trace_id": "duplicate-5",
+      "partials": [
+        "inspect package 5",
+        "inspect package 5"
+      ],
+      "final": "inspect package 5 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-006",
+      "trace_id": "duplicate-6",
+      "partials": [
+        "inspect package 6",
+        "inspect package 6"
+      ],
+      "final": "inspect package 6 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-007",
+      "trace_id": "duplicate-7",
+      "partials": [
+        "inspect package 7",
+        "inspect package 7"
+      ],
+      "final": "inspect package 7 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-008",
+      "trace_id": "duplicate-8",
+      "partials": [
+        "inspect package 8",
+        "inspect package 8"
+      ],
+      "final": "inspect package 8 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-009",
+      "trace_id": "duplicate-9",
+      "partials": [
+        "inspect package 9",
+        "inspect package 9"
+      ],
+      "final": "inspect package 9 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-010",
+      "trace_id": "duplicate-10",
+      "partials": [
+        "inspect package 10",
+        "inspect package 10"
+      ],
+      "final": "inspect package 10 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-011",
+      "trace_id": "duplicate-11",
+      "partials": [
+        "inspect package 11",
+        "inspect package 11"
+      ],
+      "final": "inspect package 11 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-012",
+      "trace_id": "duplicate-12",
+      "partials": [
+        "inspect package 12",
+        "inspect package 12"
+      ],
+      "final": "inspect package 12 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-013",
+      "trace_id": "duplicate-13",
+      "partials": [
+        "inspect package 13",
+        "inspect package 13"
+      ],
+      "final": "inspect package 13 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-014",
+      "trace_id": "duplicate-14",
+      "partials": [
+        "inspect package 14",
+        "inspect package 14"
+      ],
+      "final": "inspect package 14 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-015",
+      "trace_id": "duplicate-15",
+      "partials": [
+        "inspect package 15",
+        "inspect package 15"
+      ],
+      "final": "inspect package 15 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-016",
+      "trace_id": "duplicate-16",
+      "partials": [
+        "inspect package 16",
+        "inspect package 16"
+      ],
+      "final": "inspect package 16 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-017",
+      "trace_id": "duplicate-17",
+      "partials": [
+        "inspect package 17",
+        "inspect package 17"
+      ],
+      "final": "inspect package 17 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-018",
+      "trace_id": "duplicate-18",
+      "partials": [
+        "inspect package 18",
+        "inspect package 18"
+      ],
+      "final": "inspect package 18 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-019",
+      "trace_id": "duplicate-19",
+      "partials": [
+        "inspect package 19",
+        "inspect package 19"
+      ],
+      "final": "inspect package 19 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-020",
+      "trace_id": "duplicate-20",
+      "partials": [
+        "inspect package 20",
+        "inspect package 20"
+      ],
+      "final": "inspect package 20 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-021",
+      "trace_id": "duplicate-21",
+      "partials": [
+        "inspect package 21",
+        "inspect package 21"
+      ],
+      "final": "inspect package 21 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-022",
+      "trace_id": "duplicate-22",
+      "partials": [
+        "inspect package 22",
+        "inspect package 22"
+      ],
+      "final": "inspect package 22 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-023",
+      "trace_id": "duplicate-23",
+      "partials": [
+        "inspect package 23",
+        "inspect package 23"
+      ],
+      "final": "inspect package 23 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-024",
+      "trace_id": "duplicate-24",
+      "partials": [
+        "inspect package 24",
+        "inspect package 24"
+      ],
+      "final": "inspect package 24 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-025",
+      "trace_id": "duplicate-25",
+      "partials": [
+        "inspect package 25",
+        "inspect package 25"
+      ],
+      "final": "inspect package 25 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-026",
+      "trace_id": "duplicate-26",
+      "partials": [
+        "inspect package 26",
+        "inspect package 26"
+      ],
+      "final": "inspect package 26 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-027",
+      "trace_id": "duplicate-27",
+      "partials": [
+        "inspect package 27",
+        "inspect package 27"
+      ],
+      "final": "inspect package 27 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-028",
+      "trace_id": "duplicate-28",
+      "partials": [
+        "inspect package 28",
+        "inspect package 28"
+      ],
+      "final": "inspect package 28 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-duplicate-029",
+      "trace_id": "duplicate-29",
+      "partials": [
+        "inspect package 29",
+        "inspect package 29"
+      ],
+      "final": "inspect package 29 for regressions",
+      "expected_actions": [
+        "prewarm",
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-000",
+      "trace_id": "short-0",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 0",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-001",
+      "trace_id": "short-1",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 1",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-002",
+      "trace_id": "short-2",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 2",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-003",
+      "trace_id": "short-3",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 3",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-004",
+      "trace_id": "short-4",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 4",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-005",
+      "trace_id": "short-5",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 5",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-006",
+      "trace_id": "short-6",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 6",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-007",
+      "trace_id": "short-7",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 7",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-008",
+      "trace_id": "short-8",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 8",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-009",
+      "trace_id": "short-9",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 9",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-010",
+      "trace_id": "short-10",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 10",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-011",
+      "trace_id": "short-11",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 11",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-012",
+      "trace_id": "short-12",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 12",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-013",
+      "trace_id": "short-13",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 13",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-014",
+      "trace_id": "short-14",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 14",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-015",
+      "trace_id": "short-15",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 15",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-016",
+      "trace_id": "short-16",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 16",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-017",
+      "trace_id": "short-17",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 17",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-018",
+      "trace_id": "short-18",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 18",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-019",
+      "trace_id": "short-19",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 19",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-020",
+      "trace_id": "short-20",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 20",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-021",
+      "trace_id": "short-21",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 21",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-022",
+      "trace_id": "short-22",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 22",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-023",
+      "trace_id": "short-23",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 23",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-024",
+      "trace_id": "short-24",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 24",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-025",
+      "trace_id": "short-25",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 25",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-026",
+      "trace_id": "short-26",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 26",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-027",
+      "trace_id": "short-27",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 27",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-028",
+      "trace_id": "short-28",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 28",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    },
+    {
+      "id": "spec-short-029",
+      "trace_id": "short-29",
+      "partials": [
+        "run"
+      ],
+      "final": "run the full test suite for shard 29",
+      "expected_actions": [
+        "none",
+        "authority"
+      ]
+    }
+  ]
+}
