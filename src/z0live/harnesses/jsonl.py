@@ -97,6 +97,22 @@ class JsonLineHarnessAdapter(HarnessAdapter):
     async def recv(self) -> TimelineEvent:
         return await self._events.get()
 
+    async def observe(self, event: TimelineEvent) -> None:
+        if not self._caps.observations:
+            return
+        if self._writer is None:
+            raise RuntimeError("harness bridge not attached")
+        self._writer.write(
+            (
+                json.dumps(
+                    {"type": "observation", "event": event.to_dict()},
+                    ensure_ascii=False,
+                )
+                + "\n"
+            ).encode("utf-8")
+        )
+        await self._writer.drain()
+
     async def close(self) -> None:
         if self._reader_task is not None:
             self._reader_task.cancel()
