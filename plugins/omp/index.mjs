@@ -22,6 +22,7 @@ const state = {
   traceId: null,
   monitor: null,
   stderrTail: "",
+  stopPromise: null,
 };
 
 function pythonBin() {
@@ -267,38 +268,55 @@ export async function executeHarnessCommand(command, pi, ctx) {
 }
 
 async function stopBrainstorm(ctx, reason = "explicit_exit") {
-  const processHandle = state.process;
-  state.process = null;
-  state.phase = "stopping";
-  setStatus(ctx || state.mainCtx, "brainstorm: stopping");
+  if (state.stopPromise) return state.stopPromise;
 
-  if (processHandle && processHandle.exitCode === null && !processHandle.killed) {
-    processHandle.kill("SIGTERM");
-    await Promise.race([
-      new Promise(resolvePromise => processHandle.once("exit", resolvePromise)),
-      new Promise(resolvePromise => setTimeout(resolvePromise, 4000)),
-    ]);
-    if (processHandle.exitCode === null) processHandle.kill("SIGKILL");
-  }
+  const targetCtx = ctx || state.mainCtx;
+  state.stopPromise = (async () => {
+    const processHandle = state.process;
+    if (processHandle) state.process = null;
 
-  if (state.bridge) {
-    await state.bridge.close();
-    state.bridge = null;
-  }
-  if (state.monitor && state.mainCtx) {
-    state.mainCtx.clearTimer(state.monitor);
-    state.monitor = null;
-  }
-  if (state.tempDir) {
-    rmSync(state.tempDir, { recursive: true, force: true });
-    state.tempDir = null;
-    state.planPath = null;
-  }
+    state.phase = "stopping";
+    setStatus(targetCtx, "brainstorm: stopping");
 
-  state.phase = "off";
-  state.traceId = null;
-  setStatus(ctx || state.mainCtx, undefined);
-  if (reason !== "session_shutdown") notify(ctx || state.mainCtx, `Brainstorm Mode stopped (${reason})`, "info");
+    if (processHandle && processHandle.exitCode === null && !processHandle.killed) {
+      processHandle.kill("SIGTERM");
+      await Promise.race([
+        new Promise(resolvePromise => processHandle.once("exit", resolvePromise)),
+        new Promise(resolvePromise => setTimeout(resolvePromise, 4000)),
+      ]);
+      if (processHandle.exitCode === null) processHandle.kill("SIGKILL");
+    }
+
+    if (state.bridge) {
+      const bridge = state.bridge;
+      state.bridge = null;
+      await bridge.close();
+    }
+
+    if (state.monitor) {
+      const monitor = state.monitor;
+      state.monitor = null;
+      (targetCtx || state.mainCtx)?.clearTimer?.(monitor);
+    }
+
+    if (state.tempDir) {
+      const tempDir = state.tempDir;
+      state.tempDir = null;
+      state.planPath = null;
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+
+    state.phase = "off";
+    state.traceId = null;
+    setStatus(targetCtx, undefined);
+    if (reason === "explicit_exit") notify(targetCtx, "Brainstorm Mode stopped", "info");
+  })();
+
+  try {
+    return await state.stopPromise;
+  } finally {
+    state.stopPromise = null;
+  }
 }
 
 function monitorService(ctx) {
@@ -329,7 +347,7 @@ function monitorService(ctx) {
 
 async function startBrainstorm(pi, ctx) {
   if (ctx.agent?.kind !== "main") throw new Error("Brainstorm Mode can only be started from the main OMP session");
-  if (state.process && state.process.exitCode === null) {
+  if (state.phase !== "off" || state.stopPromise || (state.process && state.process.exitCode === null)) {
     notify(ctx, `Brainstorm Mode is already ${state.phase}`, "info");
     return;
   }
@@ -402,12 +420,14 @@ async function startBrainstorm(pi, ctx) {
     state.stderrTail = appendTail(state.stderrTail, String(error));
   });
   child.once("exit", code => {
-    if (state.process === child) {
-      state.phase = "off";
-      state.process = null;
-      setStatus(state.mainCtx, undefined);
-      if (code && code !== 0) notify(state.mainCtx, `z0live exited with code ${code}`, "error");
-    }
+    if (state.process !== child) return;
+    const tail = state.stderrTail.trim();
+    const reason = `z0live exit ${code ?? "signal"}`;
+    void stopBrainstorm(state.mainCtx, reason).then(() => {
+      if (code && code !== 0) {
+        notify(state.mainCtx, tail ? tail.slice(-600) : `z0live exited with code ${code}`, "error");
+      }
+    });
   });
 
   monitorService(ctx);
@@ -432,6 +452,7 @@ export default function z0liveOmpPlugin(pi) {
         try {
           await startBrainstorm(pi, ctx);
         } catch (error) {
+          await stopBrainstorm(ctx, "start_failure");
           setStatus(ctx, undefined);
           notify(ctx, String(error?.message || error), "error");
         }
