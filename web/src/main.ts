@@ -94,7 +94,7 @@ function stopVad(): void {
   speechActive = false;
 }
 
-function observeAssistantPcm(pcm: Float32Array): void {
+function observeAssistantPcm(pcm: Float32Array, playbackDelayMs: number): void {
   let energy = 0;
   for (const sample of pcm) energy += sample * sample;
   const rms = Math.sqrt(energy / Math.max(1, pcm.length));
@@ -104,7 +104,11 @@ function observeAssistantPcm(pcm: Float32Array): void {
     assistantSpeechActive = true;
     assistantBelowSince = 0;
     floorEl.textContent = speechActive ? "overlap" : "assistant";
-    sendEvent("assistant.speech.started", { rms, observed_at: "playback" });
+    sendEvent("assistant.speech.started", {
+      rms,
+      observed_at: "decoded_pcm",
+      playback_delay_ms: playbackDelayMs,
+    });
   } else if (assistantSpeechActive) {
     if (rms < 0.006) {
       if (!assistantBelowSince) assistantBelowSince = now;
@@ -112,7 +116,11 @@ function observeAssistantPcm(pcm: Float32Array): void {
         assistantSpeechActive = false;
         assistantBelowSince = 0;
         floorEl.textContent = speechActive ? "you" : "idle";
-        sendEvent("assistant.speech.stopped", { rms, observed_at: "playback" });
+        sendEvent("assistant.speech.stopped", {
+          rms,
+          observed_at: "decoded_pcm",
+          playback_delay_ms: playbackDelayMs,
+        });
       }
     } else {
       assistantBelowSince = 0;
@@ -133,16 +141,20 @@ function initDecoder(): void {
   decoder.onmessage = event => {
     const pcm = event.data?.[0] as Float32Array | undefined;
     if (!pcm?.length || !audioContext) return;
-    observeAssistantPcm(pcm);
+    const floor = audioContext.currentTime + 0.015;
+    const scheduledStart = Math.max(playbackAt, floor);
+    const playbackDelayMs = Math.max(
+      0,
+      (scheduledStart - audioContext.currentTime) * 1000,
+    );
+    observeAssistantPcm(pcm, playbackDelayMs);
     const buffer = audioContext.createBuffer(1, pcm.length, audioContext.sampleRate);
     buffer.copyToChannel(pcm, 0);
     const source = audioContext.createBufferSource();
     source.buffer = buffer;
     source.connect(audioContext.destination);
-    const floor = audioContext.currentTime + 0.015;
-    playbackAt = Math.max(playbackAt, floor);
-    source.start(playbackAt);
-    playbackAt += buffer.duration;
+    source.start(scheduledStart);
+    playbackAt = scheduledStart + buffer.duration;
     queueEl.textContent = `${Math.max(0, Math.round((playbackAt - audioContext.currentTime) * 1000))} ms`;
   };
 }
