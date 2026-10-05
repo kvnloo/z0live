@@ -382,6 +382,7 @@ function registerHarnessEvents(pi: ExtensionAPI): void {
 		capture(ctx);
 		emitTimeline("harness.progress", {
 			text: "OMP turn started",
+			phase: "worker_ready",
 			turn_index: event.turnIndex,
 		}, state.activeTraceId);
 	});
