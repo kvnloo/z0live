@@ -34,3 +34,16 @@ def test_reference_bands_are_not_reported_as_pass_fail_gates():
     out = TimelineMetrics().summary()
     assert "reference_bands_ms" in out
     assert "pass" not in out
+
+
+def test_playback_delay_is_applied_to_assistant_boundary_metrics():
+    m = TimelineMetrics()
+    m.observe(event(EventKind.USER_SPEECH_STOPPED, 100))
+    m.observe(
+        event(
+            EventKind.ASSISTANT_SPEECH_STARTED,
+            150,
+            playback_delay_ms=30,
+        )
+    )
+    assert m.summary()["series"]["turn_gap"]["p50_ms"] == 80
