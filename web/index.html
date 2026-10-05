@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>z0live brainstorm</title>
+  </head>
+  <body>
+    <main>
+      <section class="card">
+        <div class="eyebrow">z0live</div>
+        <h1>brainstorm</h1>
+        <p id="status">disconnected</p>
+        <button id="connect">connect</button>
+        <button id="disconnect" disabled>disconnect</button>
+        <details>
+          <summary>connection</summary>
+          <label>
+            gateway
+            <input id="gateway" />
+          </label>
+        </details>
+      </section>
+      <section class="card transcript-card">
+        <div class="row">
+          <strong>assistant</strong>
+          <span id="floor">idle</span>
+        </div>
+        <div id="transcript" class="transcript"></div>
+      </section>
+      <section class="card stats">
+        <div><span>mic</span><strong id="mic">off</strong></div>
+        <div><span>playback queue</span><strong id="queue">0 ms</strong></div>
+        <div><span>codec</span><strong id="codec">—</strong></div>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
