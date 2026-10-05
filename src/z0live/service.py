@@ -33,12 +33,14 @@ class LiveService:
         harness_address: tuple[str, int] | None = None,
         actor_command: str | None = None,
         ready_timeout_seconds: float = 300,
+        resource_sample_seconds: float = 5.0,
     ) -> None:
         self.plan = plan
         self.listen = listen
         self.harness_address = harness_address
         self.actor_command = actor_command
         self.ready_timeout_seconds = ready_timeout_seconds
+        self.resource_sample_seconds = max(0.5, float(resource_sample_seconds))
         self.actor_process: LocalActorProcess | None = None
         self.runtime: ConversationRuntime | None = None
         self.gateway: RuntimeGateway | None = None
@@ -52,6 +54,7 @@ class LiveService:
         )
         self.resources = ResourceTracker(plan.device_index)
         self.timeline_metrics = TimelineMetrics()
+        self._next_resource_sample = self.started_at
 
     def touch(self) -> None:
         self.last_activity = time.monotonic()
@@ -194,7 +197,10 @@ class LiveService:
                 ):
                     reason = "idle_timeout"
                     break
-                self.resources.capture()
+                now = time.monotonic()
+                if now >= self._next_resource_sample:
+                    self.resources.capture()
+                    self._next_resource_sample = now + self.resource_sample_seconds
                 await asyncio.sleep(0.25)
         except asyncio.CancelledError:
             reason = "cancelled"
