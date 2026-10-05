@@ -110,6 +110,7 @@ class ParakeetEOUTranscriber(InputTranscriber):
                 device=self.device,
                 sample_rate=self.sample_rate_hz,
                 chunk_size_in_secs=self.chunk_ms / 1000.0,
+                decoder_type="rnnt",
             )
         self._worker = asyncio.create_task(
             self._run(),
@@ -151,7 +152,12 @@ class ParakeetEOUTranscriber(InputTranscriber):
         try:
             self._queue.put_nowait(_Control("vad_stop"))
         except asyncio.QueueFull:
-            await self._queue.put(_Control("vad_stop"))
+            try:
+                self._queue.get_nowait()
+                self.dropped_chunks += 1
+            except asyncio.QueueEmpty:
+                pass
+            self._queue.put_nowait(_Control("vad_stop"))
 
     async def assistant_speech_changed(self, speaking: bool) -> None:
         self._assistant_speaking = bool(speaking)
