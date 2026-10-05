@@ -27,5 +27,6 @@ jobs:
       - run: python -m pytest -q
       - run: python -m z0live replay fixtures/core-v1.json
       - run: python -m z0live replay fixtures/stress-v1.json
+      - run: python -m z0live speculation-replay fixtures/speculation-v1.json
       - run: python -m z0live smoke
       - run: python -m compileall -q src
