@@ -16,6 +16,7 @@ from .receipts import ReceiptWriter
 from .registry import create_actor
 from .resources import ResourceTracker
 from .runtime import ConversationRuntime, RuntimeHooks
+from .webserver import StaticWebServer, default_web_dir
 
 
 def home() -> Path:
@@ -34,6 +35,8 @@ class LiveService:
         actor_command: str | None = None,
         ready_timeout_seconds: float = 300,
         resource_sample_seconds: float = 5.0,
+        web_address: tuple[str, int] | None = None,
+        web_dir: str | Path | None = None,
     ) -> None:
         self.plan = plan
         self.listen = listen
@@ -41,6 +44,9 @@ class LiveService:
         self.actor_command = actor_command
         self.ready_timeout_seconds = ready_timeout_seconds
         self.resource_sample_seconds = max(0.5, float(resource_sample_seconds))
+        self.web_address = web_address
+        self.web_dir = Path(web_dir).expanduser() if web_dir is not None else default_web_dir()
+        self.web_server: StaticWebServer | None = None
         self.actor_process: LocalActorProcess | None = None
         self.runtime: ConversationRuntime | None = None
         self.gateway: RuntimeGateway | None = None
@@ -80,6 +86,14 @@ class LiveService:
             },
             "idle_unload_seconds": (
                 self.plan.idle_unload_seconds
+            ),
+            "web": (
+                None
+                if self.web_server is None or self.web_server.address is None
+                else {
+                    "host": self.web_server.address[0],
+                    "port": self.web_server.address[1],
+                }
             ),
         }
         self.state_path.write_text(
@@ -169,6 +183,31 @@ class LiveService:
             self.listen,
         )
         await self.gateway.start()
+
+        if self.web_address is not None:
+            host, port = self.web_address
+            try:
+                self.web_server = StaticWebServer(
+                    self.web_dir,
+                    host=host,
+                    port=port,
+                )
+                web_host, web_port = self.web_server.start()
+                self.receipts.emit(
+                    "web_ready",
+                    plan_id=self.plan.plan_id,
+                    host=web_host,
+                    port=web_port,
+                    directory=str(self.web_dir),
+                )
+            except FileNotFoundError as exc:
+                self.web_server = None
+                self.receipts.emit(
+                    "web_unavailable",
+                    plan_id=self.plan.plan_id,
+                    reason=str(exc),
+                )
+
         self.touch()
         self._write_state("ready")
         self.receipts.emit(
@@ -218,6 +257,9 @@ class LiveService:
         if self._closing:
             return
         self._closing = True
+        if self.web_server is not None:
+            await asyncio.to_thread(self.web_server.stop)
+            self.web_server = None
         if self.gateway is not None:
             await self.gateway.close()
             self.gateway = None
