@@ -18,6 +18,25 @@ def create_transcriber(plan: VoicePlan) -> InputTranscriber | None:
         )
 
     if adapter in (
+        "parakeet_cpp_eou",
+        "parakeet-cpp-eou",
+        "parakeet_cpp_realtime_eou_120m",
+    ):
+        from .transcribers.parakeet_cpp import ParakeetCppEOUTranscriber
+
+        library_path = config.get("library_path")
+        model_path = config.get("model_path")
+        if not library_path or not model_path:
+            raise ValueError(
+                "parakeet.cpp transcriber requires library_path and model_path"
+            )
+        return ParakeetCppEOUTranscriber(
+            library_path=str(library_path),
+            model_path=str(model_path),
+            max_queue_chunks=int(config.get("max_queue_chunks") or 64),
+        )
+
+    if adapter in (
         "parakeet_eou",
         "parakeet-realtime-eou",
         "parakeet_realtime_eou_120m",
