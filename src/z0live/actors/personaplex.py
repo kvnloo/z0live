@@ -34,8 +34,8 @@ class PersonaPlexActor(QueueActor):
             full_duplex=True,
             native_audio_in=True,
             native_audio_out=True,
-            input_codec="opus",
-            output_codec="opus",
+            input_codec="ogg-opus",
+            output_codec="ogg-opus",
             input_sample_rate_hz=24000,
             output_sample_rate_hz=24000,
             partial_transcripts=True,
@@ -116,8 +116,8 @@ class PersonaPlexActor(QueueActor):
             self._ready.set()
 
     async def send_audio(self, frame: AudioFrame) -> None:
-        if frame.codec.lower() != "opus":
-            raise ValueError(f"PersonaPlex requires opus input, got {frame.codec!r}")
+        if frame.codec.lower() != "ogg-opus":
+            raise ValueError(f"PersonaPlex requires Ogg/Opus input, got {frame.codec!r}")
         if self._ws is None:
             raise RuntimeError("PersonaPlex actor is not started")
         await self._ws.send(b"\x01" + frame.data)
