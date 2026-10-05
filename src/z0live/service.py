@@ -9,6 +9,7 @@ from pathlib import Path
 from .contracts import TimelineEvent
 from .gateway import GatewayAddress, RuntimeGateway
 from .harnesses.jsonl import JsonLineHarnessAdapter
+from .metrics import TimelineMetrics
 from .plan import VoicePlan
 from .process import LocalActorProcess
 from .receipts import ReceiptWriter
@@ -50,6 +51,7 @@ class LiveService:
             self.state_dir / "receipts.jsonl"
         )
         self.resources = ResourceTracker(plan.device_index)
+        self.timeline_metrics = TimelineMetrics()
 
     def touch(self) -> None:
         self.last_activity = time.monotonic()
@@ -143,6 +145,7 @@ class LiveService:
         async def on_event(
             event: TimelineEvent,
         ) -> None:
+            self.timeline_metrics.observe(event)
             self.receipts.emit(
                 "timeline_event",
                 plan_id=self.plan.plan_id,
@@ -239,5 +242,6 @@ class LiveService:
                 else False
             ),
             resources=self.resources.summary(),
+            timeline_metrics=self.timeline_metrics.summary(),
         )
         self.state_path.unlink(missing_ok=True)
