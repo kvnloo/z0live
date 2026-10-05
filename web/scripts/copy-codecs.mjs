@@ -7,9 +7,10 @@ const source = join(root, "node_modules", "opus-recorder", "dist");
 const target = join(root, "public", "assets");
 await mkdir(target, { recursive: true });
 
+// opus-recorder 8.x embeds encoder WASM into encoderWorker.min.js.
+// decoderWorker still loads its WASM as a sibling asset.
 for (const name of [
   "encoderWorker.min.js",
-  "encoderWorker.min.wasm",
   "decoderWorker.min.js",
   "decoderWorker.min.wasm",
 ]) {
