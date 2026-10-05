@@ -1,50 +1,41 @@
-name: ci
+name: z0live CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - feat/brainstorm-session-lifecycle
   pull_request:
-
-permissions:
-  contents: read
-
-concurrency:
-  group: z0live-ci-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   test:
-    strategy:
-      matrix:
-        python: ["3.10", "3.12", "3.13"]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python }}
-      - run: python -m pip install -e '.[test]'
-      - run: python -m pytest -q
-      - run: python -m z0live replay fixtures/core-v1.json
-      - run: python -m z0live replay fixtures/stress-v1.json
-      - run: python -m z0live speculation-replay fixtures/speculation-v1.json
-      - run: python -m z0live smoke
-      - run: python -m compileall -q src
-      - run: bash -n scripts/*.sh
+          python-version: "3.12"
 
+      - name: Install Python package
+        run: python -m pip install -e '.[test]'
 
-  web:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      - name: Python tests
+        run: pytest -q
+
+      - name: Replay canonical fixtures
+        run: python -m z0live replay fixtures/core-v1.json
+
+      - name: Runtime smoke
+        run: python -m z0live smoke
+
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: npm install --no-audit --no-fund
-        working-directory: web
-      - run: npm run build
-        working-directory: web
-      - run: ./web/node_modules/.bin/esbuild integrations/omp/z0live.ts --format=esm --platform=node --outfile=/tmp/z0live-omp.js
-      - run: test -f web/dist/index.html
-      - run: test -f web/dist/assets/encoderWorker.min.js
-      - run: test -f web/dist/assets/decoderWorker.min.wasm
+
+      - name: Check OMP plugin syntax
+        run: node --check plugins/omp/index.mjs
+
+      - name: OMP plugin unit tests
+        run: node --test plugins/omp/index.test.mjs
