@@ -3,9 +3,11 @@ import time
 
 from z0live.actors.fake import FakeActor
 from z0live.contracts import (
+    ActorMessage,
     EventKind,
     HarnessCommand,
     HarnessCommandKind,
+    TimelineEvent,
 )
 from z0live.harnesses.fake import FakeHarness
 from z0live.runtime import ConversationRuntime, RuntimeHooks
@@ -80,8 +82,8 @@ def test_runtime_normalizes_actor_and_harness_events_to_one_clock():
         )
         await runtime.start()
         await actor._messages.put(
-            __import__("z0live.contracts", fromlist=["ActorMessage"]).ActorMessage(
-                event=__import__("z0live.contracts", fromlist=["TimelineEvent"]).TimelineEvent(
+            ActorMessage(
+                event=TimelineEvent(
                     kind=EventKind.USER_SPEECH_STARTED,
                     source="actor",
                     at_ms=999999,
