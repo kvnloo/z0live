@@ -15,6 +15,7 @@ class FakeHarness(HarnessAdapter):
     def __init__(self, delay_seconds: float = 0.0) -> None:
         self.delay_seconds = delay_seconds
         self.commands: list[HarnessCommand] = []
+        self.observations: list[TimelineEvent] = []
         self._events: asyncio.Queue[TimelineEvent] = asyncio.Queue()
         self.attached = False
         self.closed = False
@@ -29,6 +30,7 @@ class FakeHarness(HarnessAdapter):
             approvals=True,
             progress_events=True,
             verified_results=True,
+            observations=True,
         )
 
     async def attach(self) -> None:
@@ -42,6 +44,9 @@ class FakeHarness(HarnessAdapter):
 
     async def recv(self) -> TimelineEvent:
         return await self._events.get()
+
+    async def observe(self, event: TimelineEvent) -> None:
+        self.observations.append(event)
 
     async def close(self) -> None:
         self.closed = True
