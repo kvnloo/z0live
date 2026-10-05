@@ -106,7 +106,10 @@ class ActorCapabilities:
     output_codec: str
     input_sample_rate_hz: int
     output_sample_rate_hz: int
-    partial_transcripts: bool = False
+    input_transcripts: bool = False
+    input_partial_transcripts: bool = False
+    output_transcripts: bool = False
+    output_partial_transcripts: bool = False
     server_vad: bool = False
     native_barge_in: bool = False
     cancel_response: bool = False
@@ -116,7 +119,59 @@ class ActorCapabilities:
     local_transport: bool = False
 
     def to_dict(self) -> dict[str, Any]:
+        out = {name: getattr(self, name) for name in self.__dataclass_fields__}
+        out["partial_transcripts"] = (
+            self.input_partial_transcripts or self.output_partial_transcripts
+        )
+        return out
+
+
+@dataclass(frozen=True, slots=True)
+class TranscriberCapabilities:
+    input_codec: str
+    input_sample_rate_hz: int
+    channels: int = 1
+    partial_transcripts: bool = True
+    end_of_utterance: bool = False
+    end_of_backchannel: bool = False
+    local_transport: bool = True
+
+    def to_dict(self) -> dict[str, Any]:
         return {name: getattr(self, name) for name in self.__dataclass_fields__}
+
+
+class InputTranscriber(ABC):
+    @property
+    @abstractmethod
+    def transcriber_id(self) -> str: ...
+
+    @property
+    @abstractmethod
+    def capabilities(self) -> TranscriberCapabilities: ...
+
+    @abstractmethod
+    async def start(self) -> None: ...
+
+    @abstractmethod
+    async def send_audio(self, frame: AudioFrame) -> None: ...
+
+    async def user_speech_started(self) -> None:
+        return None
+
+    async def user_speech_stopped(self) -> None:
+        return None
+
+    async def assistant_speech_changed(self, speaking: bool) -> None:
+        del speaking
+
+    @abstractmethod
+    async def recv(self) -> TimelineEvent: ...
+
+    async def observe(self, event: TimelineEvent) -> None:
+        del event
+
+    @abstractmethod
+    async def close(self) -> None: ...
 
 
 @dataclass(slots=True)
@@ -245,6 +300,7 @@ class HarnessCapabilities:
     approvals: bool = False
     progress_events: bool = True
     verified_results: bool = True
+    observations: bool = False
 
     def to_dict(self) -> dict[str, bool]:
         return {name: bool(getattr(self, name)) for name in self.__dataclass_fields__}
