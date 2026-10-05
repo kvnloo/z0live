@@ -64,3 +64,37 @@ def test_verified_result_is_injected_as_speakable_commentary():
         await runtime.close()
 
     asyncio.run(go())
+
+
+def test_runtime_normalizes_actor_and_harness_events_to_one_clock():
+    async def go():
+        actor = FakeActor()
+        seen = []
+
+        async def on_event(event):
+            seen.append(event)
+
+        runtime = ConversationRuntime(
+            actor,
+            hooks=RuntimeHooks(on_event=on_event),
+        )
+        await runtime.start()
+        await actor._messages.put(
+            __import__("z0live.contracts", fromlist=["ActorMessage"]).ActorMessage(
+                event=__import__("z0live.contracts", fromlist=["TimelineEvent"]).TimelineEvent(
+                    kind=EventKind.USER_SPEECH_STARTED,
+                    source="actor",
+                    at_ms=999999,
+                    payload={},
+                )
+            )
+        )
+        deadline = time.monotonic() + 1
+        while not any(e.kind == EventKind.USER_SPEECH_STARTED for e in seen) and time.monotonic() < deadline:
+            await asyncio.sleep(0.01)
+        event = next(e for e in seen if e.kind == EventKind.USER_SPEECH_STARTED)
+        assert event.at_ms < 1000
+        assert event.payload["source_at_ms"] == 999999
+        await runtime.close()
+
+    asyncio.run(go())
