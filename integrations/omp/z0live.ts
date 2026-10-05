@@ -105,6 +105,63 @@ function emitTimeline(
 	});
 }
 
+function voiceCommandFromObservation(raw: JsonRecord): JsonRecord | null {
+	const observed = (raw.event ?? {}) as JsonRecord;
+	if (String(observed.kind ?? "") !== "user.transcript.final") return null;
+	const payload = (observed.payload ?? {}) as JsonRecord;
+	if (payload.authority !== true || payload.backchannel === true) return null;
+
+	const text = String(payload.text ?? "").trim();
+	if (!text) return null;
+	const match = text.match(/^(?:hey\s+)?(?:omp|oh\s+my\s+pi|agent)\b[\s,:-]*(.*)$/i);
+	if (!match) return null;
+
+	let prompt = (match[1] ?? "").trim();
+	if (!prompt) return null;
+	const traceId = String(observed.trace_id ?? state.activeTraceId ?? "voice");
+
+	if (/^(?:cancel|stop)(?:\s|$)/i.test(prompt)) {
+		return { kind: "cancel", trace_id: traceId, payload: { source: "voice_eou" } };
+	}
+	const steer = prompt.match(/^steer\b[\s,:-]*(.*)$/i);
+	if (steer?.[1]?.trim()) {
+		return {
+			kind: "steer",
+			trace_id: traceId,
+			text: steer[1].trim(),
+			payload: { source: "voice_eou" },
+		};
+	}
+	const redirect = prompt.match(/^redirect\b[\s,:-]*(.*)$/i);
+	if (redirect?.[1]?.trim()) {
+		return {
+			kind: "redirect",
+			trace_id: traceId,
+			text: redirect[1].trim(),
+			payload: { source: "voice_eou" },
+		};
+	}
+	return {
+		kind: "submit",
+		trace_id: traceId,
+		text: prompt,
+		payload: { source: "voice_eou" },
+	};
+}
+
+async function handleObservation(pi: ExtensionAPI, raw: JsonRecord): Promise<void> {
+	const command = voiceCommandFromObservation(raw);
+	if (!command) {
+		const observed = (raw.event ?? {}) as JsonRecord;
+		pi.logger.debug("z0live observation", {
+			kind: String(observed.kind ?? ""),
+			trace_id: observed.trace_id,
+		});
+		return;
+	}
+	await handleHarnessCommand(pi, { type: "command", command });
+}
+
 async function handleHarnessCommand(pi: ExtensionAPI, raw: JsonRecord): Promise<void> {
 	const command = (raw.command ?? {}) as JsonRecord;
 	const commandId = String(command.command_id ?? "");
@@ -125,8 +182,13 @@ async function handleHarnessCommand(pi: ExtensionAPI, raw: JsonRecord): Promise<
 	try {
 		if (kind === "submit") {
 			if (!prompt) return result(false, { error: "empty prompt" });
-			pi.sendUserMessage(prompt, { deliverAs: "followUp" });
-			result(true, { accepted: "followUp", trace_id: traceId, task_id: taskId });
+			if (state.lastContext?.isIdle()) {
+				pi.sendUserMessage(prompt);
+				result(true, { accepted: "prompt", trace_id: traceId, task_id: taskId });
+			} else {
+				pi.sendUserMessage(prompt, { deliverAs: "followUp" });
+				result(true, { accepted: "followUp", trace_id: traceId, task_id: taskId });
+			}
 			return;
 		}
 		if (kind === "steer") {
@@ -168,6 +230,7 @@ function handleBridgeChunk(pi: ExtensionAPI, chunk: Buffer): void {
 		try {
 			const raw = JSON.parse(line) as JsonRecord;
 			if (raw.type === "command") void handleHarnessCommand(pi, raw);
+			if (raw.type === "observation") void handleObservation(pi, raw);
 		} catch (error) {
 			pi.logger.warn("z0live bridge received invalid JSON", { error: String(error), line });
 		}
@@ -194,6 +257,7 @@ async function startHarnessBridge(pi: ExtensionAPI): Promise<number> {
 					approvals: false,
 					progress_events: true,
 					verified_results: false,
+					observations: true,
 				},
 			}) + "\n",
 		);
