@@ -7,7 +7,7 @@
  * voice selection/admission. This extension is only the narrow harness bridge.
  */
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server, type Socket } from "node:net";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -20,7 +20,7 @@ interface BridgeState {
 	socket?: Socket;
 	port?: number;
 	buffer: string;
-	child?: ChildProcessWithoutNullStreams;
+	child?: ChildProcess;
 	gateway?: WebSocket;
 	tempDir?: string;
 	planPath?: string;
@@ -340,8 +340,8 @@ async function startBrainstorm(pi: ExtensionAPI, ctx: ExtensionContext): Promise
 		},
 	);
 	state.child = child;
-	child.stdout.on("data", chunk => pi.logger.debug("z0live", { stream: "stdout", text: chunk.toString() }));
-	child.stderr.on("data", chunk => pi.logger.debug("z0live", { stream: "stderr", text: chunk.toString() }));
+	child.stdout?.on("data", chunk => pi.logger.debug("z0live", { stream: "stdout", text: chunk.toString() }));
+	child.stderr?.on("data", chunk => pi.logger.debug("z0live", { stream: "stderr", text: chunk.toString() }));
 	child.once("exit", (code, signal) => {
 		if (state.child !== child) return;
 		state.child = undefined;
