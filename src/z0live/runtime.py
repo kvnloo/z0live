@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 
@@ -41,13 +42,22 @@ class ConversationRuntime:
         self.attention = attention or AttentionPolicy()
         self._tasks: list[asyncio.Task] = []
         self._closed = False
+        self._started_at = time.monotonic()
 
     def _touch(self) -> None:
         if self.hooks.on_activity is not None:
             self.hooks.on_activity()
 
+    def _normalize_event(self, event: TimelineEvent) -> TimelineEvent:
+        source_at = int(event.at_ms)
+        event.at_ms = int((time.monotonic() - self._started_at) * 1000)
+        if source_at > 0:
+            event.payload = {**event.payload, "source_at_ms": source_at}
+        return event
+
     async def _publish_event(self, event: TimelineEvent) -> None:
         self._touch()
+        event = self._normalize_event(event)
         if self.hooks.on_event is not None:
             await self.hooks.on_event(event)
 
