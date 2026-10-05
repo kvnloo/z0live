@@ -322,5 +322,13 @@ class HarnessAdapter(ABC):
     @abstractmethod
     async def recv(self) -> TimelineEvent: ...
 
+    async def observe(self, event: TimelineEvent) -> None:
+        """Receive a non-command observation from z0live.
+
+        Harnesses advertise support with capabilities.observations. The default
+        is a no-op so adapters that do not advertise it remain source-compatible.
+        """
+        del event
+
     @abstractmethod
     async def close(self) -> None: ...
