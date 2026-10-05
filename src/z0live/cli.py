@@ -74,6 +74,13 @@ def _parser() -> argparse.ArgumentParser:
     replay.add_argument("fixture", type=Path)
     replay.add_argument("--json", action="store_true")
 
+    spec_replay = sub.add_parser(
+        "speculation-replay",
+        help="replay frozen partial/final authority fixtures",
+    )
+    spec_replay.add_argument("fixture", type=Path)
+    spec_replay.add_argument("--json", action="store_true")
+
     speculation = sub.add_parser(
         "speculation-eval",
         help="evaluate measured side-effect-free prewarm traces",
@@ -222,6 +229,26 @@ def main(argv: list[str] | None = None) -> int:
                         f"observed={case.observed}"
                     )
         return 0 if result.passed else 1
+
+    if args.cmd == "speculation-replay":
+        from .speculation_replay import (
+            load_speculation_corpus,
+            replay_speculation_corpus,
+        )
+
+        result = replay_speculation_corpus(
+            load_speculation_corpus(args.fixture)
+        )
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            print(
+                "z0live speculation replay: "
+                f"{result['cases_passed']}/{result['cases_total']} passed; "
+                f"unauthorized_mutations={result['unauthorized_mutations']}; "
+                f"revision={result['revision']}"
+            )
+        return 0 if result["passed"] else 1
 
     if args.cmd == "speculation-eval":
         from .speculation import SpeculationMeasurement, evaluate_speculation
