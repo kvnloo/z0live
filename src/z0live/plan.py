@@ -25,12 +25,28 @@ class VoicePlan:
         return str(self.raw["adapter"])
 
     @property
+    def provider(self) -> str:
+        return str(self.raw.get("provider") or "unknown")
+
+    @property
+    def model(self) -> str:
+        return str(self.raw.get("model") or "")
+
+    @property
+    def harness(self) -> str:
+        return str(self.raw.get("harness") or "")
+
+    @property
+    def endpoint(self) -> dict[str, Any]:
+        return dict(self.raw.get("endpoint") or {})
+
+    @property
     def endpoint_host(self) -> str:
-        return str((self.raw.get("endpoint") or {}).get("host") or "127.0.0.1")
+        return str(self.endpoint.get("host") or "127.0.0.1")
 
     @property
     def endpoint_port(self) -> int:
-        return int((self.raw.get("endpoint") or {}).get("port") or 8998)
+        return int(self.endpoint.get("port") or 8998)
 
     @property
     def idle_unload_seconds(self) -> int:
@@ -38,18 +54,20 @@ class VoicePlan:
 
     @property
     def device_index(self) -> int | None:
-        device = self.raw.get("device") or {}
-        value = device.get("index")
+        value = (self.raw.get("device") or {}).get("index")
         return None if value is None else int(value)
+
+    @property
+    def actor_options(self) -> dict[str, Any]:
+        return dict(self.raw.get("actor_options") or {})
 
 
 def validate_plan(raw: dict[str, Any]) -> VoicePlan:
     if raw.get("schema") != SUPPORTED_SCHEMA:
         raise ValueError(f"unsupported VoicePlan schema: {raw.get('schema')!r}")
-    if not raw.get("plan_id"):
-        raise ValueError("VoicePlan missing plan_id")
-    if not raw.get("actor_id") or not raw.get("adapter"):
-        raise ValueError("VoicePlan missing actor_id/adapter")
+    for field in ("plan_id", "actor_id", "adapter"):
+        if not raw.get(field):
+            raise ValueError(f"VoicePlan missing {field}")
     admission = raw.get("admission") or {}
     if admission.get("admitted") is not True:
         status = admission.get("status") or "unknown"
@@ -57,9 +75,10 @@ def validate_plan(raw: dict[str, Any]) -> VoicePlan:
         suffix = f"; reclaim_needed_mb={reclaim}" if reclaim is not None else ""
         raise ValueError(f"VoicePlan not admitted: {status}{suffix}")
     resource = raw.get("resource") or {}
-    if resource.get("residency") != "session":
-        raise ValueError("z0live brainstorm currently requires session residency")
-    return VoicePlan(raw=raw)
+    residency = resource.get("residency")
+    if residency not in (None, "session"):
+        raise ValueError(f"unsupported VoicePlan residency: {residency!r}")
+    return VoicePlan(raw=dict(raw))
 
 
 def load_plan(path: str | Path) -> VoicePlan:
