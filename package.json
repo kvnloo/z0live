@@ -8,7 +8,7 @@
     "name": "z0live",
     "description": "On-demand realtime Brainstorm Mode backed by z0live + z0intelligence",
     "extensions": [
-      "./plugins/omp/index.mjs"
+      "./integrations/omp/z0live.ts"
     ]
   }
 }
