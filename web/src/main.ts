@@ -25,6 +25,8 @@ let vadFrame = 0;
 let speechActive = false;
 let belowSince = 0;
 let playbackAt = 0;
+let assistantSpeechActive = false;
+let assistantBelowSince = 0;
 let traceId = crypto.randomUUID();
 
 function setStatus(text: string): void {
@@ -92,6 +94,32 @@ function stopVad(): void {
   speechActive = false;
 }
 
+function observeAssistantPcm(pcm: Float32Array): void {
+  let energy = 0;
+  for (const sample of pcm) energy += sample * sample;
+  const rms = Math.sqrt(energy / Math.max(1, pcm.length));
+  const now = performance.now();
+
+  if (!assistantSpeechActive && rms >= 0.012) {
+    assistantSpeechActive = true;
+    assistantBelowSince = 0;
+    floorEl.textContent = speechActive ? "overlap" : "assistant";
+    sendEvent("assistant.speech.started", { rms, observed_at: "playback" });
+  } else if (assistantSpeechActive) {
+    if (rms < 0.006) {
+      if (!assistantBelowSince) assistantBelowSince = now;
+      if (now - assistantBelowSince >= 240) {
+        assistantSpeechActive = false;
+        assistantBelowSince = 0;
+        floorEl.textContent = speechActive ? "you" : "idle";
+        sendEvent("assistant.speech.stopped", { rms, observed_at: "playback" });
+      }
+    } else {
+      assistantBelowSince = 0;
+    }
+  }
+}
+
 function initDecoder(): void {
   if (!audioContext) throw new Error("audio context missing");
   decoder = new Worker("/assets/decoderWorker.min.js");
@@ -105,6 +133,7 @@ function initDecoder(): void {
   decoder.onmessage = event => {
     const pcm = event.data?.[0] as Float32Array | undefined;
     if (!pcm?.length || !audioContext) return;
+    observeAssistantPcm(pcm);
     const buffer = audioContext.createBuffer(1, pcm.length, audioContext.sampleRate);
     buffer.copyToChannel(pcm, 0);
     const source = audioContext.createBufferSource();
@@ -167,6 +196,11 @@ async function disconnect(): Promise<void> {
     audioContext = null;
   }
   playbackAt = 0;
+  if (assistantSpeechActive) {
+    sendEvent("assistant.speech.stopped", { reason: "disconnect", observed_at: "playback" });
+  }
+  assistantSpeechActive = false;
+  assistantBelowSince = 0;
   micEl.textContent = "off";
   codecEl.textContent = "—";
   queueEl.textContent = "0 ms";
