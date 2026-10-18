@@ -20,8 +20,8 @@ const routes: Route[] = [
     id: "hybrid", name: "Hybrid · phone + Tern", badge: "recommended",
     detail: "Phone microphone / launcher, Hermes or OMP in Tern, verified actions over Wi-Fi ADB.",
     guidance: "Keep your existing ADB pairing. Install Hermes phone-harness on the Tern host and keep script approvals on. Start a z0live host session with an admitted VoicePlan; phone-to-host streaming needs an explicitly secured transport. Selecting this route does not establish that transport.",
-    href: "https://github.com/ShawnPana/phone-harness/tree/main/integrations/hermes",
-    action: "Hermes phone plugin",
+    href: "/",
+    action: "Open local voice session",
   },
   {
     id: "chatgpt", name: "ChatGPT Voice · official app",
