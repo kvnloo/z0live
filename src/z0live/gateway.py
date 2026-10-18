@@ -186,6 +186,13 @@ class RuntimeGateway:
                         command_id=str(c.get("command_id") or "")
                         or __import__("uuid").uuid4().hex,
                     )
+                    if self.runtime.harness is None:
+                        await ws.send(json.dumps({
+                            "type": "harness.result",
+                            "command_id": command.command_id,
+                            "result": {"ok": False, "error": "no harness attached"},
+                        }))
+                        continue
                     task = self.runtime.dispatch_harness(command)
                     asyncio.create_task(
                         self._send_harness_result(ws, command.command_id, task)
