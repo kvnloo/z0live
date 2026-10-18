@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
+import ipaddress
 import json
+import re
 from dataclasses import dataclass
 
 from .contracts import (
@@ -18,6 +21,18 @@ from .runtime import ConversationRuntime, RuntimeHooks
 class GatewayAddress:
     host: str = "127.0.0.1"
     port: int = 8765
+
+
+_LOOPBACK_ORIGIN = re.compile(r"http://(?:localhost|127\\.0\\.0\\.1|\\[::1\\])(?::[0-9]+)?")
+
+
+def _is_loopback_host(host: str) -> bool:
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 class RuntimeGateway:
@@ -55,11 +70,16 @@ class RuntimeGateway:
     async def start(self) -> None:
         from websockets.asyncio.server import serve
 
+        # Tern and the browser share Android's loopback stack. No LAN-facing
+        # unauthenticated control endpoint, and no cross-site WebSocket clients.
+        if not _is_loopback_host(self.address.host):
+            raise ValueError("z0live gateway must listen on loopback")
         self._server = await serve(
             self._handle,
             self.address.host,
             self.address.port,
             max_size=None,
+            origins=[None, _LOOPBACK_ORIGIN],
         )
 
     async def _handle(self, ws) -> None:
@@ -166,7 +186,17 @@ class RuntimeGateway:
                         command_id=str(c.get("command_id") or "")
                         or __import__("uuid").uuid4().hex,
                     )
-                    self.runtime.dispatch_harness(command)
+                    if self.runtime.harness is None:
+                        await ws.send(json.dumps({
+                            "type": "harness.result",
+                            "command_id": command.command_id,
+                            "result": {"ok": False, "error": "no harness attached"},
+                        }))
+                        continue
+                    task = self.runtime.dispatch_harness(command)
+                    asyncio.create_task(
+                        self._send_harness_result(ws, command.command_id, task)
+                    )
                 elif typ == "interrupt":
                     await self.runtime.actor.interrupt()
                 elif typ == "ping":
@@ -175,6 +205,20 @@ class RuntimeGateway:
                     break
         finally:
             self._clients.discard(ws)
+
+    async def _send_harness_result(self, ws, command_id: str, task: asyncio.Task) -> None:
+        try:
+            result = await task
+            payload = {"type": "harness.result", "command_id": command_id,
+                       "result": result}
+        except Exception as exc:
+            payload = {"type": "harness.result", "command_id": command_id,
+                       "result": {"ok": False, "error": str(exc)}}
+        try:
+            await ws.send(json.dumps(payload))
+        except Exception:
+            # Browser may disconnect while Hermes / OMP is still processing.
+            pass
 
     async def _broadcast_binary(self, data: bytes) -> None:
         dead = []
