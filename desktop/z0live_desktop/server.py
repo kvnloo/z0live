@@ -100,7 +100,21 @@ class Handler(BaseHTTPRequestHandler):
                 body = json.loads(self.rfile.read(length))
             query = parse_qs(parsed.query)
             store = self.server.store
-            if method == "GET" and path == "/v1/health":
+            if method == "GET" and path == "/v1/devices/self":
+                result = {"device_id": device}
+            elif method == "POST" and path == "/v1/gesture":
+                result = store.gestures.submit(device, body)
+            elif method == "POST" and path == "/v1/gesture/listener":
+                result = store.gestures.listener(device, body)
+            elif method == "POST" and path == "/v1/gesture/activity":
+                result = store.gestures.activity(device, body)
+            elif method == "POST" and path == "/v1/gesture/pin":
+                result = store.gestures.pin(device, body)
+            elif method == "POST" and path == "/v1/gesture/ack":
+                result = store.gestures.ack(device, body)
+            elif method == "GET" and path == "/v1/gesture/commands":
+                result = store.gestures.commands(device)
+            elif method == "GET" and path == "/v1/health":
                 result = {"ok": True, "version": VERSION}
             elif method == "POST" and path == "/v1/realtime/session":
                 result = store.new_session(device, body)
