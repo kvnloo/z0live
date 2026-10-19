@@ -1,0 +1,26 @@
+{
+  "name": "@kvnloo/z0live-desktop-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Injectable browser/React Native HTTP client for z0live desktop v1",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test tests/*.test.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "devDependencies": {
+    "typescript": "5.7.3"
+  }
+}
