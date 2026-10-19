@@ -366,7 +366,12 @@ class VoiceToolsTests(unittest.TestCase):
                 ],
             }
         ]
-        with patch.object(sources, "run", return_value=json.dumps(prs)):
+        with (
+            patch.object(sources, "run", return_value=json.dumps(prs)),
+            patch.object(
+                sources, "projects", return_value={"lawnchair": self.tmp.name}
+            ),
+        ):
             result = sources.task_sources(project="lawnchair", ident="14")
         self.assertEqual(result["items"][0]["status"], "OPEN draft")
         self.assertEqual(result["items"][0]["checks"][0]["conclusion"], "SUCCESS")
