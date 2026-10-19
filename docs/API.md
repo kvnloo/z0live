@@ -100,6 +100,27 @@ Builtins available in every session:
 | `tell_hermes` | `{text,kind}`; kind `request|complaint|bug|praise` | `POST /v1/tools/tell_hermes` |
 | `get_context` | `{}` | `POST /v1/tools/get_context` |
 | `summarize` | `{text}` | `POST /v1/tools/summarize` |
+| `work_search` | `{query,scope?,project?}`; scope `recent|all` | `POST /v1/tools/work_search` |
+| `ask_hermes` | `{question}` | `POST /v1/tools/ask_hermes` |
+| `start_task` | `{title,details,project?,priority?}` | `POST /v1/tools/start_task` |
+| `task_status` | `{id?,project?}` | `POST /v1/tools/task_status` |
+| `what_changed` | `{since?,project?}`; since `today|yesterday|week` | `POST /v1/tools/what_changed` |
+
+New session responses also include `builtin_tools:["tell_hermes",…]`. Route these names to the
+broker; execute declared app tools locally. Clients with a static allowlist must add all five work
+tools, including `what_changed`. No new pairing/permission is required; reconnect to mint them.
+
+Work-tool bodies may include the provider `call_id`. For `ask_hermes` and `start_task`, retrying the
+same session/call ID reuses its durable job; changed arguments with the same ID are rejected.
+Lookup responses contain `{id,status,partial,say,items,sources,gaps,local_tasks}`. Each item has
+`source,project,date,session,what,status,citation`. Ready evidence is returned within a 2.7-second
+lookup wait; slower source completion arrives in inbox with `params.lookup_id` and `params.result`.
+`ask_hermes` waits up to 24 seconds (use a client HTTP timeout >25 s), then returns a truthful pending
+message and delivers the answer later. A synchronous answer is not duplicated in inbox.
+`start_task` immediately returns `{ok:true,id:"voice-N",status:"queued",track:"/v1/tools/task_status",say}`;
+Hermes subsequently supplies its actual kanban/issue ID and plan. Request completion is not task
+completion. Destructive/costly actions require plan readback and explicit confirmation. See
+[VOICE-TOOLS.md](VOICE-TOOLS.md) for sources, limits, setup, offline Telegram delivery and live evidence.
 
 Each helper body: `{"session_id":"...","arguments":{...}}`. `tell_hermes` returns
 `{ok:true,id:INTEGER,status:"queued"}`. `get_context` returns `{session_id,client,context}`;
