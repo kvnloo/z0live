@@ -20,10 +20,18 @@ ln -s "$PWD/bin/z0live" ~/.local/bin/z0live
 systemctl --user daemon-reload
 systemctl --user enable --now z0live-hermes.service z0live.service
 tailscale serve --bg --https=8791 http://127.0.0.1:8791
-z0live pair samsung-s25-ultra
+z0live pair s25 --qr
 ```
 
-Use the printed token/deeplink only in the intended phone UI. Do not paste it into chats or shell history.
+Install `qrencode` for QR output (Arch: `sudo pacman -S qrencode`). On the phone open
+**z0live → Scan pairing QR → confirm**; when already paired the button is in Settings.
+`z0live pair s25 --qr-png /private/new-pairing.png` writes a new **0600** PNG instead;
+flags can be combined. Existing files and symlinks are refused. Delete the image after pairing.
+QR modes never print a plaintext token/link, and pass the credential to qrencode through stdin,
+not process arguments. If rendering fails the new device token is revoked. Without QR flags,
+`z0live pair NAME` retains the printed token/deeplink fallback. Use it only in the intended
+phone UI; do not paste it into chats or shell history. All QR/link tokens remain valid until
+revoked (no short-lived activation exchange); protect terminal scrollback and QR screenshots.
 Existing Tailscale routes remain untouched; this adds only port 8791. Never enable Funnel. User lingering
 is already enabled on this host; services survive terminal logout and restart after crashes.
 
