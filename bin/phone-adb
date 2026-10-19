@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+"""Owner-operated wireless ADB setup; agents must obtain install/UI consent separately."""
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+
+PHONE_IP = "100.117.226.39"
+PHONE_SERIAL = "R5CY93G2WNH"
+STATE = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "z0live/phone-adb.json"
+SDK_ADB = Path.home() / "android/sdk/platform-tools/adb"
+ADB = os.environ.get("PHONE_ADB_BIN") or (str(SDK_ADB) if SDK_ADB.is_file() else shutil.which("adb"))
+DEVICE_COMMANDS = {"shell", "exec-out", "install", "logcat", "get-state"}
+
+
+class PhoneIdentityError(RuntimeError):
+    """Never fall back to another endpoint after a hardware mismatch."""
+
+
+def port(value):
+    if not re.fullmatch(r"[0-9]{1,5}", str(value)) or not 1 <= int(value) <= 65535:
+        raise argparse.ArgumentTypeError("Port must be an integer from 1 through 65535")
+    return int(value)
+
+
+def run(args, timeout=15, capture=True):
+    return subprocess.run(args, timeout=timeout, capture_output=capture, text=True)
+
+
+def adb(*args, timeout=15, capture=True):
+    if not ADB:
+        raise RuntimeError("adb not found; install platform-tools or set PHONE_ADB_BIN")
+    return run([ADB, *map(str, args)], timeout=timeout, capture=capture)
+
+
+def load():
+    if not STATE.exists():
+        return {}
+    data = json.loads(STATE.read_text())
+    if not isinstance(data, dict) or data.get("host") != PHONE_IP or data.get("serial") != PHONE_SERIAL:
+        raise PhoneIdentityError("Saved phone identity mismatch; refusing to use this target")
+    data["port"] = port(data.get("port", ""))
+    return data
+
+
+def save(p):
+    STATE.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    temporary = STATE.with_name(STATE.name + f".{os.getpid()}.new")
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w") as stream:
+            json.dump({"host": PHONE_IP, "port": port(p), "serial": PHONE_SERIAL}, stream)
+            stream.write("\n")
+        os.replace(temporary, STATE)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def target(p):
+    return f"{PHONE_IP}:{port(p)}"
+
+
+def verify(p):
+    address = target(p)
+    ready = adb("-s", address, "get-state")
+    if ready.returncode or ready.stdout.strip() != "device":
+        return False
+    identity = adb("-s", address, "shell", "getprop", "ro.serialno")
+    if identity.returncode or identity.stdout.strip() != PHONE_SERIAL:
+        raise PhoneIdentityError("Connected hardware serial does not match Kevin's S25 Ultra")
+    return True
+
+
+def connect(p):
+    reply = adb("connect", target(p))
+    print((reply.stdout + reply.stderr).strip())
+    if not verify(p):
+        raise RuntimeError("ADB is not authorized/online. Check Wireless debugging and the current connect port; pair if required")
+    save(p)
+    print(f"Verified {PHONE_SERIAL} at {target(p)}")
+    return p
+
+
+def parse_discovery(text):
+    ports = set()
+    for row in text.splitlines():
+        fields = row.split(";")
+        if (len(fields) > 8 and fields[0] == "=" and
+                fields[3].startswith(f"adb-{PHONE_SERIAL}-") and fields[4] == "_adb-tls-connect._tcp"):
+            ports.add(port(fields[8]))
+    return sorted(ports)
+
+
+def discover():
+    if not shutil.which("avahi-browse"):
+        raise RuntimeError("LAN discovery needs avahi-browse; otherwise use connect PORT from the phone screen")
+    result = run(["avahi-browse", "-rtp", "_adb-tls-connect._tcp"], timeout=12)
+    return parse_discovery(result.stdout)
+
+
+def reconnect():
+    previous = load()
+    if previous:
+        try:
+            return connect(previous["port"])
+        except PhoneIdentityError:
+            raise
+        except (RuntimeError, subprocess.TimeoutExpired) as exc:
+            print(f"Saved endpoint unavailable: {exc}", file=sys.stderr)
+    found = discover()
+    if len(found) != 1:
+        raise RuntimeError("No unique S25 Ultra connect port on this LAN. mDNS does not cross Tailscale; read the phone's current port and run connect PORT")
+    return connect(found[0])
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("status")
+    sub.add_parser("discover", help="Discover only this hardware serial over the local LAN")
+    sub.add_parser("reconnect", help="Try saved tailnet endpoint, then same-LAN discovery")
+    sub.add_parser("env", help="Print exports for a NEW agent process; does not change the current session")
+    pair = sub.add_parser("pair", help="Owner only: adb prompts interactively for the code; never put it in chat/argv")
+    pair.add_argument("port", type=port)
+    pair.add_argument("--host", default=PHONE_IP, help="Use the Wi-Fi IP shown by Android if Samsung blocks VPN pairing")
+    conn = sub.add_parser("connect")
+    conn.add_argument("port", type=port)
+    execute = sub.add_parser("exec", help="Pinned adb arguments; install/UI actions still require owner approval")
+    execute.add_argument("args", nargs=argparse.REMAINDER)
+    args = parser.parse_args()
+    if args.command == "pair":
+        import ipaddress
+        host = str(ipaddress.IPv4Address(args.host))
+        result = adb("pair", f"{host}:{args.port}", timeout=120, capture=False)
+        return result.returncode
+    if args.command == "discover":
+        for p in discover():
+            print(target(p))
+        return 0
+    if args.command == "connect":
+        connect(args.port)
+        return 0
+    if args.command == "reconnect":
+        reconnect()
+        return 0
+    data = load()
+    if args.command == "status":
+        print(adb("devices", "-l").stdout.strip())
+        ok = bool(data) and verify(data["port"])
+        print("Verified saved phone" if ok else "No verified saved connection; run connect PORT or reconnect")
+        return 0 if ok else 1
+    if not data or not verify(data["port"]):
+        raise RuntimeError("Phone not ready; run reconnect or connect PORT first")
+    if args.command == "env":
+        for key, value in {"ANDROID_SERIAL": target(data["port"]), "PHONE_HARNESS_PLATFORM": "android", "PHONE_HARNESS_TELEMETRY": "0", "PHONE_HARNESS_CLASSIFIER_AUTO_RUN": "0", "PHONE_HARNESS_ADB": ADB}.items():
+            print(f"export {key}={shlex.quote(value)}")
+        return 0
+    if not args.args or args.args[0] not in DEVICE_COMMANDS:
+        raise RuntimeError("Allowed device commands: " + ", ".join(sorted(DEVICE_COMMANDS)) + "; global adb/server options are refused")
+    return adb("-s", target(data["port"]), *args.args, capture=False, timeout=300).returncode
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (RuntimeError, OSError, ValueError, argparse.ArgumentTypeError, subprocess.TimeoutExpired) as exc:
+        print(f"phone-adb: {exc}", file=sys.stderr)
+        sys.exit(1)
