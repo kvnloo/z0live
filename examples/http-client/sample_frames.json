@@ -1,0 +1,170 @@
+{
+  "fixture_revision": 1,
+  "provenance": "Synthetic contract examples only. No live endpoints, user tokens, transcripts or device traces.",
+  "server_origin": "https://broker.example.invalid",
+  "requests": [
+    {
+      "id": "mint",
+      "method": "POST",
+      "path": "/v1/realtime/session",
+      "body": {
+        "client": "web",
+        "context": {
+          "screen": "synthetic-home"
+        },
+        "tools": []
+      }
+    },
+    {
+      "id": "tell",
+      "method": "POST",
+      "path": "/v1/tools/tell_hermes",
+      "body": {
+        "session_id": "synthetic_session",
+        "arguments": {
+          "kind": "request",
+          "text": "synthetic desktop task"
+        }
+      }
+    },
+    {
+      "id": "context",
+      "method": "POST",
+      "path": "/v1/tools/get_context",
+      "body": {
+        "session_id": "synthetic_session",
+        "arguments": {}
+      }
+    },
+    {
+      "id": "summarize",
+      "method": "POST",
+      "path": "/v1/tools/summarize",
+      "body": {
+        "session_id": "synthetic_session",
+        "arguments": {
+          "text": "synthetic handoff"
+        }
+      }
+    },
+    {
+      "id": "events",
+      "method": "POST",
+      "path": "/v1/events",
+      "body": [
+        {
+          "session_id": "synthetic_session",
+          "ts": 1790000000.25,
+          "type": "user_transcript",
+          "text": "synthetic user transcript",
+          "data": {
+            "event_id": "synthetic_unique_event_1"
+          }
+        },
+        {
+          "session_id": "synthetic_session",
+          "ts": 1790000001,
+          "type": "tool_call",
+          "text": "",
+          "data": {
+            "event_id": "synthetic_unique_event_2",
+            "name": "example_local_tool",
+            "call_id": "synthetic_call"
+          }
+        }
+      ]
+    },
+    {
+      "id": "inbox",
+      "method": "GET",
+      "path": "/v1/inbox?after=0"
+    },
+    {
+      "id": "sessions",
+      "method": "GET",
+      "path": "/v1/sessions"
+    },
+    {
+      "id": "end",
+      "method": "POST",
+      "path": "/v1/sessions/synthetic_session/end",
+      "body": {}
+    }
+  ],
+  "responses": {
+    "mint": {
+      "value": "SYNTHETIC_EPHEMERAL_NOT_USABLE",
+      "expires_at": 1790000120,
+      "model": "gpt-realtime",
+      "voice": "marin",
+      "instructions_version": "z0live.persona.v2",
+      "session_id": "synthetic_session"
+    },
+    "tell": {
+      "ok": true,
+      "id": 1,
+      "status": "queued"
+    },
+    "context": {
+      "session_id": "synthetic_session",
+      "client": "web",
+      "context": {
+        "screen": "synthetic-home"
+      }
+    },
+    "summarize": {
+      "ok": true,
+      "status": "queued"
+    },
+    "events": {
+      "ok": true,
+      "accepted": 2
+    },
+    "inbox": {
+      "messages": [
+        {
+          "id": 2,
+          "say": "Synthetic, no action.",
+          "action": null,
+          "params": {},
+          "session_id": "synthetic_session"
+        },
+        {
+          "id": 3,
+          "say": "Synthetic optional action.",
+          "action": "sample_local",
+          "params": {
+            "target": "synthetic"
+          },
+          "session_id": "synthetic_session"
+        }
+      ],
+      "after": 3,
+      "has_more": false
+    },
+    "sessions": {
+      "sessions": [
+        {
+          "id": "synthetic_session",
+          "client": "web",
+          "created": 1790000000,
+          "updated": 1790000001,
+          "ended": 0
+        }
+      ]
+    },
+    "end": {
+      "ok": true,
+      "id": null
+    }
+  },
+  "known_invalid": {
+    "wrapped_events": {
+      "events": []
+    },
+    "bare_inbox": [],
+    "tool_aggregate": "/v1/tools",
+    "client_tool_as_broker": "/v1/tools/sample_local",
+    "query_token": "/v1/inbox?token=SYNTHETIC_TOKEN"
+  }
+}
