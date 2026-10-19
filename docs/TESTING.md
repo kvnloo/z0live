@@ -75,6 +75,7 @@ pass/fail/blocked, real audio result, tool execution receipts, reconnect behavio
 health/CI success alone is not end-to-end success; use [API.md](API.md) and [OPERATIONS.md](OPERATIONS.md)
 for broker/real-WebRTC gates. No provider/phone test is run automatically by this checklist.
 
-**This task:** wrapper tests and plugin import/registration checked; earlier ADB trust/connect succeeded.
-At the resumed check the phone was offline, so APK install, assistant role, Dash UI/audio and z0live
-phone end-to-end tests remain **blocked/not run**, not passed.
+**This task:** wrapper tests and final live ADB reconnect/identity checks passed; no new pairing.
+The bootstrapped Phone Harness CLI readiness probe passed, but integrated `phone_exec` failed with
+`ModuleNotFoundError` despite doctor passing; see PHONE-SETUP. APK install, assistant role, Dash
+UI/audio and z0live phone end-to-end tests are **not run**, not passed.
