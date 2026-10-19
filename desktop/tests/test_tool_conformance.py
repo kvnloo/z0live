@@ -217,9 +217,6 @@ class ToolConformance(unittest.TestCase):
         rejected({"client": "web", "context": {"large": "x" * 16001}}, "16000")
         rejected({"client": "unknown"}, "client must")
         rejected({"client": "web", "context": []}, "context must")
-        self.assertIn("session_id", self.store.new_session(
-            self.device, required
-        ) if False else {"session_id": self.sid})  # no provider access
         valid = [local_tool("local_" + str(n)) for n in range(32)]
         sid = self.session({"client": "web", "tools": valid})
         with self.store.connect() as db:
