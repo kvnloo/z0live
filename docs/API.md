@@ -52,11 +52,18 @@ use OpenAI Realtime function format (not Chat Completions' nested `function`). M
 48k characters in tools; unique names; builtins cannot be overridden. Context max 16k characters.
 The broker registers these schemas, but **the client executes app tools locally** with its own
 permission/approval and argument validation. This broker does not grant Android permissions.
+Persona `z0live.persona.v2` also injects the exact mint-time builtin + app tool catalog (names,
+descriptions and schemas) into instructions, so unavailable tools are not advertised. It identifies
+Realtime `gpt-realtime`/`marin`, direct phone/OpenAI WebRTC, the short-lived tailnet mint broker and
+separate persistent Claude Opus Hermes session. Local phone commands stay local unless delegation
+is requested. Results, ambiguity and required permissions must be reported honestly; dial/SMS tools
+open a composer only, never auto-send. Back/recents require explicit optional accessibility and a
+supporting declared tool. App context is metadata, not an ability to read screens.
 
 Response (the first five fields are the stable required contract; `session_id` is additive):
 
 ```json
-{"value":"EPHEMERAL_SECRET","expires_at":1790000000,"model":"gpt-realtime","voice":"marin","instructions_version":"z0live.persona.v1","session_id":"SERVER_GENERATED_ID"}
+{"value":"EPHEMERAL_SECRET","expires_at":1790000000,"model":"gpt-realtime","voice":"marin","instructions_version":"z0live.persona.v2","session_id":"SERVER_GENERATED_ID"}
 ```
 
 Use this `session_id` for all events/tools/end calls. Mint at connection time: the client secret expires
