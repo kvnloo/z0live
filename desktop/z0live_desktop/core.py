@@ -437,7 +437,7 @@ class Store:
         )
         return cur.lastrowid
 
-    def send(self, device, body):
+    def send(self, device, body, *, kind="direct"):
         if not isinstance(body, dict):
             raise ValueError("expected object")
         value = text(body.get("text"))
@@ -445,7 +445,7 @@ class Store:
         with self.connect() as db:
             if sid:
                 self.owned(db, sid, device)
-            job = self.enqueue(db, "direct", value, sid)
+            job = self.enqueue(db, kind, value, sid)
         return {"ok": True, "id": job, "status": "queued"}
 
     def add_events(self, device, events):
@@ -746,6 +746,7 @@ class Store:
                     "session_id": sid,
                     "text": "Owner " + args["kind"] + ": " + text(args.get("text")),
                 },
+                kind="direct" if args["kind"] == "request" else "feedback_note",
             )
         if name == "summarize":
             value = text(args.get("text"), 8000)
@@ -784,7 +785,14 @@ class Store:
                 "SELECT id,ended,updated FROM sessions WHERE device=? ORDER BY created DESC,rowid DESC LIMIT 1",
                 (device,),
             ).fetchone()
-            for item in items:
+            note_sources = {
+                "run:" + r[0]
+                for r in db.execute(
+                    "SELECT run_id FROM jobs WHERE kind IN ('summary','seed','context','feedback','feedback_note') AND run_id IS NOT NULL"
+                )
+            }
+            for item, source_row in zip(items, rows):
+                note = source_row["source"] in note_sources
                 stale = (
                     not latest
                     or latest["ended"]
@@ -795,11 +803,15 @@ class Store:
                 turn = item["params"].get("turn_id")
                 if turn and self._voice is not None:
                     cancelled = self.voice.journal.cancelled(turn)
-                if stale or cancelled:
+                if stale or cancelled or note:
                     item["params"] = {
                         **item["params"],
                         "silent": True,
-                        "suppressed": "stale_session" if stale else "cancelled_turn",
+                        "suppressed": "note_to_hermes"
+                        if note
+                        else "stale_session"
+                        if stale
+                        else "cancelled_turn",
                         "historical_say": item["say"],
                     }
                     item["say"], item["action"] = "", None

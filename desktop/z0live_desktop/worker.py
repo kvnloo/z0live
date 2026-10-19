@@ -202,7 +202,8 @@ This message only updates your operating context; do not start tasks or change f
             if (
                 say
                 and delivery == "inbox"
-                and job["kind"] not in {"summary", "seed", "context"}
+                and job["kind"]
+                not in {"summary", "seed", "context", "feedback", "feedback_note"}
             ):
                 device = None
                 if job["session_id"]:

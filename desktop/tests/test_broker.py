@@ -133,7 +133,9 @@ class BrokerTests(unittest.TestCase):
         self.store.end(self.device, self.sid)
         with self.store.connect() as db:
             rows = db.execute("SELECT kind,text FROM jobs ORDER BY id").fetchall()
-        self.assertEqual([r["kind"] for r in rows], ["feedback", "direct", "summary"])
+        self.assertEqual(
+            [r["kind"] for r in rows], ["feedback", "feedback_note", "summary"]
+        )
         self.assertIn("unit transcript", rows[-1]["text"])
         self.assertIn("unit feedback", rows[-1]["text"])
         with self.assertRaises(ValueError):
