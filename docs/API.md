@@ -26,6 +26,10 @@ the token in Keystore-backed encrypted storage. Treat pairing links/QRs as beare
 (established SSE streams recheck at their next 15-second heartbeat).
 Tokens have no automatic expiry; pair again after loss/revocation. Each pairing is a separate device.
 
+## Multi-agent work (additive desktop contract)
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for ownership and failure semantics. New planned sessions expose `voice_plan` (full immutable z0intelligence binding + digest), `ask_z0` and `cancel_work` in `builtin_tools`. The five required ephemeral fields remain unchanged. A missing plan is explicit (`voice_plan:null`); legacy tools still work, but `ask_z0` reports unavailable. Reconnect to adopt new roles; no turn-by-turn model change.
+
 ## Endpoints
 
 ### `GET /v1/health`
@@ -97,6 +101,8 @@ Builtins available in every session:
 
 | Name | Arguments | Client dispatch |
 |---|---|---|
+| `ask_z0` | `{question}` | `POST /v1/tools/ask_z0`; preferred single work entry point |
+| `cancel_work` | `{}` | `POST /v1/tools/cancel_work`; cancel current session work tree |
 | `tell_hermes` | `{text,kind}`; kind `request|complaint|bug|praise` | `POST /v1/tools/tell_hermes` |
 | `get_context` | `{}` | `POST /v1/tools/get_context` |
 | `summarize` | `{text}` | `POST /v1/tools/summarize` |
@@ -107,8 +113,9 @@ Builtins available in every session:
 | `what_changed` | `{since?,project?}`; since `today|yesterday|week` | `POST /v1/tools/what_changed` |
 
 New session responses also include `builtin_tools:["tell_hermes",…]`. Route these names to the
-broker; execute declared app tools locally. Clients with a static allowlist must add all five work
-tools, including `what_changed`. No new pairing/permission is required; reconnect to mint them.
+broker; execute declared app tools locally. Clients with a static allowlist must dispatch all returned builtins, including `what_changed`, `ask_z0` and `cancel_work`. No new pairing/permission is required; reconnect to mint them.
+
+`ask_z0` requires `{session_id,call_id?,arguments:{question}}`. It returns `{ok,id,turn_id,status,say,trace?}` immediately; cached model identity is `status:completed,cache:pinned_voice_plan`. Otherwise the brief/meta/workers run asynchronously and short progress/final speech arrives through inbox/SSE, with `params.turn_id`, `params.event`, and the full final `params.result`. Reuse the exact provider `call_id` on retry; changed arguments fail. Latest active user-started session only: old/ended sessions cannot admit new liaison work. For planned sessions `ask_hermes` and `tell_hermes(kind:request)` are compatibility aliases to L1 (immediate async response, not the old 24-second wait). Other legacy tool schemas remain unchanged.
 
 Work-tool bodies may include the provider `call_id`. For `ask_hermes` and `start_task`, retrying the
 same session/call ID reuses its durable job; changed arguments with the same ID are rejected.
@@ -140,7 +147,21 @@ Body is a **bare batched array**, not `{events:[...]}`:
 ]
 ```
 
-Types exactly: `user_transcript|assistant_transcript|tool_call|tool_result|summary|feedback|app_state`.
+Types: `user_transcript|assistant_transcript|tool_call|tool_result|summary|feedback|app_state|floor|barge_in|cancel|model_usage`.
+
+Floor/cancel events are ordered client observations, not inferred from audio on the broker:
+
+```json
+[
+  {"session_id":"...","type":"floor","data":{"event_id":"floor-42","state":"user","barge_in":true}},
+  {"session_id":"...","type":"floor","data":{"event_id":"floor-43","state":"quiet"}}
+]
+```
+
+Map Realtime `input_audio_buffer.speech_started` to `state:user`, with `barge_in:true` when interrupting outstanding work; `speech_stopped` can release to `quiet` only if no assistant/TTS is active. `response.created` → `assistant`; `response.done` → `quiet` when the user/TTS is also quiet. Explicit `barge_in` or `cancel` events and `data.topic_changed:true` cancel the session's admitted voice tree. The final literal “never mind”/“cancel that” transcript and `cancel_work` also cancel it. Provider-only `response.cancel` does not reach desktop workers. On local barge-in, discard queued TTS for the interrupted `params.turn_id` before speaking anything else.
+
+Optional usage telemetry: `model_usage.data:{turn_id,response_id,usage,ms?}` from `response.done`. The turn must belong to the supplied session. This is client-observed L0 accounting, not a billing assertion. IDs deduplicate telemetry like other events.
+
 `ts` is client Unix seconds (ISO string accepted); server receipt time is stored separately.
 `text` max 16k, `data` object; max 100 events/batch, 32k characters/event, 1 MB request.
 An invalid batch is rejected atomically; retry only after correction. Response `{ok:true,accepted:N}`.
@@ -183,6 +204,8 @@ string `session_id`. A broadcast reply can have `session_id:null`. Empty pages p
 {"messages":[],"after":0,"has_more":false}
 ```
 
+Speech is **not an audible backlog**. Summaries, setup/context notes and status-only sessions never produce spoken replies. Only the latest non-ended session for this device, active in the last 120 s, may receive non-empty `say`/an action. Historical/superseded/ended/broadcast items still advance their normal IDs/cursor but have `say:""`, `action:null`, and `params:{silent:true,suppressed:...,historical_say:...}` in addition to existing parameters. Cancelled turns are similarly silent. Do not read `historical_say` aloud. Floor-held new stack speech is not emitted until `quiet`. Clients must also filter to the currently human-started session and queue against actual local audio; server floor knowledge depends on these client events.
+
 IDs monotonically increase across speech and actions. Start at 0; persist the returned cursor after
 processing. Up to 100 messages/page; follow `has_more`. A message with `action:null` is speech only.
 For non-null action, dispatch only a tool supported/declared by this client, validate params and permissions,
@@ -204,9 +227,17 @@ inbox are read-only/replayable, not destructive queues.
 `{sessions:[{id,client,created,updated,ended}]}`: latest 100 sessions for this device, newest first.
 Timestamps are Unix seconds, `ended` is 0/1. `GET /v1/context?session_id=...` also exposes latest context.
 
+### `POST /v1/cancel`
+
+`{"session_id":"...","turn_id":"optional exact turn"}`. Session ownership is checked before cancellation. Returns `{ok,status,turn_ids,say}`. `cancelling` means stops are requested; trace `cancel_confirmed` events name exact native run IDs and terminal statuses. No false terminal success when the native host is unavailable. `cancel_work` is the equivalent Realtime tool for all admitted work in the session.
+
+### `GET /v1/trace?turn_id=...` (or `session_id=...`)
+
+Returns `{events:[...]}` for the owning paired device only. Each observation has `turn_id,sid,layer,role,model,event,ts,ms,usage,cost_usd,details,cost_status`. Native lifecycle/runtime IDs and per-layer usage are included where supplied. Missing dollar billing is `cost_usd:null`, not zero. Local Hermes can use `z0live trace --turn ID` without another model call. JSONL snapshots are under `Z0LIVE_DATA/traces/` (0600); SQLite is canonical. This is observation/replay, not a second task ledger or proof of successful effects.
+
 ### `POST /v1/sessions/SESSION_ID/end`
 
-Body `{}`. Flushes an outstanding compact summary and marks the session ended; safe to repeat.
+Body `{}`. Flushes an outstanding compact summary as a **silent note to Hermes** and marks the session ended; safe to repeat.
 Alternatively set `data.session_end:true` on the final event (e.g. `summary`). Always call at hangup.
 If the phone disappears, the service independently flushes after 120 idle seconds, without deleting history.
 Every 300 active-conversation seconds it also produces an extractive compact summary (last 16 salient
