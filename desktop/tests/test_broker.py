@@ -231,7 +231,13 @@ class BrokerTests(unittest.TestCase):
         FakeWorker(self.store, threading.Event()).tick()
         FakeWorker(self.store, threading.Event()).tick()
         self.assertEqual(sum(path == "/v1/runs" for path, _, _ in calls), 1)
-        self.assertEqual(calls[0][2], "z0live-job-1")
+        with self.store.connect() as db:
+            persisted_key = db.execute(
+                "SELECT native_key FROM jobs WHERE id=1"
+            ).fetchone()[0]
+        self.assertEqual(calls[0][2], persisted_key)
+        self.assertTrue(persisted_key.startswith("z0live-"))
+        self.assertTrue(persisted_key.endswith("-job-1"))
         self.assertEqual(
             self.store.inbox(self.device)["messages"][0]["say"], "unit reply"
         )
