@@ -1,0 +1,199 @@
+# z0live desktop API v1
+
+Base URL: **https://0.taila30dc.ts.net:8791** (Tailscale Serve → `127.0.0.1:8791`, tailnet only).
+All routes, including health and SSE, require `Authorization: Bearer DEVICE_TOKEN`.
+JSON POST bodies require `Content-Type: application/json`. Never put tokens in URL queries except the
+one-time pairing deeplink; never log that link. HTTPS uses the normal Tailscale certificate.
+
+## Pairing
+
+On the desktop, run `z0live pair NAME` (or `./bin/z0live pair NAME`). It prints a new device token
+and `z0live://pair?url=https%3A%2F%2F0.taila30dc.ts.net%3A8791&token=...`.
+The token is shown once; SHA-256 token verifiers are stored in a **0600** `devices.json` in the
+0700 service data directory. No plaintext permanent device/provider credential is committed.
+Android must register the `z0live://pair` intent, validate HTTPS URL/expected tailnet host, then store
+the token in Keystore-backed encrypted storage. Treat pairing links/QRs as bearer credentials.
+`z0live devices` lists IDs/names, not tokens; `z0live revoke DEVICE_ID` immediately revokes new requests
+(established SSE streams recheck at their next 15-second heartbeat).
+Tokens have no automatic expiry; pair again after loss/revocation. Each pairing is a separate device.
+
+## Endpoints
+
+### `GET /v1/health`
+
+```json
+{"ok":true,"version":"1.0.0"}
+```
+
+### `POST /v1/realtime/session`
+
+```json
+{
+  "client":"lawnchair",
+  "context":{"app":"com.example.app","screen":"home"},
+  "tools":[{
+    "type":"function","name":"open_app","description":"Open an installed app, subject to local permission",
+    "parameters":{"type":"object","properties":{"package":{"type":"string"}},"required":["package"],"additionalProperties":false}
+  }]
+}
+```
+
+`client` is exactly `lawnchair|assistant|dash|web`. `context` and `tools` are optional. Tool schemas
+use OpenAI Realtime function format (not Chat Completions' nested `function`). Max 32 app tools,
+48k characters in tools; unique names; builtins cannot be overridden. Context max 16k characters.
+The broker registers these schemas, but **the client executes app tools locally** with its own
+permission/approval and argument validation. This broker does not grant Android permissions.
+
+Response (the first five fields are the stable required contract; `session_id` is additive):
+
+```json
+{"value":"EPHEMERAL_SECRET","expires_at":1790000000,"model":"gpt-realtime","voice":"marin","instructions_version":"z0live.persona.v1","session_id":"SERVER_GENERATED_ID"}
+```
+
+Use this `session_id` for all events/tools/end calls. Mint at connection time: the client secret expires
+120 seconds after creation (provider's `expires_at` is authoritative); establish the WebRTC connection
+promptly. This is not the duration of an established conversation. No underlying ChatGPT OAuth token
+is returned. The host reads the owner's existing `~/.codex/auth.json` lazily and derives
+`ChatGPT-Account-ID`; OAuth refresh failure is a 502, not a paid-key fallback.
+
+### Direct OpenAI WebRTC (not proxied through desktop)
+
+1. Acquire microphone from a user gesture with Android's microphone permission; use a foreground
+   microphone service/notification for ongoing phone-wide capture. Do not evade background-mic rules.
+2. Create `RTCPeerConnection`, attach audio input, attach remote audio to the actual output route.
+3. Create data channel `oai-events`; create offer and set local description.
+4. POST offer SDP **directly** to `https://api.openai.com/v1/realtime/calls`, headers
+   `Authorization: Bearer <value>` and `Content-Type: application/sdp`; apply the returned answer SDP.
+5. Handle live data-channel events. Audio goes phone ↔ OpenAI, not through z0live or Hermes.
+   A data-only/text-mode connection can use an audio recvonly transceiver and
+   `session.update` with `{session:{type:"realtime",output_modalities:["text"]}}`.
+6. `conversation.item.input_audio_transcription.completed` → `user_transcript` event.
+   `response.output_audio_transcript.done` (or legacy `response.audio_transcript.done`) →
+   `assistant_transcript`. Text-mode uses `response.output_text.done`.
+7. On `response.function_call_arguments.done`, parse arguments, execute the builtin or declared local
+   tool, then send `conversation.item.create` with `{type:"function_call_output",call_id,output:JSON.stringify(result)}`.
+   Log `tool_call` and `tool_result`. Only send the continuation `response.create` **after** the previous
+   `response.done`; function arguments can complete while a response is still active.
+8. Never present an upstream error as success. On connection loss close peer/tracks, flush events,
+   end the broker session, and mint a new one. Reconnect with bounded exponential backoff.
+
+Builtins available in every session:
+
+| Name | Arguments | Client dispatch |
+|---|---|---|
+| `tell_hermes` | `{text,kind}`; kind `request|complaint|bug|praise` | `POST /v1/tools/tell_hermes` |
+| `get_context` | `{}` | `POST /v1/tools/get_context` |
+| `summarize` | `{text}` | `POST /v1/tools/summarize` |
+
+Each helper body: `{"session_id":"...","arguments":{...}}`. `tell_hermes` returns
+`{ok:true,id:INTEGER,status:"queued"}`. `get_context` returns `{session_id,client,context}`;
+`context` starts from session creation and is updated by `app_state.data`. `summarize` queues a compact
+handoff; it does not end the session. The tools are not remotely executed by OpenAI: **clients must dispatch them**.
+Logging a `tool_call` event alone does not execute it. Alternatively `tell_hermes` can dispatch to
+`/v1/hermes/send` with text/session_id, and a summary can be sent as a `summary` event.
+
+### `POST /v1/events`
+
+Body is a **bare batched array**, not `{events:[...]}`:
+
+```json
+[
+  {"session_id":"...","ts":1790000000.25,"type":"user_transcript","text":"Please fix this","data":{"event_id":"unique-client-event-id"}},
+  {"session_id":"...","ts":1790000001,"type":"app_state","text":"","data":{"app":"com.example.app","screen":"details"}}
+]
+```
+
+Types exactly: `user_transcript|assistant_transcript|tool_call|tool_result|summary|feedback|app_state`.
+`ts` is client Unix seconds (ISO string accepted); server receipt time is stored separately.
+`text` max 16k, `data` object; max 100 events/batch, 32k characters/event, 1 MB request.
+An invalid batch is rejected atomically; retry only after correction. Response `{ok:true,accepted:N}`.
+Use `data.event_id` for persisted deduplication across offline/retry batches; duplicate IDs within
+one session are ignored. Omit it only for at-most-once producers. Preserve final transcripts, not audio.
+Events append to `sessions/SESSION_ID.jsonl` under the service data dir. SQLite is the canonical durable
+store; crash recovery repairs the append checkpoint and incomplete JSONL tails. No credentials/audio
+should appear in context/events. Sessions/events/history are scoped to the paired device.
+
+User transcripts are what Hermes **hears** in periodic/end summaries. Feedback events are queued
+immediately, independently of whether Realtime chose `tell_hermes`, and included in the next summary.
+A `summary` event supplies GPT's compact summary. For normal telemetry send `tool_call.data` as
+`{name,arguments,call_id}` and `tool_result.data` as `{name,call_id,result,success}`; these records are
+observability, **not executable instructions**. Post an action's actual result to confirm execution.
+
+### `POST /v1/hermes/send`
+
+```json
+{"text":"Please investigate this","session_id":"optional originating broker session"}
+```
+
+Response `{ok:true,id:INTEGER,status:"queued"}`. Dedicated long-lived native Hermes session:
+**title/id `z0live`**, `anthropic/claude-opus-5-5`, cwd this repository. Runs are serialized and use a durable
+exact payload + Idempotency-Key. Compression continuations are followed from native run responses.
+Accepted is not completed; run failures/interruption are delivered honestly, never automatically replayed
+as fresh tool runs. A job without originating session broadcasts its reply to the owner's paired devices.
+
+### `GET /v1/inbox?after=N`
+
+```json
+{"messages":[{"id":1,"say":"I checked it.","action":null,"params":{},"session_id":"..."}],"after":1,"has_more":false}
+```
+
+The top-level value is always an **object**, never a bare array or an `items`/`inbox` wrapper.
+`messages` is always an array, `after` an integer and `has_more` a boolean. Every message has
+integer `id`, string `say`, nullable string `action`, object `params` (never null), and nullable
+string `session_id`. A broadcast reply can have `session_id:null`. Empty pages preserve the cursor:
+
+```json
+{"messages":[],"after":0,"has_more":false}
+```
+
+IDs monotonically increase across speech and actions. Start at 0; persist the returned cursor after
+processing. Up to 100 messages/page; follow `has_more`. A message with `action:null` is speech only.
+For non-null action, dispatch only a tool supported/declared by this client, validate params and permissions,
+then report `tool_result` (failure as well as success). Unsupported/stale-session actions must not execute.
+Use `say` for phone TTS. Prevent TTS echo (pause/mute mic while local Hermes TTS is playing), and do not
+speak over the user or an active Realtime response: queue until a safe turn boundary. Do not acknowledge
+an action as complete until the actual device result is known. Deduplicate on message ID.
+
+### `GET /v1/stream?after=N` (SSE)
+
+Same messages as inbox; header auth required. Event `message`, SSE `id` equals message ID, `data` is
+one message object. Accepts `Last-Event-ID` on reconnect if `after` is absent. Heartbeat comments every
+15 seconds; reconnect with last processed ID. Native Android can use streaming HTTP; browser clients
+must use `fetch` streaming (native `EventSource` cannot set Authorization). Max 16 streams. SSE and
+inbox are read-only/replayable, not destructive queues.
+
+### `GET /v1/sessions`
+
+`{sessions:[{id,client,created,updated,ended}]}`: latest 100 sessions for this device, newest first.
+Timestamps are Unix seconds, `ended` is 0/1. `GET /v1/context?session_id=...` also exposes latest context.
+
+### `POST /v1/sessions/SESSION_ID/end`
+
+Body `{}`. Flushes an outstanding compact summary and marks the session ended; safe to repeat.
+Alternatively set `data.session_end:true` on the final event (e.g. `summary`). Always call at hangup.
+If the phone disappears, the service independently flushes after 120 idle seconds, without deleting history.
+Every 300 active-conversation seconds it also produces an extractive compact summary (last 16 salient
+transcripts/results, counts, and all feedback since the prior summary); GPT-supplied summaries are preferred.
+The service does not fabricate an LLM summary if none was sent. `Z0LIVE_SUMMARY_SECONDS` and
+`Z0LIVE_IDLE_SECONDS` configure these intervals. Active time accumulates across transcript/tool events,
+with individual gaps capped at 60 seconds; silence alone does not count as conversation.
+
+## Errors/security
+
+`400` invalid body/schema, `401` missing/revoked device token, `403` browser origin denied,
+`404` unknown route or another device's session, `429` stream limit, `502` provider unavailable.
+Health is liveness only, not a claim of upstream readiness. No query-token authentication. Loopback
+listener only; Tailscale Serve is tailnet-only, not Funnel. Device tokens authorize owner-level delegation
+through Hermes; pair only trusted devices. All paired devices belong to the same owner; direct messages
+without session and seed replies broadcast intentionally. Browser cross-origin access is disabled unless
+an exact origin is allowlisted with `Z0LIVE_CORS_ORIGINS` (comma-separated). No wildcard CORS.
+
+## Garden Room migration (no Garden Room changes made)
+
+A future Garden Room adapter can pair as `web`, mint via `/v1/realtime/session` declaring its existing
+`get_app_state`, `app_action`, layouts and AR tools, and keep executing these locally in `voice.js`.
+Use this broker's builtin tell_hermes/context/summary dispatch, normalized batched events and inbox/SSE;
+retain Garden Room's mic/audio gesture and turn-continuation handling. Allowlist its exact HTTPS origin
+in `data/z0live/service.env` as `Z0LIVE_CORS_ORIGINS=https://0.taila30dc.ts.net:8790` before testing.
+Do not embed a permanent token in public JS; obtain it via pairing and keep it in an authenticated client
+store. This is a separate adapter, not a change to the portable v0 WebSocket/VoicePlan protocol in PRs #6/#7.

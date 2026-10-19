@@ -1,0 +1,1 @@
+{"private":true,"type":"module","scripts":{"live":"node live_webrtc.mjs"},"devDependencies":{"playwright-core":"^1.56.1"}}
