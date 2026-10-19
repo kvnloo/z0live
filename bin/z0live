@@ -26,6 +26,9 @@ def main():
     pair.add_argument(
         "--qr-png", metavar="PATH", help="write private PNG QR (new file only)"
     )
+    say = sub.add_parser("say")
+    say.add_argument("--session", required=True)
+    say.add_argument("text")
     sub.add_parser("devices")
     revoke = sub.add_parser("revoke")
     revoke.add_argument("device_id")
@@ -100,6 +103,14 @@ def main():
         finally:
             if png is not None and not png.closed:
                 png.close()
+    elif args.command == "say":
+        ident = store.publish(args.text, sid=args.session)
+        with store.connect() as db:
+            if not db.execute(
+                "SELECT 1 FROM inbox WHERE id=? AND session_id=?", (ident, args.session)
+            ).fetchone():
+                raise RuntimeError("speech readback failed")
+        print(dumps({"id": ident, "status": "queued"}))
     elif args.command == "devices":
         path = store.directory / "devices.json"
         devices = json.loads(path.read_text()) if path.exists() else []

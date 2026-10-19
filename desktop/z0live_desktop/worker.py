@@ -33,6 +33,10 @@ specific test explicitly asks for one. For this setup ONLY, use terminal to veri
 class Worker:
     def __init__(self, store, stop):
         self.store, self.stop = store, stop
+        self.store.work  # schema migrations before the first queued run
+        from .delivery import Delivery
+
+        self.delivery = Delivery(store)
 
     def api(self, path, body=None, idem=None):
         key = (self.store.directory / ".hermes-api-key").read_text().strip()
@@ -69,6 +73,28 @@ class Worker:
             if not db.execute("SELECT 1 FROM meta WHERE key='initialized'").fetchone():
                 self.store.enqueue(db, "seed", SEED)
                 db.execute("INSERT INTO meta VALUES('initialized','true')")
+            if not db.execute(
+                "SELECT 1 FROM meta WHERE key='work_tools_v1'"
+            ).fetchone():
+                from .work_sources import projects
+
+                context = (
+                    """Voice work tools are enabled. Project map from z0intelligence State Packet scopes plus explicit live product fallbacks (paths are data):
+"""
+                    + dumps(projects())
+                    + f"""
+Use z0_file_search for code intelligence; canonical local z0intelligence memory/State Packets live under ~/.z0int.
+Cross-harness history: nice -n 19 ctx search QUERY --data-root /mnt/zer0models/host-offload/home_kvn_.ctx --refresh off --backend lexical --format json.
+All Hermes profiles' state.db FTS are read-only sources. Never modify another profile.
+Voice questions need fast concise cited answers. Voice task requests need a real durable issue/kanban ID and short plan, not just acknowledgement.
+Native terminal/file/web/delegation/kanban are available. Native async delegations are process-local, so durable tracking must precede delegation.
+Read back the plan and wait for explicit confirmation BEFORE destructive/costly/paid/publishing/deployment operations. Queued is not done.
+To report task progress/done/failure to the phone, use {ROOT}/bin/z0live say --session BROKER_SESSION 'brief actual update' (check --help).
+Do not send Telegram directly: the broker batches offline delivery. Keep other sessions and portable RFC #1 / PRs #6/#7 untouched.
+This message only updates your operating context; do not start tasks or change files. Reply 'Work tools ready'."""
+                )
+                self.store.enqueue(db, "context", context)
+                db.execute("INSERT INTO meta VALUES('work_tools_v1','true')")
 
     def tick(self):
         with self.store.connect() as db:
@@ -108,6 +134,12 @@ class Worker:
             LOG.info(
                 "submitted job=%s kind=%s run=%s", job["id"], job["kind"], job["run_id"]
             )
+            if job["kind"] == "task":
+                self.store.publish(
+                    f"Hermes has started planning voice-{job['id']}. I'll tell you the plan and tracking link.",
+                    sid=job["session_id"],
+                    source="task-progress:" + job["run_id"],
+                )
         run = self.api("/v1/runs/" + job["run_id"])
         status = run.get("status")
         if status == "waiting_for_approval":
@@ -123,8 +155,8 @@ class Worker:
             output = dumps(output)
         with self.store.connect() as db:
             db.execute(
-                "UPDATE jobs SET status=?,error=? WHERE id=?",
-                (status, str(run.get("error") or "")[:1000], job["id"]),
+                "UPDATE jobs SET status=?,error=?,result=? WHERE id=?",
+                (status, str(run.get("error") or "")[:1000], output, job["id"]),
             )
             if run.get("session_id"):
                 db.execute(
@@ -139,7 +171,10 @@ class Worker:
                 if status == "completed"
                 else f"Hermes run {status}; check the desktop journal."
             )
-            if say:
+            delivery = db.execute(
+                "SELECT delivery FROM jobs WHERE id=?", (job["id"],)
+            ).fetchone()[0]
+            if say and delivery == "inbox":
                 device = None
                 if job["session_id"]:
                     target = db.execute(
@@ -171,6 +206,7 @@ class Worker:
         while not self.stop.is_set():
             try:
                 if not ready:
+                    self.store.work.recover()
                     self.setup()
                     ready = True
                 with self.store.connect() as db:
@@ -181,6 +217,9 @@ class Worker:
                     raise RuntimeError(
                         "seed failed; inspect jobs before explicitly clearing seed_failed"
                     )
+                self.store.work.tick()
+                self.store.work.monitor()
+                self.delivery.tick()
                 self.store.tick_summaries()
                 self.store.export_events()
                 self.tick()
