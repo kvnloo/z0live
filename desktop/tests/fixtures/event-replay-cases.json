@@ -1,0 +1,68 @@
+{
+  "fixture_revision": 1,
+  "provenance": "Entirely synthetic public protocol examples; no transcripts, private logs, provider responses or device captures",
+  "events": {
+    "first": {
+      "type": "user_transcript",
+      "text": "synthetic transcript alpha",
+      "ts": 1234.125,
+      "data": {"event_id": "synthetic-alpha-v1"}
+    },
+    "second": {
+      "type": "tool_call",
+      "text": "",
+      "ts": 1235.25,
+      "data": {"event_id": "synthetic-call-v1", "name": "sample_local_tool", "call_id": "synthetic-call"}
+    },
+    "invalid": {
+      "type": "unknown_event",
+      "text": "synthetic invalid record",
+      "ts": 1236.375,
+      "data": {"event_id": "synthetic-invalid-v1"}
+    },
+    "later": {
+      "type": "app_state",
+      "text": "",
+      "ts": 1237.5,
+      "data": {"event_id": "synthetic-state-v1", "app": "synthetic.app"}
+    }
+  },
+  "cases": [
+    {
+      "id": "reject-mixed-atomic",
+      "session": "primary",
+      "sequence": ["first", "invalid"],
+      "error": "ValueError",
+      "accepted": 0,
+      "canonical_count": 0,
+      "event_order": []
+    },
+    {
+      "id": "accept-batch",
+      "session": "primary",
+      "sequence": ["first", "second"],
+      "error": null,
+      "accepted": 2,
+      "canonical_count": 2,
+      "event_order": ["synthetic-alpha-v1", "synthetic-call-v1"]
+    },
+    {
+      "id": "exact-retry",
+      "session": "primary",
+      "sequence": ["first", "second"],
+      "error": null,
+      "accepted": 0,
+      "canonical_count": 2,
+      "event_order": ["synthetic-alpha-v1", "synthetic-call-v1"]
+    },
+    {
+      "id": "identity-scoped-to-other-session",
+      "session": "secondary",
+      "sequence": ["first"],
+      "error": null,
+      "accepted": 1,
+      "canonical_count": 3,
+      "event_order": ["synthetic-alpha-v1", "synthetic-call-v1", "synthetic-alpha-v1"]
+    }
+  ]
+}
