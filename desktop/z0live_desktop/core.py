@@ -253,6 +253,17 @@ class Store:
             os.close(lock)
         return token
 
+    def revoke_token(self, token):
+        """Revoke a newly minted credential if private pairing delivery fails."""
+        digest = hashlib.sha256(token.encode()).hexdigest()
+        path = self.directory / "devices.json"
+        with file_lock(self.directory / ".devices.lock"):
+            devices = json.loads(path.read_text()) if path.exists() else []
+            for device in devices:
+                if hmac.compare_digest(device["sha256"], digest):
+                    device["revoked"] = True
+            atomic(path, devices)
+
     def authenticate(self, token):
         if not token or len(token) > 200:
             return None

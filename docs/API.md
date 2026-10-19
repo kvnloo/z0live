@@ -7,8 +7,17 @@ one-time pairing deeplink; never log that link. HTTPS uses the normal Tailscale 
 
 ## Pairing
 
-On the desktop, run `z0live pair NAME` (or `./bin/z0live pair NAME`). It prints a new device token
-and `z0live://pair?url=https%3A%2F%2F0.taila30dc.ts.net%3A8791&token=...`.
+On the desktop, run `z0live pair NAME --qr` for a terminal QR, or
+`z0live pair NAME --qr-png PATH` for a new **0600** PNG (requires `qrencode`). These
+flags can be combined; neither mode prints the plaintext token or link. The QR contains
+`z0live://pair?url=https%3A%2F%2F0.taila30dc.ts.net%3A8791&token=...`.
+Open **z0live → Scan pairing QR** on Lawnchair, scan, then confirm the backend origin.
+QR and deeplink input share validation and confirmation before encrypted storage; scanning
+uses Google Play services, not a Lawnchair CAMERA permission. A missing scanner module
+shows an error and keeps the deeplink/paste fallback. Pending VIEW links remain single-use
+in phone process memory until controls become visible; process death requires reopening.
+Without QR flags, `z0live pair NAME` (or `./bin/z0live pair NAME`) prints a new device token
+and the pairing link for that fallback. A failed QR render revokes its newly minted token.
 The token is shown once; SHA-256 token verifiers are stored in a **0600** `devices.json` in the
 0700 service data directory. No plaintext permanent device/provider credential is committed.
 Android must register the `z0live://pair` intent, validate HTTPS URL/expected tailnet host, then store
