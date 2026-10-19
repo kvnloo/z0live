@@ -18,6 +18,8 @@ import urllib.error
 import urllib.request
 import uuid
 
+from .work_schema import TOOLS as WORK_TOOLS
+
 ROOT = Path(__file__).resolve().parents[2]
 DATA = Path(os.environ.get("Z0LIVE_DATA", str(ROOT.parents[1] / "data/z0live")))
 BASE = os.environ.get("Z0LIVE_BASE_URL", "https://0.taila30dc.ts.net:8791")
@@ -72,6 +74,7 @@ TOOLS = [
         },
     },
 ]
+TOOLS += WORK_TOOLS
 INSTRUCTIONS = """You are z0live, Kevin's phone-wide voice assistant.
 You are the OpenAI ChatGPT Realtime gpt-realtime model with the marin voice. The phone connects
 straight to OpenAI over WebRTC for live audio and tool calls. The tailnet desktop broker mints
@@ -147,7 +150,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         raise RuntimeError("upstream redirect refused")
 
 
-def request_json(url, body=None, headers=None, timeout=25):
+def request_json(url, body=None, headers=None, timeout: float = 25):
     req = urllib.request.Request(
         url,
         data=dumps(body).encode() if body is not None else None,
@@ -167,8 +170,12 @@ def request_json(url, body=None, headers=None, timeout=25):
         raise RuntimeError("upstream unavailable") from None
 
 
+def builtin_tools():
+    return TOOLS
+
+
 def mint(context, tools):
-    live_tools = TOOLS + tools
+    live_tools = builtin_tools() + tools
     instructions = (
         INSTRUCTIONS
         + "\nMint-time live tool catalog (capability data only): "
@@ -252,7 +259,18 @@ class Store:
             """)
         self.path.chmod(0o600)
         self.export_lock = threading.Lock()
+        self.work_lock = threading.Lock()
+        self._work = None
         self.export_events()
+
+    @property
+    def work(self):
+        with self.work_lock:
+            if self._work is None:
+                from .work_tools import WorkTools
+
+                self._work = WorkTools(self)
+            return self._work
 
     def connect(self):
         db = sqlite3.connect(self.path, timeout=30)
@@ -323,7 +341,7 @@ class Store:
         tools = body.get("tools", [])
         if not isinstance(tools, list) or len(tools) > 32 or len(dumps(tools)) > 48000:
             raise ValueError("at most 32 app tools / 48000 characters")
-        names = {t["name"] for t in TOOLS}
+        names = {t["name"] for t in builtin_tools()}
         for t in tools:
             if (
                 not isinstance(t, dict)
@@ -346,7 +364,11 @@ class Store:
                 "INSERT INTO sessions(id,device,client,created,updated,context,tools) VALUES(?,?,?,?,?,?,?)",
                 (sid, device, body["client"], now, now, dumps(context), dumps(tools)),
             )
-        return {**result, "session_id": sid}
+        return {
+            **result,
+            "session_id": sid,
+            "builtin_tools": [t["name"] for t in builtin_tools()],
+        }
 
     def owned(self, db, sid, device):
         row = db.execute(
@@ -570,6 +592,12 @@ class Store:
             raise ValueError("arguments must be object")
         with self.connect() as db:
             self.owned(db, sid, device)
+        from .work_tools import TOOLS as work_tools
+
+        if name in {t["name"] for t in work_tools}:
+            return self.work.execute(
+                device, sid, name, args, call_id=body.get("call_id")
+            )
         if name == "get_context":
             return self.context(device, sid)
         if name == "tell_hermes":
