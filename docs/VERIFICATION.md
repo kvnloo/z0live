@@ -62,6 +62,32 @@ match [API.md](API.md). Regression tests cover empty/populated HTTP pages and 10
 The current sibling Lawnchair `Z0LiveProtocol.inboxPage` reads this same `messages`/`after`/`has_more` contract.
 No backend contract rename was made to accommodate an older parser.
 
+## Persona v2 / backend requalification (2026-10-19)
+
+- Commit `5a95e5f` introduced `z0live.persona.v2`: accurate Realtime/Hermes architecture,
+  local-tool-first routing, truthful result/permission language, composer-only call/SMS handling,
+  explicit accessibility limits and no screen-reading claims. Mint instructions include the exact
+  current builtin + app tool schemas, names and descriptions; no hardcoded app-tool inventory.
+- Nineteen deterministic desktop tests passed, including three persona/mint tests. Synthetic OAuth
+  and mocked upstream are explicitly confined to unit tests, not used as live evidence.
+- Restarted only the exact `z0live.service` checkout after checking zero unended sessions and zero
+  queued/running jobs and coordinating with the parent. Native Hermes host was not restarted.
+- Ran the existing real `desktop/tests/live_webrtc.mjs` against HTTPS: real v2 mint, model
+  `gpt-realtime`, voice `marin`, secret length 35 (value never printed), direct OpenAI WebRTC SDP
+  201, actual GPT `tell_hermes`, zero Realtime errors, authenticated inbox and SSE replay.
+- New isolated session `9d893f3b8a334006913bfbeb6f2b5813`: direct job 13 completed in
+  `run_aed10417cd7f4b49a5a74878d402e31d`, inbox 16 contained the requested test marker;
+  transcript-derived end-summary job 14 completed in `run_84153f8aa58f478dbfe4bedd8d517a78`,
+  with a separately verified session/device-scoped inbox reply 17. No synthetic live replies.
+- Ended the test session, revoked only its new `headless-live-*` device and read back revocation.
+  All preexisting device records remained exactly equivalent after JSON decoding, including
+  the owner's pairing. No phone driving, Android changes, owner messages or Telegram delivery.
+- Sanitized logs and cleanup/job/inbox receipts:
+  `/mnt/zer0models/project-artifacts/z0live/2026-10-19/backend/`.
+- This run registered the three then-live builtins plus `local_test`; concurrent new backend tools
+  and Android tools were not yet deployed and are not claimed as live-verified here. Dynamic unit
+  assertions compare against `TOOLS` so later builtin additions are included automatically.
+
 ## Limits
 
 Headless text-mode WebRTC proves real transport, GPT tool dispatch and Hermes delivery, not physical
