@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""Standalone desktop CLI; does not replace the portable runtime's package/CLI."""
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from urllib.parse import urlencode
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "desktop"))
+from z0live_desktop.core import BASE, Store, dumps
+
+
+def main():
+    parser = argparse.ArgumentParser(description="z0live desktop broker")
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("serve")
+    pair = sub.add_parser("pair")
+    pair.add_argument("name")
+    sub.add_parser("devices")
+    revoke = sub.add_parser("revoke")
+    revoke.add_argument("device_id")
+    action = sub.add_parser("action")
+    action.add_argument("--session", required=True)
+    action.add_argument("--action", required=True)
+    action.add_argument("--params", default="{}")
+    action.add_argument("--say", default="")
+    args = parser.parse_args()
+    if args.command == "serve":
+        from z0live_desktop.server import serve
+
+        return serve()
+    store = Store()
+    if args.command == "pair":
+        token = store.pair(args.name)
+        print("Device token: " + token)
+        print("Pairing link: z0live://pair?" + urlencode({"url": BASE, "token": token}))
+        print(
+            "Keep this token private. It is only printed once; server stores its SHA-256 verifier."
+        )
+    elif args.command == "devices":
+        path = store.directory / "devices.json"
+        devices = json.loads(path.read_text()) if path.exists() else []
+        print(
+            dumps(
+                [
+                    {k: d[k] for k in ("id", "name", "created_at", "revoked")}
+                    for d in devices
+                ]
+            )
+        )
+    elif args.command == "revoke":
+        import fcntl
+        import os
+        from z0live_desktop.core import atomic
+
+        lock = os.open(store.directory / ".devices.lock", os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            path = store.directory / "devices.json"
+            devices = json.loads(path.read_text())
+            found = False
+            for d in devices:
+                if d["id"] == args.device_id:
+                    d["revoked"] = True
+                    found = True
+            if not found:
+                parser.error("device not found")
+            atomic(path, devices)
+        finally:
+            os.close(lock)
+        print("Device revoked")
+    elif args.command == "action":
+        params = json.loads(args.params)
+        with store.connect() as db:
+            row = db.execute(
+                "SELECT tools FROM sessions WHERE id=?", (args.session,)
+            ).fetchone()
+        if not row or args.action not in {t["name"] for t in json.loads(row["tools"])}:
+            parser.error("action must be declared by that client session")
+        print(
+            dumps(
+                {
+                    "id": store.publish(args.say, args.action, params, args.session),
+                    "status": "queued",
+                }
+            )
+        )
+
+
+if __name__ == "__main__":
+    main()
