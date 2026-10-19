@@ -110,3 +110,4 @@ const stream=await fetch(base+'/v1/stream?after='+cursor,{headers:{Authorization
 assert.equal(stream.status,200);const reader=stream.body.getReader();const chunk=await reader.read();controller.abort();
 assert.ok(new TextDecoder().decode(chunk.value).includes(': z0live connected'));console.log('PASS authenticated SSE connection, no audible backlog');
 console.log('LIVE RESULT',JSON.stringify({base,session_id:sid,hermes_marker:marker,summary_run:summaryReply.run_id,note_run:reply.run_id}));
+execFileSync('python3',['-c',`import sys;sys.path.insert(0,${JSON.stringify(path.join(root,'desktop'))});from z0live_desktop.core import Store;Store().revoke_token(sys.stdin.read())`],{input:token});

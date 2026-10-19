@@ -20,6 +20,9 @@ from z0live_desktop.server import Server, Handler
 
 class BrokerTests(unittest.TestCase):
     def setUp(self):
+        selected = patch("z0live_desktop.voice_runtime.load_plan", return_value=None)
+        selected.start()
+        self.addCleanup(selected.stop)
         self.tmp = tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR"))
         self.store = Store(self.tmp.name)
         self.token = self.store.pair("unit device")
