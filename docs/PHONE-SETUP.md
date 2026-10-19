@@ -2,7 +2,9 @@
 
 ## Status (2026-10-19, resumed check)
 
-**Currently offline:** at 02:10–02:13 CDT, Tailscale listed `100.117.226.39` offline, ping timed out, and `adb devices -l` was empty. `phone-adb status` failed closed and `phone-adb reconnect` timed out on the saved endpoint. Restore the phone's Tailscale/Wi-Fi connection first; no current phone/UI test is claimed.
+**Connected on final recheck (02:17 CDT):** after an initial offline interval, Tailscale ping succeeded in 8 ms; `phone-adb reconnect` connected to `100.117.226.39:46431`, verified the pinned hardware serial, `phone-adb status` reported **Verified saved phone**, and the model probe returned `SM-S938U`. Existing desktop trust worked without a new code. No phone UI, mic or APK test is claimed.
+
+At 02:10–02:13 CDT the phone had been offline and the wrapper correctly failed closed. Connectivity is transient; always rerun status rather than treating this record or port as permanent.
 
 **Earlier successful setup (2026-10-18, previous task trace):**
 
@@ -12,7 +14,7 @@ Phone: Samsung SM-S938U, hardware serial `R5CY93G2WNH`, tailnet IP `100.117.226.
 
 ## Owner: what to do on the phone
 
-First restore Tailscale on the phone and Wi-Fi, then try `phone-adb reconnect` and `phone-adb status`. Existing desktop trust may still work without a new code. If the port changed, follow step 7. For first setup or a lost/revoked pairing:
+No owner action or new pairing is needed while the final verified connection remains available. If offline, restore Tailscale/Wi-Fi, then try `phone-adb reconnect` and `phone-adb status`. Existing desktop trust may still work. If the port changed, follow step 7. For first setup or a lost/revoked pairing:
 
 1. Keep Tailscale connected on phone and desktop. Unlock the phone yourself. Connect the phone to Wi-Fi. On Samsung, temporarily use the same home LAN as the desktop for pairing if VPN-only pairing is rejected.
 2. Settings → About phone → Software information → tap **Build number** seven times if Developer options is absent. Enter the phone's PIN **on the phone**, never in chat.
@@ -40,7 +42,9 @@ Optional legacy `adb -s 100.117.226.39:CONNECTPORT tcpip 5555` can give a fixed 
 
 ## Phone Harness for Hermes profile `clean`
 
-Installed via the reviewed catalog entry `phone-harness`, upstream `ShawnPana/phone-harness`, subdir `integrations/hermes`, pinned commit `7e3ea6cff1377db4d4f37e852c59493120aa52b6`. Manifest 0.1.0 depends on `phone-harness==0.3.2`. Location: `/workspace/hermes-home/profiles/clean/plugins/phone-harness`. `hermes plugins show phone-harness` reads back **enabled**; `hermes plugins doctor phone-harness` passes import/discovery/registration (one tool + one approval hook). The resumed runtime check `hermes --run-module phone_harness.run --version` returns 0.3.2. In the previous run, a metadata-only `ensure_device()` check against the explicit phone returned `phone-harness device-ready`, exit 0. This did not capture a screen or drive UI.
+Installed via the reviewed catalog entry `phone-harness`, upstream `ShawnPana/phone-harness`, subdir `integrations/hermes`, pinned commit `7e3ea6cff1377db4d4f37e852c59493120aa52b6`. Manifest 0.1.0 depends on `phone-harness==0.3.2`. Location: `/workspace/hermes-home/profiles/clean/plugins/phone-harness`. `hermes plugins show phone-harness` reads back **enabled**; `hermes plugins doctor phone-harness` passes import/discovery/registration (one tool + one approval hook). The resumed runtime check `hermes --run-module phone_harness.run --version` returns 0.3.2. Both the previous run and the final resumed check executed a metadata-only `ensure_device()` through the bootstrapped module launcher against the explicit phone: `phone-harness device-ready`, exit 0. This did not capture a screen or drive UI.
+
+**Integrated tool blocker:** a real `phone_exec` call in this resumed session failed before executing its snippet: `ModuleNotFoundError: No module named 'phone_harness'`. The installed plugin's `_command()` invokes `[sys.executable, "-m", "phone_harness.run"]`; that raw child interpreter lacks the dependency path supplied by Hermes bootstrap. Doctor/import success does not test this child execution. `hermes --run-module phone_harness.run` does resolve the installed dependency and its Android readiness probe succeeds. The plugin is **installed/enabled/discoverable, but integrated `phone_exec` execution is currently broken**. No vendor/core patch or owner restart was performed; use the verified pinned ADB helper for approved tests until the integration is repaired. The module launcher is a diagnostic/approved CLI alternative, not authority to bypass phone-action consent.
 
 The tool is **`phone_exec`**: short Python snippets with Android helpers (`ensure_device`, `screen`, `screenshot`, `tap`, etc.). Android uses ADB screencap + uiautomator, not a companion app. Skill: `phone-harness:phone-harness` in a new session. It also supports iPhones/cloud phones; **do not use those backends for this task**. Three similarly named things are distinct: this Hermes plugin; the Lawnchair CI workflow **zer0 phone harness APK** (an Android launcher build, not the automation plugin); and the historical Tern `phone-controls` UI plugin on `omarchy-phone` (`100.104.42.85`).
 
@@ -54,7 +58,7 @@ HERMES_HOME=/workspace/hermes-home/profiles/clean hermes plugins doctor phone-ha
 
 This is a community plugin that executes Python with host-user permissions, not a sandbox. Keep the reviewed pin; do not update it implicitly.
 
-No owner CLI session was restarted. The earlier installer reported hooks reloaded and tools available next session; **this resumed session now exposes `phone_exec`**. Device connectivity is separately offline. For a fresh, explicitly pinned local agent process:
+No owner CLI session was restarted. The earlier installer reported hooks reloaded and tools available next session; **this resumed session now exposes `phone_exec`**. The device is now connected, but the child-interpreter blocker above remains. For a fresh, explicitly pinned local agent process (this recipe does not itself repair the plugin):
 
 ```sh
 # Stop if reconnect or identity verification fails; never launch an unpinned fallback.
