@@ -34,6 +34,7 @@ class WorkTools:
                 ("result", "TEXT"),
                 ("delivery", "TEXT NOT NULL DEFAULT 'inbox'"),
                 ("call_key", "TEXT"),
+                ("native_key", "TEXT"),
             ]:
                 if name not in columns:
                     db.execute(f"ALTER TABLE jobs ADD COLUMN {name} {declaration}")
