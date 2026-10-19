@@ -84,8 +84,11 @@ class Delivery:
                     env={
                         **os.environ,
                         "HERMES_HOME": os.environ.get(
-                            "Z0LIVE_HERMES_HOME",
-                            "/workspace/hermes-home/profiles/clean",
+                            "Z0LIVE_DELIVERY_HOME",
+                            os.environ.get(
+                                "Z0LIVE_HERMES_HOME",
+                                "/workspace/hermes-home/profiles/clean",
+                            ),
                         ),
                     },
                 )
