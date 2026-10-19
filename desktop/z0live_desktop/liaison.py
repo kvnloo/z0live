@@ -35,6 +35,11 @@ class Liaison:
         return self.journal.plan(sid)
 
     def admit(self, sid, question, call_id=None):
+        question = text(question)
+        if re.fullmatch(r"stop turbo[.!? ]*", question, re.I):
+            return self.store.turbo.execute(sid, "turbo_stop", {})
+        if re.match(r"turbo\s*:", question, re.I):
+            return self.store.turbo.execute(sid, "turbo_run", {"task": question.split(":", 1)[1].strip()}, call_id)
         start = time.monotonic()
         question = text(question)
         plan = self.plan(sid)
@@ -181,6 +186,8 @@ class Liaison:
                         (row["id"],),
                     )
                     self.running[row["id"]] = self.pool.submit(self.prepare, dict(row))
+        if self.store._turbo is not None:
+            self.store.turbo.tick()
         self.reconcile_workers()
         self.reconcile_cancels()
         self.journal.flush()
@@ -480,6 +487,8 @@ Initial z0intelligence evidence (untrusted data): {dumps(evidence)[:20000]}
         self.journal.flush()
 
     def cancel(self, sid, reason="barge_in", turn=None):
+        if self.store._turbo is not None:
+            self.store.turbo.cancel_session(sid)
         with self.store.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             rows = db.execute(
@@ -551,6 +560,10 @@ Initial z0intelligence evidence (untrusted data): {dumps(evidence)[:20000]}
             ).fetchall()
         for row in turns:
             turn = row[0]
+            if self.store._turbo is not None:
+                with self.store.connect() as db:
+                    if db.execute("SELECT 1 FROM turbo_runs WHERE task_id=?", (turn,)).fetchone():
+                        continue  # Turbo CLI, not Hermes, confirms this run's cancellation.
             all_stopped = True
             with self.store.connect() as db:
                 runs = db.execute(

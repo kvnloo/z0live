@@ -263,6 +263,12 @@ class Journal:
     def flush(self):
         with self.store.connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            # Expired/superseded/cancelled speech is a discarded backlog, not deferred audio.
+            db.execute("""DELETE FROM voice_speech WHERE turn_id IN
+                (SELECT id FROM voice_turns WHERE status IN ('cancelling','cancelled','interrupted'))
+                OR sid IN (SELECT s.id FROM sessions s WHERE s.ended=1
+                    OR s.updated < strftime('%s','now')-120
+                    OR s.id != (SELECT id FROM sessions WHERE device=s.device ORDER BY created DESC,rowid DESC LIMIT 1))""")
             rows = db.execute("""SELECT v.*,s.device FROM voice_speech v JOIN sessions s ON s.id=v.sid
                 LEFT JOIN voice_floor f ON f.sid=v.sid WHERE (f.state IS NULL OR f.state='quiet') AND s.ended=0 AND s.updated > strftime('%s','now')-120 AND s.id=(SELECT id FROM sessions WHERE device=s.device ORDER BY created DESC,rowid DESC LIMIT 1) ORDER BY v.id""").fetchall()
             for row in rows:
