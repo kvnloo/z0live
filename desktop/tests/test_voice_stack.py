@@ -350,11 +350,25 @@ class StackTests(unittest.TestCase):
         worker = Worker(self.store, threading.Event())
         worker.api = self.fake.api
         with self.store.connect() as db:
-            for kind in ["summary", "context", "seed"]:
+            for kind in ["summary", "context", "seed", "feedback", "feedback_note"]:
                 self.store.enqueue(db, kind, "unit note-to-Hermes", self.sid)
-        for _ in range(3):
+        for _ in range(5):
             worker.tick()
         self.assertEqual(self.store.inbox(self.device)["messages"], [])
+
+    def test_historical_summary_stays_silent_even_in_same_active_session(self):
+        with self.store.connect() as db:
+            job = self.store.enqueue(db, "summary", "old summary", self.sid)
+            db.execute(
+                "UPDATE jobs SET status='completed',run_id='unit-old-summary' WHERE id=?",
+                (job,),
+            )
+        self.store.publish(
+            "old native summary reply", sid=self.sid, source="run:unit-old-summary"
+        )
+        message = self.store.inbox(self.device)["messages"][0]
+        self.assertEqual(message["say"], "")
+        self.assertEqual(message["params"]["suppressed"], "note_to_hermes")
 
     def test_status_only_session_does_not_enqueue_summary(self):
         self.store.add_events(
