@@ -1,0 +1,24 @@
+.........................................................F........F......
+======================================================================
+FAIL: test_ask_timeout_later_worker_reply_and_inline_no_duplicate (test_work_tools.VoiceToolsTests.test_ask_timeout_later_worker_reply_and_inline_no_duplicate)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/zer0models/turbo-mode-20261019/z0live/desktop/tests/test_work_tools.py", line 238, in test_ask_timeout_later_worker_reply_and_inline_no_duplicate
+    self.assertEqual(inline["say"], "Verified fixture answer")
+AssertionError: "Hermes is still working; I'll tell you when it's done." != 'Verified fixture answer'
+- Hermes is still working; I'll tell you when it's done.
++ Verified fixture answer
+
+
+======================================================================
+FAIL: test_slow_lookup_returns_partial_then_exact_device_inbox (test_work_tools.VoiceToolsTests.test_slow_lookup_returns_partial_then_exact_device_inbox)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/zer0models/turbo-mode-20261019/z0live/desktop/tests/test_work_tools.py", line 154, in test_slow_lookup_returns_partial_then_exact_device_inbox
+    self.assertLess(time.monotonic() - start, 0.24)
+AssertionError: 0.3436567440003273 not less than 0.24
+
+----------------------------------------------------------------------
+Ran 73 tests in 76.795s
+
+FAILED (failures=2)
