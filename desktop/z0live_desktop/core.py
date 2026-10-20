@@ -327,6 +327,9 @@ class Store:
         self.voice_lock = threading.Lock()
         self._live = None
         self.live_lock = threading.Lock()
+        from .gestures import Gestures
+
+        self.gestures = Gestures(self)
         self.export_events()
 
     @property
