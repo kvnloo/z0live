@@ -240,6 +240,7 @@ This message only updates your operating context; do not start tasks or change f
                 if not ready:
                     self.store.work.recover()
                     self.store.voice.recover()
+                    self.store.turbo.recover()
                     self.setup()
                     ready = True
                 with self.store.connect() as db:
