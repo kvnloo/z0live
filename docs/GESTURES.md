@@ -40,6 +40,8 @@ Persisted nonce dedupe and command claims survive broker restart. Source must ma
 
 ### Context routing
 
+After a prior gesture opt-in, resumed Lawnchair/voice controls also send a **presence-only** heartbeat when Standby is absent, advertising `ready=false` so an explicitly enabled ADB fallback can be selected. This visible-only worker never claims commands, starts a service or opens audio; it stops on pause. Without fresh presence from Standby, the selected assistant or visible controls/home, a cold/killed phone is not guessed as a target: no active target means no ADB dispatch. The fallback is therefore not an immortal wakeup mechanism.
+
 Fresh heartbeat (15s) and available target required. Greatest **activity timestamp**, not latest polling time, wins; exact tie chooses phone. Pin overrides recency while that target is fresh/available, expires after at most 5min. Revoked device credentials are excluded. No target → no action. NOOP as source does not claim target authority. Phone signals unlocked screen transition plus z0live controls resume; a screen remaining unlocked does not synthesize repeated user activity. This is a coarse Lawnchair heartbeat, not all-app usage surveillance. Desktop compares Hyprland cursor position / active-window address without logging titles. Neither side reports private content. Keyboard-only activity within an unchanged desktop window and phone activity entirely inside another app are known signal gaps; use **Voice here** when necessary.
 
 ## Desktop voice target
