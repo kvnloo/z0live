@@ -1,0 +1,519 @@
+{
+  "schema": "z0live.research-traceability.v1",
+  "snapshot_date": "2026-10-20",
+  "audit": {
+    "total_numbered_records": 33,
+    "issues": 20,
+    "pull_requests": 13,
+    "issue_comments": 0,
+    "pr_discussion_comments": 0,
+    "pr_review_threads": 0,
+    "comment_scope": "All 33 issue-timeline endpoints; 13 PR merged comment timelines, and PR reviews/inline threads checked (all zero; #33 opened during audit)",
+    "github_issue_catalog": "https://api.github.com/repos/kvnloo/z0live/issues?state=all&per_page=100",
+    "source_document": "Whole-History ABAB Meta-Research: Zer0 Realtime Voice and Agent Architecture (ChatGPT Library; 1025 lines)",
+    "source_status": "historical synthesis; cited project/paper claims require separate live/hardware verification"
+  },
+  "owners": {
+    "voice": "z0live: media/floor/session/actor/attention/replay",
+    "state": "Braid: event-sourced semantic task state, immutable generations and correction",
+    "context": "State Compiler: minimal state with provenance and omission receipts",
+    "selection": "z0intelligence: VoicePlan and evidence-grounded model routing",
+    "execution": "OMP/Hermes: native harness actions, state and approvals",
+    "evals": "z0evals: frozen parity and native donor certification",
+    "intent": "AODL: intent/compiled-plan/observed authority contract; not audio runtime"
+  },
+  "main_tree_sha": "e1b485c40a11ab67b52b0aaf43362ac40d756fab",
+  "integration_base_checkpoint": "72c3ad64270911c69cc26802346e8e5a1dc99333",
+  "gates": {
+    "P0": "real voice baseline/no repeats/no unexpected actions/validated cancellation; no physical device operation without renewed approval",
+    "P1": "compose original unmerged actor with broker without rewriting donors; run exact head",
+    "P2": "frozen OMP control and real-audio p50/p95/p99, acoustic timing, verified task outcome",
+    "P3": "async cognition + attention once baseline is stable",
+    "P4": "optional new clients, native donors, gestures and provider features only after P0-P2"
+  },
+  "research_topics": {
+    "R01": {
+      "claim": "Braid canonical event-sourced task truth; voice does not own a second semantic ledger"
+    },
+    "R02": {
+      "claim": "State Compiler provides minimal sufficient StatePacketDelta plus omission/provenance receipt; transcript remains an audit log"
+    },
+    "R03": {
+      "claim": "Three clocks: 10-80 ms hard media reflex; 80-500 ms interaction policy; 0.2 s-minutes asynchronous cognition"
+    },
+    "R04": {
+      "claim": "Attention policy: SILENT / WHEN_IDLE / INTERRUPT; only current independently verified results may become spoken success"
+    },
+    "R05": {
+      "claim": "PartialIntent can prewarm/retrieve reversibly; only explicit authoritative intent may commit side effects"
+    },
+    "R06": {
+      "claim": "Instrument voice_decision.v1 with overlapping audio and later outcomes; pin frozen replay/certification and protect against data leakage"
+    },
+    "R07": {
+      "claim": "Local research donors: Moshi/Mimi, Lychee-FD, PersonaPlex, MiniCPM-o; prove 3080 Ti 12GB VRAM and p99 streaming deadlines"
+    },
+    "R08": {
+      "claim": "Deterministic floor + attention baseline before learning residual ambiguity; no universal tiny-model router without sealed wins"
+    },
+    "R09": {
+      "claim": "Capability-specific rule->specialist->frontier compile-down only after sealed causal, OOD and outcome evaluation"
+    },
+    "R10": {
+      "claim": "Pinned continuous voice actor stays responsive; OMP/Hermes native agents work asynchronously with verified feedback"
+    },
+    "R11": {
+      "claim": "Authority/idempotency: model text cannot grant tool permission, enqueue != complete != independently verified, stale/cancel uncertain until reconciled"
+    },
+    "R12": {
+      "claim": "OMP /live parity: first *audible* response, actual acoustic stop, overlap/echo, naturalness, p50/p95/p99 and attention burden"
+    },
+    "R13": {
+      "claim": "AEC/playback reference/audio route and hardware tail jitter measured; headless text WebRTC is not mic/speaker proof"
+    },
+    "R14": {
+      "claim": "Consent/revocation/privacy: no mobile driving, microphone or ADB without reauthorization; no public real transcripts/secrets"
+    },
+    "R15": {
+      "claim": "Stable session persona/voice while heterogeneous backend models are invoked; never change actor every turn"
+    }
+  },
+  "records": {
+    "1": {
+      "kind": "issue",
+      "area": "RFC / canonical ownership",
+      "priority": "P0",
+      "status": "open",
+      "research": [
+        "R01",
+        "R02",
+        "R03",
+        "R10",
+        "R11",
+        "R12"
+      ],
+      "github": "https://github.com/kvnloo/z0live/issues/1"
+    },
+    "2": {
+      "kind": "issue",
+      "area": "historical fixtures / replay requirements",
+      "priority": "P2",
+      "status": "closed-not-planned",
+      "research": [
+        "R03",
+        "R04",
+        "R06",
+        "R08",
+        "R12"
+      ],
+      "github": "https://github.com/kvnloo/z0live/issues/2"
+    },
+    "3": {
+      "kind": "issue",
+      "area": "historical harness adapter contract",
+      "priority": "P1",
+      "status": "closed-not-planned",
+      "research": [
+        "R01",
+        "R04",
+        "R10",
+        "R11"
+      ],
+      "github": "https://github.com/kvnloo/z0live/issues/3"
+    },
+    "4": {
+      "kind": "issue",
+      "area": "historical ConversationActor and VoicePlan",
+      "priority": "P1",
+      "status": "closed-not-planned",
+      "research": [
+        "R03",
+        "R07",
+        "R08",
+        "R10",
+        "R15"
+      ],
+      "github": "https://github.com/kvnloo/z0live/issues/4"
+    },
+    "5": {
+      "kind": "issue",
+      "area": "historical heavy actor lifecycle",
+      "priority": "P4",
+      "status": "closed-not-planned",
+      "research": [
+        "R03",
+        "R07",
+        "R13",
+        "R15"
+      ],
+      "github": "https://github.com/kvnloo/z0live/issues/5"
+    },
+    "6": {
+      "kind": "pr",
+      "area": "portable actor / fixtures / harness donor",
+      "priority": "P1",
+      "status": "open-unmerged",
+      "research": [
+        "R03",
+        "R04",
+        "R06",
+        "R08",
+        "R10",
+        "R11"
+      ],
+      "github": "https://github.com/kvnloo/z0live/pull/6"
+    },
+    "7": {
+      "kind": "pr",
+      "area": "Android Tern PCM/local/OMP donor",
+      "priority": "P1",
+      "status": "open-unmerged",
+      "research": [
+        "R03",
+        "R07",
+        "R12",
+        "R13",
+        "R14"
+      ],
+      "github": "https://github.com/kvnloo/z0live/pull/7"
+    },
+    "8": {
+      "kind": "issue",
+      "area": "existing mobile allocator / claim board",
+      "priority": "P0",
+      "status": "open",
+      "research": [
+        "R11",
+        "R12",
+        "R14"
+      ],
+      "github": "https://github.com/kvnloo/z0live/issues/8"
+    },
+    "9": {
+      "kind": "issue",
+      "area": "broker builtin and client tool conformance",
+      "priority": "P1",
+      "status": "open-in-pr-21",
+      "research": [
+        "R01",
+        "R10",
+        "R11"
+      ],
+      "github": "https://github.com/kvnloo/z0live/issues/9"
+    },
+    "10": {
+      "kind": "issue",
+      "area": "event replay and idempotency",
+      "priority": "P1",
+      "status": "open-in-pr-22",
+      "research": [
+        "R01",
+        "R06",
+        "R11"
+      ],
+      "github": "https://github.com/kvnloo/z0live/issues/10"
+    },
+    "11": {
+      "kind": "issue",
+      "area": "SSE inbox dedupe / no replayed speech",
+      "priority": "P0",
+      "status": "open-in-pr-23",
+      "research": [
+        "R04",
+        "R06",
+        "R11",
+        "R12"
+      ],
+      "github": "https://github.com/kvnloo/z0live/issues/11"
+    },
+    "12": {
+      "kind": "issue",
+      "area": "typed broker SDK",
+      "priority": "P1",
+      "status": "open-in-pr-24",
+      "research": [
+        "R01",
+        "R11",
+        "R14"
+      ],
+      "github": "https://github.com/kvnloo/z0live/issues/12"
+    },
+    "13": {
+      "kind": "issue",
+      "area": "audited broker client docs/examples",
+      "priority": "P1",
+      "status": "open-in-pr-25",
+      "research": [
+        "R10",
+        "R11",
+        "R12"
+      ],
+      "github": "https://github.com/kvnloo/z0live/issues/13"
+    },
+    "14": {
+      "kind": "issue",
+      "area": "Dash Expo reference adapter",
+      "priority": "P4",
+      "status": "blocked-sdk-integration",
+      "research": [
+        "R03",
+        "R12",
+        "R13",
+        "R14"
+      ],
+      "github": "https://github.com/kvnloo/z0live/issues/14"
+    },
+    "15": {
+      "kind": "issue",
+      "area": "web/Garden Room reference adapter",
+      "priority": "P4",
+      "status": "blocked-sdk-integration",
+      "research": [
+        "R03",
+        "R12",
+        "R13",
+        "R14"
+      ],
+      "github": "https://github.com/kvnloo/z0live/issues/15"
+    },
+    "16": {
+      "kind": "issue",
+      "area": "fixture integrity and provenance",
+      "priority": "P2",
+      "status": "blocked-portable-composition",
+      "research": [
+        "R06",
+        "R08",
+        "R11",
+        "R12"
+      ],
+      "github": "https://github.com/kvnloo/z0live/issues/16"
+    },
+    "17": {
+      "kind": "issue",
+      "area": "harness conformance / stale result",
+      "priority": "P1",
+      "status": "blocked-portable-composition",
+      "research": [
+        "R01",
+        "R04",
+        "R10",
+        "R11"
+      ],
+      "github": "https://github.com/kvnloo/z0live/issues/17"
+    },
+    "18": {
+      "kind": "issue",
+      "area": "actor process crash / VRAM lifecycle",
+      "priority": "P4",
+      "status": "blocked-portable-composition",
+      "research": [
+        "R03",
+        "R07",
+        "R13",
+        "R15"
+      ],
+      "github": "https://github.com/kvnloo/z0live/issues/18"
+    },
+    "19": {
+      "kind": "issue",
+      "area": "desktop HTTP auth and origin boundaries",
+      "priority": "P0",
+      "status": "open-in-pr-26",
+      "research": [
+        "R11",
+        "R14"
+      ],
+      "github": "https://github.com/kvnloo/z0live/issues/19"
+    },
+    "20": {
+      "kind": "issue",
+      "area": "desktop vs portable protocol/evidence ledger",
+      "priority": "P1",
+      "status": "open-in-pr-28",
+      "research": [
+        "R01",
+        "R03",
+        "R11",
+        "R12"
+      ],
+      "github": "https://github.com/kvnloo/z0live/issues/20"
+    },
+    "21": {
+      "kind": "pr",
+      "area": "tool conformance draft for issue 9",
+      "priority": "P1",
+      "status": "open-unmerged",
+      "research": [
+        "R11"
+      ],
+      "github": "https://github.com/kvnloo/z0live/pull/21"
+    },
+    "22": {
+      "kind": "pr",
+      "area": "event replay draft for issue 10",
+      "priority": "P1",
+      "status": "open-unmerged",
+      "research": [
+        "R01",
+        "R06"
+      ],
+      "github": "https://github.com/kvnloo/z0live/pull/22"
+    },
+    "23": {
+      "kind": "pr",
+      "area": "SSE replay draft for issue 11",
+      "priority": "P0",
+      "status": "open-unmerged",
+      "research": [
+        "R04",
+        "R12"
+      ],
+      "github": "https://github.com/kvnloo/z0live/pull/23"
+    },
+    "24": {
+      "kind": "pr",
+      "area": "TypeScript SDK draft for issue 12",
+      "priority": "P1",
+      "status": "open-unmerged",
+      "research": [
+        "R11",
+        "R14"
+      ],
+      "github": "https://github.com/kvnloo/z0live/pull/24"
+    },
+    "25": {
+      "kind": "pr",
+      "area": "client examples draft for issue 13",
+      "priority": "P1",
+      "status": "open-unmerged",
+      "research": [
+        "R11",
+        "R12"
+      ],
+      "github": "https://github.com/kvnloo/z0live/pull/25"
+    },
+    "26": {
+      "kind": "pr",
+      "area": "HTTP security draft for issue 19",
+      "priority": "P0",
+      "status": "open-unmerged",
+      "research": [
+        "R11",
+        "R14"
+      ],
+      "github": "https://github.com/kvnloo/z0live/pull/26"
+    },
+    "27": {
+      "kind": "pr",
+      "area": "pinned L0 Haiku Opus Sol voice agent stack",
+      "priority": "P3",
+      "status": "open-unmerged",
+      "research": [
+        "R01",
+        "R02",
+        "R04",
+        "R09",
+        "R10",
+        "R11",
+        "R12"
+      ],
+      "github": "https://github.com/kvnloo/z0live/pull/27"
+    },
+    "28": {
+      "kind": "pr",
+      "area": "protocol gap ledger draft for issue 20",
+      "priority": "P1",
+      "status": "open-unmerged",
+      "research": [
+        "R01",
+        "R03",
+        "R06",
+        "R11"
+      ],
+      "github": "https://github.com/kvnloo/z0live/pull/28"
+    },
+    "29": {
+      "kind": "issue",
+      "area": "Ripple image annotation proposal",
+      "priority": "P4",
+      "status": "deferred-unverified-reference",
+      "research": [
+        "R05",
+        "R11",
+        "R14"
+      ],
+      "github": "https://github.com/kvnloo/z0live/issues/29"
+    },
+    "30": {
+      "kind": "pr",
+      "area": "Oura gesture / context route / ADB opt-in",
+      "priority": "P4",
+      "status": "open-unmerged",
+      "research": [
+        "R05",
+        "R11",
+        "R14"
+      ],
+      "github": "https://github.com/kvnloo/z0live/pull/30"
+    },
+    "31": {
+      "kind": "pr",
+      "area": "Turbo triggers and stop receipts",
+      "priority": "P4",
+      "status": "open-unmerged",
+      "research": [
+        "R04",
+        "R09",
+        "R10",
+        "R11"
+      ],
+      "github": "https://github.com/kvnloo/z0live/pull/31"
+    },
+    "32": {
+      "kind": "issue",
+      "area": "OMP live parity product release gate",
+      "priority": "P0",
+      "status": "open",
+      "research": [
+        "R03",
+        "R04",
+        "R06",
+        "R10",
+        "R12",
+        "R13",
+        "R14",
+        "R15"
+      ],
+      "github": "https://github.com/kvnloo/z0live/issues/32"
+    },
+    "33": {
+      "kind": "pr",
+      "area": "research audit / all-issue traceability and parity mapping",
+      "priority": "P0",
+      "status": "open-unmerged",
+      "research": [
+        "R01",
+        "R03",
+        "R06",
+        "R11",
+        "R12"
+      ],
+      "github": "https://github.com/kvnloo/z0live/pull/33"
+    }
+  },
+  "cross_repo_dependencies": {
+    "omp": "https://github.com/kvnloo/oh-my-pi/issues/104",
+    "omp_live_code": "https://github.com/can1357/oh-my-pi/tree/main/packages/coding-agent/src/live",
+    "lawnchair": "https://github.com/kvnloo/lawnchair/pull/14",
+    "z0evals": "https://github.com/kvnloo/z0evals/pull/86",
+    "voiceplan": "https://github.com/kvnloo/z0intelligence/pull/174",
+    "router": "https://github.com/kvnloo/z0intelligence/issues/45",
+    "vrambudget": "https://github.com/kvnloo/z0intelligence/issues/123",
+    "turbo": "https://github.com/kvnloo/z0intelligence/pull/176",
+    "production_delegation": "https://developers.openai.com/api/docs/guides/live-delegation",
+    "moshi": "https://github.com/kyutai-labs/moshi",
+    "lychee": "https://github.com/HITsz-TMG/Lychee-FD",
+    "minicpm": "https://github.com/OpenBMB/MiniCPM-V"
+  }
+}
