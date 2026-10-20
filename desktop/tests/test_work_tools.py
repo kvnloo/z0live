@@ -161,6 +161,22 @@ class VoiceToolsTests(unittest.TestCase):
             self.assertEqual(len(inbox[0]["params"]["result"]["items"]), 2)
             self.assertEqual(self.store.inbox(self.other)["messages"], [])
 
+    def test_unfinished_empty_lookup_is_silent_not_nothing_found(self):
+        def slow(**kw):
+            time.sleep(0.3)
+            return {"items": [{"source": "z0intelligence-code", "project": "z0live",
+                               "what": "", "status": "index hit", "date": "d", "session": None,
+                               "citation": "/repo/desktop/z0live_desktop/core.py"}]}
+
+        with patch.multiple(sources, z0=slow, hermes=lambda **kw: {"items": []}, ctx=lambda **kw: {"items": []}):
+            result = self.call("work_search", {"query": "which file sets the model"})
+            self.assertTrue(result["partial"])
+            self.assertEqual((result["say"], result["speech"]), ("", "silent"))
+            self.wait(result["id"])
+        inbox = self.store.inbox(self.device)["messages"]
+        # Code-index hits used to publish an empty say that was never spoken.
+        self.assertIn("core.py", inbox[0]["say"])
+
     def test_source_failure_is_gap_not_fabricated_success(self):
         def fail(**kw):
             raise RuntimeError("fixture unavailable")
@@ -208,7 +224,8 @@ class VoiceToolsTests(unittest.TestCase):
 
     def test_ask_timeout_later_worker_reply_and_inline_no_duplicate(self):
         result = self.call("ask_hermes", {"question": "fixture question"})
-        self.assertIn("still working", result["say"])
+        # Still running is not news: data-only, so the voice stays quiet until the reply lands.
+        self.assertEqual((result["say"], result["speech"]), ("", "silent"))
 
         class FakeWorker(Worker):
             def api(inner, path, body=None, idem=None):
