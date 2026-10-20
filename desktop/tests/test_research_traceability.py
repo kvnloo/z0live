@@ -18,15 +18,15 @@ class ResearchTraceabilityTests(unittest.TestCase):
 
     def test_all_audited_records_covered_exactly_once(self) -> None:
         items = self.data["records"]
-        self.assertEqual(set(items), {str(n) for n in range(1, 33)})
+        self.assertEqual(set(items), {str(n) for n in range(1, 34)})
         self.assertEqual(
             sum(item["kind"] == "issue" for item in items.values()), 20
         )
         self.assertEqual(
-            sum(item["kind"] == "pr" for item in items.values()), 12
+            sum(item["kind"] == "pr" for item in items.values()), 13
         )
         self.assertEqual(self.data["audit"]["issues"], 20)
-        self.assertEqual(self.data["audit"]["pull_requests"], 12)
+        self.assertEqual(self.data["audit"]["pull_requests"], 13)
         for number, item in items.items():
             suffix = "pull" if item["kind"] == "pr" else "issues"
             self.assertEqual(
@@ -52,7 +52,7 @@ class ResearchTraceabilityTests(unittest.TestCase):
             self.assertEqual(self.data["records"][str(n)]["status"], "closed-not-planned")
         self.assertEqual(self.data["records"]["6"]["status"], "open-unmerged")
         self.assertEqual(self.data["records"]["7"]["status"], "open-unmerged")
-        for n in (21, 22, 23, 24, 25, 26, 27, 28, 30, 31):
+        for n in (21, 22, 23, 24, 25, 26, 27, 28, 30, 31, 33):
             self.assertEqual(self.data["records"][str(n)]["status"], "open-unmerged")
 
     def test_critical_quality_gates_present(self) -> None:
