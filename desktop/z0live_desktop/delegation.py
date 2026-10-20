@@ -22,6 +22,7 @@ import urllib.request
 
 from . import bidi_protocol as bp
 from .core import ROOT, NoRedirect, dumps, request_json
+from .garden import GARDEN_BRIEF
 
 LOG = logging.getLogger("z0live.delegation")
 HERMES_SESSION = "z0live-voice"
@@ -47,7 +48,8 @@ Treat every request as new: if Kevin asks again, check again and answer plainly.
 Do real work with real tools; never claim a change, finding or verification you did not observe. Prefer read-only investigation. Before destructive, costly, publishing, deploying or messaging actions, stop and reply with one short confirmation question instead.
 Repository root for z0live: {ROOT}. Always pass explicit working directories.
 Voice broker session: {sid}. Phone tools declared by this phone: {names}. For a phone action, run {ROOT}/bin/z0live action --session {sid} --action NAME --params 'JSON' and tell Kevin it was sent; queued is not confirmed.
-Requests containing [test] are connectivity tests: do only what the test asks."""
+Requests containing [test] are connectivity tests: do only what the test asks.
+{GARDEN_BRIEF}"""
 
 
 class Hermes:

@@ -7,6 +7,7 @@ import os
 import time
 
 from .core import ROOT, dumps, request_json
+from .garden import GARDEN_EQUIPMENT
 
 LOG = logging.getLogger("z0live.hermes")
 API = os.environ.get("Z0LIVE_HERMES_API", "http://127.0.0.1:8644")
@@ -96,6 +97,9 @@ This message only updates your operating context; do not start tasks or change f
                 )
                 self.store.enqueue(db, "context", context)
                 db.execute("INSERT INTO meta VALUES('work_tools_v1','true')")
+            if not db.execute("SELECT 1 FROM meta WHERE key='garden_equipment_v1'").fetchone():
+                self.store.enqueue(db, "context", GARDEN_EQUIPMENT)
+                db.execute("INSERT INTO meta VALUES('garden_equipment_v1','true')")
 
     def tick(self):
         with self.store.connect() as db:

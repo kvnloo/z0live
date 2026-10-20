@@ -73,3 +73,20 @@ The snippets flatten selected nested `details` fields for readability; the actua
 - Historical/broadcast/ended-session inbox items are now silent while preserving IDs/cursors and historical parameters. Summaries and notes-to-Hermes are not spoken. Native task/approval authority remains Hermes-owned; read-only child prompts are not a terminal sandbox.
 - The canonical plan was installed privately at `~/.z0int/config/z0live-voice-plan.json`; the desktop services were restarted only after deterministic tests passed. An authenticated production mint/cache probe read back the exact digest and all ten builtin names. A real HTTPS inbox/revocation check confirmed silent broadcast framing. No test progress went to the owner's phone.
 - No default-branch or portable PR #6/#7 merge, phone APK install, real microphone test, hidden model fallback, GPU promotion, Telegram test message, or other-profile modification was performed.
+
+## Garden OS equipment delegation (2026-10-20)
+
+`desktop/z0live_desktop/garden.py` adds a short brief to delegated `ask_z0` runs and a one-time operating note
+(`garden_equipment_v1`) for the liaison session. No new broker tool, model choice or phone permission.
+Opt-in real check (one native run; isolated broker with `Z0LIVE_GARDEN_ROOT` set to a disposable garden_room checkout):
+
+```sh
+Z0LIVE_DATA=/private/qual Z0LIVE_PORT=18792 Z0LIVE_GARDEN_ROOT=/disposable/garden_room python3 desktop/tests/live_isolated_broker.py &
+Z0LIVE_DATA=/private/qual Z0LIVE_TEST_BASE=http://127.0.0.1:18792 GARDEN_ROOT=/disposable/garden_room \
+  EQ_URL=https://www.amazon.com/dp/B0DGXF9B8S python3 desktop/tests/live_garden_equipment.py
+```
+
+Result: PASS. "Add this plant stand ... https://www.amazon.com/dp/B0DGXF9B8S" was answered in 15.1 s (first
+commentary 3.7 s). The run added `eq_b0dgxf9b8s` with `source: z0live` and correctly said it had no Amazon 3D model, so
+the approximate model was used. On an earlier run the agent also queued a "show" phone action as a check. The brief
+now says phone actions are for explicit requests only (verify with `list`). Text path only: no audio.
