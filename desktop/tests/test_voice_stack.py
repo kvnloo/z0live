@@ -105,7 +105,12 @@ class StackTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR"))
         self.env = patch.dict(
-            os.environ, {"Z0LIVE_VOICE_PLAN": str(Path(self.tmp.name) / "missing")}
+            os.environ,
+            {
+                "Z0LIVE_VOICE_PLAN": str(Path(self.tmp.name) / "missing"),
+                # These tests cover the L1/L2 liaison stack, now opt-in for gpt-realtime work.
+                "Z0LIVE_REALTIME_WORK": "liaison",
+            },
         )
         self.env.start()
         self.store = Store(self.tmp.name)

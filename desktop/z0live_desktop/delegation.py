@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
 import logging
 import os
 import re
@@ -195,6 +196,43 @@ def describe_phone_result(tool, result):
     return f"Phone action {tool} {'succeeded' if ok else 'failed'}. Phone result (data): {detail}"
 
 
+class _SessionEnded:
+    """`closed` for an inbox-delivered call: true once the broker session has ended."""
+
+    def __init__(self, store, sid):
+        self.store, self.sid = store, sid
+
+    def is_set(self):
+        with self.store.connect() as db:
+            row = db.execute("SELECT ended FROM sessions WHERE id=?", (self.sid,)).fetchone()
+        return not row or bool(row["ended"])
+
+
+class InboxCall:
+    """A gpt-realtime session using the same Hermes backend as Frameless Bidi.
+
+    Progress stays silent. The final answer becomes one inbox item for this session, which
+    the phone's live model answers from in its own words (it never reads it verbatim).
+    """
+
+    routes_phone = False  # gpt-realtime calls declared phone tools itself
+
+    def __init__(self, store, sid):
+        self.store, self.sid, self.call_id = store, sid, "realtime"
+        self.closed = _SessionEnded(store, sid)
+
+    def append(self, delegation_id, text, channel=None) -> bool:
+        if channel == "commentary":
+            return True
+        if text.startswith(bp.FINAL_LABEL):
+            text = text[len(bp.FINAL_LABEL):].strip()
+        self.store.publish(
+            text[:12000], params={"delegation_id": delegation_id}, sid=self.sid,
+            source="run:" + delegation_id,
+        )
+        return True
+
+
 class Delegator:
     def __init__(self, store, hermes=None, router=None, phone_timeout=10.0):
         self.store = store
@@ -246,14 +284,30 @@ class Delegator:
                          name="delegation-" + did[-8:]).start()
 
     def user_turn(self, call, transcript):
-        if not CANCEL.match(transcript):
-            return
+        if CANCEL.match(transcript):
+            self.cancel(call.sid)
+
+    def cancel(self, sid) -> bool:
         with self.lock:
-            active = self.active.pop(call.sid, None)
-        if active:
-            self.hermes.stop(active["run_id"])
-            self.save(active["delegation_id"], status="cancelled")
-            LOG.info("cancelled run=%s on owner request", active["run_id"])
+            active = self.active.pop(sid, None)
+        if not active:
+            return False
+        self.hermes.stop(active["run_id"])
+        self.save(active["delegation_id"], status="cancelled")
+        LOG.info("cancelled run=%s on owner request", active["run_id"])
+        return True
+
+    def ask(self, sid, question, call_id=None) -> dict:
+        """gpt-realtime work tool: start (or steer) the session's Hermes work, answer via inbox."""
+        if not isinstance(question, str) or not question.strip() or len(question) > 16000:
+            raise ValueError("question must be nonempty text of at most 16000 characters")
+        if call_id is not None and (not isinstance(call_id, str) or len(call_id) > 200):
+            raise ValueError("invalid call_id")
+        key = sid + ":" + (call_id or uuid.uuid4().hex)
+        did = "rt-" + hashlib.sha256(key.encode()).hexdigest()[:24]
+        self.delegate(InboxCall(self.store, sid), did, question.strip())
+        # Data-only acceptance: the voice already acknowledged; the answer follows in the inbox.
+        return {"ok": True, "id": did, "status": "working", "say": "", "speech": "silent"}
 
     def call_closed(self, call):
         with self.lock:
@@ -282,7 +336,7 @@ class Delegator:
         marks = {"created": time.time()}
         try:
             tools = self.tools(call.sid)
-            route = self.router.route(did, text, tools)
+            route = self.router.route(did, text, tools) if getattr(call, "routes_phone", True) else None
             marks["routed"] = time.time()
             if route:
                 self.save(did, route="phone:" + route["tool"], status="phone", marks=marks)
