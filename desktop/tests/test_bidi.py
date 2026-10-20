@@ -549,6 +549,51 @@ class DelegatorTests(StoreCase):
         self.assertIsNone(router.route("d", "Open Spotify", []))
         self.assertEqual(calls, [])
 
+    def realtime_session(self):
+        with patch("z0live_desktop.core.mint", return_value={"value": "s", "expires_at": 1}):
+            return self.store.new_session(self.device, {"client": "lawnchair", "tools": PHONE_TOOLS})
+
+    def test_realtime_work_tool_uses_hermes_and_speaks_the_final_via_inbox(self):
+        hermes = FakeHermes(output="core.py sets the realtime model and voice.")
+        delegator = Delegator(self.store, hermes=hermes, router=NoRoute())
+        self.store._live = type("L", (), {"delegator": delegator, "close": lambda s, sid: None})()
+        session = self.realtime_session()
+        sid = session["session_id"]
+        self.assertEqual(session["transport"], "realtime")
+        self.assertIn("ask_z0", session["builtin_tools"])
+        self.assertNotIn("work_search", session["builtin_tools"])
+        ask = {"session_id": sid, "call_id": "call_1",
+               "arguments": {"question": "Which file sets the realtime model?"}}
+        accepted = self.store.tool(self.device, "ask_z0", ask)
+        self.assertEqual((accepted["status"], accepted["say"], accepted["speech"]), ("working", "", "silent"))
+        again = self.store.tool(self.device, "ask_z0", ask)  # provider retry of the same call
+        self.assertEqual(again["id"], accepted["id"])
+        self.assertTrue(self.wait(lambda: self.store.inbox(self.device)["messages"]))
+        time.sleep(0.2)
+        items = self.store.inbox(self.device)["messages"]
+        self.assertEqual(len(items), 1, "progress commentary stays out of the inbox")
+        self.assertEqual(items[0]["say"], "core.py sets the realtime model and voice.")
+        self.assertEqual(items[0]["session_id"], sid)
+        self.assertTrue(items[0]["source"].startswith("run:rt-"))
+        self.assertNotIn("silent", items[0]["params"])
+        self.assertEqual(len(hermes.started), 1)
+        self.assertEqual(hermes.started[0][0], "Which file sets the realtime model?")
+
+    def test_realtime_cancel_work_stops_the_run_and_drops_its_answer(self):
+        gate = threading.Event()
+        hermes = FakeHermes(gate=gate)
+        delegator = Delegator(self.store, hermes=hermes, router=NoRoute())
+        self.store._live = type("L", (), {"delegator": delegator, "close": lambda s, sid: None})()
+        sid = self.realtime_session()["session_id"]
+        self.store.tool(self.device, "ask_z0", {"session_id": sid, "arguments": {"question": "Check CI"}})
+        self.assertTrue(self.wait(lambda: sid in delegator.active))
+        result = self.store.tool(self.device, "cancel_work", {"session_id": sid, "arguments": {}})
+        self.assertEqual(result["status"], "cancelling")
+        gate.set()
+        time.sleep(0.6)
+        self.assertEqual(hermes.stopped, ["run_1"])
+        self.assertEqual(self.store.inbox(self.device)["messages"], [])
+
     def test_backend_instructions_name_the_session_and_spoken_contract(self):
         text = backend_instructions(self.sid, PHONE_TOOLS)
         self.assertIn(self.sid, text)
