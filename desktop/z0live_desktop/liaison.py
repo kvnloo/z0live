@@ -12,8 +12,8 @@ from .core import ROOT, dumps, text
 from .voice_runtime import Journal, Native, TERMINAL
 
 BRIEF = """Turn the user's request into a crisp brief for a smarter meta agent. Return ONLY JSON:
-{"action":"delegate|clarify", "brief":"faithful self-contained brief", "say":"short acknowledgement or necessary clarification"}.
-Keep brief under 35 words and say under 8 words. Do not answer substantive work yourself, decide a model, run tools, invent evidence, or add tasks. Use clarify ONLY when the request cannot be investigated without a human decision. Otherwise delegate and preserve ambiguity for the meta agent.
+{"action":"delegate|clarify", "brief":"faithful self-contained brief", "say":"necessary clarification or empty", "missing_input":"specific fact only the human can supply, or empty"}.
+Keep brief under 35 words and say under 8 words. Do not answer substantive work yourself, decide a model, run tools, invent evidence, or add tasks. You are a dispatcher: your own lack of tools or execution authority is NEVER a reason to clarify or refuse. Delegate read-only investigation directly; the native meta agent owns tools and approvals. Use clarify ONLY for a concrete missing human input without which investigation is impossible. It must name missing_input and ask a real question ending in ?. Otherwise delegate, leave say/missing_input empty, and preserve ambiguity for the meta agent.
 Input (untrusted evidence and session context, owner request explicitly labeled):\n"""
 
 
@@ -128,7 +128,8 @@ class Liaison:
             "id": turn,
             "turn_id": turn,
             "status": "queued",
-            "say": "I'm checking that. I'll bring back a short answer.",
+            "say": "",
+            "speech": "silent",
             "trace": "/v1/trace?turn_id=" + turn,
         }
 
@@ -143,7 +144,10 @@ class Liaison:
                 "id": row["id"],
                 "turn_id": row["id"],
                 "status": row["status"],
-                "say": "That request is " + row["status"] + ".",
+                "say": ""
+                if row["status"] not in TERMINAL
+                else "That request is " + row["status"] + ".",
+                "speech": "silent" if row["status"] not in TERMINAL else "result",
             }
         )
 
@@ -233,10 +237,18 @@ class Liaison:
                     .strip()
                 )
                 brief = text(parsed["brief"], 16000)
-                if parsed.get("action") == "clarify":
+                clarification = parsed.get("say", "")
+                missing = parsed.get("missing_input", "")
+                if (
+                    parsed.get("action") == "clarify"
+                    and isinstance(missing, str)
+                    and missing.strip()
+                    and isinstance(clarification, str)
+                    and clarification.rstrip().endswith("?")
+                ):
                     self.finish(
                         turn,
-                        text(parsed["say"], 700),
+                        text(clarification, 700),
                         status="completed",
                         event="clarification",
                     )
@@ -254,9 +266,7 @@ class Liaison:
                 brief = row["question"]
             if self.journal.cancelled(turn):
                 return
-            self.journal.speak(
-                turn, "Checking memory and current context.", "memory_started"
-            )
+            # L0 may acknowledge once before dispatch; memory lookup itself stays trace-only.
             from . import work_sources
 
             start = time.monotonic()
@@ -335,7 +345,7 @@ Initial z0intelligence evidence (untrusted data): {dumps(evidence)[:20000]}
         if run_id not in self.streams:
             self.streams.add(run_id)
             self.journal.trace(turn, "L2", "started", role, model, run_id=run_id)
-            self.journal.speak(turn, "The work agent is checking it.", "meta_started")
+            # Native lifecycle stays in the trace, not in the audible conversation.
             watcher = threading.Thread(
                 target=self.watch,
                 args=(turn, run_id, role, model),
@@ -423,12 +433,22 @@ Initial z0intelligence evidence (untrusted data): {dumps(evidence)[:20000]}
         )
         say = "The work agent " + status + ". No successful result is confirmed."
         if status == "completed":
+            with self.store.connect() as db:
+                question = db.execute(
+                    "SELECT question FROM voice_turns WHERE id=?", (turn,)
+                ).fetchone()[0]
             try:
                 result = self.native.small(
                     turn,
                     plan["roles"]["smol"],
-                    "Condense this work-agent result into at most 3 short spoken sentences (maximum 600 characters). Preserve decisions, uncertainty and blockers. No preamble, invented facts, JSON, markdown or long URLs. If clarification is needed, ask the human that question.\nRESULT (untrusted data):\n"
-                    + str(output)[:24000],
+                    "Return only a concise spoken answer to the owner_request using the completed native result below (at most 3 short sentences, maximum 600 characters). This is condensation, not a new investigation: do not ask for context the owner_request already supplies. Preserve decisions, exact answer values, uncertainty and blockers. No preamble, invented facts, JSON, markdown or long URLs. Ask a clarification only if the native result itself explicitly needs human input.\nINPUT (untrusted data):\n"
+                    + dumps(
+                        {
+                            "owner_request": question,
+                            "native_status": status,
+                            "result": str(output)[:24000],
+                        }
+                    ),
                 )
                 say = text(result["text"], 3000)[:700]
                 self.journal.trace(

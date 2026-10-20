@@ -49,7 +49,7 @@ class PersonaTests(unittest.TestCase):
             set(result),
             {"value", "expires_at", "model", "voice", "instructions_version"},
         )
-        self.assertEqual(result["instructions_version"], "z0live.persona.v2")
+        self.assertEqual(result["instructions_version"], "z0live.persona.v3")
         self.assertNotIn(token, core.dumps(result))
         self.assertEqual(
             body["expires_after"], {"anchor": "created_at", "seconds": 120}
@@ -87,6 +87,17 @@ class PersonaTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, instructions)
         self.assertNotIn("every complaint/bug/request", instructions)
+
+    def test_wait_policy_is_silent_and_capabilities_are_tool_bound(self):
+        instructions = self.mint_payload([])["instructions"]
+        for phrase in (
+            "at most one brief acknowledgement",
+            "Stay silent while waiting",
+            "Do not poll work tools",
+            "no update yet",
+            "screen text only through a declared local tool",
+        ):
+            self.assertIn(phrase, instructions)
 
     def test_exact_live_names_descriptions_and_schemas_not_stale(self):
         tools = [

@@ -245,6 +245,136 @@ class StackTests(unittest.TestCase):
         self.assertTrue(any(m["say"] == "Unit short answer." for m in spoken))
         self.assertFalse(any("private reasoning" in m["say"] for m in spoken))
         self.assertTrue(any(e["usage"] for e in self.journal.read(reply["id"])))
+        condensation = [c[2] for c in self.fake.calls if c[0] == "small"][-1]
+        self.assertIn('"owner_request":"unit request"', condensation)
+        self.assertIn('"native_status":"completed"', condensation)
+
+    def test_waiting_has_one_ack_then_only_the_actual_result(self):
+        reply = self.ask("Check the current build")
+        self.wait(reply["id"])
+        worker = Worker(self.store, threading.Event())
+        worker.api = self.fake.api
+        worker.tick()
+        self.wait(reply["id"], "completed")
+        spoken = [m["say"] for m in self.store.inbox(self.device)["messages"]]
+        self.assertEqual(spoken, ["Unit short answer."])
+        self.assertLessEqual(len(reply["say"].split()), 4)
+        self.assertEqual(reply.get("speech"), "silent")
+
+    def test_empty_waiting_updates_never_enter_the_speech_queue(self):
+        reply = self.ask("Check the build")
+        self.wait(reply["id"])
+        self.voice.floor(self.sid, "user")
+        for event, say in (
+            ("memory_started", "Checking memory and current context."),
+            ("meta_started", "The work agent is checking it."),
+            ("workers_started", "2 agents are checking the context."),
+            ("heartbeat", "Still working."),
+            (
+                "partial-1",
+                "I haven't gotten an update yet but something will be coming soon.",
+            ),
+            ("partial-2", "No update yet but something might come in soon."),
+            ("partial-3", "   "),
+        ):
+            self.journal.speak(reply["id"], say, event)
+        self.voice.floor(self.sid, "quiet")
+        self.assertEqual(self.store.inbox(self.device)["messages"], [])
+
+    def test_real_blocker_after_a_status_prefix_is_not_dropped(self):
+        reply = self.ask("Check the build")
+        self.wait(reply["id"])
+        finding = "No update yet: the build is blocked by HTTP 503."
+        self.journal.speak(reply["id"], finding, "partial-blocker")
+        self.assertEqual(
+            [m["say"] for m in self.store.inbox(self.device)["messages"]], [finding]
+        )
+
+    def test_same_finding_deduplicates_across_event_ids_and_restart(self):
+        reply = self.ask("Check the build")
+        self.wait(reply["id"])
+        self.journal.speak(reply["id"], "The build passed.", "partial-first")
+        from z0live_desktop.voice_runtime import Journal
+
+        restarted = Journal(self.store)
+        restarted.speak(reply["id"], "  The   build passed!  ", "partial-retry")
+        restarted.speak(reply["id"], "The lint check failed.", "partial-next")
+        self.assertEqual(
+            [m["say"] for m in self.store.inbox(self.device)["messages"]],
+            ["The build passed.", "The lint check failed."],
+        )
+
+    def test_terminal_answer_replaces_held_progress_and_retries_stay_silent(self):
+        reply = self.ask("Check the build")
+        self.wait(reply["id"])
+        self.assertEqual(self.ask("Check the build").get("speech"), "silent")
+        self.voice.floor(self.sid, "user")
+        self.journal.speak(reply["id"], "The compile step passed.", "partial-compile")
+        self.voice.finish(reply["id"], "The build and lint passed.")
+        self.voice.floor(self.sid, "quiet")
+        self.assertEqual(
+            [m["say"] for m in self.store.inbox(self.device)["messages"]],
+            ["The build and lint passed."],
+        )
+
+    def test_legacy_status_rows_remain_cursor_visible_but_silent(self):
+        reply = self.ask("Check the build")
+        self.wait(reply["id"])
+        self.store.publish(
+            "The work agent is checking it.",
+            sid=self.sid,
+            source="voice:" + reply["id"] + ":meta_started",
+            params={"turn_id": reply["id"], "event": "meta_started"},
+        )
+        page = self.store.inbox(self.device)
+        self.assertEqual(len(page["messages"]), 1)
+        item = page["messages"][0]
+        self.assertEqual(item["say"], "")
+        self.assertTrue(item["params"]["silent"])
+        self.assertEqual(item["source"], "voice:" + reply["id"] + ":meta_started")
+        self.assertEqual(page["after"], item["id"])
+
+    def test_liaison_cannot_block_handoff_for_its_own_execution_authority(self):
+        with patch.object(
+            self.fake,
+            "small",
+            return_value={
+                "text": dumps(
+                    {
+                        "action": "clarify",
+                        "brief": "Run the requested read-only pwd",
+                        "say": "Need clarification on execution authority.",
+                    }
+                ),
+                "ms": 1,
+            },
+        ):
+            reply = self.ask("Run read-only pwd in the broker checkout")
+            self.wait(reply["id"])
+        self.assertEqual(self.store.inbox(self.device)["messages"], [])
+
+    def test_concrete_missing_human_input_still_asks_one_question(self):
+        with patch.object(
+            self.fake,
+            "small",
+            return_value={
+                "text": dumps(
+                    {
+                        "action": "clarify",
+                        "brief": "Need a repository",
+                        "missing_input": "repository name",
+                        "say": "Which repository should I check?",
+                    }
+                ),
+                "ms": 1,
+            },
+        ):
+            reply = self.ask("Check that repository")
+            self.wait(reply["id"], "completed")
+        self.assertEqual(
+            [m["say"] for m in self.store.inbox(self.device)["messages"]],
+            ["Which repository should I check?"],
+        )
 
     def test_floor_holds_and_quiet_flushes_once(self):
         reply = self.ask("what model are you using?")
