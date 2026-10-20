@@ -111,11 +111,12 @@ class ProtocolTests(unittest.TestCase):
                 }
             )
         )
-        self.assertEqual(created, {"type": "delegation.created", "id": "item_9", "text": "check the tests"})
+        self.assertEqual(created, {"type": "delegation.created", "id": "item_9",
+                                   "text": "check the tests", "user_turn_id": ""})
         self.assertIsNone(bp.parse_event('{"type":"delegation.created","item":{"target":"server"}}'))
         self.assertEqual(
-            bp.parse_event({"type": "turn.done", "turn": {"role": "user", "transcript": "hi"}}),
-            {"type": "turn.done", "role": "user", "transcript": "hi"},
+            bp.parse_event({"type": "turn.done", "turn": {"id": "turn_1", "role": "user", "transcript": "hi"}}),
+            {"type": "turn.done", "role": "user", "transcript": "hi", "id": "turn_1"},
         )
         self.assertEqual(
             bp.parse_event({"type": "error", "error": {"message": "bad"}}),
@@ -186,11 +187,12 @@ class SignalingTests(unittest.TestCase):
 
 
 class FakeSocket:
-    def __init__(self, frames):
-        self.frames, self.sent, self.closed = list(frames), [], False
+    def __init__(self, frames, linger=0.0):
+        self.frames, self.sent, self.closed, self.linger = list(frames), [], False, linger
 
     def __iter__(self):
         yield from self.frames
+        time.sleep(self.linger)  # the call stays open for a while after the last frame
 
     def send(self, raw):
         self.sent.append(json.loads(raw))
@@ -251,10 +253,11 @@ class LiveCallTests(StoreCase):
         frames = [
             '{"type":"session.input_audio.append","audio":"AAAA"}',
             '{"type":"session.output_audio.delta","delta":"AAAA"}',
-            json.dumps({"type": "turn.done", "turn": {"role": "user", "transcript": "open spotify"}}),
+            json.dumps({"type": "turn.done", "turn": {"id": "t1", "role": "user", "transcript": "open spotify"}}),
             json.dumps({"type": "delegation.created", "item": {"id": "item_1", "type": "delegation",
-                        "target": "client", "content": [{"type": "input_text", "text": "Open Spotify"}]}}),
-            json.dumps({"type": "turn.done", "turn": {"role": "assistant", "transcript": "On it."}}),
+                        "target": "client", "user_bidi_turn_id": "t1",
+                        "content": [{"type": "input_text", "text": "Open Spotify"}]}}),
+            json.dumps({"type": "turn.done", "turn": {"id": "t2", "role": "assistant", "transcript": "On it."}}),
         ]
         socket = FakeSocket(frames)
         delegator = RecordingDelegator()
@@ -268,6 +271,67 @@ class LiveCallTests(StoreCase):
         history = (Path(self.tmp.name) / "sessions" / (self.sid + ".jsonl")).read_text()
         self.assertIn("open spotify", history)
         self.assertIn("On it.", history)
+
+    def turn(self, role, text, turn_id):
+        return json.dumps({"type": "turn.done", "turn": {"id": turn_id, "role": role, "transcript": text}})
+
+    def delegation(self, item, text, user_turn):
+        return json.dumps({"type": "delegation.created", "item": {
+            "id": item, "type": "delegation", "target": "client", "user_bidi_turn_id": user_turn,
+            "content": [{"type": "input_text", "text": text}]}})
+
+    def run_call(self, frames, wait=0.0):
+        socket = FakeSocket(frames, linger=wait)
+        delegator = RecordingDelegator()
+        call = live.LiveCall(self.store, self.sid, self.device, "rtc_x", fake_token(), "s", "r",
+                             delegator, connector=lambda url, headers: socket)
+        with patch.object(live, "RECOVERY_GRACE_SECONDS", 0.05):
+            call.run()
+        return call, delegator
+
+    def test_bare_acknowledgement_without_delegation_is_recovered(self):
+        call, delegator = self.run_call([
+            self.turn("user", "Open Spotify.", "turn_u"),
+            self.turn("assistant", "On it.", "turn_a"),
+        ], wait=0.3)
+        self.assertEqual(len(delegator.delegations), 1)
+        did, text = delegator.delegations[0]
+        self.assertTrue(did.startswith("recovered-"))
+        self.assertEqual(text, "Open Spotify.")
+        self.assertEqual(call.stats["recovered"], 1)
+
+    def test_acknowledged_real_delegation_is_not_duplicated(self):
+        # The provider sends delegation.created before the user's turn.done.
+        _, delegator = self.run_call([
+            self.delegation("item_1", "Run the tests", "turn_u"),
+            self.turn("user", "Run the tests", "turn_u"),
+            self.turn("assistant", "Checking.", "turn_a"),
+        ], wait=0.3)
+        self.assertEqual(delegator.delegations, [("item_1", "Run the tests")])
+
+    def test_real_answers_are_not_recovered(self):
+        _, delegator = self.run_call([
+            self.turn("user", "What's the capital of Australia?", "turn_u"),
+            self.turn("assistant", "Canberra.", "turn_a"),
+        ], wait=0.3)
+        self.assertEqual(delegator.delegations, [])
+        self.assertTrue(live.ACK_ONLY.match("Okay, checking now."))
+        self.assertFalse(live.ACK_ONLY.match("On it. Spotify's open."))
+
+    def test_unreadable_delegation_is_recorded_not_dropped_silently(self):
+        call, delegator = self.run_call(['{"type":"delegation.created","item":{"target":"client"}}'])
+        self.assertEqual(delegator.delegations, [])
+        self.assertEqual(len(call.stats["unreadable"]), 1)
+
+    def test_recovered_results_use_session_context(self):
+        socket = FakeSocket([])
+        call = live.LiveCall(self.store, self.sid, self.device, "rtc_x", fake_token(), "s", "r",
+                             RecordingDelegator(), connector=lambda url, headers: socket)
+        call.ws = socket
+        call.append("recovered-1", "done", None)
+        call.append("item_2", "progress", "commentary")
+        self.assertEqual(socket.sent[0]["type"], "session.context.append")
+        self.assertEqual(socket.sent[1]["type"], "delegation.context.append")
 
     def test_sideband_retries_then_reports(self):
         attempts = []
@@ -382,8 +446,8 @@ class DelegatorTests(StoreCase):
         self.assertEqual(finals, ['"Agent Final Message":\n\nTests pass: 12 of 12.'])
         self.assertEqual(len(hermes.started), 1)
         self.assertIn(self.sid, hermes.started[0][1])
+        self.assertTrue(self.wait(lambda: delegator.trace(self.sid)[0]["status"] == "completed"))
         trace = delegator.trace(self.sid)
-        self.assertEqual(trace[0]["status"], "completed")
         self.assertEqual(trace[0]["route"], "hermes")
         self.assertIn("final", trace[0]["marks"])
 
