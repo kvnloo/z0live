@@ -2,13 +2,13 @@
   "schema": "z0live.research-traceability.v1",
   "snapshot_date": "2026-10-20",
   "audit": {
-    "total_numbered_records": 32,
+    "total_numbered_records": 33,
     "issues": 20,
-    "pull_requests": 12,
+    "pull_requests": 13,
     "issue_comments": 0,
     "pr_discussion_comments": 0,
     "pr_review_threads": 0,
-    "comment_scope": "All 32 issue-timeline endpoints; 12 PR merged comment timelines, reviews and inline review-thread endpoints",
+    "comment_scope": "All 33 issue-timeline endpoints; 13 PR merged comment timelines, and PR reviews/inline threads checked (all zero; #33 opened during audit)",
     "github_issue_catalog": "https://api.github.com/repos/kvnloo/z0live/issues?state=all&per_page=100",
     "source_document": "Whole-History ABAB Meta-Research: Zer0 Realtime Voice and Agent Architecture (ChatGPT Library; 1025 lines)",
     "source_status": "historical synthesis; cited project/paper claims require separate live/hardware verification"
@@ -486,6 +486,20 @@
         "R15"
       ],
       "github": "https://github.com/kvnloo/z0live/issues/32"
+    },
+    "33": {
+      "kind": "pr",
+      "area": "research audit / all-issue traceability and parity mapping",
+      "priority": "P0",
+      "status": "open-unmerged",
+      "research": [
+        "R01",
+        "R03",
+        "R06",
+        "R11",
+        "R12"
+      ],
+      "github": "https://github.com/kvnloo/z0live/pull/33"
     }
   },
   "cross_repo_dependencies": {
