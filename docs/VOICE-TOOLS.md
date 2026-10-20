@@ -121,7 +121,9 @@ Deferred replies use the existing `/v1/inbox` and SSE contract. `say` is short s
 lookup messages also carry the complete cited result in `params.result` and
 `params.lookup_id`. Cursor replay is non-destructive and notifications deduplicate by
 source. The client must queue speech until the user and Realtime model are quiet,
-then use its existing phone TTS; do not read JSON or raw citations aloud.
+then let that same Realtime model interpret the result in its own words. Never switch
+to platform TTS or read JSON/raw citations aloud. `speech:"silent"` tool receipts append
+context without creating a response; lifecycle notifications and no-news polling stay silent.
 
 No new pairing, microphone permission, or provider credential is needed. Reconnect to
 mint the new tool catalog. A client with a hardcoded builtin allowlist must add all

@@ -56,18 +56,23 @@ use OpenAI Realtime function format (not Chat Completions' nested `function`). M
 48k characters in tools; unique names; builtins cannot be overridden. Context max 16k characters.
 The broker registers these schemas, but **the client executes app tools locally** with its own
 permission/approval and argument validation. This broker does not grant Android permissions.
-Persona `z0live.persona.v2` also injects the exact mint-time builtin + app tool catalog (names,
+Persona `z0live.persona.v3` also injects the exact mint-time builtin + app tool catalog (names,
 descriptions and schemas) into instructions, so unavailable tools are not advertised. It identifies
 Realtime `gpt-realtime`/`marin`, direct phone/OpenAI WebRTC, the short-lived tailnet mint broker and
 separate persistent Claude Opus Hermes session. Local phone commands stay local unless delegation
 is requested. Results, ambiguity and required permissions must be reported honestly; dial/SMS tools
 open a composer only, never auto-send. Back/recents require explicit optional accessibility and a
-supporting declared tool. App context is metadata, not an ability to read screens.
+supporting declared tool. App context remains metadata. A declared accessibility tool may return bounded
+screen text only after Android enablement and explicit per-session phone consent; the broker grants neither.
+
+Waiting is silent: at most one brief dispatch acknowledgement, no status polling, no repeated
+“no update yet” turns. Lifecycle telemetry is not speech. Only new verified findings, real blockers,
+completion, or an explicit owner question justify another spoken turn.
 
 Response (the first five fields are the stable required contract; `session_id` is additive):
 
 ```json
-{"value":"EPHEMERAL_SECRET","expires_at":1790000000,"model":"gpt-realtime","voice":"marin","instructions_version":"z0live.persona.v2","session_id":"SERVER_GENERATED_ID"}
+{"value":"EPHEMERAL_SECRET","expires_at":1790000000,"model":"gpt-realtime","voice":"marin","instructions_version":"z0live.persona.v3","session_id":"SERVER_GENERATED_ID"}
 ```
 
 Use this `session_id` for all events/tools/end calls. Mint at connection time: the client secret expires
@@ -93,7 +98,10 @@ is returned. The host reads the owner's existing `~/.codex/auth.json` lazily and
 7. On `response.function_call_arguments.done`, parse arguments, execute the builtin or declared local
    tool, then send `conversation.item.create` with `{type:"function_call_output",call_id,output:JSON.stringify(result)}`.
    Log `tool_call` and `tool_result`. Only send the continuation `response.create` **after** the previous
-   `response.done`; function arguments can complete while a response is still active.
+   `response.done`; function arguments can complete while a response is still active. A result with
+   `speech:"silent"` is data-only: append its function output but **do not create a continuation response**.
+   It is an async acceptance/no-news receipt, not a new conversation turn. Other parallel tool results
+   that require a response must still retain their pending continuation.
 8. Never present an upstream error as success. On connection loss close peer/tracks, flush events,
    end the broker session, and mint a new one. Reconnect with bounded exponential backoff.
 
@@ -115,7 +123,7 @@ Builtins available in every session:
 New session responses also include `builtin_tools:["tell_hermes",…]`. Route these names to the
 broker; execute declared app tools locally. Clients with a static allowlist must dispatch all returned builtins, including `what_changed`, `ask_z0` and `cancel_work`. No new pairing/permission is required; reconnect to mint them.
 
-`ask_z0` requires `{session_id,call_id?,arguments:{question}}`. It returns `{ok,id,turn_id,status,say,trace?}` immediately; cached model identity is `status:completed,cache:pinned_voice_plan`. Otherwise the brief/meta/workers run asynchronously and short progress/final speech arrives through inbox/SSE, with `params.turn_id`, `params.event`, and the full final `params.result`. Reuse the exact provider `call_id` on retry; changed arguments fail. Latest active user-started session only: old/ended sessions cannot admit new liaison work. For planned sessions `ask_hermes` and `tell_hermes(kind:request)` are compatibility aliases to L1 (immediate async response, not the old 24-second wait). Other legacy tool schemas remain unchanged.
+`ask_z0` requires `{session_id,call_id?,arguments:{question}}`. It returns `{ok,id,turn_id,status,say,speech?,trace?}` immediately; queued acceptance uses `say:"",speech:"silent"` (L0 may acknowledge once before dispatch). Repeated pending acceptance stays silent. Cached model identity is `status:completed,cache:pinned_voice_plan`. Otherwise the brief/meta/workers run asynchronously and short progress/final speech arrives through inbox/SSE, with `params.turn_id`, `params.event`, and the full final `params.result`. Reuse the exact provider `call_id` on retry; changed arguments fail. Latest active user-started session only: old/ended sessions cannot admit new liaison work. For planned sessions `ask_hermes` and `tell_hermes(kind:request)` are compatibility aliases to L1 (immediate async response, not the old 24-second wait). Other legacy tool schemas remain unchanged.
 
 Work-tool bodies may include the provider `call_id`. For `ask_hermes` and `start_task`, retrying the
 same session/call ID reuses its durable job; changed arguments with the same ID are rejected.
@@ -210,8 +218,12 @@ IDs monotonically increase across speech and actions. Start at 0; persist the re
 processing. Up to 100 messages/page; follow `has_more`. A message with `action:null` is speech only.
 For non-null action, dispatch only a tool supported/declared by this client, validate params and permissions,
 then report `tool_result` (failure as well as success). Unsupported/stale-session actions must not execute.
-Use `say` for phone TTS. Prevent TTS echo (pause/mute mic while local Hermes TTS is playing), and do not
-speak over the user or an active Realtime response: queue until a safe turn boundary. Do not acknowledge
+Use `say` as data for the existing Realtime model to interpret in its own words, not Android/browser TTS.
+Append a data-only system item and request a tool-free response without overriding the session persona.
+Optional `source` names the originating lookup/run/voice result and frames it as a continuation of requested work.
+Lifecycle/empty-status rows retain IDs but are silent. Identical normalized partial findings deduplicate
+across retries/restarts; a final answer replaces progress still held for the floor.
+Do not speak over the user or an active Realtime response: queue until a safe turn boundary. Do not acknowledge
 an action as complete until the actual device result is known. Deduplicate on message ID.
 
 ### `GET /v1/stream?after=N` (SSE)

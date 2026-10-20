@@ -213,7 +213,34 @@ class Journal:
             ).fetchone()
         return not row or row[0] in {"cancelling", "cancelled", "interrupted"}
 
+    @staticmethod
+    def meaningful_speech(say, event):
+        # Lifecycle transitions belong in trace telemetry, not the owner's audio.
+        if event in {
+            "memory_started",
+            "meta_started",
+            "workers_started",
+            "heartbeat",
+            "pending",
+            "waiting",
+        }:
+            return False
+        if not isinstance(say, str) or not say.strip():
+            return False
+        if event.startswith("partial-"):
+            # Defensive legacy/worker boundary; do not turn a no-news poll into a voice turn.
+            return not re.fullmatch(
+                r"(?:no (?:new )?updates?(?: yet)?|still (?:working|waiting|checking)|"
+                r"i (?:haven['’]t|have not) (?:gotten|received|got|had) (?:an? |any )?(?:new )?update(?: yet)?)"
+                r"(?:[,.;]? (?:but )?(?:something|an? update) (?:will|might|may|should) (?:be coming|come|arrive|be ready)(?: in)? soon)?[.!?]*",
+                say.strip(),
+                re.I,
+            )
+        return True
+
     def queue_speech(self, db, turn, say, event, **params):
+        if not self.meaningful_speech(say, event):
+            return
         row = db.execute(
             "SELECT sid,status FROM voice_turns WHERE id=?", (turn,)
         ).fetchone()
@@ -233,7 +260,14 @@ class Journal:
         ):
             return
         payload = dumps({"turn_id": turn, "event": event, **params})
-        source = "voice:" + turn + ":" + event
+        if event in {"result", "clarification"}:
+            # The final answer supersedes progress not yet heard while either side held the floor.
+            db.execute("DELETE FROM voice_speech WHERE turn_id=?", (turn,))
+        identity = event
+        if event.startswith("partial-"):
+            finding = re.sub(r"\s+", " ", say).strip().rstrip(".!?").casefold()
+            identity = "partial-" + hashlib.sha256(finding.encode()).hexdigest()[:24]
+        source = "voice:" + turn + ":" + identity
         floor = db.execute(
             "SELECT state FROM voice_floor WHERE sid=?", (row["sid"],)
         ).fetchone()

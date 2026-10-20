@@ -20,6 +20,8 @@ Human ↔ L0 ChatGPT Realtime (direct WebRTC)   │ floor/barge/replay
                                     └──→ L2 → L1 voice condensation → inbox/SSE
 ```
 
+Immediate queued acceptance is data-only (`say:"",speech:"silent"`): L0 gives at most one short acknowledgement before dispatch, then waits quietly. Memory lookup, native start and worker admission stay in traces, not speech. Only verified partial findings or the final answer enter the inbox. Normalized partial findings deduplicate per turn across retries/restarts, and the final answer replaces unheard floor-held progress.
+
 The implementation is **not** a replacement for `src/z0live` in unmerged PRs #6/#7 or its WebSocket protocol. `liaison.py` adapts the desktop HTTP broker's session, floor and native-run surfaces to the RFC vocabulary. It is not a second selector or a general agent runtime. Hermes owns credentials, tools, approvals, sessions, run semantics and tool process interruption. Real task/issue tracking stays in Hermes/GitHub, not in the observational turn tables.
 
 ## Pinned selection, not routing
