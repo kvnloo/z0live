@@ -407,6 +407,34 @@ class LiveCallTests(StoreCase):
             calls.open(self.device, {"session_id": self.sid, "sdp": "v=0"})
 
 
+class DegenerateCallTests(StoreCase):
+    def run_call(self, frames):
+        socket = FakeSocket(frames)
+        call = live.LiveCall(self.store, self.sid, self.device, "rtc_x", fake_token(), "s", "r",
+                             RecordingDelegator(), connector=lambda url, headers: socket)
+        call.run()
+        return call, socket
+
+    def test_context_filling_before_any_assistant_turn_ends_the_call(self):
+        call, socket = self.run_call([
+            json.dumps({"type": "session.usage.updated"}),
+            json.dumps({"type": "session.context_window.approaching"}),
+            json.dumps({"type": "turn.done", "turn": {"id": "t", "role": "assistant", "transcript": "late"}}),
+        ])
+        self.assertIn({"type": "session.close"}, socket.sent)
+        self.assertTrue(socket.closed)
+        self.assertTrue(any(e.startswith("degenerate_session") for e in call.stats["errors"]))
+        self.assertEqual(call.assistant_turns, 0, "nothing after the wedge is processed")
+
+    def test_rollover_in_a_working_call_is_left_alone(self):
+        call, socket = self.run_call([
+            json.dumps({"type": "turn.done", "turn": {"id": "t", "role": "assistant", "transcript": "Hi."}}),
+            json.dumps({"type": "session.context_window.rolled_over"}),
+        ])
+        self.assertNotIn({"type": "session.close"}, socket.sent)
+        self.assertFalse(call.stats["errors"])
+
+
 class FakeCall:
     def __init__(self, sid):
         self.sid, self.call_id = sid, "rtc_fake"

@@ -33,6 +33,10 @@ ACK_ONLY = re.compile(
     re.I,
 )
 RECOVERY_GRACE_SECONDS = 1.5
+# A call whose provider context fills up before the assistant has ever finished a turn is dead:
+# seen once in the OMP parity eval (no transcript, no audio, no delegation for 150 s while only
+# usage and context_window events arrived). Ending it beats leaving the owner talking to silence.
+DEGENERATE_EVENTS = ("session.context_window.approaching", "session.context_window.rolled_over")
 
 
 def transport_setting() -> str:
@@ -199,6 +203,9 @@ class LiveCall:
         self.delegated_turns: set[str] = set()
         self.delegated_since_user = False
         self.recovery_timer = None
+        self.started_at = time.monotonic()
+        self.assistant_turns = 0
+        self.timeline: list[tuple[int, str]] = []  # first non-audio events, for diagnosis
 
     def start(self):
         self.thread = threading.Thread(target=self.run, name="live-" + self.sid[:8], daemon=True)
@@ -289,9 +296,17 @@ class LiveCall:
             return
         self.stats["events"] += 1
         kind = event["type"]
+        if len(self.timeline) < 200:
+            self.timeline.append((round((time.monotonic() - self.started_at) * 1000),
+                                  event.get("wire_type", kind)))
         if kind == "unknown":
             wire = event["wire_type"]
             self.stats["unknown"][wire] = self.stats["unknown"].get(wire, 0) + 1
+            if wire in DEGENERATE_EVENTS:
+                LOG.warning("live %s session=%s age_s=%.0f assistant_turns=%d", wire, self.sid,
+                            time.monotonic() - self.started_at, self.assistant_turns)
+                if self.assistant_turns == 0:
+                    self.degenerate(wire)
         if kind == "delegation.created":
             # Delegations can arrive before the user's turn.done: key them by user turn id.
             self.delegated_since_user = True
@@ -304,6 +319,8 @@ class LiveCall:
                 self.stats["unreadable"].append(str(raw)[:400])
                 LOG.warning("empty delegation session=%s", self.sid)
         elif kind == "turn.done":
+            if event["role"] == "assistant":
+                self.assistant_turns += 1
             transcript = event["transcript"].strip()
             if transcript:
                 kind = "user_transcript" if event["role"] == "user" else "assistant_transcript"
@@ -317,6 +334,13 @@ class LiveCall:
         elif kind == "error":
             self.stats["errors"].append(event["message"][:200])
             LOG.warning("live error session=%s: %s", self.sid, event["message"][:200])
+
+    def degenerate(self, reason):
+        """End a call the provider has wedged; the phone sees the call end instead of silence."""
+        self.stats["errors"].append("degenerate_session:" + reason)
+        LOG.warning("ending degenerate live call session=%s reason=%s timeline=%s", self.sid,
+                    reason, self.timeline[-20:])
+        self.close()
 
     def delegated(self):
         return self.delegated_since_user or self.last_user_turn in self.delegated_turns
