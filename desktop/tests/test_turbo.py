@@ -231,8 +231,9 @@ class TurboTests(unittest.TestCase):
         with self.store.connect() as db:
             self.assertEqual(db.execute("SELECT count(*) FROM voice_speech").fetchone()[0], 0)
         messages = self.store.inbox(self.device)["messages"]
-        self.assertTrue(messages)
-        self.assertTrue(all(m["say"] == "" and m["params"]["silent"] for m in messages))
+        # This speech never reached the inbox: supersession discards the queued
+        # backlog rather than creating a historical placeholder for new audio.
+        self.assertEqual(messages, [])
 
     def test_barge_in_cancels_queued_run_without_pending_state(self):
         row = self.admit()
