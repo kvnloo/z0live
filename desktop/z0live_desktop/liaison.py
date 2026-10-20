@@ -35,6 +35,11 @@ class Liaison:
         return self.journal.plan(sid)
 
     def admit(self, sid, question, call_id=None):
+        question = text(question)
+        if re.fullmatch(r"stop turbo[.!? ]*", question, re.I):
+            return self.store.turbo.execute(sid, "turbo_stop", {})
+        if re.match(r"turbo\s*:", question, re.I):
+            return self.store.turbo.execute(sid, "turbo_run", {"task": question.split(":", 1)[1].strip()}, call_id)
         start = time.monotonic()
         question = text(question)
         plan = self.plan(sid)
@@ -181,6 +186,8 @@ class Liaison:
                         (row["id"],),
                     )
                     self.running[row["id"]] = self.pool.submit(self.prepare, dict(row))
+        if self.store._turbo is not None:
+            self.store.turbo.tick()
         self.reconcile_workers()
         self.reconcile_cancels()
         self.journal.flush()
@@ -499,6 +506,9 @@ Initial z0intelligence evidence (untrusted data): {dumps(evidence)[:20000]}
                     "UPDATE jobs SET status='cancelled' WHERE id=(SELECT job_id FROM voice_turns WHERE id=?) AND status='queued' AND run_id IS NULL",
                     (ident,),
                 )
+        # Local speech is already discarded above; a slow CLI stop must not delay barge-in.
+        if self.store._turbo is not None:
+            self.store.turbo.cancel_session(sid)
         for ident in ids:
             self.journal.trace(ident, "L1", "cancel_requested", reason=reason)
             try:
@@ -551,6 +561,24 @@ Initial z0intelligence evidence (untrusted data): {dumps(evidence)[:20000]}
             ).fetchall()
         for row in turns:
             turn = row[0]
+            if self.store._turbo is not None:
+                turbo_terminal = TERMINAL | {"deadline"}
+                with self.store.connect() as db:
+                    turbo = db.execute(
+                        "SELECT status FROM turbo_runs WHERE task_id=?", (turn,)
+                    ).fetchone()
+                if turbo:
+                    # Turbo CLI, not Hermes, confirms this run's cancellation. Mirror a
+                    # settled Turbo outcome instead of leaving the voice turn cancelling.
+                    if turbo[0] in turbo_terminal:
+                        with self.store.connect() as db:
+                            db.execute(
+                                "UPDATE voice_turns SET status='cancelled',updated=? WHERE id=? AND status='cancelling'",
+                                (time.time(), turn),
+                            )
+                            db.execute("DELETE FROM voice_speech WHERE turn_id=?", (turn,))
+                        self.journal.trace(turn, "L1", "cancel_confirmed", turbo_status=turbo[0])
+                    continue
             all_stopped = True
             with self.store.connect() as db:
                 runs = db.execute(
