@@ -32,7 +32,7 @@ from z0live_desktop.core import Store, dumps  # noqa: E402
 
 store = Store(data)
 with store.connect() as db:
-    for name in ("initialized", "work_tools_v1"):
+    for name in ("initialized", "work_tools_v1", "garden_equipment_v1"):
         db.execute("INSERT OR IGNORE INTO meta VALUES(?, 'true')", (name,))
     db.execute(
         "INSERT OR REPLACE INTO meta VALUES('hermes_session', ?)",
