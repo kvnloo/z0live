@@ -34,7 +34,7 @@ class ResearchTraceabilityTests(unittest.TestCase):
             )
             self.assertTrue(item["area"].strip())
             self.assertIn(item["priority"], self.data["gates"])
-            self.assertNotIn("merged", item["status"] if item["kind"] == "pr" else "")
+            self.assertNotEqual(item["status"], "merged")
 
     def test_research_topics_have_bijective_use_and_document_coverage(self) -> None:
         topics = set(self.data["research_topics"])
