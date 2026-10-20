@@ -81,6 +81,42 @@ promptly. This is not the duration of an established conversation. No underlying
 is returned. The host reads the owner's existing `~/.codex/auth.json` lazily and derives
 `ChatGPT-Account-ID`; OAuth refresh failure is a 502, not a paid-key fallback.
 
+### Frameless Bidi transport (OMP `/live` architecture)
+
+Clients that can use it add `"transports":["bidi","realtime"]` to the session request. When the broker
+setting `Z0LIVE_LIVE_TRANSPORT` is `bidi` (the default) the broker answers without a provider call:
+
+```json
+{"transport":"bidi","model":"gpt-live-1-codex","voice":"sol","instructions_version":"z0live.bidi.v1","session_id":"SERVER_GENERATED_ID","builtin_tools":[],"voice_plan":null}
+```
+
+There is no `value`: the phone never holds a provider credential. Requests without `transports`
+(every APK before this change) or with `Z0LIVE_LIVE_TRANSPORT=realtime` get the gpt-realtime mint
+below, unchanged except for an additive `"transport":"realtime"`. See [LIVE-BIDI.md](LIVE-BIDI.md).
+
+#### `POST /v1/live/calls`
+
+```json
+{"session_id":"SERVER_GENERATED_ID","sdp":"v=0\r\n..."}
+```
+
+The broker posts the phone's SDP offer to Codex signaling with the host's ChatGPT/Codex login,
+opens the call's sideband WebSocket, and returns `{"sdp":"v=0...","call_id":"rtc_...","model":"gpt-live-1-codex","voice":"sol","instructions_version":"z0live.bidi.v1"}`.
+Media stays direct between the phone and OpenAI. Errors: 400 for a non-bidi, ended or already-called
+session; 404 for another device's session; 502 when signaling fails (clients then mint
+`transports:["realtime"]` and post the same offer to OpenAI). Ending the session closes the call.
+
+The phone's data channel receives Frameless Bidi events (`input_transcript.added`,
+`output_transcript.added`, `turn.done`, `delegation.created`, `error`) for captions only. It sends
+no control messages. Phone actions arrive as ordinary inbox actions (`say:""`); the phone executes
+them and posts the usual `tool_result` event with `data.id` set to the inbox id, which becomes the
+spoken result. Transcripts are recorded by the broker from the sideband.
+
+#### `GET /v1/live/trace?session_id=...`
+
+Owner-scoped delegation receipts: route (`phone:TOOL` or `hermes`), status, timing marks
+(`created`, `routed`, `run_started`, `first_commentary`, `final`) and the final text, plus call stats.
+
 ### Direct OpenAI WebRTC (not proxied through desktop)
 
 1. Acquire microphone from a user gesture with Android's microphone permission; use a foreground
