@@ -1,6 +1,7 @@
 """Serialized, restart-safe native Hermes runs; audio never waits for this worker."""
 
 import json
+import hashlib
 import logging
 import os
 import time
@@ -108,22 +109,43 @@ This message only updates your operating context; do not start tasks or change f
                 "SELECT value FROM meta WHERE key='hermes_session'"
             ).fetchone()
             hermes_session = json.loads(sidrow["value"]) if sidrow else "z0live"
-            if not job["request"]:
+            fresh = not job["request"]
+            if fresh:
+                plan = (
+                    self.store.voice.plan(job["session_id"])
+                    if job["kind"] == "voice_meta"
+                    else None
+                )
+                binding = (
+                    plan["roles"][plan["meta_role"]]
+                    if plan
+                    else {"model": MODEL, "provider": "anthropic"}
+                )
                 body = {
                     "session_id": hermes_session,
                     "input": job["text"],
-                    "model": MODEL,
-                    "provider": "anthropic",
+                    **binding,
                 }
                 db.execute(
                     "UPDATE jobs SET request=? WHERE id=?", (dumps(body), job["id"])
                 )
                 job["request"] = dumps(body)
+            if not job["native_key"]:
+                namespace = hashlib.sha256(
+                    str(self.store.directory.resolve()).encode()
+                ).hexdigest()[:12]
+                job["native_key"] = (
+                    "z0live-" + namespace + "-job-" if fresh else "z0live-job-"
+                ) + str(job["id"])
+                db.execute(
+                    "UPDATE jobs SET native_key=? WHERE id=?",
+                    (job["native_key"], job["id"]),
+                )
         if not job["run_id"]:
             run = self.api(
                 "/v1/runs",
                 json.loads(job["request"]),
-                idem="z0live-job-" + str(job["id"]),
+                idem=job["native_key"],
             )
             job["run_id"] = run["run_id"]
             with self.store.connect() as db:
@@ -140,6 +162,8 @@ This message only updates your operating context; do not start tasks or change f
                     sid=job["session_id"],
                     source="task-progress:" + job["run_id"],
                 )
+        if job["kind"] == "voice_meta":
+            self.store.voice.attach(job, job["run_id"])
         run = self.api("/v1/runs/" + job["run_id"])
         status = run.get("status")
         if status == "waiting_for_approval":
@@ -174,7 +198,13 @@ This message only updates your operating context; do not start tasks or change f
             delivery = db.execute(
                 "SELECT delivery FROM jobs WHERE id=?", (job["id"],)
             ).fetchone()[0]
-            if say and delivery == "inbox":
+            # Session summaries are notes for Hermes, never spoken back to the owner.
+            if (
+                say
+                and delivery == "inbox"
+                and job["kind"]
+                not in {"summary", "seed", "context", "feedback", "feedback_note"}
+            ):
                 device = None
                 if job["session_id"]:
                     target = db.execute(
@@ -193,6 +223,8 @@ This message only updates your operating context; do not start tasks or change f
                         "run:" + job["run_id"],
                     ),
                 )
+        if job["kind"] == "voice_meta":
+            self.store.voice.complete(job, run)
         LOG.info(
             "finished job=%s kind=%s status=%s reply_chars=%s",
             job["id"],
@@ -207,6 +239,7 @@ This message only updates your operating context; do not start tasks or change f
             try:
                 if not ready:
                     self.store.work.recover()
+                    self.store.voice.recover()
                     self.setup()
                     ready = True
                 with self.store.connect() as db:
@@ -217,6 +250,7 @@ This message only updates your operating context; do not start tasks or change f
                     raise RuntimeError(
                         "seed failed; inspect jobs before explicitly clearing seed_failed"
                     )
+                self.store.voice.tick()
                 self.store.work.tick()
                 self.store.work.monitor()
                 self.delivery.tick()

@@ -37,13 +37,46 @@ def main():
     action.add_argument("--action", required=True)
     action.add_argument("--params", default="{}")
     action.add_argument("--say", default="")
+    trace = sub.add_parser(
+        "trace", help="Read native stack observations; no model call"
+    )
+    trace.add_argument("--turn")
+    trace.add_argument("--session")
+    fanout = sub.add_parser(
+        "fanout", help="L2 native-Hermes worker adapter, pinned task role"
+    )
+    fanout.add_argument("--turn", required=True)
+    fanout.add_argument("--brief", action="append", required=True)
+    progress = sub.add_parser("progress", help="Queue a short verified partial finding")
+    progress.add_argument("--turn", required=True)
+    progress.add_argument("text")
     args = parser.parse_args()
     if args.command == "serve":
         from z0live_desktop.server import serve
 
         return serve()
     store = Store()
-    if args.command == "pair":
+    if args.command == "trace":
+        print(dumps({"events": store.voice.journal.read(args.turn, args.session)}))
+    elif args.command == "fanout":
+        print(
+            dumps(
+                {
+                    "turn_id": args.turn,
+                    "workers": store.voice.journal.fanout(args.turn, args.brief),
+                }
+            )
+        )
+    elif args.command == "progress":
+        store.voice.journal.speak(
+            args.turn,
+            args.text,
+            "partial-"
+            + __import__("hashlib").sha256(args.text.encode()).hexdigest()[:16],
+        )
+        store.voice.journal.trace(args.turn, "L2", "partial_finding")
+        print(dumps({"status": "queued", "turn_id": args.turn}))
+    elif args.command == "pair":
         qr_mode = args.qr or args.qr_png is not None
         encoder = shutil.which("qrencode") if qr_mode else None
         if qr_mode and not encoder:

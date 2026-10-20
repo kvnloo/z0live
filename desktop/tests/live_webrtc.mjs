@@ -93,21 +93,21 @@ let reply,summaryReply;
 const deadline=Date.now()+180000;
 while(Date.now()<deadline){
  const inbox=await request('/v1/inbox?after='+cursor);cursor=inbox.after;
- for(const item of inbox.messages){if(!reply&&item.session_id===sid&&item.say.includes(marker))reply=item;}
- // The exact native summary delivery is checked from the service's canonical durable receipts below.
- const receipts=JSON.parse(execFileSync('python3',['-c',`import json,sqlite3; db=sqlite3.connect('${root}/../../data/z0live/broker.db'); db.row_factory=sqlite3.Row; print(json.dumps([dict(r) for r in db.execute("SELECT id,kind,status,run_id FROM jobs WHERE session_id=? ORDER BY id",('${sid}',))]))`],{encoding:'utf8'}));
+ assert.ok(inbox.messages.filter(m=>m.session_id===sid).every(m=>m.say===''),'ended session spoke backlog');
+ // Notes and summaries must be recorded natively, NOT echoed through phone TTS.
+ const data=process.env.Z0LIVE_DATA||path.resolve(root,'../../data/z0live');
+ const receipts=JSON.parse(execFileSync('python3',['-c',`import json,sqlite3,sys,pathlib; db=sqlite3.connect((pathlib.Path(sys.argv[1])/'broker.db').as_uri()+'?mode=ro',uri=True); db.row_factory=sqlite3.Row; print(json.dumps([dict(r) for r in db.execute("SELECT id,kind,status,run_id,result FROM jobs WHERE session_id=? ORDER BY id",(sys.argv[2],))]))`,data,sid],{encoding:'utf8'}));
+ reply=receipts.find(r=>r.kind==='feedback_note'&&r.status==='completed'&&(r.result||'').includes(marker));
  const summary=receipts.find(r=>r.kind==='summary');
  if(reply&&summary?.status==='completed'){summaryReply=summary;break;}
  await new Promise(resolve=>setTimeout(resolve,1500));
 }
-assert.ok(reply,'real Hermes reply did not arrive');assert.ok(summaryReply,'native Hermes summary run did not complete');
-console.log('PASS Hermes reply in /v1/inbox',JSON.stringify({id:reply.id,session_id:reply.session_id,say:reply.say}));
-console.log('PASS summary delivered to native Hermes z0live session',JSON.stringify(summaryReply));
-const sessions=await request('/v1/sessions');assert.ok(sessions.sessions.some(s=>s.id===sid&&s.ended));console.log('PASS /v1/sessions history',JSON.stringify({session_count:sessions.sessions.length,ended:true}));
-// Check authenticated live SSE framing and cursor resume without waiting for a new message.
+assert.ok(reply,'real native note reply was not recorded');assert.ok(summaryReply,'native summary did not complete');
+console.log('PASS native note + summary recorded, never spoken',JSON.stringify({note_job:reply.id,summary_job:summaryReply.id}));
+const sessions=await request('/v1/sessions');assert.ok(sessions.sessions.some(s=>s.id===sid&&s.ended));
 const controller=new AbortController();
-const stream=await fetch(base+'/v1/stream?after='+(reply.id-1),{headers:{Authorization:'Bearer '+token},signal:controller.signal});
-assert.equal(stream.status,200);const reader=stream.body.getReader();let sse='';
-for(let n=0;n<20&&!sse.includes(marker);n++){const chunk=await reader.read();sse+=new TextDecoder().decode(chunk.value);}
-controller.abort();assert.ok(sse.includes('event: message'));assert.ok(sse.includes(marker));console.log('PASS /v1/stream authenticated SSE replay');
-console.log('LIVE RESULT',JSON.stringify({base,session_id:sid,hermes_marker:marker,summary_run:summaryReply.run_id,reply_id:reply.id}));
+const stream=await fetch(base+'/v1/stream?after='+cursor,{headers:{Authorization:'Bearer '+token},signal:controller.signal});
+assert.equal(stream.status,200);const reader=stream.body.getReader();const chunk=await reader.read();controller.abort();
+assert.ok(new TextDecoder().decode(chunk.value).includes(': z0live connected'));console.log('PASS authenticated SSE connection, no audible backlog');
+console.log('LIVE RESULT',JSON.stringify({base,session_id:sid,hermes_marker:marker,summary_run:summaryReply.run_id,note_run:reply.run_id}));
+execFileSync('python3',['-c',`import sys;sys.path.insert(0,${JSON.stringify(path.join(root,'desktop'))});from z0live_desktop.core import Store;Store().revoke_token(sys.stdin.read())`],{input:token});
