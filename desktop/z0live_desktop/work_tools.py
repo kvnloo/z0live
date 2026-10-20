@@ -50,7 +50,7 @@ class WorkTools:
                 self.publish(
                     db,
                     row["session_id"],
-                    "More work context. " + self.speech(json.loads(row["result"])),
+                    self.speech(json.loads(row["result"])),
                     {"lookup_id": row["id"], "result": json.loads(row["result"])},
                     "lookup:" + row["id"],
                 )
@@ -254,21 +254,35 @@ Return concise actual evidence, not an invented task ID.\n""" + dumps(args)
 
     @staticmethod
     def speech(result):
+        """Plain facts for the live voice model to summarize (it never reads this verbatim)."""
         local = result.get("local_tasks", [])
         if local:
             task = local[0]
             return (
-                f"{task['id']}: Hermes request {task['request_status']}. "
+                f"Hermes request {task['request_status']}: "
                 + task["answer"]
-                + " Request completion does not by itself mean implementation is done."
+                + " (A finished request does not by itself mean the implementation is done.)"
             )[:1600]
-        items = result.get("items", [])
+        items = [i for i in result.get("items", []) if i.get("source") != "telemetry"]
         if not items:
-            return "No matching evidence is ready yet. Slower sources may still be checking."
-        return " ".join(
-            f"{i.get('project') or i['source']}: {i.get('status', '')}. {i.get('what', '')}"
-            for i in items[:3]
-        )[:1400]
+            return "Nothing new was found in agent sessions or commits for that period."
+        working = [i for i in items if str(i.get("status", "")).startswith(("working now", "active"))]
+        commits = {}
+        for i in items:
+            if i.get("source") == "git":
+                commits.setdefault(i.get("project") or "a repo", []).append(i.get("what", ""))
+        lines = []
+        if working:
+            lines.append("Agents working right now: " + "; ".join(
+                f"{i['what']} ({i['status'].removeprefix('working now: ')})" for i in working[:5]) + ".")
+        idle = [i for i in items if i.get("source") == "agent-session" and i not in working and i.get("session")]
+        if idle:
+            lines.append("Also worked on earlier: " + "; ".join(i["what"] for i in idle[:4]) + ".")
+        if commits:
+            lines.append("Commits: " + "; ".join(
+                f"{p}: {len(c)} ({c[0]})" for p, c in list(commits.items())[:5]) + ".")
+        lines += [i["what"] + "." for i in items if i.get("source") == "agent-session" and not i.get("session")]
+        return " ".join(lines)[:1600]
 
     def monitor(self):
         if time.monotonic() < self.next_monitor:
@@ -413,7 +427,7 @@ Return concise actual evidence, not an invented task ID.\n""" + dumps(args)
                 self.publish(
                     db,
                     row["session_id"],
-                    "More work context. " + self.speech(result),
+                    self.speech(result),
                     {"lookup_id": row["id"], "result": result},
                     "lookup:" + row["id"],
                 )
