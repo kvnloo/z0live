@@ -292,12 +292,19 @@ class Store:
               source TEXT UNIQUE);
             CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
             """)
+            columns = {r[1] for r in db.execute("PRAGMA table_info(sessions)")}
+            if "transport" not in columns:
+                db.execute(
+                    "ALTER TABLE sessions ADD COLUMN transport TEXT NOT NULL DEFAULT 'realtime'"
+                )
         self.path.chmod(0o600)
         self.export_lock = threading.Lock()
         self.work_lock = threading.Lock()
         self._work = None
         self._voice = None
         self.voice_lock = threading.Lock()
+        self._live = None
+        self.live_lock = threading.Lock()
         self.export_events()
 
     @property
@@ -317,6 +324,15 @@ class Store:
 
                 self._voice = Liaison(self)
             return self._voice
+
+    @property
+    def live(self):
+        with self.live_lock:
+            if self._live is None:
+                from .live import LiveCalls
+
+                self._live = LiveCalls(self)
+            return self._live
 
     def connect(self):
         db = sqlite3.connect(self.path, timeout=30)
@@ -402,16 +418,31 @@ class Store:
                     "tools must be unique Realtime function schemas; builtin names are reserved"
                 )
             names.add(t["name"])
+        from .live import choose_transport
+
+        transport = choose_transport(body.get("transports"))
         from .voice_runtime import load_plan
 
         plan = load_plan()
-        result = mint(context, tools)
+        if transport == "bidi":
+            # No provider call at mint: the phone's SDP offer goes to POST /v1/live/calls.
+            from . import bidi_protocol
+            from .live import PERSONA_VERSION, voice
+
+            result = {
+                "transport": "bidi",
+                "model": bidi_protocol.LIVE_MODEL,
+                "voice": voice(),
+                "instructions_version": PERSONA_VERSION,
+            }
+        else:
+            result = {"transport": "realtime", **mint(context, tools)}
         sid = uuid.uuid4().hex
         now = time.time()
         with self.connect() as db:
             db.execute(
-                "INSERT INTO sessions(id,device,client,created,updated,context,tools) VALUES(?,?,?,?,?,?,?)",
-                (sid, device, body["client"], now, now, dumps(context), dumps(tools)),
+                "INSERT INTO sessions(id,device,client,created,updated,context,tools,transport) VALUES(?,?,?,?,?,?,?,?)",
+                (sid, device, body["client"], now, now, dumps(context), dumps(tools), transport),
             )
         if plan:
             self.voice
@@ -423,7 +454,10 @@ class Store:
             **result,
             "voice_plan": plan,
             "session_id": sid,
-            "builtin_tools": [t["name"] for t in builtin_tools()],
+            # Frameless Bidi has no function tools: the model delegates, the broker routes.
+            "builtin_tools": []
+            if transport == "bidi"
+            else [t["name"] for t in builtin_tools()],
         }
 
     def owned(self, db, sid, device):
@@ -457,6 +491,8 @@ class Store:
             raise ValueError("expected a batched array of 1..100 events")
         accepted = 0
         voice_events = []
+        phone_results = []
+        ended = []
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             for item in events:
@@ -496,6 +532,8 @@ class Store:
                 if not cur.rowcount:
                     continue
                 accepted += 1
+                if item["type"] == "tool_result" and "id" in data:
+                    phone_results.append((sid, data))
                 if item["type"] in {
                     "floor",
                     "barge_in",
@@ -549,8 +587,15 @@ class Store:
                 if data.get("session_end") is True:
                     self.summarize(db, sid, "session_end")
                     db.execute("UPDATE sessions SET ended=1 WHERE id=?", (sid,))
+                    ended.append(sid)
         # Replay only accepted/deduplicated events after the atomic batch commits.
         self.export_events()
+        if phone_results and self._live is not None:
+            for sid, data in phone_results:
+                self._live.delegator.phone_result(sid, data)
+        if ended and self._live is not None:
+            for sid in ended:
+                self._live.close(sid)
         for sid, kind, value, data in voice_events:
             if kind == "model_usage":
                 self.voice.journal.trace(
@@ -626,6 +671,13 @@ class Store:
         ).fetchall()
         if not rows:
             return None
+        if os.environ.get("Z0LIVE_HERMES_NOTES", "on") == "off":
+            # Isolated qualification brokers must not write notes into the owner's Hermes session.
+            db.execute(
+                "UPDATE sessions SET summary_cursor=?,active=0 WHERE id=?",
+                (rows[-1]["id"], sid),
+            )
+            return None
         # Extractive summary: no extra provider dependency, never fabricates a conclusion.
         counts, samples, feedback = {}, [], []
         for r in rows:
@@ -699,6 +751,8 @@ class Store:
             self.owned(db, sid, device)
             job = self.summarize(db, sid, "session_end")
             db.execute("UPDATE sessions SET ended=1 WHERE id=?", (sid,))
+        if self._live is not None:
+            self._live.close(sid)
         return {"ok": True, "id": job}
 
     def context(self, device, sid):
