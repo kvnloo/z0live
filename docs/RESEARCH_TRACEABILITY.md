@@ -4,7 +4,7 @@
 
 ## 1. Audit completeness and evidence standard
 
-Enumerated **all 32 GitHub issue numbers** (20 issues, including four historical closed/not-planned trackers; 12 open, unmerged PRs). Read each issue/PR description and fetched every issue-comment thread. GitHub returned **0 issue comments** on all 32; the 12 PRs also returned **0 PR discussion comments, 0 review submissions and 0 inline review threads**. This establishes *no comments existed in the fetched sources at the snapshot*, not that later comments cannot exist. The issue number list, domain mapping and research topic keys are recorded in the JSON manifest, and a deterministic offline test protects coverage.
+Enumerated **all 33 GitHub issue numbers** (20 issues, including four historical closed/not-planned trackers; 13 open, unmerged PRs; #33 is this audit PR, opened after the initial 32-item read). Read each issue/PR description and fetched every issue-comment thread. GitHub returned **0 issue comments** on all 33; the original 12 PRs returned **0 PR discussion comments, 0 review submissions and 0 inline review threads**; new audit PR #33 also had zero comments/review threads on inspection. This establishes *no comments existed in the fetched sources at the snapshot*, not that later comments cannot exist. The issue number list, domain mapping and research topic keys are recorded in the JSON manifest, and a deterministic offline test protects coverage.
 
 Evidence classes are never interchangeable:
 
@@ -166,6 +166,8 @@ The table is generated from the companion JSON manifest. **Status is as of the a
 | [#30](https://github.com/kvnloo/z0live/pull/30) | PR | P4 | Oura gesture / context route / ADB opt-in | open-unmerged | R05, R11, R14 |
 | [#31](https://github.com/kvnloo/z0live/pull/31) | PR | P4 | Turbo triggers and stop receipts | open-unmerged | R04, R09, R10, R11 |
 | [#32](https://github.com/kvnloo/z0live/issues/32) | Issue | P0 | OMP live parity product release gate | open | R03, R04, R06, R10, R12, R13, R14, R15 |
+
+| [#33](https://github.com/kvnloo/z0live/pull/33) | PR | P0 | research audit / all-issue traceability and parity mapping | open-unmerged | R01, R03, R06, R11, R12 |
 
 ## 6. Repo location map and immediate handoff
 
