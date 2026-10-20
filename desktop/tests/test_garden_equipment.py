@@ -55,6 +55,7 @@ class GardenEquipmentContextTests(unittest.TestCase):
         for cmd in ("tools/equipment.py add URL", "tools/equipment.py share URL", "compare ID ID", "ideas --ids"):
             self.assertIn(cmd, note)
         self.assertIn("say queued, not done", note)
+        self.assertIn("never to verify (verify with list)", note)
         self.assertIn("Never log in to Amazon", note)
 
     def test_delegated_ask_z0_runs_carry_the_brief(self):

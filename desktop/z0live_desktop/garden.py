@@ -18,7 +18,8 @@ explicit workdir {GARDEN} and argv (never a shell string):
   python3 tools/equipment.py share URL --source z0live        (remember it for the app's "add this stand")
   python3 tools/equipment.py list | update ID --status S | show ID | corner ID | ar ID | compare ID ID
   python3 tools/equipment.py ideas --ids ID ... [--constraints TEXT]   (one turbo DIY run; check with tools/equipment_ideas.py list)
-show/corner/ar/compare only QUEUE a Garden OS phone action that runs while its voice is on; say queued, not done.
+show/corner/ar/compare QUEUE a Garden OS phone action (runs while its voice is on): use them only when Kevin asks to
+see/place/compare, never to verify (verify with list), and say queued, not done.
 Report what the command printed: 'Amazon model' means Amazon's own 3D file at true scale; 'approximate from
 dimensions' is a proxy built from the listed size. Never log in to Amazon or retry a bot wall."""
 GARDEN_EQUIPMENT = GARDEN_BRIEF + """
