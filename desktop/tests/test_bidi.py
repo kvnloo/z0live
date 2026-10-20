@@ -333,6 +333,35 @@ class LiveCallTests(StoreCase):
         self.assertEqual(socket.sent[0]["type"], "session.context.append")
         self.assertEqual(socket.sent[1]["type"], "delegation.context.append")
 
+    def test_dropped_sideband_reattaches_once_and_keeps_reading(self):
+        class Dropping(FakeSocket):
+            def __iter__(self):
+                yield from self.frames
+                raise ConnectionError("keepalive ping failed")
+
+        sockets = [
+            Dropping([self.turn("user", "hello", "t1")]),
+            FakeSocket([self.turn("assistant", "Hi.", "t2")]),
+        ]
+        delegator = RecordingDelegator()
+        call = live.LiveCall(self.store, self.sid, self.device, "rtc_x", fake_token(), "s", "r",
+                             delegator, connector=lambda url, headers: sockets.pop(0))
+        call.run()
+        self.assertEqual(call.stats["reconnects"], 1)
+        self.assertEqual(delegator.turns, ["hello"])
+        history = (Path(self.tmp.name) / "sessions" / (self.sid + ".jsonl")).read_text()
+        self.assertIn("Hi.", history)
+
+    def test_side_effects_run_off_the_reader_thread_in_order(self):
+        socket = FakeSocket([self.turn("user", "first", "t1"), self.turn("user", "second", "t2")], linger=0.3)
+        delegator = RecordingDelegator()
+        call = live.LiveCall(self.store, self.sid, self.device, "rtc_x", fake_token(), "s", "r",
+                             delegator, connector=lambda url, headers: socket)
+        call.start()
+        call.thread.join(3)
+        time.sleep(0.2)
+        self.assertEqual(delegator.turns, ["first", "second"])
+
     def test_sideband_retries_then_reports(self):
         attempts = []
 

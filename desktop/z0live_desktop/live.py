@@ -11,6 +11,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import queue
 import re
 import threading
 import time
@@ -168,8 +169,10 @@ def websocket_connect(url, headers):
     """Real sideband connector (lazy import keeps the broker stdlib-only otherwise)."""
     from websockets.sync.client import connect
 
+    # The sideband also carries ~100 audio frames/s. A small receive queue or client keepalive
+    # pings let one slow moment stall pongs and drop the call (seen live), so neither is used.
     return connect(url, additional_headers=headers, open_timeout=15, max_size=2**22,
-                   ping_interval=20, ping_timeout=20)
+                   max_queue=4096, ping_interval=None)
 
 
 class LiveCall:
@@ -190,6 +193,7 @@ class LiveCall:
         self.stats = {"events": 0, "audio_frames": 0, "delegations": 0, "errors": [],
                       "unknown": {}, "unreadable": []}
         self.marks: dict[str, float] = {}
+        self.jobs: queue.Queue = queue.Queue()
         self.last_user = ""
         self.last_user_turn = ""
         self.delegated_turns: set[str] = set()
@@ -199,7 +203,25 @@ class LiveCall:
     def start(self):
         self.thread = threading.Thread(target=self.run, name="live-" + self.sid[:8], daemon=True)
         self.thread.start()
+        threading.Thread(target=self.work, name="live-io-" + self.sid[:8], daemon=True).start()
         return self
+
+    def work(self):
+        """Slow side effects (SQLite history, Hermes stop) never block the sideband reader."""
+        while True:
+            job = self.jobs.get()
+            if job is None:
+                return
+            try:
+                job()
+            except Exception as exc:
+                LOG.warning("live side effect failed session=%s error=%s", self.sid, type(exc).__name__)
+
+    def later(self, job):
+        if self.thread is None:
+            job()  # not started (unit tests drive run() directly): stay synchronous
+        else:
+            self.jobs.put(job)
 
     def connect(self):
         failure = None
@@ -226,15 +248,31 @@ class LiveCall:
             if not self.connect():
                 return
             LOG.info("sideband open session=%s", self.sid)
-            for raw in self.ws:
-                if self.closed.is_set():
+            while not self.closed.is_set():
+                try:
+                    for raw in self.ws:
+                        if self.closed.is_set():
+                            break
+                        self.receive(raw)
+                    break  # a clean close from the provider ends the call
+                except Exception as exc:
+                    if self.closed.is_set():
+                        break
+                    LOG.warning("sideband dropped session=%s error=%s", self.sid, type(exc).__name__)
+                    self.stats["errors"].append("sideband_dropped:" + type(exc).__name__)
+                # The provider can keep the call alive across a dropped sideband: reattach once.
+                if self.closed.is_set() or self.stats.get("reconnects", 0) >= 3:
                     break
-                self.receive(raw)
+                self.stats["reconnects"] = self.stats.get("reconnects", 0) + 1
+                if not self.connect():
+                    break
+                LOG.info("sideband reattached session=%s", self.sid)
         except Exception as exc:
             if not self.closed.is_set():
                 LOG.warning("sideband ended session=%s error=%s", self.sid, type(exc).__name__)
         finally:
             self.closed.set()
+            self.jobs.put(None)
             self.delegator.call_closed(self)
 
     def receive(self, raw):
@@ -268,15 +306,12 @@ class LiveCall:
         elif kind == "turn.done":
             transcript = event["transcript"].strip()
             if transcript:
-                self.record(
-                    "user_transcript" if event["role"] == "user" else "assistant_transcript",
-                    transcript,
-                    {"source": "bidi.turn.done"},
-                )
+                kind = "user_transcript" if event["role"] == "user" else "assistant_transcript"
+                self.later(lambda: self.record(kind, transcript, {"source": "bidi.turn.done"}))
                 if event["role"] == "user":
                     self.last_user, self.last_user_turn = transcript, event["id"]
                     self.delegated_since_user = event["id"] in self.delegated_turns
-                    self.delegator.user_turn(self, transcript)
+                    self.later(lambda: self.delegator.user_turn(self, transcript))
                 elif ACK_ONLY.match(transcript) and self.last_user and not self.delegated():
                     self.schedule_recovery(self.last_user)
         elif kind == "error":
