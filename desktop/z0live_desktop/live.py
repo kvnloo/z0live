@@ -11,6 +11,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import threading
 import time
 import urllib.error
@@ -20,9 +21,17 @@ import uuid
 from . import bidi_protocol as bp
 
 LOG = logging.getLogger("z0live.live")
-PERSONA_VERSION = "z0live.bidi.v1"
+PERSONA_VERSION = "z0live.bidi.v2"
 TRANSPORTS = ("bidi", "realtime")
 AUDIO_TYPES = (b"session.input_audio.append", b"session.output_audio.delta")
+# A bare action acknowledgement with no delegation behind it is a missed delegation.
+ACK_ONLY = re.compile(
+    r"^\W*(?:ok(?:ay)?|sure|alright|got it|yes)?[\s,.!]*(?:on it|checking(?: (?:now|that|on that))?|"
+    r"opening(?: it)?(?: now)?|let me (?:check|look|open|see)|one (?:sec|second|moment)|"
+    r"i'?ll (?:check|look|open)(?: that| it)?)(?: (?:now|real quick|quickly))?\W*$",
+    re.I,
+)
+RECOVERY_GRACE_SECONDS = 1.5
 
 
 def transport_setting() -> str:
@@ -78,6 +87,12 @@ def persona(tools: list[dict]) -> str:
         else "- none in this session (phone control is not wired up on this client)"
     )
     return f"""You are z0live, Kevin's voice assistant. You and your execution backend are one assistant: you talk with Kevin, the backend does the work on his computer and his phone, and its results are your own results.
+
+<critical>
+- You have no direct access to the phone, the computer or the internet. Every action and every lookup MUST go through a client delegation.
+- MUST create a client delegation for every phone action (open an app or settings, media, timers, calls, texts, tapping, typing), all computer and project work, anything about Kevin's files, repos, agents, notes or history, and anything current.
+- NEVER say an action happened, an app is open, or something was checked unless an "Agent Final Message" in your context says so.
+</critical>
 
 <talk>
 - Speak naturally and briefly: usually one or two short sentences. No markdown, lists, code, file paths or URLs unless Kevin asks.
@@ -172,8 +187,14 @@ class LiveCall:
         self.closed = threading.Event()
         self.opened = threading.Event()
         self.thread = None
-        self.stats = {"events": 0, "audio_frames": 0, "delegations": 0, "errors": []}
+        self.stats = {"events": 0, "audio_frames": 0, "delegations": 0, "errors": [],
+                      "unknown": {}, "unreadable": []}
         self.marks: dict[str, float] = {}
+        self.last_user = ""
+        self.last_user_turn = ""
+        self.delegated_turns: set[str] = set()
+        self.delegated_since_user = False
+        self.recovery_timer = None
 
     def start(self):
         self.thread = threading.Thread(target=self.run, name="live-" + self.sid[:8], daemon=True)
@@ -223,13 +244,27 @@ class LiveCall:
             return
         event = bp.parse_event(raw)
         if not event:
+            if b"delegation" in head:
+                # A delegation we cannot read would leave the voice waiting silently: record it.
+                self.stats["unreadable"].append(str(raw)[:400])
+                LOG.warning("unreadable delegation event session=%s", self.sid)
             return
         self.stats["events"] += 1
         kind = event["type"]
+        if kind == "unknown":
+            wire = event["wire_type"]
+            self.stats["unknown"][wire] = self.stats["unknown"].get(wire, 0) + 1
         if kind == "delegation.created":
+            # Delegations can arrive before the user's turn.done: key them by user turn id.
+            self.delegated_since_user = True
+            if event["user_turn_id"]:
+                self.delegated_turns.add(event["user_turn_id"])
             if event["text"]:
                 self.stats["delegations"] += 1
                 self.delegator.delegate(self, event["id"], event["text"])
+            else:
+                self.stats["unreadable"].append(str(raw)[:400])
+                LOG.warning("empty delegation session=%s", self.sid)
         elif kind == "turn.done":
             transcript = event["transcript"].strip()
             if transcript:
@@ -239,10 +274,31 @@ class LiveCall:
                     {"source": "bidi.turn.done"},
                 )
                 if event["role"] == "user":
+                    self.last_user, self.last_user_turn = transcript, event["id"]
+                    self.delegated_since_user = event["id"] in self.delegated_turns
                     self.delegator.user_turn(self, transcript)
+                elif ACK_ONLY.match(transcript) and self.last_user and not self.delegated():
+                    self.schedule_recovery(self.last_user)
         elif kind == "error":
             self.stats["errors"].append(event["message"][:200])
             LOG.warning("live error session=%s: %s", self.sid, event["message"][:200])
+
+    def delegated(self):
+        return self.delegated_since_user or self.last_user_turn in self.delegated_turns
+
+    def schedule_recovery(self, request):
+        """The voice acknowledged an action but created no delegation: run it anyway."""
+        def recover():
+            if self.closed.is_set() or self.delegated():
+                return
+            self.delegated_since_user = True
+            self.stats["recovered"] = self.stats.get("recovered", 0) + 1
+            LOG.warning("missed delegation recovered session=%s", self.sid)
+            self.delegator.delegate(self, "recovered-" + uuid.uuid4().hex, request)
+
+        self.recovery_timer = threading.Timer(RECOVERY_GRACE_SECONDS, recover)
+        self.recovery_timer.daemon = True
+        self.recovery_timer.start()
 
     def record(self, kind, text, data=None):
         try:
@@ -268,10 +324,18 @@ class LiveCall:
     def append(self, delegation_id, text, channel=None) -> bool:
         ok = True
         for part in bp.chunk(text):
-            ok = self.send(bp.delegation_append(delegation_id, part, channel)) and ok
+            # Recovered work has no provider delegation item: it goes to the session context.
+            message = (
+                bp.session_append(part, channel)
+                if delegation_id.startswith("recovered-")
+                else bp.delegation_append(delegation_id, part, channel)
+            )
+            ok = self.send(message) and ok
         return ok
 
     def close(self):
+        if self.recovery_timer is not None:
+            self.recovery_timer.cancel()
         if self.closed.is_set():
             return
         self.send(bp.session_close())

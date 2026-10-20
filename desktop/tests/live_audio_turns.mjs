@@ -220,6 +220,7 @@ try {
         r.answered_after_barge = !!answer;
         const next = (await L()).find(x => x.k === 'out_on' && x.t > b.end);
         r.reply_audio_ms = next ? Math.round(next.t - b.end) : null;
+        r.events = (await L()).filter(x => x.t > s.start && ['duck', 'unduck', 'turn', 'out_on', 'out_off', 'speak'].includes(x.k)).map(x => ({k: x.k, t: Math.round(x.t - b.start), at: x.at && Math.round(x.at - b.start), role: x.role}));
         await quiet(2000, 40000);
         r.assistant = turnsAfter(await L(), s.start);
       }

@@ -158,7 +158,12 @@ def parse_event(payload: Any) -> dict | None:
             or not isinstance(turn.get("transcript"), str)
         ):
             return None
-        return {"type": kind, "role": turn["role"], "transcript": turn["transcript"]}
+        return {
+            "type": kind,
+            "role": turn["role"],
+            "transcript": turn["transcript"],
+            "id": turn["id"] if isinstance(turn.get("id"), str) else "",
+        }
     if kind == "delegation.created":
         item = payload.get("item")
         if (
@@ -176,7 +181,13 @@ def parse_event(payload: Any) -> dict | None:
             and c.get("type") == "input_text"
             and isinstance(c.get("text"), str)
         ).strip()
-        return {"type": kind, "id": item["id"], "text": text}
+        user_turn = item.get("user_bidi_turn_id")
+        return {
+            "type": kind,
+            "id": item["id"],
+            "text": text,
+            "user_turn_id": user_turn if isinstance(user_turn, str) else "",
+        }
     if kind == "error":
         error = payload.get("error")
         message = payload.get("message")
