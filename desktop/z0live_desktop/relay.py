@@ -194,7 +194,7 @@ def deliver(session_id: str, message: str, sub_id: str, home=None, runner=None) 
     return json.loads(lines[-1])
 
 
-def relay(text: str, to=None, key=None, home=None, runner=None) -> dict:
+def relay(text: str, to=None, key=None, home=None, runner=None, store=None, sid=None) -> dict:
     """Send `text` into the resolved session. `say` is the exact read-back for the voice."""
     text = " ".join(str(text or "").split())
     if not text or len(text) > 4000:
@@ -204,11 +204,40 @@ def relay(text: str, to=None, key=None, home=None, runner=None) -> dict:
         options = [s["title"] for s in recent_sessions(5, home)]
         return {"ok": False, "error": "no_matching_session", "candidates": options,
                 "say": "I couldn't tell which session you mean. Recent ones: " + "; ".join(options)}
-    receipt = deliver(target["id"], compose(text), submission_id(target["id"], text, key), home, runner)
+    job_id = None
+    if store is not None:
+        store.work  # initialize the existing jobs receipt columns on fresh stores
+        if not sid:
+            raise ValueError("relay recording requires the originating voice session")
+        with store.connect() as db:
+            if not db.execute("SELECT 1 FROM sessions WHERE id=?", (sid,)).fetchone():
+                raise ValueError("unknown originating voice session")
+            job_id = db.execute(
+                "INSERT INTO jobs(kind,session_id,text,created,status,request) VALUES(?,?,?,?,?,?)",
+                ("relay", sid, text, time.time(), "relay_pending",
+                 json.dumps({"target_session_id": target["id"]})),
+            ).lastrowid
+    try:
+        receipt = deliver(target["id"], compose(text), submission_id(target["id"], text, key), home, runner)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        receipt = {"ok": False, "error": "gateway_delivery_unconfirmed"}
+    if not receipt.get("ok"):
+        error = receipt.get("error") or "gateway_refused"
+        if error in {"TimeoutError", "ConnectionError", "BrokenPipeError", "OSError", "relay_helper_failed"}:
+            receipt = {**receipt, "error": "gateway_delivery_unconfirmed", "cause": error}
+        else:
+            receipt = {**receipt, "error": error}
+    if job_id is not None and store is not None:
+        with store.connect() as db:
+            db.execute("UPDATE jobs SET status=?,result=?,error=? WHERE id=?",
+                       ("relay_accepted" if receipt.get("ok") else "failed", json.dumps(receipt),
+                        receipt.get("error"), job_id))
     title = receipt.get("title") or target["title"]
     if not receipt.get("ok"):
         return {**receipt, "ok": False, "session_id": target["id"], "title": title,
-                "say": f"I couldn't deliver that to {title}; nothing was sent."}
+                "say": (f"I couldn't confirm delivery to {title}; don't resend until it is checked."
+                        if receipt.get("error") == "gateway_delivery_unconfirmed"
+                        else f"I couldn't deliver that to {title}; nothing was sent.")}
     how = "into its running turn" if receipt.get("mode") == "steer" else "as its next message"
     return {**receipt, "session_id": target["id"], "title": title, "text": text,
             "say": f'Sent to {title}: "{text}"', "delivered": how}

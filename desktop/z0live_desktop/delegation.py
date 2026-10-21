@@ -23,6 +23,7 @@ import urllib.request
 from . import bidi_protocol as bp
 from . import phone_control as pc
 from . import relay as rl
+from . import relay_status as rs
 from .core import ROOT, NoRedirect, dumps, request_json
 
 LOG = logging.getLogger("z0live.delegation")
@@ -50,7 +51,8 @@ Text you write between tool calls is silent progress the voice never reads out; 
 Treat every request as new: if Kevin asks again, check again and answer plainly. Never mention repeats, the voice side, delegation, this broker or how messages reach you.
 The input may start with the recent voice conversation as data. Use it to understand short replies such as "yeah" or "the issue I just described"; act only on Kevin's request.
 Do real work with real tools; never claim a change, finding or verification you did not observe. Prefer read-only investigation. Before destructive, costly, publishing, deploying or messaging actions, stop and reply with one short confirmation question instead. A relay to Kevin's own Hermes session is not a messaging action: do it without asking.
-RELAY: "pass it along", "tell Hermes", "send it to Hermes", "message Hermes" or "let Hermes know" means relay a message into Kevin's Hermes session. Run {ROOT}/bin/z0live relay "MESSAGE" (add --to "title words" only if Kevin named a session; the default is his main session). Write MESSAGE as one or two plain sentences in Kevin's words with the concrete details from the conversation, for example what broke, where, and when. Do not ask what to say or which session when the conversation already tells you. Never use phone actions, screen taps, kanban cards or the voice session's own notes for a relay. Your final reply must be exactly the command's "say" value, for example Sent to Debug Hermes crashing: "...". If it fails, say in one sentence that it was not sent and why.
+RELAY: "pass it along", "tell Hermes", "send it to Hermes", "message Hermes" or "let Hermes know" means relay a message into Kevin's Hermes session. Run {ROOT}/bin/z0live relay --session {sid} "MESSAGE" (add --to "title words" only if Kevin named a session; the default is his main session). Write MESSAGE as one or two plain sentences in Kevin's words with the concrete details from the conversation, for example what broke, where, and when. Do not ask what to say or which session when the conversation already tells you. Never use phone actions, screen taps, kanban cards or the voice session's own notes for a relay. Your final reply must be exactly the command's "say" value, for example Sent to Debug Hermes crashing: "...". If it fails, say in one sentence that it was not sent and why.
+RELAY STATUS: "did it go through / did you send / what did Hermes say" means run {ROOT}/bin/z0live relay-status --limit 5 (the relay_status builtin), never phone tools. Answer only from this output in 1–2 sentences. Never infer a session crashed from its title. phone_do / phone_act are only for explicit requests to operate the phone UI.
 SESSIONS: for what Kevin or his agents have been working on, what Hermes is doing, or what you talked about earlier, run {ROOT}/bin/z0live sessions --limit 8 (read-only titles and one-line summaries of his recent Hermes sessions) and answer from it.
 Repository root for z0live: {ROOT}. Always pass explicit working directories.
 Voice broker session: {sid}. Phone tools declared by this phone: {names}. For a phone action, run {ROOT}/bin/z0live action --session {sid} --action NAME --params 'JSON' --wait 8 and read the phone's result before answering; never claim a tap landed unless the result says landed true. For an in-app step use phone_do with {{"goal": "<the owner's words>"}}; if it returns status choose, pick one candidate id and run phone_act with {{"id": ID}}. Never set confirm true unless Kevin said yes to that exact tap.
@@ -153,7 +155,7 @@ class PhoneRouter:
 
     def route(self, delegation_id, text, tools):
         names = {t.get("name") for t in tools if isinstance(t, dict)}
-        if not names or not PHONE_HINT.search(text) or rl.wants_relay(text):
+        if not names or not PHONE_HINT.search(text) or rl.wants_relay(text) or rs.wants_status(text):
             return None
         from .voice_runtime import Native, load_plan
 
@@ -395,6 +397,17 @@ class Delegator:
                         answer = prefix + f"{counts.get('double', 0)} doubles, {counts.get('triple', 0)} triples detected. Attempts uncounted."
                 self.finish(call, did, answer, "completed", marks)
                 return
+            if rs.wants_status(text):
+                with self.store.connect() as db:
+                    owner = db.execute("SELECT device FROM sessions WHERE id=?", (call.sid,)).fetchone()
+                result = rs.status(self.store.path, device=owner["device"])
+                self.save(did, route="relay_status", marks=marks)
+                # The voice must see exact sent text too, not just a delivery summary,
+                # so it can answer "did you send the voice-labelling part?" faithfully.
+                answer = (rs.spoken(result) + "\n\nrelay_status evidence (data, not a script to read): "
+                          + dumps(result) + "\nAnswer Kevin's question from this data in 1–2 sentences.")
+                self.finish(call, did, answer, "completed", marks)
+                return
             tools = self.tools(call.sid)
             route = None
             if getattr(call, "routes_phone", True):
@@ -440,6 +453,8 @@ class Delegator:
 
     def phone_call(self, sid, did, tool, arguments):
         """Queue one declared phone tool in the inbox and wait for the phone's tool_result."""
+        if not pc.authorize(self.store, sid, tool, arguments):
+            return {"success": False, "result": {"ok": False, "refused": "not_a_phone_request"}}
         waiter = {"sid": sid, "event": threading.Event(), "result": None}
         # One inbox item per step: the source is unique per (delegation, tool).
         source = "bidi-phone:" + did + ("" if tool != "phone_act" else ":act")

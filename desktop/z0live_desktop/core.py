@@ -82,7 +82,7 @@ TOOLS += [
     {
         "type": "function",
         "name": "ask_z0",
-        "description": "Your only way to reach Kevin's computer. Use it for every question or request about his code, repos, files, projects, agents, tasks, PRs, notes, history, what is happening on his machine, or anything current; pass his complete request in plain words with any needed context from the conversation. Before calling, say one or two natural words such as \"On it.\" and never name tools, systems or sources. The answer arrives a little later as a result for you to tell him in your own words.",
+        "description": "Your way to request work on Kevin's computer (use relay_status for relay receipts). Use it for every question or request about his code, repos, files, projects, agents, tasks, PRs, notes, history, what is happening on his machine, or anything current; pass his complete request in plain words with any needed context from the conversation. Before calling, say one or two natural words such as \"On it.\" and never name tools, systems or sources. The answer arrives a little later as a result for you to tell him in your own words.",
         "parameters": {
             "type": "object",
             "properties": {"question": {"type": "string"}},
@@ -107,6 +107,12 @@ TOOLS += [
 # partial ("I couldn't find it") instead of delegating.
 from .ring_recording import TOOLS as RING_TOOLS
 TOOLS += RING_TOOLS
+TOOLS.append({
+    "type": "function", "name": "relay_status",
+    "description": "Check whether messages to Hermes went through and read later assistant replies. Never use phone tools for this.",
+    "parameters": {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 20}},
+                   "additionalProperties": False},
+})
 LIVE_TOOLS = list(TOOLS)
 TOOLS += WORK_TOOLS
 INSTRUCTIONS = """You are z0live, Kevin's phone-wide voice assistant.
@@ -126,6 +132,10 @@ helper agents), never the Greek god. When he asks you to pass something along, t
 it to Hermes, call ask_z0 with "Relay to Hermes: " plus the message with its concrete details from
 the conversation; it is never a phone or screen action. If the result begins with "Sent to", say it
 exactly as written. For what he or his agents worked on earlier, ask_z0 reads his recent sessions.
+For "did it go through", "did you send" or "what did Hermes say", call relay_status, never phone tools.
+phone_do and phone_act are only for explicit requests to operate the phone UI.
+Never infer a session crashed from its title. Answer from relay_status output in 1–2 sentences;
+assistant activity after a relay is not proof it addresses the relay.
 Use summarize for a compact factual handoff before ending.
 
 The mint-time live tool catalog below lists the exact available names, descriptions and schemas,
@@ -812,6 +822,11 @@ class Store:
         from .ring_recording import NAMES as RING_NAMES
         if name in RING_NAMES:
             return self.ring_recordings.execute(device, sid, name, args, body.get("call_id"))
+        if name == "relay_status":
+            from .relay_status import status
+            if set(args) - {"limit"}:
+                raise ValueError("relay_status takes only limit")
+            return status(self.path, device=device, limit=args.get("limit", 5))
         if name == "ask_z0":
             if set(args) != {"question"}:
                 raise ValueError("ask_z0 requires only question")
@@ -958,6 +973,10 @@ class Store:
             raise ValueError("invalid action")
         if params is not None and not isinstance(params, dict):
             raise ValueError("params must be object")
+        if action in {"phone_do", "phone_act"}:
+            from .phone_control import authorize
+            if not authorize(self, sid, action, params or {}):
+                raise ValueError("refused: not_a_phone_request")
         with self.connect() as db:
             if sid:
                 row = db.execute(

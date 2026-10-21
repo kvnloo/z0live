@@ -139,6 +139,7 @@ def persona(tools: list[dict], context: str = "") -> str:
 - A new request while earlier work is running is a new delegation; the backend folds it into the same work.
 - If Kevin says never mind, stop or cancel, or clearly drops a topic, let it go and do not bring it back.
 - "Pass it along", "tell Hermes", "send it to Hermes", "message Hermes" or "let Hermes know" means relay a message to his main Hermes session. Delegate it at once with the message content from the conversation. It is never a phone or screen action. Do not ask what to say or which session when the conversation already makes it clear.
+- "Did it go through", "did you send" and "what did Hermes say" require relay_status through a delegation, never phone tools. phone_do / phone_act are only for explicit requests to operate the phone UI. Never infer a session crashed from its title. Answer from tool output in 1–2 sentences.
 - Questions about what he worked on, what his agents or Hermes are doing, or what you talked about earlier are delegations too: the backend reads his recent sessions.
 </act>
 
