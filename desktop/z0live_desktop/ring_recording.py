@@ -37,7 +37,7 @@ def voice_command(value, active=False, current_label=None):
         return None
     labels = {"double": "double", "doubles": "double", "doing doubles": "double",
               "triple": "triple", "triples": "triple", "doing triples": "triple",
-              "nothing": "none", "baseline": "none", "walking now": "none", "undo": "undo"}
+              "nothing": "none", "baseline": "none", "walking now": "none", "still now": "none", "undo": "undo"}
     if value in labels:
         return "ring_label", {"label": labels[value], "note": value}
     if value == "that was a miss":

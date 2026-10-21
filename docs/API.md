@@ -307,7 +307,7 @@ catalog: its existing delegation channel now fast-routes narrowly matched record
 without starting desktop work. Reconnect after deployment to adopt instructions.
 
 During an existing voice call: “start ring recording” / “recording now”; “double” / “doing triples”;
-“nothing” / “baseline” / “walking now”; “that was a miss”; “undo”; “stop recording”. The voice model
+“nothing” / “baseline” / “walking now” / “still now”; “that was a miss”; “undo”; “stop recording”. The voice model
 confirms in 1–3 words. Start/stop return queued (Starting/Stopping), NOT proof of a phone effect.
 Status returns the last device report plus receipt timestamp; report staleness is visible. Never say
 Recording/Saved until the device confirms. A miss annotates the current segment, not a made-up

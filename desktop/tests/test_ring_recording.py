@@ -97,6 +97,7 @@ class RingRecordingTests(unittest.TestCase):
         self.assertIsNone(voice_command('double'))
         self.assertEqual(voice_command('doing triples',True)[1]['label'],'triple')
         self.assertIsNone(voice_command('double the timeout',True))
+        self.assertEqual(voice_command('still now',True)[1],{'label':'none','note':'still now'})
         self.assertEqual(voice_command('stop recording',True)[0],'ring_recording_stop')
         self.assertEqual(voice_command('recording status',False)[0],'ring_recording_status')
         self.assertEqual(voice_command('stop recording',False)[0],'ring_recording_stop')
