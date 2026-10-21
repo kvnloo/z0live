@@ -113,6 +113,11 @@ class RelayStatusTests(unittest.TestCase):
         item = self.observe()['relays'][0]
         self.assertEqual(item['target_session_id'], 'local-main')
         self.assertEqual(item['delivery_state'], 'delivered')
+        with sqlite3.connect(self.home / 'state.db') as db:
+            db.execute("UPDATE sessions SET title='Owner-driven gesture recording' WHERE id='local-main'")
+        item = self.observe()['relays'][0]
+        self.assertEqual(item['delivery_state'], 'delivered')
+        self.assertEqual(item['current_title'], 'Owner-driven gesture recording')
 
     def test_recorded_target_receipts_contradict_the_crash_claim(self):
         receipts = json.loads((Path(__file__).parent / 'fixtures/relay-target-receipts-20261021.json').read_text())
