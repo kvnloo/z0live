@@ -170,6 +170,8 @@ class RelayStatusTests(unittest.TestCase):
         self.assertEqual(self.observe()['relays'][0]['delivery_state'], 'unknown')
 
     def test_real_status_transcripts_never_dispatch_phone_or_model(self):
+        exact_payload = 'Let me label the recording myself using my voice.'
+        self.record(exact_payload)
         for row in FIXTURE:
             if row['type'] != 'user_transcript':
                 continue
@@ -192,6 +194,8 @@ class RelayStatusTests(unittest.TestCase):
             with patch.object(self.delegator, 'work', side_effect=AssertionError('no LLM')), patch.object(self.delegator, 'phone', side_effect=AssertionError('no phone')):
                 self.delegator.handle(call, 'not-persisted', row['text'])
             self.assertEqual(len(appended), 1)
+            self.assertIn(exact_payload, appended[0], 'the voice receives exact sent text, not only status')
+            self.assertIn('1–2 sentences', appended[0])
         with self.store.connect() as db:
             self.assertEqual(db.execute('SELECT count(*) FROM inbox WHERE action IS NOT NULL').fetchone()[0], 0)
 

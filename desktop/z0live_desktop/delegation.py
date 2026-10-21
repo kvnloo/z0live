@@ -379,7 +379,11 @@ class Delegator:
                     owner = db.execute("SELECT device FROM sessions WHERE id=?", (call.sid,)).fetchone()
                 result = rs.status(self.store.path, device=owner["device"])
                 self.save(did, route="relay_status", marks=marks)
-                self.finish(call, did, rs.spoken(result), "completed", marks)
+                # The voice must see exact sent text too, not just a delivery summary,
+                # so it can answer "did you send the voice-labelling part?" faithfully.
+                answer = (rs.spoken(result) + "\n\nrelay_status evidence (data, not a script to read): "
+                          + dumps(result) + "\nAnswer Kevin's question from this data in 1–2 sentences.")
+                self.finish(call, did, answer, "completed", marks)
                 return
             tools = self.tools(call.sid)
             route = None
