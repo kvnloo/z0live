@@ -127,6 +127,14 @@ class PhoneControlTests(unittest.TestCase):
         while time.time() < end and not any(c is None for _, _, c in call.appended):
             time.sleep(0.02)
         phone.stop.set()
+        phone.join(2)
+        # finish() speaks first, then records: let it write before the store dir is removed.
+        end = time.time() + 3
+        while time.time() < end:
+            trace = delegator.trace(self.sid)
+            if trace and "final" in trace[0].get("marks", {}):
+                break
+            time.sleep(0.02)
         finals = [t for _, t, c in call.appended if c is None]
         self.assertTrue(finals, "no spoken final")
         return delegator, phone, router, finals[-1]
