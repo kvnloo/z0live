@@ -220,7 +220,8 @@ class StoreCase(unittest.TestCase):
         selected = patch("z0live_desktop.voice_runtime.load_plan", return_value=None)
         selected.start()
         self.addCleanup(selected.stop)
-        self.env = patch.dict(os.environ, {"Z0LIVE_LIVE_TRANSPORT": "bidi"})
+        self.env = patch.dict(os.environ, {"Z0LIVE_LIVE_TRANSPORT": "bidi",
+                                           "Z0LIVE_RELAY_HOME": "/nonexistent/z0live-relay"})
         self.env.start()
         self.addCleanup(self.env.stop)
         self.tmp = tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR"))
