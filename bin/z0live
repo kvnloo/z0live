@@ -54,7 +54,28 @@ def main():
     progress = sub.add_parser("progress", help="Queue a short verified partial finding")
     progress.add_argument("--turn", required=True)
     progress.add_argument("text")
+    relay_cmd = sub.add_parser(
+        "relay", help="Send a message into one of Kevin's Hermes sessions via its gateway"
+    )
+    relay_cmd.add_argument(
+        "--to", default="", help="session id/prefix or title words; default: his main session"
+    )
+    relay_cmd.add_argument("--key", help="idempotency key (same key = same delivery)")
+    relay_cmd.add_argument("text")
+    sessions_cmd = sub.add_parser(
+        "sessions", help="Recent Hermes sessions with one-line summaries (read-only)"
+    )
+    sessions_cmd.add_argument("--limit", type=int, default=8)
     args = parser.parse_args()
+    if args.command in {"relay", "sessions"}:
+        from z0live_desktop import relay
+
+        if args.command == "sessions":
+            print(dumps({"sessions": relay.recent_sessions(args.limit)}))
+            return None
+        result = relay.relay(args.text, to=args.to or None, key=args.key)
+        print(dumps(result))
+        return 0 if result.get("ok") else 1
     if args.command == "serve":
         from z0live_desktop.server import serve
 
@@ -217,4 +238,4 @@ def wait_phone_result(store, session, inbox_id, seconds):
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
