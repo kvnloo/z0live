@@ -49,9 +49,60 @@ CONFIRM_TTL = 60.0
 JEV_MAX_LABEL = 60
 
 
+def phone_intent(text: str) -> bool:
+    """Conservative command grammar, not mentions of phones/buttons in a question."""
+    from . import relay, relay_status
+    if relay.wants_relay(text) or relay_status.wants_status(text):
+        return False
+    command = re.sub(r"^\W*(?:(?:okay|ok|yeah)[, ]+)?(?:please\s+)?"
+                     r"(?:(?:can|could|would|will) you\s+)?(?:please\s+)?", "", text or "", flags=re.I)
+    if re.match(r"(?:don't|do not|never|why|what|did|is|has)\b", command, re.I):
+        return False
+    verb = re.match(r"(open|launch|go to|tap|click|press|hit|push|select|toggle|scroll|swipe|"
+                    r"type|enter|copy|paste|expand|collapse)\s+(?:on\s+)?(\S.*)", command, re.I)
+    if not verb:
+        return False
+    target = verb[2]
+    if re.search(r"\b(?:ring|double tap|triple tap|repo|session|backend|bridge|pull request)\b", target, re.I):
+        return False
+    if verb[1].lower() in {"open", "launch", "go to"}:
+        return bool(re.search(r"\b(?:app|screen|settings|menu|sidebar|drawer|tab|phone|"
+                              r"spotify|chatgpt|chrome|browser|camera|calendar|whatsapp|"
+                              r"messages|contacts|youtube|maps|gallery|gmail)\b", target, re.I))
+    return bool(re.search(r"\b(?:app|screen|button|menu|sidebar|drawer|tab|icon|field|box|"
+                          r"text|keyboard|send|delete|next|back|home|settings|phone|down|up|"
+                          r"left|right|it|that|this|allow|cancel|ok|account|chat)\b", target, re.I))
+
+
+def authorize(store, sid, tool, arguments) -> bool:
+    """Use only fresh human transcripts, never a model's rewritten goal, at dispatch."""
+    if tool not in {"phone_do", "phone_act"}:
+        return True
+    import logging
+    with store.connect() as db:
+        rows = db.execute("SELECT body,ts FROM events WHERE session_id=? ORDER BY id DESC LIMIT 100",
+                          (sid,)).fetchall()
+    users = []
+    for row in rows:
+        body = json.loads(row["body"])
+        if body.get("type") == "user_transcript" and str(body.get("text") or "").strip():
+            users.append((body["text"], row["ts"]))
+            if len(users) == 2:
+                break
+    allowed = bool(users and time.time() - users[0][1] <= 60 and phone_intent(users[0][0]))
+    if (not allowed and tool == "phone_act" and arguments.get("confirm") is True
+            and len(users) == 2 and YES.fullmatch(users[0][0])
+            and time.time() - users[1][1] <= 60 and phone_intent(users[1][0])):
+        allowed = True
+    if not allowed:
+        logging.getLogger("z0live.phone_control").warning(
+            "phone action refused sid=%s tool=%s refused=not_a_phone_request", sid, tool)
+    return allowed
+
+
 def wants_in_app(text: str, tools: list[dict]) -> bool:
     names = {t.get("name") for t in tools if isinstance(t, dict)}
-    return "phone_do" in names and bool(IN_APP.search(text or "")) and not APP_LAUNCH.match(text or "")
+    return "phone_do" in names and phone_intent(text) and bool(IN_APP.search(text or "")) and not APP_LAUNCH.match(text or "")
 
 
 def candidates_of(result: dict) -> list[dict]:
