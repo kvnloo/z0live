@@ -5,6 +5,7 @@ exact relay payload in the target transcript establishes delivered status.
 """
 from __future__ import annotations
 
+from contextlib import closing
 import json
 import re
 import sqlite3
@@ -38,7 +39,7 @@ def status(broker_path, device=None, limit=5, home=None):
     if type(limit) is not int or not 1 <= limit <= 20:
         raise ValueError("limit must be an integer from 1 to 20")
     records, gaps = [], []
-    with sqlite3.connect(Path(broker_path).resolve().as_uri() + "?mode=ro", uri=True) as db:
+    with closing(sqlite3.connect(Path(broker_path).resolve().as_uri() + "?mode=ro", uri=True, timeout=5)) as db:
         db.row_factory = sqlite3.Row
         scope = " AND s.device=?" if device is not None else ""
         args = (device,) if device is not None else ()

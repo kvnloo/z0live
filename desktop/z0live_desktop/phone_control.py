@@ -86,7 +86,19 @@ def authorize(store, sid, tool, arguments) -> bool:
     for row in rows:
         body = json.loads(row["body"])
         if body.get("type") == "user_transcript" and str(body.get("text") or "").strip():
-            users.append((body["text"], row["ts"]))
+            # events.ts is receipt time; body.ts is the human utterance's original time.
+            # Offline replay must not refresh an old command's execution authority.
+            stamp = body.get("ts", row["ts"])
+            try:
+                if isinstance(stamp, str):
+                    from datetime import datetime
+                    stamp = datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
+                stamp = float(stamp)
+                if not math.isfinite(stamp) or stamp > time.time() + 5:
+                    stamp = 0
+            except (ValueError, TypeError, OverflowError):
+                stamp = 0
+            users.append((body["text"], min(row["ts"], stamp)))
             if len(users) == 2:
                 break
     allowed = bool(users and time.time() - users[0][1] <= 60 and phone_intent(users[0][0]))
