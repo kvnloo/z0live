@@ -29,12 +29,12 @@ def voice_command(value, active=False, current_label=None):
         return "ring_recording_start", {"kind": "labelled"}
     if value in {"record baseline", "start baseline recording"}:
         return "ring_recording_start", {"kind": "baseline"}
-    if not active:
-        return None
     if value in {"stop recording", "stop ring recording"}:
         return "ring_recording_stop", {}
     if value in {"how many doubles caught", "recording status", "how many triples caught"}:
         return "ring_recording_status", {}
+    if not active:
+        return None
     labels = {"double": "double", "doubles": "double", "doing doubles": "double",
               "triple": "triple", "triples": "triple", "doing triples": "triple",
               "nothing": "none", "baseline": "none", "walking now": "none", "undo": "undo"}

@@ -384,8 +384,15 @@ class Delegator:
                 self.save(did, route="ring:" + command[0], marks=marks)
                 answer = result.get("say", "Unconfirmed")
                 if command[0] == "ring_recording_status" and result.get("device"):
-                    counts = result["device"].get("counts", {})
-                    answer = f"{counts.get('double', 0)} doubles, {counts.get('triple', 0)} triples detected. Attempts uncounted."
+                    device_report = result["device"]
+                    counts = device_report.get("counts", {})
+                    if device_report.get("status") == "failed":
+                        answer = "Recording failed"
+                    elif device_report.get("status") == "saved":
+                        answer = f"Saved. {counts.get('double', 0)} doubles, {counts.get('triple', 0)} triples detected."
+                    else:
+                        prefix = "Last report: " if time.time() - device_report.get("received", 0) > 5 else ""
+                        answer = prefix + f"{counts.get('double', 0)} doubles, {counts.get('triple', 0)} triples detected. Attempts uncounted."
                 self.finish(call, did, answer, "completed", marks)
                 return
             tools = self.tools(call.sid)
