@@ -294,6 +294,34 @@ The service does not fabricate an LLM summary if none was sent. `Z0LIVE_SUMMARY_
 `Z0LIVE_IDLE_SECONDS` configure these intervals. Active time accumulates across transcript/tool events,
 with individual gaps capped at 60 seconds; silence alone does not count as conversation.
 
+## Optional phone accessibility recovery heartbeat
+
+`POST /v1/gesture/activity` retains its existing `kind`, `activity_ts`, `available`,
+`ready` fields and accepts two optional strict booleans:
+`in_app_control` (persistent owner opt-in) and `a11y_enabled` (service registered in
+Android secure settings). Older clients omit these and never trigger recovery.
+Only `kind:"phone", in_app_control:true, a11y_enabled:false` plus the independent
+broker `Z0LIVE_GESTURE_ADB=1` opt-in admits a recovery attempt.
+
+A single non-queued background attempt checks exactly one authorized tailnet ADB
+transport in 100.64.0.0/10, re-reads the phone's owner preference using debug run-as,
+merges the current accessibility list, enables the master flag and reads it back.
+No service is dropped, no UI is opened, no call is started and no preference is
+written. More than one tailnet transport fails closed. Missing debug run-as also
+fails closed. A persisted global 60-second cooldown bounds attempts/restarts.
+ADB_SERVER_SOCKET is removed only from these subprocess environments.
+
+Receipts live in broker.db `accessibility_recovery` (device, created, status, ok).
+A successful repair reserves one unique `accessibility-recovery:SESSION` source:
+Realtime gets a session-scoped speech-only inbox item; a live Bidi call gets one
+speakable session-context append (not phone TTS or an ignored Bidi inbox `say`).
+Absent/ended/stale sessions remain silent. Delivery is at-most-once, not a promise
+of audible speech; Bidi sideband failure is recorded as voice unavailable.
+No deployed broker was restarted to implement this. Phone OFF takes effect through
+the in-app persistent switch; the live pref recheck rejects delayed ON heartbeats.
+Android secure settings has no compare-and-swap API: simultaneous unrelated settings
+writers remain a platform race; do not run competing ADB repair/install scripts.
+
 ## Errors/security
 
 `400` invalid body/schema, `401` missing/revoked device token, `403` browser origin denied,
