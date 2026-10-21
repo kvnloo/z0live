@@ -294,6 +294,49 @@ The service does not fabricate an LLM summary if none was sent. `Z0LIVE_SUMMARY_
 `Z0LIVE_IDLE_SECONDS` configure these intervals. Active time accumulates across transcript/tool events,
 with individual gaps capped at 60 seconds; silence alone does not count as conversation.
 
+## Voice-labelled ring recordings (experimental, coordinated NOOP update)
+
+The mint-time builtin catalog adds `ring_recording_start({kind:"labelled"|"baseline",note?})`,
+`ring_label({label:"double"|"triple"|"none"|"undo",note?})`, `ring_recording_stop({})`, and
+`ring_recording_status({})`. POST each to `/v1/tools/NAME` with the standard session_id/arguments
+body. Optional call_id makes retries durable/idempotent; changed arguments with the same call_id
+fail. Only the latest non-ended session of the authenticated voice device may control a recording.
+There is one recording at a time, targeted to the current opted-in gesture listener. No new pairing
+or Lawnchair APK is required for Realtime's dynamic builtin dispatch. Bidi has no builtin function
+catalog: its existing delegation channel now fast-routes narrowly matched recording phrases locally
+without starting desktop work. Reconnect after deployment to adopt instructions.
+
+During an existing voice call: “start ring recording” / “recording now”; “double” / “doing triples”;
+“nothing” / “baseline” / “walking now” / “still now”; “that was a miss”; “undo”; “stop recording”. The voice model
+confirms in 1–3 words. Start/stop return queued (Starting/Stopping), NOT proof of a phone effect.
+Status returns the last device report plus receipt timestamp; report staleness is visible. Never say
+Recording/Saved until the device confirms. A miss annotates the current segment, not a made-up
+attempt count. Baseline sessions remain none; stop and start labelled before recording taps.
+
+`GET /v1/gesture/commands` retains its commands array and adds broker_ts (Unix seconds) and recording
+(null or {id,kind,note,broker_start,expires,labels:[{ts,label,note}],revision,desired,broker_stop?}).
+The authenticated NOOP listener polls this existing channel; no raw sensor frames cross it. Only the
+bound source device receives that recording. NOOP maps broker time to its monotonic clock using the
+poll exchange midpoint and records clock_offset_ms and clock_rtt_ms in its local labels sidecar.
+Labels begin at broker tool acceptance, not at acoustic speech onset, and continue until the next label.
+Undo removes the last label, extending the preceding segment. Notes are <=160 printable characters,
+<=100 labels and <=24 KB total payload. These caps fit NOOP's existing bounded response reader.
+
+NOOP POSTs `/v1/gesture/recording-report` with exactly {id,status:"recording"|"saved"|"failed",
+frames:integer,counts:{double:integer,triple:integer,quadruple:integer}}. Only the bound source may
+update it. Status exposes device-confirmed detections, NOT recall: a segment label supplies no number
+of attempted repetitions. The broker records metadata and counts only; CSV and labels JSON remain
+app-private until explicitly pulled read-only for offline evaluation.
+
+Both broker dispatch and NOOP callback delivery suppress tap ACTIONS during diagnostics (including
+the pending-start interval on the broker). Existing queued gesture commands are denied on start;
+commands already claimed before start cannot be recalled. Detector decisions still log privately.
+Stop saves and detaches the recorder; a hard 600-second deadline independently restores normal
+actions on both sides if the network disappears. The fixed gesture map outside recordings is unchanged.
+Starting diagnostics never starts/ends/mutes the voice call. NOOP uses a connectedDevice foreground
+service and a bounded recording-only wake lock; no microphone is requested. Screen-off/One UI and
+physical tap acceptance are not established by isolated HTTP/JVM tests.
+
 ## Errors/security
 
 `400` invalid body/schema, `401` missing/revoked device token, `403` browser origin denied,

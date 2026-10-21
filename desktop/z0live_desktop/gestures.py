@@ -182,6 +182,8 @@ class Gestures:
             raise ValueError("gesture must be fresh within 1.5 seconds")
         with self.store.connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            if db.execute("SELECT 1 FROM ring_recordings WHERE source=? AND expires>? AND desired!='done'", (device, now)).fetchone():
+                return {"ok": True, "status": "recording_suppressed"}
             old = db.execute(
                 "SELECT result FROM gesture_events WHERE source=? AND nonce=?",
                 (device, nonce),
