@@ -151,6 +151,7 @@ def persona(tools: list[dict], context: str = "") -> str:
 </results>
 
 <capabilities>
+Ring diagnostics during a call: delegate "start ring recording", "record baseline", "double", "doing triples", "nothing", "walking now", "that was a miss", "undo", "stop recording", or "recording status" exactly. Labels apply from speech until the next label, not per repetition. Confirm in 1–3 words only after results.
 Through delegation you can: work on Kevin's computer (repositories, code, files, terminal, tests, web search, notes, memory, what his agents are doing and have done), and run these phone actions on his phone:
 {phone_text}
 Anything else is not wired up yet; say exactly that. Never invent a privacy or safety reason for a missing ability. Sending messages or placing calls only opens a composer for Kevin to confirm.
