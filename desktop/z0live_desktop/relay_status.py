@@ -103,11 +103,19 @@ def _observe(db, record):
     args = (record["text"], relay.PREFIX, record["created"] - 120)
     if record["session_id"]:
         args += (record["session_id"],)
-    candidates = db.execute(
-        "SELECT session_id,timestamp,content FROM messages WHERE instr(content,?)>0 "
-        "AND instr(content,?)>0 AND timestamp>=? AND role IN ('user','tool')" + where +
-        " ORDER BY timestamp LIMIT 100", args,
-    ).fetchall()
+    # A frozen title is only a search hint. Verify exact transcript evidence and fall
+    # back to all targets if it has since changed; never derive liveness from the title.
+    hint = None
+    if not record["session_id"]:
+        hints = db.execute("SELECT id FROM sessions WHERE title=? LIMIT 2", (record["title"],)).fetchall()
+        hint = hints[0]["id"] if len(hints) == 1 else None
+    query = ("SELECT session_id,timestamp,content FROM messages WHERE instr(content,?)>0 "
+             "AND instr(content,?)>0 AND timestamp>=? AND role IN ('user','tool')")
+    order = " ORDER BY timestamp LIMIT 100"
+    candidates = db.execute(query + where + (" AND session_id=?" if hint else "") + order,
+                            args + ((hint,) if hint else ())).fetchall()
+    if not candidates and hint:
+        candidates = db.execute(query + order, args).fetchall()
     # Require the exact contiguous relay wrapper, not quoted summaries / assistant guesses.
     pattern = re.compile(r"\[" + re.escape(relay.PREFIX) + r", \d{2}:\d{2}\] " +
                          re.escape(record["text"]) + r"(?=$|\n)")
