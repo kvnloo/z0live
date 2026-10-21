@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from z0live_desktop import relay  # noqa: E402
+from z0live_desktop import live, relay  # noqa: E402
 from z0live_desktop.core import Store  # noqa: E402
 from z0live_desktop.delegation import Delegator, PhoneRouter, backend_instructions  # noqa: E402
 
@@ -247,6 +247,27 @@ class DelegationRelayTests(unittest.TestCase):
         self.assertIn("Never use phone actions, screen taps, kanban cards", text)
         self.assertIn("bin/z0live sessions --limit 8", text)
         self.assertIn('exactly the command\'s "say" value', text)
+
+
+class GroundingTests(unittest.TestCase):
+    def test_persona_grounds_hermes_kevin_and_the_relay(self):
+        text = live.persona([], "- Recent Hermes sessions (newest first): Debug Hermes crashing")
+        self.assertIn("Kevin Rajan owns you", text)
+        self.assertIn("Never describe it as the Greek god", text)
+        self.assertIn("Recent Hermes sessions (newest first): Debug Hermes crashing", text)
+        self.assertIn("It is never a phone or screen action", text)
+        self.assertIn('begins with "Sent to" is a relay read-back: say it exactly', text)
+        self.assertEqual(live.PERSONA_VERSION, "z0live.bidi.v3")
+
+    def test_grounding_lists_real_recent_titles_and_tolerates_a_missing_db(self):
+        with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR")) as tmp:
+            make_home(Path(tmp))
+            with patch.dict(os.environ, {"Z0LIVE_RELAY_HOME": tmp}):
+                line = live.grounding()
+            self.assertIn("Debug Hermes crashing; Garden Room planner fixes", line)
+            self.assertNotIn("Ping pong", line)
+            with patch.dict(os.environ, {"Z0LIVE_RELAY_HOME": tmp + "/missing"}):
+                self.assertEqual(live.grounding(), "")
 
 
 if __name__ == "__main__":
