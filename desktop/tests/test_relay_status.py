@@ -212,6 +212,11 @@ class RelayStatusTests(unittest.TestCase):
         self.assertTrue(pc.authorize(self.store, self.sid, 'phone_act', {'confirm': True}))
         self.assertFalse(pc.authorize(self.store, self.sid, 'phone_act', {}))
         self.user('tap the menu button', time.time() - 121)
+        self.assertFalse(pc.authorize(self.store, self.sid, 'phone_do', {}), 'offline replay is not new intent')
+        from datetime import datetime, timezone
+        self.user('tap the menu button', datetime.now(timezone.utc).isoformat())
+        self.assertTrue(pc.authorize(self.store, self.sid, 'phone_do', {}))
+        self.user('tap the menu button', 'not-a-date')
         self.assertFalse(pc.authorize(self.store, self.sid, 'phone_do', {}))
         for text in ['did my message go through', 'did you send it', 'what did Hermes say',
                      'do not tap the Phone button', 'the phone has a menu button',
