@@ -98,6 +98,8 @@ class RingRecordingTests(unittest.TestCase):
         self.assertEqual(voice_command('doing triples',True)[1]['label'],'triple')
         self.assertIsNone(voice_command('double the timeout',True))
         self.assertEqual(voice_command('stop recording',True)[0],'ring_recording_stop')
+        self.assertEqual(voice_command('recording status',False)[0],'ring_recording_status')
+        self.assertEqual(voice_command('stop recording',False)[0],'ring_recording_stop')
 
     def test_http_device_roundtrip_and_retry_receipts(self):
         from z0live_desktop.server import Server, Handler
@@ -142,8 +144,12 @@ class RingRecordingTests(unittest.TestCase):
         call = SimpleNamespace(sid=self.sid,call_id='fixture-call',closed=threading.Event(),
             append=lambda *args: appended.append(args) or True)
         delegator = Delegator(self.store,hermes=NoWork(),router=NoWork())
-        for n, phrase in enumerate(('start ring recording','double','that was a miss','stop recording')):
+        for n, phrase in enumerate(('start ring recording','double','that was a miss','stop recording','recording status')):
             did = f'ring-test-{n}'
+            if phrase == 'recording status':
+                recording = self.store.ring_recordings.current(self.sid)
+                self.store.ring_recordings.report(self.source,dict(id=recording['id'],status='saved',frames=100,
+                    counts=dict(double=4,triple=2,quadruple=0)))
             delegator.delegate(call,did,phrase)
             end = time.time()+3
             rows = []
@@ -156,7 +162,8 @@ class RingRecordingTests(unittest.TestCase):
         payload = json.loads(self.store.ring_recordings.current(self.sid)['payload'])
         self.assertEqual(payload['labels'][-1]['label'],'double')
         self.assertIn('miss',payload['labels'][-1]['note'])
-        self.assertEqual(len(appended),4)
+        self.assertEqual(len(appended),5)
+        self.assertIn('Saved.',appended[-1][1])
 
 
 if __name__ == '__main__': unittest.main()
