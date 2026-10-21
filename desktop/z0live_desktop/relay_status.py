@@ -100,7 +100,10 @@ def _observe(db, record):
     item = _unavailable(record)
     # instr, not LIKE: punctuation, percent and underscore in the exact text stay literal.
     where = " AND session_id=?" if record["session_id"] else ""
-    args = (record["text"], relay.PREFIX, record["created"] - 120)
+    # New jobs are checkpointed BEFORE gateway submission; an older identical relay
+    # cannot prove this attempt landed. Legacy merged delegations can be recorded later.
+    since = record["created"] - (120 if record["legacy"] else 0)
+    args = (record["text"], relay.PREFIX, since)
     if record["session_id"]:
         args += (record["session_id"],)
     # A frozen title is only a search hint. Verify exact transcript evidence and fall

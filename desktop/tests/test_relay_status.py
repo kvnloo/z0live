@@ -91,6 +91,9 @@ class RelayStatusTests(unittest.TestCase):
 
     def test_failures_missing_db_and_unrelated_assistant_are_honest(self):
         self.record(ok=False)
+        with sqlite3.connect(self.home / 'state.db') as db:
+            db.execute('INSERT INTO messages(session_id,role,content,timestamp) VALUES(?,?,?,?)',
+                       ('local-main', 'user', relay.compose('label gestures with my voice'), time.time() - 10))
         item = self.observe()['relays'][0]
         self.assertEqual(item['delivery_state'], 'failed')
         self.assertEqual(item['error'], 'gateway_unavailable')
