@@ -96,7 +96,8 @@ class GestureTests(unittest.TestCase):
         self.assertEqual(self.g.commands(self.desktop)["commands"], [])
 
     def test_freshness_validation_and_no_target(self):
-        self.assertFalse(self.g.submit(self.source, self.event())["ok"])
+        with patch.dict(os.environ, {"Z0LIVE_GESTURE_ADB": "0"}):
+            self.assertFalse(self.g.submit(self.source, self.event())["ok"])
         for ts in (self.now - 2, self.now + 2, float("nan"), True):
             event = self.event()
             event["ts"] = ts
@@ -131,10 +132,11 @@ class GestureTests(unittest.TestCase):
     def test_stale_and_revoked_target(self):
         self.presence(self.phone, "phone")
         self.store.revoke_token(self.tokens[1])
-        self.assertFalse(self.g.submit(self.source, self.event())["ok"])
-        self.presence(self.desktop, "desktop")
-        self.now += 16
-        self.assertFalse(self.g.submit(self.source, self.event())["ok"])
+        with patch.dict(os.environ, {"Z0LIVE_GESTURE_ADB": "0"}):
+            self.assertFalse(self.g.submit(self.source, self.event())["ok"])
+            self.presence(self.desktop, "desktop")
+            self.now += 16
+            self.assertFalse(self.g.submit(self.source, self.event())["ok"])
 
     def test_adb_opt_in_and_unavailable(self):
         self.presence(self.phone, "phone", ready=False)
@@ -145,6 +147,96 @@ class GestureTests(unittest.TestCase):
         with patch.dict(os.environ, {"Z0LIVE_GESTURE_ADB": "1"}):
             self.g.adb = lambda _: {"ok": False, "status": "adb_unavailable"}
             self.assertFalse(self.g.submit(self.source, self.event())["ok"])
+
+    def live_call(self, updated=None, ended=0):
+        with self.store.connect() as db:
+            db.execute(
+                "INSERT INTO sessions(id,device,client,created,updated,context,tools,ended) "
+                "VALUES(?,?,'lawnchair',?,?,'{}','[]',?)",
+                (str(uuid.uuid4()), self.phone, self.now, self.now if updated is None else updated, ended),
+            )
+
+    def fake_adb(self):
+        calls = []
+
+        def adb(gesture):
+            calls.append(gesture)
+            return {"ok": True, "status": "activity_dispatched", "dispatch_ms": 1.0}
+
+        self.g.adb = adb
+        return calls
+
+    def test_adb_fallback_without_presence(self):
+        calls = self.fake_adb()
+        # Opt-out keeps the old fail-closed answer and never touches adb.
+        with patch.dict(os.environ, {"Z0LIVE_GESTURE_ADB": "0"}):
+            self.assertEqual(
+                self.g.submit(self.source, self.event())["status"], "no_active_target"
+            )
+        self.assertEqual(calls, [])
+        # A dozing Standby: its last heartbeat is older than the 15 s window.
+        self.presence(self.phone, "phone", ready=False)
+        self.now += 16
+        with patch.dict(os.environ, {"Z0LIVE_GESTURE_ADB": "1"}):
+            event = self.event()
+            result = self.g.submit(self.source, event)
+            self.assertEqual(result["status"], "activity_dispatched")
+            self.assertEqual(result["fallback"], "no_presence")
+            self.assertEqual(result["target"], "phone")
+            # The receipt is rewritten after dispatch; a replay never re-launches.
+            again = self.g.submit(self.source, event)
+            self.assertTrue(again["duplicate"])
+            self.assertEqual(again["status"], "activity_dispatched")
+            # Nothing is queued for a surface that is not polling.
+            self.assertEqual(self.g.commands(self.phone)["commands"], [])
+        self.assertEqual(calls, ["double_tap"])
+        # The listener lease is still required for the fallback.
+        self.now += 200
+        with patch.dict(os.environ, {"Z0LIVE_GESTURE_ADB": "1"}):
+            with self.assertRaises(ValueError):
+                self.g.submit(self.source, self.event())
+        self.assertEqual(calls, ["double_tap"])
+
+    def test_owner_gesture_mapping(self):
+        """double + no call = start, double in a call = mute toggle, triple = end."""
+        calls = self.fake_adb()
+
+        def send(gesture):
+            event = self.event()
+            event["gesture"] = gesture
+            return self.g.submit(self.source, event)
+
+        with patch.dict(os.environ, {"Z0LIVE_GESTURE_ADB": "1"}):
+            # No call, no presence: a triple has nothing to end and must not relaunch.
+            self.assertEqual(send("triple_tap")["status"], "no_call_to_end")
+            # No call, no presence: a double starts one through the adb relaunch.
+            self.assertEqual(send("double_tap")["status"], "activity_dispatched")
+            # A second double inside 3 s (a false positive, or the call still minting) is dropped.
+            self.now += 1
+            self.assertEqual(send("double_tap")["status"], "adb_debounced")
+            self.assertEqual(calls, ["double_tap"])
+            # In a call without presence a double must not relaunch: that would toggle mute blind.
+            self.now += 5
+            self.live_call()
+            self.assertEqual(send("double_tap")["status"], "session_live_no_presence")
+            # ...but a triple still ends the call, through the relaunch's explicit end extra.
+            self.assertEqual(send("triple_tap")["status"], "activity_dispatched")
+            self.assertEqual(calls, ["double_tap", "triple_tap"])
+            # In a call WITH presence both go to the live session as commands, never adb.
+            self.now += 5
+            self.presence(self.phone, "phone")
+            double, triple = send("double_tap"), send("triple_tap")
+            self.assertEqual((double["status"], triple["status"]), ("queued", "queued"))
+            queued = [c["gesture"] for c in self.g.commands(self.phone)["commands"]]
+            self.assertEqual(queued, ["double_tap", "triple_tap"])
+            self.assertEqual(len(calls), 2)
+            # A call whose telemetry stopped two minutes ago is not live; a double starts again.
+            self.now += 200
+            self.g.listener(
+                self.source, dict(source_device=self.source, enabled=True, ttl_seconds=120)
+            )
+            self.assertEqual(send("double_tap")["status"], "activity_dispatched")
+            self.assertEqual(calls[-1], "double_tap")
 
     def test_adb_argv_runtime_resolution_and_down(self):
         calls = []
@@ -233,6 +325,7 @@ class GestureTests(unittest.TestCase):
         samples = []
         with patch.dict(os.environ, {"Z0LIVE_GESTURE_ADB": "1"}):
             for _ in range(5):
+                self.now += 4  # past the one-relaunch-per-3-s debounce
                 body = json.dumps(self.event()).encode()
                 request = urllib.request.Request(
                     url + "/v1/gesture",
