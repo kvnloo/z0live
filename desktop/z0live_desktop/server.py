@@ -113,7 +113,9 @@ class Handler(BaseHTTPRequestHandler):
             elif method == "POST" and path == "/v1/gesture/ack":
                 result = store.gestures.ack(device, body)
             elif method == "GET" and path == "/v1/gesture/commands":
-                result = store.gestures.commands(device)
+                result = {**store.gestures.commands(device), **store.ring_recordings.poll(device)}
+            elif method == "POST" and path == "/v1/gesture/recording-report":
+                result = store.ring_recordings.report(device, body)
             elif method == "GET" and path == "/v1/health":
                 result = {"ok": True, "version": VERSION}
             elif method == "POST" and path == "/v1/realtime/session":

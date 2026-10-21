@@ -372,6 +372,22 @@ class Delegator:
     def handle(self, call, did, text):
         marks = {"created": time.time()}
         try:
+            from .ring_recording import voice_command
+            recording = self.store.ring_recordings.current(call.sid)
+            active = bool(recording and recording["desired"] == "recording" and recording["expires"] > time.time())
+            current_label = json.loads(recording["payload"])["labels"][-1]["label"] if active else None
+            command = voice_command(text, active, current_label)
+            if command:
+                with self.store.connect() as db:
+                    owner = db.execute("SELECT device FROM sessions WHERE id=?", (call.sid,)).fetchone()[0]
+                result = self.store.tool(owner, command[0], {"session_id": call.sid, "arguments": command[1], "call_id": did})
+                self.save(did, route="ring:" + command[0], marks=marks)
+                answer = result.get("say", "Unconfirmed")
+                if command[0] == "ring_recording_status" and result.get("device"):
+                    counts = result["device"].get("counts", {})
+                    answer = f"{counts.get('double', 0)} doubles, {counts.get('triple', 0)} triples detected. Attempts uncounted."
+                self.finish(call, did, answer, "completed", marks)
+                return
             tools = self.tools(call.sid)
             route = None
             if getattr(call, "routes_phone", True):
