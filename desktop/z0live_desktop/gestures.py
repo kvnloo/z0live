@@ -188,7 +188,12 @@ class Gestures:
                     key=lambda r: (r["activity"], r["kind"] == "phone", r["device"]),
                 )
             result = {"ok": False, "status": "no_active_target"}
-            if target:
+            if target is None and os.environ.get("Z0LIVE_GESTURE_ADB") == "1":
+                # No surface heartbeated in the last 15 s (Lawnchair Standby dozes on Android),
+                # so the gesture would be dropped. With the owner's adb opt-in, wake the phone's
+                # voice activity directly instead; the nonce is reserved first, as below.
+                result = {"ok": True, "status": "adb_reserved", "fallback": "no_presence"}
+            elif target:
                 result = {"ok": True, "status": "queued", "target": target["kind"]}
                 if target["kind"] == "phone" and not target["ready"]:
                     # Reserve nonce BEFORE external effect; crash recovery must never repeat a toggle.
