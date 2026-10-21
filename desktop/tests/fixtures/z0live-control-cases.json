@@ -1,0 +1,127 @@
+{
+  "schema": "z0live.control_cases.v1",
+  "note": "Screens marked source=synthetic are hand-built from public app layouts; source=s22 screens were captured on the S22+ through Z0LiveControlProbe. expect is the target label (the node whose id must be chosen); expect=null means no safe single target (escalate or ask).",
+  "screens": {
+    "chatgpt_home": {
+      "source": "synthetic",
+      "package": "com.openai.chatgpt",
+      "nodes": [
+        {"cls": "android.view.View", "label": "", "scrollable": false},
+        {"cls": "android.widget.Button", "label": "Open sidebar", "clickable": true, "parent": 0, "bounds": [0, 120, 132, 252]},
+        {"cls": "android.widget.TextView", "label": "ChatGPT", "parent": 0, "bounds": [420, 140, 660, 230]},
+        {"cls": "android.widget.Button", "label": "New chat", "clickable": true, "parent": 0, "bounds": [948, 120, 1080, 252]},
+        {"cls": "android.widget.TextView", "label": "What can I help with?", "parent": 0, "bounds": [200, 1100, 880, 1180]},
+        {"cls": "android.widget.Button", "label": "Create image", "clickable": true, "parent": 0, "bounds": [40, 1900, 520, 2000]},
+        {"cls": "android.widget.Button", "label": "Summarize text", "clickable": true, "parent": 0, "bounds": [560, 1900, 1040, 2000]},
+        {"cls": "android.widget.Button", "label": "Add photos and files", "clickable": true, "parent": 0, "bounds": [20, 2100, 140, 2220]},
+        {"cls": "android.widget.EditText", "label": "Ask anything", "editable": true, "clickable": true, "parent": 0, "bounds": [150, 2100, 800, 2220]},
+        {"cls": "android.widget.Button", "label": "Dictate", "clickable": true, "parent": 0, "bounds": [810, 2100, 930, 2220]},
+        {"cls": "android.widget.Button", "label": "Start voice mode", "clickable": true, "parent": 0, "bounds": [940, 2100, 1060, 2220]}
+      ]
+    },
+    "chatgpt_chat": {
+      "source": "synthetic",
+      "package": "com.openai.chatgpt",
+      "nodes": [
+        {"cls": "android.view.View", "label": ""},
+        {"cls": "android.widget.Button", "label": "Open sidebar", "clickable": true, "parent": 0, "bounds": [0, 120, 132, 252]},
+        {"cls": "android.widget.Button", "label": "ChatGPT 5", "clickable": true, "parent": 0, "bounds": [300, 140, 700, 230]},
+        {"cls": "android.widget.Button", "label": "New chat", "clickable": true, "parent": 0, "bounds": [820, 120, 940, 252]},
+        {"cls": "android.widget.Button", "label": "More options", "clickable": true, "parent": 0, "bounds": [948, 120, 1080, 252]},
+        {"cls": "androidx.recyclerview.widget.RecyclerView", "label": "", "scrollable": true, "parent": 0, "bounds": [0, 260, 1080, 2080]},
+        {"cls": "android.widget.TextView", "label": "Here is a short plan for tomorrow.", "parent": 5, "bounds": [40, 400, 1040, 900]},
+        {"cls": "android.widget.Button", "label": "Copy", "clickable": true, "parent": 5, "bounds": [40, 920, 140, 1000]},
+        {"cls": "android.widget.Button", "label": "Read aloud", "clickable": true, "parent": 5, "bounds": [160, 920, 260, 1000]},
+        {"cls": "android.widget.Button", "label": "Good response", "clickable": true, "parent": 5, "bounds": [280, 920, 380, 1000]},
+        {"cls": "android.widget.Button", "label": "Share", "clickable": true, "parent": 5, "bounds": [400, 920, 500, 1000]},
+        {"cls": "android.widget.EditText", "label": "Ask anything", "editable": true, "clickable": true, "parent": 0, "bounds": [150, 2100, 800, 2220]},
+        {"cls": "android.widget.Button", "label": "Send prompt", "clickable": true, "parent": 0, "bounds": [940, 2100, 1060, 2220]}
+      ]
+    },
+    "chrome_page": {
+      "source": "synthetic",
+      "package": "com.android.chrome",
+      "nodes": [
+        {"cls": "android.widget.FrameLayout", "label": ""},
+        {"cls": "android.widget.ImageButton", "label": "Home", "viewId": "com.android.chrome:id/home_button", "clickable": true, "parent": 0, "bounds": [0, 120, 120, 250]},
+        {"cls": "android.widget.EditText", "label": "Search or type web address", "viewId": "com.android.chrome:id/url_bar", "editable": true, "clickable": true, "parent": 0, "bounds": [130, 130, 760, 240]},
+        {"cls": "android.widget.ImageButton", "label": "Switch or close tabs", "viewId": "com.android.chrome:id/tab_switcher_button", "clickable": true, "parent": 0, "bounds": [800, 120, 930, 250]},
+        {"cls": "android.widget.ImageButton", "label": "Customize and control Google Chrome", "viewId": "com.android.chrome:id/menu_button", "clickable": true, "parent": 0, "bounds": [950, 120, 1080, 250]},
+        {"cls": "android.webkit.WebView", "label": "Example Domain", "scrollable": true, "parent": 0, "bounds": [0, 260, 1080, 2300]},
+        {"cls": "android.widget.TextView", "label": "More information...", "clickable": true, "parent": 5, "bounds": [60, 900, 500, 960]}
+      ]
+    },
+    "gmail_inbox": {
+      "source": "synthetic",
+      "package": "com.google.android.gm",
+      "nodes": [
+        {"cls": "android.widget.FrameLayout", "label": ""},
+        {"cls": "android.widget.ImageButton", "label": "Open navigation drawer", "clickable": true, "parent": 0, "bounds": [20, 130, 140, 250]},
+        {"cls": "android.widget.TextView", "label": "Search in mail", "clickable": true, "viewId": "com.google.android.gm:id/open_search", "parent": 0, "bounds": [150, 130, 860, 250]},
+        {"cls": "android.widget.ImageView", "label": "Account and settings.", "clickable": true, "viewId": "com.google.android.gm:id/og_apd_ring_view", "parent": 0, "bounds": [900, 130, 1040, 250]},
+        {"cls": "androidx.recyclerview.widget.RecyclerView", "label": "", "scrollable": true, "viewId": "com.google.android.gm:id/thread_list_view", "parent": 0, "bounds": [0, 300, 1080, 2200]},
+        {"cls": "android.view.View", "label": "", "clickable": true, "longClickable": true, "parent": 4, "bounds": [0, 300, 1080, 520]},
+        {"cls": "android.widget.TextView", "label": "Weekly update from the team", "parent": 5, "bounds": [160, 320, 900, 380]},
+        {"cls": "android.widget.Button", "label": "Compose", "viewId": "com.google.android.gm:id/compose_button", "clickable": true, "parent": 0, "bounds": [640, 2000, 1040, 2140]}
+      ]
+    },
+    "settings_main": {
+      "source": "synthetic",
+      "package": "com.android.settings",
+      "nodes": [
+        {"cls": "androidx.recyclerview.widget.RecyclerView", "label": "", "scrollable": true, "viewId": "com.android.settings:id/recycler_view", "bounds": [0, 300, 1080, 2300]},
+        {"cls": "android.widget.LinearLayout", "label": "", "clickable": true, "parent": 0, "bounds": [0, 400, 1080, 560]},
+        {"cls": "android.widget.TextView", "label": "Connections", "viewId": "android:id/title", "parent": 1, "bounds": [160, 420, 900, 480]},
+        {"cls": "android.widget.TextView", "label": "Wi-Fi  •  Bluetooth  •  SIM manager", "viewId": "android:id/summary", "parent": 1, "bounds": [160, 490, 900, 540]},
+        {"cls": "android.widget.LinearLayout", "label": "", "clickable": true, "parent": 0, "bounds": [0, 560, 1080, 720]},
+        {"cls": "android.widget.TextView", "label": "Display", "viewId": "android:id/title", "parent": 4, "bounds": [160, 580, 900, 640]},
+        {"cls": "android.widget.LinearLayout", "label": "", "clickable": true, "parent": 0, "bounds": [0, 720, 1080, 880]},
+        {"cls": "android.widget.TextView", "label": "Battery", "viewId": "android:id/title", "parent": 6, "bounds": [160, 740, 900, 800]},
+        {"cls": "android.widget.ImageButton", "label": "Search", "clickable": true, "viewId": "com.android.settings:id/search_button", "bounds": [940, 130, 1060, 250]}
+      ]
+    },
+    "messages_compose": {
+      "source": "synthetic",
+      "package": "org.example.notes",
+      "nodes": [
+        {"cls": "android.widget.FrameLayout", "label": ""},
+        {"cls": "android.widget.ImageButton", "label": "Navigate up", "clickable": true, "parent": 0, "bounds": [0, 120, 130, 250]},
+        {"cls": "android.widget.EditText", "label": "Write a note", "editable": true, "clickable": true, "parent": 0, "bounds": [40, 300, 1040, 1800]},
+        {"cls": "android.widget.Button", "label": "Share", "clickable": true, "parent": 0, "bounds": [700, 2000, 860, 2140]},
+        {"cls": "android.widget.Button", "label": "Delete", "clickable": true, "parent": 0, "bounds": [880, 2000, 1040, 2140]},
+        {"cls": "android.widget.Switch", "label": "Pin note", "checkable": true, "clickable": true, "parent": 0, "bounds": [40, 2000, 300, 2140]}
+      ]
+    }
+  },
+  "cases": [
+    {"screen": "chatgpt_home", "goal": "Can you click on the menu button", "expect": "Open sidebar"},
+    {"screen": "chatgpt_home", "goal": "open the sidebar", "expect": "Open sidebar"},
+    {"screen": "chatgpt_home", "goal": "start a new chat", "expect": "New chat"},
+    {"screen": "chatgpt_home", "goal": "tap voice mode", "expect": "Start voice mode"},
+    {"screen": "chatgpt_home", "goal": "attach a photo", "expect": "Add photos and files"},
+    {"screen": "chatgpt_home", "goal": "tap the message box", "expect": "Ask anything"},
+    {"screen": "chatgpt_chat", "goal": "click on the menu button", "expect": null, "note": "Open sidebar vs More options: genuinely ambiguous; must escalate, never guess"},
+    {"screen": "chatgpt_chat", "goal": "open the side menu", "expect": "Open sidebar"},
+    {"screen": "chatgpt_chat", "goal": "copy that answer", "expect": "Copy"},
+    {"screen": "chatgpt_chat", "goal": "read it out loud", "expect": "Read aloud"},
+    {"screen": "chatgpt_chat", "goal": "thumbs up", "expect": "Good response"},
+    {"screen": "chatgpt_chat", "goal": "switch the model", "expect": "ChatGPT 5"},
+    {"screen": "chatgpt_chat", "goal": "send it", "expect": "Send prompt", "consequential": true},
+    {"screen": "chrome_page", "goal": "tap the menu button", "expect": "Customize and control Google Chrome"},
+    {"screen": "chrome_page", "goal": "show my tabs", "expect": "Switch or close tabs"},
+    {"screen": "chrome_page", "goal": "go to the address bar", "expect": "Search or type web address"},
+    {"screen": "chrome_page", "goal": "click more information", "expect": "More information..."},
+    {"screen": "gmail_inbox", "goal": "open the menu", "expect": "Open navigation drawer"},
+    {"screen": "gmail_inbox", "goal": "write a new email", "expect": "Compose"},
+    {"screen": "gmail_inbox", "goal": "search my mail", "expect": "Search in mail"},
+    {"screen": "gmail_inbox", "goal": "open my account", "expect": "Account and settings."},
+    {"screen": "gmail_inbox", "goal": "open the email from the team", "expect": "Weekly update from the team"},
+    {"screen": "settings_main", "goal": "tap connections", "expect": "Connections"},
+    {"screen": "settings_main", "goal": "open battery", "expect": "Battery"},
+    {"screen": "settings_main", "goal": "search settings", "expect": "Search"},
+    {"screen": "messages_compose", "goal": "go back", "expect": "Navigate up"},
+    {"screen": "messages_compose", "goal": "delete this note", "expect": "Delete", "consequential": true},
+    {"screen": "messages_compose", "goal": "share it", "expect": "Share", "consequential": true},
+    {"screen": "messages_compose", "goal": "pin the note", "expect": "Pin note", "consequential": true}
+  ]
+}

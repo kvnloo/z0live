@@ -21,6 +21,7 @@ import urllib.error
 import urllib.request
 
 from . import bidi_protocol as bp
+from . import phone_control as pc
 from .core import ROOT, NoRedirect, dumps, request_json
 
 LOG = logging.getLogger("z0live.delegation")
@@ -46,7 +47,7 @@ Text you write between tool calls is silent progress the voice never reads out; 
 Treat every request as new: if Kevin asks again, check again and answer plainly. Never mention repeats, the voice side, delegation, this broker or how messages reach you.
 Do real work with real tools; never claim a change, finding or verification you did not observe. Prefer read-only investigation. Before destructive, costly, publishing, deploying or messaging actions, stop and reply with one short confirmation question instead.
 Repository root for z0live: {ROOT}. Always pass explicit working directories.
-Voice broker session: {sid}. Phone tools declared by this phone: {names}. For a phone action, run {ROOT}/bin/z0live action --session {sid} --action NAME --params 'JSON' and tell Kevin it was sent; queued is not confirmed.
+Voice broker session: {sid}. Phone tools declared by this phone: {names}. For a phone action, run {ROOT}/bin/z0live action --session {sid} --action NAME --params 'JSON' --wait 8 and read the phone's result before answering; never claim a tap landed unless the result says landed true. For an in-app step use phone_do with {{"goal": "<the owner's words>"}}; if it returns status choose, pick one candidate id and run phone_act with {{"id": ID}}. Never set confirm true unless Kevin said yes to that exact tap.
 Requests containing [test] are connectivity tests: do only what the test asks."""
 
 
@@ -234,10 +235,12 @@ class InboxCall:
 
 
 class Delegator:
-    def __init__(self, store, hermes=None, router=None, phone_timeout=10.0):
+    def __init__(self, store, hermes=None, router=None, phone_timeout=10.0, escalator=None):
         self.store = store
         self.hermes = hermes or Hermes(store)
         self.router = router or PhoneRouter(store)
+        self.escalator = escalator or pc.Escalator()
+        self.confirms = pc.Confirmations()
         self.phone_timeout = phone_timeout
         self.lock = threading.Lock()
         self.active: dict[str, dict] = {}  # sid -> {"run_id", "delegation_id"}
@@ -336,18 +339,39 @@ class Delegator:
         marks = {"created": time.time()}
         try:
             tools = self.tools(call.sid)
-            route = self.router.route(did, text, tools) if getattr(call, "routes_phone", True) else None
+            route = None
+            if getattr(call, "routes_phone", True):
+                route = self.phone_route(call, did, text, tools, marks)
+                if route == "handled":
+                    return
+                if route is None:
+                    route = self.router.route(did, text, tools)
             marks["routed"] = time.time()
             if route:
                 self.save(did, route="phone:" + route["tool"], status="phone", marks=marks)
-                self.phone(call, did, route, marks)
+                self.phone(call, did, route, marks, goal=text)
             else:
                 self.save(did, route="hermes", marks=marks)
                 self.work(call, did, text, tools, marks)
         except Exception as exc:
-            LOG.warning("delegation failed id=%s error=%s", did, type(exc).__name__)
+            LOG.warning("delegation failed id=%s error=%s", did, type(exc).__name__, exc_info=True)
             self.finish(call, did, "I couldn't reach the part of me that does that work right now.",
                         "failed", marks)
+
+    def phone_route(self, call, did, text, tools, marks):
+        """In-app steps skip the liaison: phone_do runs tier 0 on the phone itself."""
+        pending = self.confirms.peek(call.sid)
+        if pending and pc.YES.match(text):
+            self.confirms.take(call.sid)
+            marks["confirmed"] = pending.get("label", "")
+            return {"tool": "phone_act", "arguments": {"id": pending["id"], "confirm": True}}
+        if pending and pc.NO.match(text):
+            self.confirms.take(call.sid)
+            self.finish(call, did, "Okay, I left it alone.", "declined", marks)
+            return "handled"
+        if pc.wants_in_app(text, tools):
+            return {"tool": "phone_do", "arguments": {"goal": text[:1000]}}
+        return None
 
     def finish(self, call, did, text, status, marks):
         marks["final"] = time.time()
@@ -357,10 +381,12 @@ class Delegator:
         self.save(did, status=status if sent else status + "_unspoken", final=text[:16000],
                   marks=marks)
 
-    def phone(self, call, did, route, marks):
-        waiter = {"sid": call.sid, "event": threading.Event(), "result": None}
-        inbox_id = self.store.publish("", route["tool"], route["arguments"], sid=call.sid,
-                                      source="bidi-phone:" + did)
+    def phone_call(self, sid, did, tool, arguments):
+        """Queue one declared phone tool in the inbox and wait for the phone's tool_result."""
+        waiter = {"sid": sid, "event": threading.Event(), "result": None}
+        # One inbox item per step: the source is unique per (delegation, tool).
+        source = "bidi-phone:" + did + ("" if tool != "phone_act" else ":act")
+        inbox_id = self.store.publish("", tool, arguments, sid=sid, source=source)
         with self.lock:
             self.waiters[inbox_id] = waiter
         try:
@@ -368,8 +394,43 @@ class Delegator:
         finally:
             with self.lock:
                 self.waiters.pop(inbox_id, None)
-        self.finish(call, did, describe_phone_result(route["tool"], waiter["result"]),
-                    "completed" if waiter["result"] else "unconfirmed", marks)
+        return waiter["result"]
+
+    def phone(self, call, did, route, marks, goal=""):
+        tool, started = route["tool"], time.time()
+        if tool == "phone_do":
+            self.escalator.warm()
+        result = self.phone_call(call.sid, did, tool, route["arguments"])
+        marks["phone_ms"] = round((time.time() - started) * 1000, 1)
+        inner = result.get("result") if isinstance(result, dict) and isinstance(result.get("result"), dict) else {}
+        if tool == "phone_do" and inner.get("status") == "choose":
+            cands = pc.candidates_of(inner)
+            decision, trail = self.escalator.decide(goal or route["arguments"].get("goal", ""), cands)
+            marks["tier0"] = inner.get("decision")
+            marks["tiers"] = trail
+            if decision is None:
+                names = [c["label"] for c in cands[:3]]
+                ask = ("I'm not sure which you mean: " + ", ".join(names[:-1]) + " or " + names[-1] + "?") if len(names) > 1 \
+                    else "I couldn't find that on the screen."
+                self.finish(call, did, ask, "ask_owner", marks)
+                return
+            marks["decided"] = decision
+            started = time.time()
+            tool, result = "phone_act", self.phone_call(call.sid, did, "phone_act", {"id": decision["id"]})
+            marks["act_ms"] = round((time.time() - started) * 1000, 1)
+            inner = result.get("result") if isinstance(result, dict) and isinstance(result.get("result"), dict) else {}
+        elif tool == "phone_do":
+            marks["tier0"] = inner.get("decision")
+        if inner.get("status") == "confirm_required" and isinstance(inner.get("target"), dict):
+            self.confirms.hold(call.sid, inner["target"])
+        if tool in {"phone_do", "phone_act", "phone_navigation"}:
+            text = pc.speak(tool, inner if result else None)
+        else:
+            text = describe_phone_result(tool, result)
+        status = "completed" if result else "unconfirmed"
+        if inner.get("status") == "done" and not inner.get("landed"):
+            status = "not_landed"
+        self.finish(call, did, text, status, marks)
 
     def work(self, call, did, text, tools, marks):
         with self.lock:

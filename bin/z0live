@@ -37,6 +37,10 @@ def main():
     action.add_argument("--action", required=True)
     action.add_argument("--params", default="{}")
     action.add_argument("--say", default="")
+    action.add_argument(
+        "--wait", type=float, default=0.0,
+        help="seconds to wait for the phone's tool_result and print it (0 = queue only)",
+    )
     trace = sub.add_parser(
         "trace", help="Read native stack observations; no model call"
     )
@@ -183,14 +187,33 @@ def main():
             ).fetchone()
         if not row or args.action not in {t["name"] for t in json.loads(row["tools"])}:
             parser.error("action must be declared by that client session")
-        print(
-            dumps(
-                {
-                    "id": store.publish(args.say, args.action, params, args.session),
-                    "status": "queued",
-                }
-            )
-        )
+        queued = store.publish(args.say, args.action, params, args.session)
+        result = wait_phone_result(store, args.session, queued, args.wait) if args.wait > 0 else None
+        if result is None:
+            print(dumps({"id": queued, "status": "queued" if args.wait <= 0 else "no_phone_result"}))
+        else:
+            print(dumps({"id": queued, "status": "phone_result", "result": result}))
+
+
+def wait_phone_result(store, session, inbox_id, seconds):
+    """Poll this session's events for the phone's tool_result for one inbox action."""
+    import time
+
+    deadline = time.monotonic() + min(max(seconds, 0.0), 30.0)
+    while time.monotonic() < deadline:
+        with store.connect() as db:
+            rows = db.execute(
+                "SELECT body FROM events WHERE session_id=? AND body LIKE '%tool_result%' "
+                "ORDER BY rowid DESC LIMIT 20",
+                (session,),
+            ).fetchall()
+        for row in rows:
+            body = json.loads(row["body"])
+            data = body.get("data") or {}
+            if body.get("type") == "tool_result" and data.get("id") == inbox_id:
+                return data.get("result", data)
+        time.sleep(0.1)
+    return None
 
 
 if __name__ == "__main__":
