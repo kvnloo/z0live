@@ -535,6 +535,7 @@ class DelegatorTests(StoreCase):
         delegator.delegate(call, "item_1", "Deploy")
         self.assertTrue(self.wait(lambda: call.appended and call.appended[-1][2] is None))
         self.assertIn("failed without a result", call.appended[-1][1])
+        self.assertTrue(self.wait(lambda: delegator.trace(self.sid)[0]["status"] == "failed"))
 
     def test_phone_route_queues_inbox_action_and_waits_for_phone_result(self):
         class Route:
