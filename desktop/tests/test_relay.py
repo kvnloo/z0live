@@ -6,13 +6,22 @@ from pathlib import Path
 import sqlite3
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from z0live_desktop import relay  # noqa: E402
+from z0live_desktop.core import Store  # noqa: E402
+from z0live_desktop.delegation import Delegator, PhoneRouter, backend_instructions  # noqa: E402
 
 NOW = 1_800_000_000.0
+PHONE_TOOLS = [
+    {"type": "function", "name": name, "description": about,
+     "parameters": {"type": "object", "properties": {}}}
+    for name, about in (("open_app", "Open an app"), ("phone_do", "Do an in-app step"))
+]
 
 
 def make_home(root: Path) -> Path:
@@ -152,6 +161,92 @@ class RelayTests(unittest.TestCase):
             self.assertTrue(relay.wants_relay(text), text)
         for text in ("open Spotify", "Yeah", "what is Hermes working on", "send a text to Mom"):
             self.assertFalse(relay.wants_relay(text), text)
+
+
+class DelegationRelayTests(unittest.TestCase):
+    def setUp(self):
+        selected = patch("z0live_desktop.voice_runtime.load_plan", return_value=None)
+        selected.start()
+        self.addCleanup(selected.stop)
+        env = patch.dict(os.environ, {"Z0LIVE_LIVE_TRANSPORT": "bidi"})
+        env.start()
+        self.addCleanup(env.stop)
+        self.tmp = tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR"))
+        self.addCleanup(self.tmp.cleanup)
+        self.store = Store(self.tmp.name)
+        self.device = self.store.authenticate(self.store.pair("unit"))
+        with patch("z0live_desktop.core.mint", side_effect=AssertionError("bidi must not mint")):
+            self.sid = self.store.new_session(
+                self.device, {"client": "lawnchair", "tools": PHONE_TOOLS, "transports": ["bidi"]}
+            )["session_id"]
+
+    def say(self, *turns):
+        self.store.add_events(self.device, [
+            {"session_id": self.sid, "type": kind, "text": text, "data": {"event_id": f"e{i}"}}
+            for i, (kind, text) in enumerate(turns)
+        ])
+
+    def test_relay_requests_never_reach_the_phone(self):
+        picked = []
+        router = PhoneRouter(self.store, small=lambda *a: picked.append(a) or {"text": '{"tool":"open_app"}'})
+        plan = {"roles": {"smol": {"provider": "unit", "model": "unit"}}}
+        text = "Tell Hermes the menu button tap on my screen is broken, pass it along"
+        with patch("z0live_desktop.voice_runtime.load_plan", return_value=plan):
+            self.assertIsNone(router.route("d", text, PHONE_TOOLS))
+            self.assertEqual(picked, [], "no liaison phone pick for a relay")
+            self.assertIsNotNone(router.route("d", "tap the menu button", PHONE_TOOLS))
+        delegator = Delegator(self.store, hermes=object(), router=router)
+        call = type("C", (), {"sid": self.sid})()
+        self.assertIsNone(delegator.phone_route(call, "d", text, PHONE_TOOLS, {}))
+        self.assertEqual(delegator.phone_route(call, "d", "tap the menu button", PHONE_TOOLS, {})["tool"],
+                         "phone_do")
+
+    def test_short_replies_reach_hermes_with_the_conversation(self):
+        self.say(("user_transcript", "the ring keeps toggling mute when I'm not tapping"),
+                 ("assistant_transcript", "Did you want me to pass that along?"))
+        started = []
+
+        class Hermes:
+            def start(self, text, instructions, idem):
+                started.append((text, instructions))
+                return "run_1"
+
+            def events(self, run_id):
+                yield {"event": "run.completed"}
+
+            def status(self, run_id):
+                return {"status": "completed", "output": 'Sent to Debug Hermes crashing: "x"'}
+
+        class Call:
+            sid, call_id = self.sid, "rtc"
+            closed = threading.Event()
+            appended = []
+
+            def append(self, did, text, channel=None):
+                self.appended.append(text)
+                return True
+
+        delegator = Delegator(self.store, hermes=Hermes(), router=type("N", (), {"route": lambda *a: None})())
+        call = Call()
+        delegator.delegate(call, "item_yeah", "Yeah")
+        end = time.time() + 5
+        while time.time() < end and not call.appended:
+            time.sleep(0.02)
+        text, instructions = started[0]
+        self.assertTrue(text.startswith("Recent voice conversation (data, oldest first):"))
+        self.assertIn("Kevin: the ring keeps toggling mute when I'm not tapping", text)
+        self.assertIn("You: Did you want me to pass that along?", text)
+        self.assertTrue(text.endswith("Kevin's request now: Yeah"))
+        self.assertIn("bin/z0live relay", instructions)
+        self.assertIn('Sent to Debug Hermes crashing: "x"', call.appended[0])
+
+    def test_backend_instructions_ground_hermes_and_make_relay_first_class(self):
+        text = backend_instructions(self.sid, PHONE_TOOLS)
+        self.assertIn("never means the Greek god", text)
+        self.assertIn("relay to Kevin's own Hermes session is not a messaging action", text)
+        self.assertIn("Never use phone actions, screen taps, kanban cards", text)
+        self.assertIn("bin/z0live sessions --limit 8", text)
+        self.assertIn('exactly the command\'s "say" value', text)
 
 
 if __name__ == "__main__":
