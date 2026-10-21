@@ -149,6 +149,7 @@ Builtins available in every session:
 | `cancel_work` | `{}` | `POST /v1/tools/cancel_work`; cancel current session work tree |
 | `tell_hermes` | `{text,kind}`; kind `request|complaint|bug|praise` | `POST /v1/tools/tell_hermes` |
 | `get_context` | `{}` | `POST /v1/tools/get_context` |
+| `relay_status` | `{limit?}`; integer 1–20, default 5 | `POST /v1/tools/relay_status`; read-only exact relay receipts and later target assistant activity, scoped to paired device |
 | `summarize` | `{text}` | `POST /v1/tools/summarize` |
 | `work_search` | `{query,scope?,project?}`; scope `recent|all` | `POST /v1/tools/work_search` |
 | `ask_hermes` | `{question}` | `POST /v1/tools/ask_hermes` |
@@ -156,8 +157,16 @@ Builtins available in every session:
 | `task_status` | `{id?,project?}` | `POST /v1/tools/task_status` |
 | `what_changed` | `{since?,project?}`; since `today|yesterday|week` | `POST /v1/tools/what_changed` |
 
-New session responses also include `builtin_tools:["tell_hermes","get_context","summarize","ask_z0","cancel_work"]` (persona v4: the legacy work tools in the table stay executable and reserved but are no longer offered to the model). Route these names to the
+New Realtime session responses also include `builtin_tools:["tell_hermes","get_context","summarize","ask_z0","cancel_work","relay_status"]` (persona v4: the legacy work tools in the table stay executable and reserved but are no longer offered to the model). Route these names to the
 broker; execute declared app tools locally. Clients with a static allowlist must dispatch all returned builtins, including `what_changed`, `ask_z0` and `cancel_work`. No new pairing/permission is required; reconnect to mint them.
+
+`relay_status` uses `{session_id,arguments:{limit?}}` and checks session ownership. It returns
+`{relays,gaps,reply_note}`. Each relay includes exact `text`, `target_session_id`, `current_title`,
+`latest_topic`, `delivery_state` (`delivered`, `accepted by gateway`, `failed`, or explicit `unknown`
+when evidence is missing), `error`, `replied_since` (null when unreadable), `reply_excerpt`,
+`reply_at`, `created`, `id`, and `evidence`. This is post-relay assistant activity, not causal proof
+of a response to that message. No LLM and no phone access. Bidi resolves status through its
+existing client delegation, not provider function schemas. See [RELAY.md](RELAY.md).
 
 `ask_z0` requires `{session_id,call_id?,arguments:{question}}`. By default (`Z0LIVE_REALTIME_WORK=delegate`) it runs on the persistent Hermes backend shared with Frameless Bidi and returns `{ok,id,status:"working",say:"",speech:"silent"}`; the final answer arrives as one inbox item with `source:"run:<id>"` and `params.delegation_id`, for the phone's model to answer from in its own words. With `Z0LIVE_REALTIME_WORK=liaison` it returns `{ok,id,turn_id,status,say,speech?,trace?}` immediately; queued acceptance uses `say:"",speech:"silent"` (L0 may acknowledge once before dispatch). Repeated pending acceptance stays silent. Cached model identity is `status:completed,cache:pinned_voice_plan`. Otherwise the brief/meta/workers run asynchronously and short progress/final speech arrives through inbox/SSE, with `params.turn_id`, `params.event`, and the full final `params.result`. Reuse the exact provider `call_id` on retry; changed arguments fail. Latest active user-started session only: old/ended sessions cannot admit new liaison work. For planned sessions `ask_hermes` and `tell_hermes(kind:request)` are compatibility aliases to L1 (immediate async response, not the old 24-second wait). Other legacy tool schemas remain unchanged.
 
