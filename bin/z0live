@@ -63,6 +63,7 @@ def main():
     relay_cmd.add_argument("--key", help="idempotency key (same key = same delivery)")
     relay_cmd.add_argument("text")
     relay_cmd.add_argument("--session", required=True, help="originating voice session for durable receipts")
+    relay_cmd.add_argument("--wait", type=float, default=0, help="wait up to 300 seconds for this admission's causal final reply")
     relay_status_cmd = sub.add_parser("relay-status", help="Read delivery evidence and target replies")
     relay_status_cmd.add_argument("--limit", type=int, default=5)
     sessions_cmd = sub.add_parser(
@@ -81,7 +82,7 @@ def main():
         if args.command == "sessions":
             print(dumps({"sessions": relay.recent_sessions(args.limit)}))
             return None
-        result = relay.relay(args.text, to=args.to or None, key=args.key, store=Store(), sid=args.session)
+        result = relay.relay(args.text, to=args.to or None, key=args.key, store=Store(), sid=args.session, wait=args.wait)
         print(dumps(result))
         return 0 if result.get("ok") else 1
     if args.command == "serve":
