@@ -232,6 +232,10 @@ class DelegationRelayTests(unittest.TestCase):
         end = time.time() + 5
         while time.time() < end and not call.appended:
             time.sleep(0.02)
+        # finish() speaks before it persists: join the worker so cleanup never races its write.
+        for worker in threading.enumerate():
+            if worker.name.startswith("delegation-"):
+                worker.join(5)
         text, instructions = started[0]
         self.assertTrue(text.startswith("Recent voice conversation (data, oldest first):"))
         self.assertIn("Kevin: the ring keeps toggling mute when I'm not tapping", text)
