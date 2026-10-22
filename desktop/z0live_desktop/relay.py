@@ -181,25 +181,38 @@ def submission_id(target: str, text: str, key=None) -> str:
     return "z0live-relay-" + hashlib.sha256(seed.encode()).hexdigest()[:32]
 
 
-def deliver(session_id: str, message: str, sub_id: str, home=None, runner=None) -> dict:
+def deliver(session_id: str, message: str, sub_id: str, home=None, runner=None, wait=0) -> dict:
     """Hand one message to the owning gateway (`hermes_relay.py`); returns its JSON receipt."""
     home = home or profile_home()
-    payload = json.dumps({"session_id": session_id, "text": message, "submission_id": sub_id})
+    payload = json.dumps({"session_id": session_id, "text": message, "submission_id": sub_id,
+                          **({"wait": min(300, max(0, wait)), "mode": "next_turn"} if wait else {})})
     env = {**os.environ, "HERMES_HOME": str(home)}  # this child only; never exported
     run = runner or subprocess.run
-    done = run([sys.executable or "python3", str(HELPER)], input=payload, capture_output=True, text=True, timeout=60, env=env)
+    done = run([sys.executable or "python3", str(HELPER)], input=payload, capture_output=True, text=True, timeout=60 + min(300, max(0, wait)), env=env)
     lines = [ln for ln in (done.stdout or "").splitlines() if ln.startswith("{")]
     if not lines:
         return {"ok": False, "error": "relay_helper_failed", "detail": (done.stderr or "")[-300:]}
     return json.loads(lines[-1])
 
 
-def relay(text: str, to=None, key=None, home=None, runner=None, store=None, sid=None) -> dict:
+def relay(text: str, to=None, key=None, home=None, runner=None, store=None, sid=None, wait=0) -> dict:
     """Send `text` into the resolved session. `say` is the exact read-back for the voice."""
     text = " ".join(str(text or "").split())
     if not text or len(text) > 4000:
         return {"ok": False, "error": "text must be 1-4000 characters"}
-    target = resolve(to, home)
+    from .attached_voice import target_for, target_home
+    pinned = target_for(store, sid) if store is not None and sid else None
+    if pinned:
+        if to:
+            return {"ok": False, "error": "attached_target_is_immutable", "say": "This call is attached to one conversation."}
+        home = target_home(pinned["profile"])
+        with _db(home) as db:
+            row = db.execute("SELECT id, title FROM sessions WHERE id=?", (pinned["session"],)).fetchone()
+        if not row:
+            return {"ok": False, "error": "attached_target_missing", "say": "The attached conversation is unavailable; nothing was sent."}
+        target = {"id": row["id"], "title": row["title"] or "attached conversation"}
+    else:
+        target = resolve(to, home)
     if not target:
         options = [s["title"] for s in recent_sessions(5, home)]
         return {"ok": False, "error": "no_matching_session", "candidates": options,
@@ -218,7 +231,7 @@ def relay(text: str, to=None, key=None, home=None, runner=None, store=None, sid=
                  json.dumps({"target_session_id": target["id"]})),
             ).lastrowid
     try:
-        receipt = deliver(target["id"], compose(text), submission_id(target["id"], text, key), home, runner)
+        receipt = deliver(target["id"], compose(text), submission_id(target["id"], text, key), home, runner, **({"wait": wait} if wait else {}))
     except (OSError, ValueError, subprocess.SubprocessError):
         receipt = {"ok": False, "error": "gateway_delivery_unconfirmed"}
     if not receipt.get("ok"):
@@ -239,6 +252,10 @@ def relay(text: str, to=None, key=None, home=None, runner=None, store=None, sid=
                         if receipt.get("error") == "gateway_delivery_unconfirmed"
                         else f"I couldn't deliver that to {title}; nothing was sent.")}
     how = "into its running turn" if receipt.get("mode") == "steer" else "as its next message"
+    if wait:
+        return {**receipt, "session_id": target["id"], "title": title, "text": text,
+                "say": receipt.get("final_reply", ""), "speech": "final" if receipt.get("reply_state") == "completed" else "silent",
+                "delivered": how}
     return {**receipt, "session_id": target["id"], "title": title, "text": text,
             "say": f'Sent to {title}: "{text}"', "delivered": how}
 

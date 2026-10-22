@@ -88,6 +88,10 @@ class Handler(BaseHTTPRequestHandler):
             )
             if not device:
                 return self.reply(401, {"error": "device bearer token required"})
+            if device.startswith("z0bridge:"):
+                from .identity_voice import voice_route
+                if not voice_route(method, path):
+                    return self.reply(403, {"error": "voice scope does not authorize this route"})
             body = None
             if method == "POST":
                 if self.headers.get("Transfer-Encoding"):
