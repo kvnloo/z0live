@@ -283,9 +283,13 @@ def mint(context, tools):
                             "language": "en",
                         },
                         "turn_detection": {
+                            "type": "semantic_vad", "eagerness": "high",
+                            "interrupt_response": False, "create_response": False,
+                        } if context.get("app") == "app.dash.mobile" else {
                             "type": "server_vad",
                             "silence_duration_ms": 450,
                         },
+                        **({"noise_reduction": {"type": "far_field"}} if context.get("app") == "app.dash.mobile" else {}),
                     },
                     "output": {"voice": VOICE},
                 },
@@ -417,6 +421,9 @@ class Store:
             atomic(path, devices)
 
     def authenticate(self, token):
+        if isinstance(token, str) and token.count(".") == 2:
+            from .identity_voice import voice_identity
+            return voice_identity(token)
         if not token or len(token) > 200:
             return None
         digest = hashlib.sha256(token.encode()).hexdigest()
@@ -444,6 +451,10 @@ class Store:
         context = body.get("context", {})
         if not isinstance(context, dict) or len(dumps(context)) > 16000:
             raise ValueError("context must be an object of at most 16000 characters")
+        attached = None
+        if body["client"] == "dash" and (device.startswith("z0bridge:") or "hermes_target" in context):
+            from .attached_voice import validate_target
+            attached = validate_target(context.get("hermes_target"))
         tools = body.get("tools", [])
         if not isinstance(tools, list) or len(tools) > 32 or len(dumps(tools)) > 48000:
             raise ValueError("at most 32 app tools / 48000 characters")
@@ -488,6 +499,9 @@ class Store:
                 "INSERT INTO sessions(id,device,client,created,updated,context,tools,transport) VALUES(?,?,?,?,?,?,?,?)",
                 (sid, device, body["client"], now, now, dumps(context), dumps(tools), transport),
             )
+            if attached:
+                from .attached_voice import bind
+                bind(db, sid, attached)
         if plan:
             self.voice
             with self.connect() as db:

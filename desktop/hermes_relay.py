@@ -65,15 +65,20 @@ async def deliver(request):
             out["steer_refused"] = steer.get("status") or "rejected"
         receipt = await client.rpc("prompt.submit", session_id=snap["session_id"], text=text,
                                    submission_id=request["submission_id"])
+        reply = {}
+        if request.get("wait") and receipt.get("admission_id") and receipt.get("status") in {"queued", "started", "terminal"}:
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+            from z0live_desktop.gateway_reply import wait_reply
+            reply = await wait_reply(client, snap["session_id"], receipt["admission_id"], request["wait"])
         return {**out, "ok": receipt.get("status") in {"queued", "started", "terminal"},
                 "mode": "next_turn", "status": receipt.get("status"),
-                "admission_id": receipt.get("admission_id")}
+                "admission_id": receipt.get("admission_id"), **reply}
 
 
 def main():
     request = json.loads(sys.stdin.read())
     try:
-        result = asyncio.run(asyncio.wait_for(deliver(request), 30))
+        result = asyncio.run(asyncio.wait_for(deliver(request), 30 + min(300, max(0, request.get("wait", 0)))))
     except GatewayClientError as exc:
         result = {"ok": False, "error": "gateway_refused", "detail": str(exc)[:300]}
     except (OSError, TimeoutError, ValueError, KeyError) as exc:

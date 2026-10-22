@@ -374,6 +374,13 @@ class Delegator:
     def handle(self, call, did, text):
         marks = {"created": time.time()}
         try:
+            from .attached_voice import target_for
+            if target_for(self.store, call.sid):
+                # An attached Dash call is routed in code, not by an LLM instruction the
+                # delegate may skip by answering itself (seen in live qualification).
+                self.save(did, route="attached", marks=marks)
+                self.attached(call, did, text, marks)
+                return
             from .ring_recording import voice_command
             recording = self.store.ring_recordings.current(call.sid)
             active = bool(recording and recording["desired"] == "recording" and recording["expires"] > time.time())
@@ -427,6 +434,19 @@ class Delegator:
             LOG.warning("delegation failed id=%s error=%s", did, type(exc).__name__, exc_info=True)
             self.finish(call, did, "I couldn't reach the part of me that does that work right now.",
                         "failed", marks)
+
+    def attached(self, call, did, text, marks, wait=180):
+        """Relay to the immutable pinned conversation; speak only its causal final reply."""
+        result = rl.relay(text, key=f"dash:{call.sid}:{did}", store=self.store, sid=call.sid, wait=wait)
+        marks["relayed"] = time.time()
+        if not result.get("ok"):
+            self.finish(call, did, result.get("say") or "Delivery to the attached conversation is unconfirmed.",
+                        "failed", marks)
+        elif result.get("reply_state") == "completed" and result.get("final_reply"):
+            self.finish(call, did, result["final_reply"], "completed", marks)
+        else:
+            self.finish(call, did, "Sent to the attached conversation; its reply is not in yet.",
+                        "pending", marks)
 
     def phone_route(self, call, did, text, tools, marks):
         """In-app steps skip the liaison: phone_do runs tier 0 on the phone itself."""
@@ -520,8 +540,9 @@ class Delegator:
             marks["steered"] = time.time()
             self.save(did, run_id=active["run_id"], status="steered", marks=marks)
             return
+        from .attached_voice import attached_instructions
         run_id = self.hermes.start(self.request(call.sid, text),
-                                   backend_instructions(call.sid, tools),
+                                   backend_instructions(call.sid, tools) + attached_instructions(self.store, call.sid, did),
                                    self.idem_prefix + did[-200:])
         marks["run_started"] = time.time()
         active = {"run_id": run_id, "delegation_id": did}
