@@ -34,3 +34,24 @@ Local provider marginal billed cost is zero because the adapters make no metered
 ## Feasibility gates
 
 Stock Unmute's documented 16 GiB floor exceeds the shared 12 GiB card; do not start all stock services together. The measured lightweight Kyutai arm replaces heavyweight Kyutai TTS with CPU Pocket TTS and uses the smallest cached Qwen reflex model, recording those substitutions explicitly. Official Candle Moshi Q8 plus its default KV cache exceeds the co-resident budget; a community Moshi Q4 binary is a separate feasibility arm, not a silently equivalent model. Its offline `--bench` disables SDL I/O and measures frame throughput, **not** WER, TTFA, barge-in, or tool correctness. Keep those unavailable columns null.
+
+## Measured overnight sweep — 2026-10-23
+
+Results and raw synthetic trial/resource receipts: [voice-pareto-20261023](voice-pareto-20261023/). Both cascade arms completed eight fixtures × five repeats. All local latency values are batch-EOS→first non-silent **generated PCM**, not speaker playback.
+
+| Candidate | PCM p50 / p95 ms | WER | Total-card peak MiB | Host CPU p95 | Process CPU p95 |
+|---|---:|---:|---:|---:|---:|
+| Kyutai STT→Qwen3-0.6B→CPU Pocket | 1,691 / 3,533 | 14.47% | 6,484 | 19.1% | 105.4% |
+| faster-whisper-base→Qwen3-0.6B→CPU Kokoro | 2,804 / 9,429 | 10.53% | 4,022 | 21.3% | 153.6% |
+| Moshi community Q4 | unavailable: throughput probe | unavailable | 7,435 | 22.1% | unavailable: sampler observes supervisor |
+| gpt-realtime historical acoustic control | 2,756 / 5,356 **acoustic** | unavailable | unavailable | unavailable | unavailable |
+
+Historical control: 2026-10-20, question stratum n=10, barge p50/p95 **329/407 ms**, recorded numbers only. Local barge latency is **unavailable**, because this harness has no duplex playback sink. No new control call, audio device, phone, live profile/service modification, or deployment occurred.
+
+Moshi completed 125 silence frames in **5.133 s** (**24.354 frames/s**) after 14.385 s loading; model-reported device memory delta **4,806 MiB**. Its supported `--threads 0` is required with this release's CUDA backend: upstream `tools/common_ggml.h` incorrectly passes `backend` rather than `backend_cpu` to `set_n_threads_cpu` for positive thread values and aborts. No binary patch was made. Silence throughput is not EOS latency, WER, or a conversational cohort.
+
+All runs used `nice -n10`, serial admission, a ≥2 GiB free-VRAM guard, and a supervisor stopping owned process groups for new external GPU demand/ComfyUI. Completed-run IO PSI admission values: Kyutai **25.96%**, Whisper **22.57%**, Moshi **27.98%** (all `some avg10 < 40`). Minimum free VRAM: **5,472 / 7,934 / 4,521 MiB**, respectively. Existing Garden Room (**1,492 MiB**) and Tern (**423 MiB**) occupants were untouched and remained the only GPU processes afterward. Total-card values include them. Host CPU is whole-machine percent; process CPU uses one-core=100% units.
+
+Initial offline attempts exposed uncached Pocket tokenizer/weights and Kokoro voice assets. Corrected runs fetched missing assets into `/workspace/cache/z0live-hf`; Qwen/Whisper snapshots and all inference runtime/models reside on NVMe. Failed initial rows are not quality measurements and are excluded. Runtime: Python 3.12.13, torch/torchaudio 2.9.1, transformers 4.57.6, faster-whisper 1.2.1, kokoro 0.9.4, pocket-tts 4.0.1, moshi 0.2.13; full package inventory retained with the results.
+
+**Recommendation:** neither cascade dominates. Kyutai/Pocket improves generated-PCM median/tail; Whisper/Kokoro improves WER and memory. Keep remote L0 until matched acoustic/barge and truthful task-effect acceptance. Provider billing is zero for local arms, but operating cost/hour is unknown. Keyword pass rates (50.0% and 83.33%) are not verified task correctness.
