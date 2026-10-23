@@ -344,6 +344,8 @@ class Store:
         self.voice_lock = threading.Lock()
         self._live = None
         self.live_lock = threading.Lock()
+        self._hybrid = None
+        self.hybrid_lock = threading.Lock()
         from .gestures import Gestures
 
         self.gestures = Gestures(self)
@@ -377,6 +379,15 @@ class Store:
 
                 self._live = LiveCalls(self)
             return self._live
+
+    @property
+    def hybrid(self):
+        with self.hybrid_lock:
+            if self._hybrid is None:
+                from .hybrid import HybridCalls
+
+                self._hybrid = HybridCalls(self)
+            return self._hybrid
 
     def connect(self):
         db = sqlite3.connect(self.path, timeout=30)
@@ -464,11 +475,35 @@ class Store:
             names.add(t["name"])
         from .live import choose_transport
 
-        transport = choose_transport(body.get("transports"))
+        from .hybrid import ADAPTER, VERSION as HYBRID_VERSION, provider_setting
+
+        provider = provider_setting()
+        if provider == "local":
+            if body.get("transports") != ["hybrid"]:
+                raise ValueError("local L0 requires explicit transports:[hybrid]")
+            transport = "hybrid"
+        else:
+            transport = choose_transport(body.get("transports"))
         from .voice_runtime import load_plan
 
         plan = load_plan()
-        if transport == "bidi":
+        backend = None
+        if transport == "hybrid":
+            if not plan or plan.get("provider") != "local" or plan.get("adapter") != ADAPTER:
+                raise RuntimeError("local L0 requires an exported local desktop-hybrid-http VoicePlan")
+            backend = self.hybrid.prepare(plan)
+            result = {
+                "transport": "hybrid",
+                "provider": "local",
+                "model": plan["model"],
+                "voice": plan["voice"],
+                "instructions_version": HYBRID_VERSION,
+                "input": "finalized_transcript",
+                "output": "pcm_s16le_24000_mono",
+            }
+        elif plan and plan.get("provider") == "local":
+            raise RuntimeError("local VoicePlan requires explicit Z0LIVE_L0_PROVIDER=local")
+        elif transport == "bidi":
             # No provider call at mint: the phone's SDP offer goes to POST /v1/live/calls.
             from . import bidi_protocol
             from .live import PERSONA_VERSION, voice
@@ -494,13 +529,15 @@ class Store:
                 db.execute(
                     "INSERT INTO voice_plans(sid,plan) VALUES(?,?)", (sid, dumps(plan))
                 )
+        if backend:
+            self.hybrid.bind(sid, device, backend)
         return {
             **result,
             "voice_plan": plan,
             "session_id": sid,
             # Frameless Bidi has no function tools: the model delegates, the broker routes.
             "builtin_tools": []
-            if transport == "bidi"
+            if transport in {"bidi", "hybrid"}
             else [t["name"] for t in builtin_tools()],
         }
 
@@ -640,7 +677,12 @@ class Store:
         if ended and self._live is not None:
             for sid in ended:
                 self._live.close(sid)
+        if ended and self._hybrid is not None:
+            for sid in ended:
+                self._hybrid.close(sid)
         for sid, kind, value, data in voice_events:
+            if self._hybrid is not None:
+                self._hybrid.observe(sid, kind, data)
             if kind == "model_usage":
                 self.voice.journal.trace(
                     data["turn_id"],
@@ -799,6 +841,8 @@ class Store:
             db.execute("UPDATE sessions SET ended=1 WHERE id=?", (sid,))
         if self._live is not None:
             self._live.close(sid)
+        if self._hybrid is not None:
+            self._hybrid.close(sid)
         return {"ok": True, "id": job}
 
     def context(self, device, sid):
@@ -834,6 +878,8 @@ class Store:
         if name == "cancel_work":
             if args:
                 raise ValueError("cancel_work takes no arguments")
+            if self._hybrid is not None:
+                self._hybrid.observe(sid, "cancel", {})
             stopped = self.realtime_work() and self.live.delegator.cancel(sid)
             result = self.voice.cancel(sid, "owner_cancel")
             if stopped and result["status"] == "idle":

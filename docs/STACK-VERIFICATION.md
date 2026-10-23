@@ -73,3 +73,28 @@ The snippets flatten selected nested `details` fields for readability; the actua
 - Historical/broadcast/ended-session inbox items are now silent while preserving IDs/cursors and historical parameters. Summaries and notes-to-Hermes are not spoken. Native task/approval authority remains Hermes-owned; read-only child prompts are not a terminal sandbox.
 - The canonical plan was installed privately at `~/.z0int/config/z0live-voice-plan.json`; the desktop services were restarted only after deterministic tests passed. An authenticated production mint/cache probe read back the exact digest and all ten builtin names. A real HTTPS inbox/revocation check confirmed silent broadcast framing. No test progress went to the owner's phone.
 - No default-branch or portable PR #6/#7 merge, phone APK install, real microphone test, hidden model fallback, GPU promotion, Telegram test message, or other-profile modification was performed.
+
+## Hybrid local L0 conformance (not executed in this change)
+
+The opt-in hybrid provider adds `desktop/tests/test_hybrid.py`.
+Its inference transport and WAV samples are explicit fakes, not real-provider measurements.
+The tests cover final-only L1–L3 admission, immutable plan consumption, duplicate final/ack
+suppression, pending-audio barge cancellation, quiet-floor result delivery, stale epochs,
+invalid/unavailable backends, ownership and unchanged default OpenAI negotiation.
+The production adapter uses real llama.cpp and Pocket HTTP contracts described in API.md.
+
+The integrator must run these checks after composition:
+
+```sh
+# Targeted offline contract checks, then the full offline desktop suite:
+Z0LIVE_L0_PROVIDER=openai Z0LIVE_VOICE_PLAN=/nonexistent \
+  nice -n 10 python3 -m unittest discover -s desktop/tests -p test_hybrid.py -v
+Z0LIVE_L0_PROVIDER=openai Z0LIVE_VOICE_PLAN=/nonexistent \
+  nice -n 10 python3 -m unittest discover -s desktop/tests -v
+nice -n 10 ruff check desktop bin/z0live
+```
+
+No suite, lint, model server, GPU process, microphone or live activation ran for this provider change.
+No local latency, acoustic TTFA, resource Pareto result or phone acceptance is claimed here.
+`LocalHTTPBackend.synthesize()` returns buffered PCM, not a first-audible timing receipt.
+The parent benchmark owns separate model/runtime/resource qualification and private reports.

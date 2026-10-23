@@ -84,3 +84,18 @@ but we can involve Hermes…".
   origin/main, so its conversational behavior should match; the broker adds phone routing,
   recovery and transcript history on top.
 - Raw per-run outputs stay private in the active Hermes profile scratch directory.
+
+## Hybrid local provider evidence boundary
+
+The optional `desktop-hybrid-http` provider is not part of the Bidi measurements above.
+OpenAI remains the default provider. Its existing Bidi/Realtime negotiation is unchanged.
+The local path accepts client-finalized transcripts, uses llama.cpp for a bounded acknowledgement,
+and obtains PCM from Pocket TTS. Final requests enter the existing pinned L1–L3 stack.
+Clients must supply capture, ASR, AEC, playback and immediate epoch-based interruption.
+
+The new offline fake-transport tests were not executed during implementation.
+They do not establish real local inference, acoustic TTFA, physical barge silence or handset parity.
+Pocket WAV buffering also prevents treating adapter return time as streaming first-audio latency.
+Run the offline commands in [STACK-VERIFICATION.md](STACK-VERIFICATION.md#hybrid-local-l0-conformance-not-executed-in-this-change)
+after integration. Keep any future local-provider measurements separate from these historical
+OpenAI receipts and from owner-authorized physical microphone/speaker acceptance.
