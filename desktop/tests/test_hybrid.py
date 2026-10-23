@@ -196,7 +196,50 @@ class HybridTests(unittest.TestCase):
         speech = self.store.hybrid.request(self.device, {"session_id": self.sid, "turn_epoch": 0, "inbox_id": ident}, speech=True)
         self.assertEqual(speech["say"], "Unit verified result.")
         again = self.store.hybrid.request(self.device, {"session_id": self.sid, "turn_epoch": 0, "inbox_id": ident}, speech=True)
-        self.assertTrue(again["duplicate"])
+        self.assertTrue(again["replayed"])
+        self.assertEqual(again["audio"], speech["audio"])
+        self.event("playback.ack", inbox_id=ident, speech_id=speech["speech_id"])
+        heard = self.store.hybrid.request(self.device, {"session_id": self.sid, "turn_epoch": 0, "inbox_id": ident}, speech=True)
+        self.assertTrue(heard["duplicate"])
+        self.assertEqual(heard["speech"], "silent")
+
+    def test_failed_result_synthesis_is_retryable_without_work_replay(self):
+        turn = self.event()["handoff"]["turn_id"]
+        self.voice.finish(turn, "Unit recoverable result.")
+        ident = self.store.inbox(self.device)["messages"][0]["id"]
+        body = {"session_id": self.sid, "turn_epoch": 0, "inbox_id": ident}
+        self.transport.unavailable = True
+        failure = self.store.hybrid.request(self.device, body, speech=True)
+        self.assertFalse(failure["ok"])
+        self.assertIn("unavailable", failure["error"])
+        self.transport.unavailable = False
+        recovered = self.store.hybrid.request(self.device, body, speech=True)
+        self.assertEqual(recovered["speech"], "audio")
+        self.assertEqual(recovered["say"], "Unit recoverable result.")
+        with self.store.connect() as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM voice_turns").fetchone()[0], 1)
+
+    def test_result_suppressed_during_synthesis_retries_when_quiet(self):
+        turn = self.event()["handoff"]["turn_id"]
+        self.voice.finish(turn, "Unit delayed result.")
+        ident = self.store.inbox(self.device)["messages"][0]["id"]
+        body = {"session_id": self.sid, "turn_epoch": 0, "inbox_id": ident}
+        def hook(url, cancel):
+            if url.endswith("/tts"):
+                self.event("floor", seq=1, state="user")
+        self.transport.hook = hook
+        suppressed = self.store.hybrid.request(self.device, body, speech=True)
+        self.assertEqual(suppressed["speech"], "silent")
+        self.transport.hook = None
+        self.event("floor", seq=2, state="quiet")
+        recovered = self.store.hybrid.request(self.device, body, speech=True)
+        self.assertEqual(recovered["speech"], "audio")
+        self.assertEqual(recovered["say"], "Unit delayed result.")
+        with self.assertRaisesRegex(ValueError, "exact speech ID"):
+            self.event("playback.ack", inbox_id=ident, speech_id="wrong")
+        with self.assertRaisesRegex(ValueError, "cannot advance"):
+            self.event("playback.ack", epoch=1, inbox_id=ident, speech_id="wrong")
+        self.assertTrue(self.store.hybrid.request(self.device, body, speech=True)["replayed"])
 
     def test_final_supersedes_late_ack_and_returns_via_existing_outbox(self):
         def hook(url, cancel):
