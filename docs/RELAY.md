@@ -45,7 +45,7 @@ owns a CLI/TUI chat is the gateway, and other clients submit into the gateway FI
 `bin/z0live sessions --limit 8` lists recent interactive sessions, each with title, source, age,
 Kevin's last own message, the current activity and the number of active helper agents. The voice
 backend uses it for "what was I working on" and "what did we talk about earlier". At mint, the
-Bidi persona (`z0live.bidi.v3`) gets the six most recent substantial titles.
+Bidi persona (`z0live.bidi.v4`) gets the six most recent substantial titles.
 
 ## Delivery status and phone boundary
 

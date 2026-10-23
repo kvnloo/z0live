@@ -52,7 +52,7 @@ desktop broker  ── POST /codex/realtime/calls ────────┘
   for that user turn (matched by the provider's `user_bidi_turn_id`), the broker waits 1.5 s and
   then runs the owner's transcript itself; the result goes back through `session.context.append`.
   Unreadable or empty delegation events are recorded in the call stats instead of dropped.
-- **Persona** (`live.persona`, version `z0live.bidi.v3`): one assistant, action-biased, brief,
+- **Persona** (`live.persona`, version `z0live.bidi.v4`): one assistant, action-biased, brief,
   silent while waiting, never claims an action before its final message, never reads commentary,
   lists the real phone tools from the mint, and says "not wired up yet" for anything else. A
   `<context>` block grounds it: who Kevin is, "Hermes" = his own agent system (not mythology),
@@ -61,6 +61,9 @@ desktop broker  ── POST /codex/realtime/calls ────────┘
   ([RELAY.md](RELAY.md)).
 - **Conversation context**: each new Hermes run gets the last 16 spoken turns as data before the
   request, so a bare "yeah" or "the issue I just described" is understood.
+  The persona and each native request also receive the originating session's declared client
+  and selected transport. These are broker connection facts, not an observation of the phone's
+  foreground app. Supplied connection facts do not require a phone lookup.
 
 ## Decision: phone actions are delegation results, not client tools
 
@@ -72,6 +75,9 @@ has no tool surface either. So phone actions go through delegation:
 1. A cheap keyword filter skips anything that is clearly computer work.
 2. Otherwise the existing tools-free liaison (`smol` role from the pinned VoicePlan, Haiku 4.5 on
    `127.0.0.1:8645`) picks **one declared phone tool** with arguments, or declines (~0.7 s).
+   `phone_ui_tree` is offered only for an explicit screen observation or phone operation.
+   A noun such as "app" does not authorize a screen read. Unsupported screen scope falls
+   through to the existing information/native path, not a fabricated result.
 3. The broker queues it as an ordinary inbox action (`say:""`). The installed phone code already
    executes inbox actions and reports `tool_result` with `data.id`; that result (success, failure
    or "not confirmed in 10 s") becomes the final message.

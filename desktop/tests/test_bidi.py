@@ -386,14 +386,23 @@ class LiveCallTests(StoreCase):
             time.sleep(0.05)
             return socket
 
+        instructions = []
+
+        def signaler(offer, persona, *args):
+            instructions.append(persona)
+            return "v=0 answer", "rtc_live"
+
         calls = live.LiveCalls(
             self.store, delegator=RecordingDelegator(), connector=connector,
-            signaler=lambda offer, *a: ("v=0 answer", "rtc_live"), access=fake_token,
+            signaler=signaler, access=fake_token,
         )
         self.store._live = calls
         result = calls.open(self.device, {"session_id": self.sid, "sdp": "v=0 offer"})
         self.assertEqual(result["call_id"], "rtc_live")
         self.assertEqual(result["model"], "gpt-live-1-codex")
+        self.assertIn('"client":"lawnchair"', instructions[0])
+        self.assertIn('"transport":"bidi"', instructions[0])
+        self.assertIn("not a phone screen observation", instructions[0])
         self.assertTrue(started.wait(2))
         other = self.store.authenticate(self.store.pair("other"))
         with self.assertRaises(LookupError):
@@ -579,6 +588,43 @@ class DelegatorTests(StoreCase):
         self.assertIsNone(router.route("d", "Open Spotify", []))
         self.assertEqual(calls, [])
 
+    def test_ui_tree_requires_screen_scope_before_liaison_selection(self):
+        calls = []
+        tree = {"type": "function", "name": "phone_ui_tree",
+                "parameters": {"type": "object", "properties": {}}}
+        tools = PHONE_TOOLS + [tree]
+
+        def small(*args):
+            calls.append(args)
+            return {"text": '{"tool":"phone_ui_tree","arguments":{}}'}
+
+        router = PhoneRouter(self.store, small=small)
+        plan = {"roles": {"smol": {"provider": "unit", "model": "unit"}}}
+        with patch("z0live_desktop.voice_runtime.load_plan", return_value=plan):
+            for request in ["Is the voice connected through the sample app?",
+                            "Why is the project app slow?", "Tell me about phone apps"]:
+                with self.subTest(request=request):
+                    self.assertIsNone(router.route("d", request, tools))
+                    self.assertNotIn('"name":"phone_ui_tree"', calls[-1][2])
+            calls.clear()
+            self.assertIsNone(router.route("d", "Why is this app slow?", [tree]))
+            self.assertEqual(calls, [], "no usable phone tool means no liaison request")
+            for request in ["Read my phone screen", "Which app is open?", "Tap the menu button"]:
+                with self.subTest(request=request):
+                    self.assertEqual(router.route("d", request, tools),
+                                     {"tool": "phone_ui_tree", "arguments": {}})
+        self.assertEqual(tools, PHONE_TOOLS + [tree], "do not mutate the pinned tool catalog")
+
+    def test_native_request_uses_its_own_connection_facts_without_inspecting_the_phone(self):
+        delegator = Delegator(self.store, hermes=FakeHermes(), router=NoRoute())
+        self.store.new_session(self.device, {"client": "dash", "transports": ["bidi", "realtime"]})
+        request = delegator.request(self.sid, "Explain the voice connection")
+        self.assertIn('"client":"lawnchair"', request)
+        self.assertIn('"transport":"bidi"', request)
+        self.assertNotIn('"client":"dash"', request)
+        self.assertIn("not a phone screen observation", request)
+        self.assertTrue(request.endswith("Kevin's request now: Explain the voice connection"))
+
     def realtime_session(self):
         with patch("z0live_desktop.core.mint", return_value={"value": "s", "expires_at": 1}):
             return self.store.new_session(self.device, {"client": "lawnchair", "tools": PHONE_TOOLS})
@@ -607,7 +653,11 @@ class DelegatorTests(StoreCase):
         self.assertTrue(items[0]["source"].startswith("run:rt-"))
         self.assertNotIn("silent", items[0]["params"])
         self.assertEqual(len(hermes.started), 1)
-        self.assertEqual(hermes.started[0][0], "Which file sets the realtime model?")
+        self.assertIn('"client":"lawnchair"', hermes.started[0][0])
+        self.assertIn('"transport":"realtime"', hermes.started[0][0])
+        self.assertTrue(hermes.started[0][0].endswith(
+            "Kevin's request now: Which file sets the realtime model?"
+        ))
 
     def test_realtime_cancel_work_stops_the_run_and_drops_its_answer(self):
         gate = threading.Event()

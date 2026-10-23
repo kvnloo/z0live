@@ -35,6 +35,16 @@ IN_APP = re.compile(
     r"read (?:it )?(?:aloud|out)|compose|reply|like|expand|collapse)\b",
     re.I,
 )
+SCREEN_QUERY = re.compile(
+    r"(?:"
+    r"(?:read|describe|inspect|check|show(?: me)?|look at) "
+    r"(?:(?:the|my|current) )?(?:phone )?(?:screen|ui tree|accessibility tree)"
+    r"|(?:what(?:'s| is)|tell me what(?:'s| is)) "
+    r"(?:on|visible on) (?:(?:the|my) )?(?:phone )?screen"
+    r"|(?:what|which) app is (?:open|in (?:the )?foreground)"
+    r")\W*",
+    re.I,
+)
 # "open Spotify" / "launch maps" are app launches (open_app), not in-app steps.
 APP_LAUNCH = re.compile(r"^\W*(?:please\s+)?(?:can you\s+)?(?:open|launch|start)\s+(?!the\b|my\b|a\b)\w+\W*$", re.I)
 YES = re.compile(r"^\W*(?:yes|yeah|yep|yup|sure|do it|go ahead|confirm(?:ed)?|ok(?:ay)?|please do|send it|that's fine)\b", re.I)
@@ -72,6 +82,16 @@ def phone_intent(text: str) -> bool:
     return bool(re.search(r"\b(?:app|screen|button|menu|sidebar|drawer|tab|icon|field|box|"
                           r"text|keyboard|send|delete|next|back|home|settings|phone|down|up|"
                           r"left|right|it|that|this|allow|cancel|ok|account|chat)\b", target, re.I))
+
+
+def screen_intent(text: str) -> bool:
+    """A UI-tree read must serve an explicit screen request or a phone operation."""
+    from . import relay, relay_status
+    if relay.wants_relay(text) or relay_status.wants_status(text):
+        return False
+    request = re.sub(r"^\W*(?:please\s+)?(?:(?:can|could|would|will) you\s+)?(?:please\s+)?",
+                     "", text or "", flags=re.I)
+    return phone_intent(text) or bool(SCREEN_QUERY.fullmatch(request))
 
 
 def authorize(store, sid, tool, arguments) -> bool:

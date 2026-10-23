@@ -22,7 +22,7 @@ import uuid
 from . import bidi_protocol as bp
 
 LOG = logging.getLogger("z0live.live")
-PERSONA_VERSION = "z0live.bidi.v3"
+PERSONA_VERSION = "z0live.bidi.v4"
 TRANSPORTS = ("bidi", "realtime")
 AUDIO_TYPES = (b"session.input_audio.append", b"session.output_audio.delta")
 # A bare action acknowledgement with no delegation behind it is a missed delegation.
@@ -123,6 +123,7 @@ def persona(tools: list[dict], context: str = "") -> str:
 - You have no direct access to the phone, the computer or the internet. Every action and every lookup MUST go through a client delegation.
 - MUST create a client delegation for every phone action (open an app or settings, media, timers, calls, texts, tapping, typing), all computer and project work, anything about Kevin's files, repos, agents, notes or history, and anything current.
 - NEVER say an action happened, an app is open, or something was checked unless an "Agent Final Message" in your context says so.
+- Use supplied broker connection metadata directly. These session facts require no lookup and do not identify the phone's current foreground app.
 </critical>
 
 <talk>
@@ -459,6 +460,8 @@ class LiveCalls:
             raise ValueError("expected object")
         sid = body.get("session_id")
         offer = body.get("sdp")
+        from .delegation import connection_context
+
         with self.store.connect() as db:
             row = self.store.owned(db, sid, device)
             if row["ended"]:
@@ -466,13 +469,15 @@ class LiveCalls:
             if row["transport"] != "bidi":
                 raise ValueError("session was not minted for bidi")
             tools = json.loads(row["tools"])
+            connection = connection_context(row["client"], row["transport"])
         with self.lock:
             if sid in self.calls and not self.calls[sid].closed.is_set():
                 raise ValueError("session already has a live call")
         access = self.access()
         scoped, realtime = str(uuid.uuid4()), str(uuid.uuid4())
         started = time.monotonic()
-        answer, call_id = self.signaler(offer, persona(tools, grounding()), voice(), access,
+        context = connection + "\n" + grounding()
+        answer, call_id = self.signaler(offer, persona(tools, context), voice(), access,
                                         scoped, realtime)
         call = LiveCall(self.store, sid, device, call_id, access, scoped, realtime,
                         self.delegator, connector=self.connector)

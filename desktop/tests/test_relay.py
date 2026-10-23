@@ -233,7 +233,8 @@ class DelegationRelayTests(unittest.TestCase):
         while time.time() < end and not call.appended:
             time.sleep(0.02)
         text, instructions = started[0]
-        self.assertTrue(text.startswith("Recent voice conversation (data, oldest first):"))
+        self.assertTrue(text.startswith("Voice connection metadata"))
+        self.assertIn("Recent voice conversation (data, oldest first):", text)
         self.assertIn("Kevin: the ring keeps toggling mute when I'm not tapping", text)
         self.assertIn("You: Did you want me to pass that along?", text)
         self.assertTrue(text.endswith("Kevin's request now: Yeah"))
@@ -257,7 +258,7 @@ class GroundingTests(unittest.TestCase):
         self.assertIn("Recent Hermes sessions (newest first): Debug Hermes crashing", text)
         self.assertIn("It is never a phone or screen action", text)
         self.assertIn('begins with "Sent to" is a relay read-back: say it exactly', text)
-        self.assertEqual(live.PERSONA_VERSION, "z0live.bidi.v3")
+        self.assertEqual(live.PERSONA_VERSION, "z0live.bidi.v4")
 
     def test_grounding_lists_real_recent_titles_and_tolerates_a_missing_db(self):
         with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR")) as tmp:
