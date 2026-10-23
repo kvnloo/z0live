@@ -211,6 +211,8 @@ class HybridSession:
         self.epoch = 0
         self.token = Cancellation()
         self.closed = False
+        self.audio_cache = {}
+        self.synthesizing = set()
 
     def current(self, epoch):
         if self.closed or epoch != self.epoch:
@@ -224,6 +226,7 @@ class HybridSession:
         if epoch > self.epoch:
             self.token.cancel()
             self.epoch, self.token = epoch, Cancellation()
+            self.audio_cache.clear()
 
     def quiet(self):
         with self.store.connect() as db:
@@ -239,6 +242,16 @@ class HybridSession:
             "session_id": self.sid, "type": kind, "text": value,
             "data": {"event_id": "hybrid:" + self.sid + ":" + key, **data},
         }])["accepted"] == 1
+
+    def played(self, ident):
+        with self.store.connect() as db:
+            return db.execute(
+                "SELECT 1 FROM events WHERE session_id=? AND event_key=?",
+                (self.sid, f"hybrid:{self.sid}:played:{ident}"),
+            ).fetchone() is not None
+
+    def speech_id(self, epoch, ident):
+        return f"hybrid:{self.sid}:{epoch}:inbox:{ident}"
 
     def speech(self, epoch, say, token, pending_turn=None):
         if not say:
@@ -264,7 +277,7 @@ class HybridSession:
 
     def event(self, body):
         epoch, kind = body.get("turn_epoch"), body.get("kind")
-        if kind not in {"stt.partial", "stt.final", "floor", "barge_in", "cancel"}:
+        if kind not in {"stt.partial", "stt.final", "floor", "barge_in", "cancel", "playback.ack"}:
             raise ValueError("invalid hybrid event kind")
         value = text(body.get("text")) if kind in {"stt.partial", "stt.final"} else ""
         state = body.get("state")
@@ -274,9 +287,22 @@ class HybridSession:
         if isinstance(seq, bool) or not isinstance(seq, int) or not 0 <= seq <= 2**31:
             raise ValueError("seq must be a nonnegative integer")
         with self.lock:
+            if kind == "playback.ack" and epoch != self.epoch:
+                raise ValueError("playback acknowledgement cannot advance the epoch")
             self.advance(epoch)
             self.current(epoch)
             token = self.token
+            if kind == "playback.ack":
+                ident = body.get("inbox_id")
+                if (isinstance(ident, bool) or not isinstance(ident, int) or ident < 1
+                        or body.get("speech_id") != self.speech_id(epoch, ident)):
+                    raise ValueError("playback acknowledgement requires its exact speech ID")
+                if ident not in self.audio_cache and not self.played(ident):
+                    raise ValueError("no generated audio for playback acknowledgement")
+                fresh = self.claim(f"played:{ident}", "tool_result",
+                                   source="hybrid_client_playback_ack", inbox_id=ident)
+                self.audio_cache.pop(ident, None)
+                return {"ok": True, "speech": "silent", "duplicate": not fresh}
             if kind == "stt.partial":
                 return {"ok": True, "speech": "silent", "status": "partial"}
             if kind in {"floor", "barge_in", "cancel"}:
@@ -329,27 +355,48 @@ class HybridSession:
                     or item["params"].get("event") not in {"result", "clarification"}
                     or not str(item.get("source", "")).startswith("voice:")):
                 return {"ok": True, "speech": "silent"}
-            if not self.claim(f"speech:{ident}", "tool_result", source="hybrid_synthesis_attempt"):
+            if self.played(ident):
                 return {"ok": True, "speech": "silent", "duplicate": True}
+            if ident in self.audio_cache:
+                return {**self.audio_cache[ident], "replayed": True}
+            if ident in self.synthesizing:
+                return {"ok": True, "speech": "silent", "status": "synthesizing"}
+            self.synthesizing.add(ident)
             # A final result supersedes any acknowledgement still synthesizing.
             self.token.cancel()
             self.token = token = Cancellation()
         try:
-            return {"ok": True, "inbox_id": ident, **self.speech(epoch, item["say"], token)}
+            output = {"ok": True, "inbox_id": ident, **self.speech(epoch, item["say"], token)}
+            with self.lock:
+                self.current(epoch)
+                token.check()
+                if output.get("speech") == "audio":
+                    if not self.quiet():
+                        return {"ok": True, "speech": "silent", "suppressed": "floor"}
+                    output["speech_id"] = self.speech_id(epoch, ident)
+                    self.audio_cache[ident] = output
+                return output
         except Interrupted:
             return {"ok": True, "speech": "silent", "clear_playback": True}
+        except RuntimeError as exc:
+            return {"ok": False, "speech": "silent", "error": str(exc)}
+        finally:
+            with self.lock:
+                self.synthesizing.discard(ident)
 
     def interrupt(self, advance=False):
         with self.lock:
             self.token.cancel()
             if advance:
                 self.epoch += 1
+                self.audio_cache.clear()
             self.token = Cancellation()
 
     def close(self):
         with self.lock:
             self.closed = True
             self.token.cancel()
+            self.audio_cache.clear()
 
 
 class HybridCalls:

@@ -422,7 +422,7 @@ This authenticated endpoint accepts one local control event, not raw microphone 
 {"session_id":"SESSION_ID","kind":"stt.final","turn_epoch":0,"seq":2,"text":"Investigate the requested change."}
 ```
 
-- Kinds: `stt.partial`, `stt.final`, `floor`, `barge_in`, `cancel`.
+- Kinds: `stt.partial`, `stt.final`, `floor`, `barge_in`, `cancel`, `playback.ack`.
 - `turn_epoch` and `seq` are nonnegative integers. The first epoch is zero.
   Use the next epoch for each new utterance or barge. Epochs cannot decrease or skip.
   Retry a final with its original epoch. The final admission key is `(session, epoch)`,
@@ -463,12 +463,24 @@ The broker reads the actual inbox text. It does not accept arbitrary client-prov
 Only current, unsuppressed liaison results for this epoch can produce PCM.
 Progress, broadcasts, historical speech, cancelled turns and old epochs remain silent.
 Floor-held speech remains in the existing outbox until quiet. A final cancels pending local
-acknowledgement synthesis. Retried inbox IDs never synthesize again.
+acknowledgement synthesis. Failed or floor-suppressed result synthesis does not consume the
+inbox ID: retry it without admitting work again. Concurrent synthesis returns
+`status:"synthesizing"`; retry after the in-flight attempt finishes.
 
-Speech claims use existing deduplicated event IDs, not a second task ledger.
-A synthesis attempt is not a playback receipt. The at-most-once policy deliberately avoids
-replaying speech after a lost response or synthesis failure. The text remains in the inbox.
-A broker restart requires a new local session. It does not replay prior local audio or work.
+Generated result audio has a stable `speech_id`. Until the client acknowledges actual
+playback, a response retry returns the same cached PCM and `speech_id` with `replayed:true`,
+not another synthesis or work run. Deduplicate that ID at the playback boundary. Only after
+playback completes, acknowledge it through `/v1/hybrid/events`:
+
+```json
+{"session_id":"SESSION_ID","kind":"playback.ack","turn_epoch":0,"seq":3,"inbox_id":123,"speech_id":"hybrid:SESSION_ID:0:inbox:123"}
+```
+
+The acknowledgement uses the existing deduplicated event store, not a second task ledger.
+Later requests for an acknowledged inbox ID are silent. An acknowledgement is a
+**client-reported playback receipt**, not proof of acoustic audibility or human comprehension.
+Receipt of HTTP bytes and synthesis completion must not be reported as playback.
+A broker restart requires a new local session; it never replays prior local audio or work.
 
 ### Client media obligation
 

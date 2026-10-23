@@ -131,8 +131,11 @@ The broker rejects late local audio when its epoch, session or quiet floor no lo
 Barge/cancel disconnects local HTTP generation and invokes the existing native cancellation path.
 The client must stop actual playback immediately and invalidate queued PCM before network acknowledgement.
 Final results use the canonical outbox and inbox IDs, not a separate result channel.
-At-most-once synthesis claims prevent duplicate acknowledgements and final speech after retries.
-They do not prove playback or guarantee delivery after a lost response.
+Acknowledgements are at most once. Failed or floor-suppressed result synthesis remains retryable.
+Generated result PCM is cached under a stable speech ID until a client-reported playback
+acknowledgement is stored in the existing event ledger. A lost HTTP response can retrieve the same
+PCM without another synthesis or work run; the client deduplicates at its playback boundary.
+Generation, HTTP receipt, client-reported playback and human audibility are distinct observations.
 
 The benchmark interface is `LocalHTTPBackend(plan, transport=None)` in
 `desktop/z0live_desktop/hybrid.py`: `probe()`, `backchannel(text, Cancellation)` and
