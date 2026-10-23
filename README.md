@@ -36,6 +36,7 @@ Android / web ── HTTPS tailnet /v1 ── z0live desktop broker
 
 **API/Android integration:** [docs/API.md](docs/API.md).
 **Deployment, recovery and verification:** [docs/OPERATIONS.md](docs/OPERATIONS.md).
+**Isolated local voice benchmark:** [docs/VOICE-PARETO.md](docs/VOICE-PARETO.md) (synthetic PCM, explicit acoustic/duplex limits; no provider promotion).
 
 ```bash
 # Host CLI (does not overwrite the future portable Python package)
