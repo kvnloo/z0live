@@ -259,21 +259,23 @@ class VoiceToolsTests(unittest.TestCase):
                 "Verified fixture answer",
             )
         # A second request completes while its caller is waiting: inline only.
-        queued = threading.Event()
-        enqueue = self.store.enqueue
+        waiting = threading.Event()
 
-        def observed_enqueue(*args, **kwargs):
-            job = enqueue(*args, **kwargs)
-            queued.set()
-            return job
+        def observed_wait(seconds):
+            # The caller reaches its wait loop only after committing admission.
+            waiting.set()
+            time.sleep(seconds)
 
-        with patch.dict(os.environ, Z0LIVE_ASK_SECONDS="5"), patch.object(
-            self.store, "enqueue", side_effect=observed_enqueue
-        ), ThreadPoolExecutor(max_workers=1) as pool:
+        with patch.dict(os.environ, Z0LIVE_ASK_SECONDS="5"), patch(
+            "z0live_desktop.work_tools.time"
+        ) as clock, ThreadPoolExecutor(max_workers=1) as pool:
+            clock.monotonic.side_effect = time.monotonic
+            clock.time.side_effect = time.time
+            clock.sleep.side_effect = observed_wait
             future = pool.submit(
                 self.call, "ask_hermes", {"question": "second fixture"}
             )
-            self.assertTrue(queued.wait(timeout=2))
+            self.assertTrue(waiting.wait(timeout=2))
             worker.tick()
             inline = future.result(timeout=10)
         self.assertEqual(inline["say"], "Verified fixture answer")
