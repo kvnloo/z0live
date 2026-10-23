@@ -73,3 +73,38 @@ The snippets flatten selected nested `details` fields for readability; the actua
 - Historical/broadcast/ended-session inbox items are now silent while preserving IDs/cursors and historical parameters. Summaries and notes-to-Hermes are not spoken. Native task/approval authority remains Hermes-owned; read-only child prompts are not a terminal sandbox.
 - The canonical plan was installed privately at `~/.z0int/config/z0live-voice-plan.json`; the desktop services were restarted only after deterministic tests passed. An authenticated production mint/cache probe read back the exact digest and all ten builtin names. A real HTTPS inbox/revocation check confirmed silent broadcast framing. No test progress went to the owner's phone.
 - No default-branch or portable PR #6/#7 merge, phone APK install, real microphone test, hidden model fallback, GPU promotion, Telegram test message, or other-profile modification was performed.
+
+## Issue #44: read-only lag investigation and routing correction
+
+The inspection window was 2026-10-22 04:09:10.975 UTC to 2026-10-23 04:09:10.975 UTC.
+The deployed source was `e29d564824f3d271331a8186fbf576c06ee6da49`.
+SQLite contained three ended Lawnchair/Bidi sessions, 22 events, two user transcripts,
+one phone delegation and no new `voice_trace` entries. This was not the legacy Haiku/Opus/Sol
+trace path. The single delegation spent 3,009.7 ms selecting its route and 2,151.3 ms on
+a phone step. Its `phone_ui_tree` receipt reported `blocked_app`, not a successful observation.
+Total delegation time was 5,182.8 ms. These are one observed turn's stage times, not acoustic
+latency or a distribution.
+
+The router admitted a screen read from an app-related information question without an explicit
+screen request. It now removes `phone_ui_tree` from liaison candidates unless the request asks
+for screen observation or a phone operation. Bidi persona v4 and native requests receive the
+originating session's declared client and transport. These connection facts do not describe the
+phone's foreground app. No identity-specific reply cache or provider change was added.
+
+No held speech rows existed. The one measurable heartbeat interval was 22.409 seconds.
+The one phone inbox action received its result after 2,119.8 ms. No speech-start or speech-stop
+edges were recorded, even in the session with two transcripts. Thus the logs cannot establish
+a missed-utterance rate, microphone capture, end-of-speech latency or actual playback.
+The short silent sessions do not prove that a spoken utterance was lost.
+
+The discovered groot Dash bridge journal reported voice unavailable because its STT model was
+absent. It contained no `voice.heard` or `voice.failed` rows. Read-only MBP inspection found no
+Dash user unit, running Bun bridge, port 4747 listener or matching journal rows in this window.
+The CPU Parakeet queue hypothesis in `Z0L1-LAG` remains unmeasured, not this incident's root cause.
+Raw owner transcripts and session identifiers remain private.
+
+Added regression cases cover UI-tree scope, unchanged tool catalogs, connection metadata,
+exact-session context and existing native/realtime request framing. Tests, builds, lint,
+provider calls and acoustic checks were **not run** for this correction. No service or phone
+changed. The correction addresses the evidenced misroute only. General lag and missing speech
+remain unqualified until a client supplies correlated onset, end, dispatch and playback edges.

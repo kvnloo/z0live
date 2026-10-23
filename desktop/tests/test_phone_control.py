@@ -217,6 +217,22 @@ class PhoneControlTests(unittest.TestCase):
         self.assertFalse(pc.wants_in_app("why is CI failing", TOOLS))
         self.assertFalse(pc.wants_in_app("tap the menu", TOOLS[:1]), "old APK without phone_do")
 
+    def test_ui_tree_scope_requires_a_screen_observation_or_phone_operation(self):
+        for request in [
+            "Read my phone screen", "Please inspect the UI tree", "Can you describe the screen?",
+            "What's on my screen?", "Tell me what is visible on the phone screen",
+            "Which app is open?", "What app is in the foreground?", "tap the menu button",
+        ]:
+            with self.subTest(request=request):
+                self.assertTrue(pc.screen_intent(request))
+        for request in [
+            "Are you connected through the sample app?", "Why is the sample app slow?",
+            "The phone has a screen", "Do not read the screen", "What apps support this model?",
+            "Tell Hermes to inspect the screen", "Did you send my message?",
+        ]:
+            with self.subTest(request=request):
+                self.assertFalse(pc.screen_intent(request))
+
     def test_tier1_reads_grammar_letter_and_renormalises_letter_probabilities(self):
         reply = {"choices": [{"message": {"content": "B"}, "logprobs": {"content": [{"top_logprobs": [
             {"token": "The", "logprob": -0.1}, {"token": "B", "logprob": -1.0}, {"token": "A", "logprob": -3.0}]}]}}]}

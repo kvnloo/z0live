@@ -42,6 +42,16 @@ MAX_COMMENTARY = 24
 CONTEXT_TURNS = 16
 
 
+def connection_context(client, transport):
+    """Mint-time connection facts, distinct from the phone's current foreground UI."""
+    return (
+        "Voice connection metadata (broker session facts, not a phone screen observation):\n"
+        + dumps({"client": client, "transport": transport})
+        + "\nUse these supplied facts without a phone lookup. "
+        "They do not identify the phone's current foreground app."
+    )
+
+
 def backend_instructions(sid: str, tools: list[dict]) -> str:
     names = ", ".join(t["name"] for t in tools if isinstance(t, dict) and "name" in t) or "none"
     return f"""You are the execution backend of z0live, Kevin's realtime voice assistant. The voice model talks with Kevin and hands you requests; you do the real work with your tools. You and the voice are one assistant.
@@ -154,8 +164,12 @@ class PhoneRouter:
         self.small = small
 
     def route(self, delegation_id, text, tools):
+        screen_requested = pc.screen_intent(text)
+        if not screen_requested:
+            tools = [t for t in tools if isinstance(t, dict) and t.get("name") != "phone_ui_tree"]
         names = {t.get("name") for t in tools if isinstance(t, dict)}
-        if not names or not PHONE_HINT.search(text) or rl.wants_relay(text) or rs.wants_status(text):
+        if (not names or not (screen_requested or PHONE_HINT.search(text))
+                or rl.wants_relay(text) or rs.wants_status(text)):
             return None
         from .voice_runtime import Native, load_plan
 
@@ -364,12 +378,17 @@ class Delegator:
         return "\n".join(lines)
 
     def request(self, sid, text) -> str:
-        """Hermes input: the request, preceded by the recent conversation when there is one."""
+        """Hermes input: connection facts and recent conversation, then the current request."""
+        with self.store.connect() as db:
+            session = db.execute(
+                "SELECT client,transport FROM sessions WHERE id=?", (sid,)
+            ).fetchone()
+        metadata = connection_context(session["client"], session["transport"]) if session else ""
         context = self.conversation(sid)
-        if not context:
-            return text
-        return ("Recent voice conversation (data, oldest first):\n" + context
-                + "\n\nKevin's request now: " + text)
+        recent = "Recent voice conversation (data, oldest first):\n" + context if context else ""
+        return "\n\n".join(part for part in (
+            metadata, recent, "Kevin's request now: " + text,
+        ) if part)
 
     def handle(self, call, did, text):
         marks = {"created": time.time()}
