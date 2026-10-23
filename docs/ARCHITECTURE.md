@@ -101,3 +101,42 @@ GET /v1/trace?turn_id=TURN_ID
 ```
 
 L0 usage is client-observed `model_usage` telemetry from `response.done`; L1 usage is provider response usage; L2/L3 usage is native terminal-run accounting, including cache counters. Dollar cost is **unknown** when provider billing/prices are not supplied, not zero and not an invented public-price estimate. Interrupted native runs may omit usage; traces say null. The CLI is available to L2 without another inference call. The test suite uses fakes per layer and a separately opted-in real Chromium/WebRTC test; no fake output is labeled real-provider evidence.
+
+## Explicit hybrid local L0 seam
+
+The optional `desktop-hybrid-http` binding replaces only the L0 front end for a new,
+explicitly negotiated local session. It does not replace the portable actor in PRs #6/#7.
+The default remains OpenAI, including the existing Bidi/Realtime compatibility path.
+
+```text
+client capture/ASR/AEC + epoch playback boundary
+    → authenticated final transcript/control events
+    → local llama.cpp acknowledgement + Pocket TTS PCM
+    → existing Liaison.admit → pinned L1 → native L2/L3 → existing speech outbox/inbox
+    → authenticated inbox-ID synthesis → same Pocket voice
+```
+
+`Z0LIVE_L0_PROVIDER=local` is an explicit enable flag, not model-selection policy.
+z0intelligence must supply the complete signed local plan, including HTTP origins and all
+existing native role bindings. The broker never rewrites that plan or selects a fallback.
+Mint checks the pinned llama.cpp alias and Pocket readiness. Missing backends fail visibly.
+No provider credential store, worker scheduler or task ledger is added.
+
+Partials remain ephemeral. Only final text enters existing durable admission with a stable
+session/epoch key. The local model can choose silence or a bounded acknowledgement.
+It cannot answer work, assert completion, choose a model or authorize tools.
+L1–L3 retain their existing approvals, cancellation and terminal-receipt authority.
+
+The broker rejects late local audio when its epoch, session or quiet floor no longer matches.
+Barge/cancel disconnects local HTTP generation and invokes the existing native cancellation path.
+The client must stop actual playback immediately and invalidate queued PCM before network acknowledgement.
+Final results use the canonical outbox and inbox IDs, not a separate result channel.
+At-most-once synthesis claims prevent duplicate acknowledgements and final speech after retries.
+They do not prove playback or guarantee delivery after a lost response.
+
+The benchmark interface is `LocalHTTPBackend(plan, transport=None)` in
+`desktop/z0live_desktop/hybrid.py`: `probe()`, `backchannel(text, Cancellation)` and
+`synthesize(text, Cancellation)`. Default transport performs real loopback HTTP.
+Injected transports are only offline test fixtures. `Cancellation.cancel()` disconnects
+attached sockets. WAV buffering makes this a control/provider seam, not streaming TTFA evidence.
+See [API.md](API.md#optional-local-hybrid-l0) for the exact endpoint and client media contracts.

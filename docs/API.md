@@ -365,3 +365,118 @@ retain Garden Room's mic/audio gesture and turn-continuation handling. Allowlist
 in `data/z0live/service.env` as `Z0LIVE_CORS_ORIGINS=https://0.taila30dc.ts.net:8790` before testing.
 Do not embed a permanent token in public JS; obtain it via pairing and keep it in an authenticated client
 store. This is a separate adapter, not a change to the portable v0 WebSocket/VoicePlan protocol in PRs #6/#7.
+
+## Optional local hybrid L0
+
+This desktop-only seam does not replace the portable actor protocol in PRs #6/#7.
+`Z0LIVE_L0_PROVIDER` accepts `openai` (default) or `local`. Unknown values fail.
+The existing OpenAI Bidi/Realtime transport negotiation remains unchanged by default.
+Local mode requires both an exported local VoicePlan and `"transports":["hybrid"]`.
+An old client cannot silently enter local mode.
+
+The selector must export these actor fields together with the existing `schema`, six `roles`,
+`meta_role`, `harness:"hermes"`, `fallbacks:[]` and canonical SHA-256 `digest`:
+
+```json
+{
+  "provider":"local",
+  "adapter":"desktop-hybrid-http",
+  "model":"voice-slm",
+  "voice":"alba",
+  "local_http":{"llm":"http://127.0.0.1:8091","tts":"http://127.0.0.1:8088"}
+}
+```
+
+This is a field fragment, not a complete exported plan. Do not edit a signed plan in place.
+The broker stores the complete plan at mint. Endpoint/model/voice changes require a new mint.
+Only literal HTTP loopback origins are accepted. URL credentials, paths, queries, redirects
+and remote origins are not supported. No provider credentials or local routing table are added.
+
+The backend contracts are real external APIs:
+
+- llama.cpp: `GET /v1/models` must advertise the pinned model ID. `POST /v1/chat/completions`
+  accepts non-streaming chat with `response_format.json_schema`, no tools and thinking disabled.
+  Its only permitted output is JSON `{"say":""}`, `{"say":"Okay."}`, `{"say":"On it."}`
+  or `{"say":"Got it."}`. A model cannot answer work or assert success through this path.
+- [Pocket TTS](https://github.com/kyutai-labs/pocket-tts/blob/main/pocket_tts/main.py):
+  `GET /health` returns `{"status":"healthy"}`. `POST /tts` receives form fields `text` and
+  `voice_url` (the pinned built-in voice). It must return mono PCM16 24 kHz WAV.
+  The adapter buffers the bounded WAV, then returns base64 PCM. This is not streaming TTFA.
+
+Mint probes both backends without generating speech. Unavailable endpoints or a missing model
+produce `502`, not an OpenAI fallback. The client receives no OpenAI ephemeral secret:
+
+```json
+{"client":"web","transports":["hybrid"]}
+```
+
+Response fields include `transport:"hybrid"`, `provider:"local"`, `session_id`, `voice_plan`,
+`model`, `voice`, `instructions_version:"z0live.hybrid.v1"`, `builtin_tools:[]`,
+`input:"finalized_transcript"` and `output:"pcm_s16le_24000_mono"`.
+
+### `POST /v1/hybrid/events`
+
+This authenticated endpoint accepts one local control event, not raw microphone audio:
+
+```json
+{"session_id":"SESSION_ID","kind":"stt.final","turn_epoch":0,"seq":2,"text":"Investigate the requested change."}
+```
+
+- Kinds: `stt.partial`, `stt.final`, `floor`, `barge_in`, `cancel`.
+- `turn_epoch` and `seq` are nonnegative integers. The first epoch is zero.
+  Use the next epoch for each new utterance or barge. Epochs cannot decrease or skip.
+  Retry a final with its original epoch. The final admission key is `(session, epoch)`,
+  regardless of retransmitted sequence numbers. Changed final text for that key fails.
+- `stt.partial` is ephemeral and silent. It does not persist transcripts, call a model or admit work.
+- `floor` requires `state:"user"|"assistant"|"quiet"` and uses the existing broker floor.
+  Report quiet after the user finishes. The broker does not infer a quiet audio boundary from STT.
+- `stt.final` admits the exact final request through the existing pinned L1–L3 liaison,
+  independently of `Z0LIVE_REALTIME_WORK`. It then records one deduplicated final transcript.
+  No local model selects the harness, changes the plan or calls tools.
+- An acknowledgement follows admission only, at most once. Cached facts and cancellation
+  receipts do not receive an extra acknowledgement. Completed work suppresses a late acknowledgement.
+- `barge_in` and `cancel` use the existing native cancellation path. They also disconnect
+  pending local HTTP generation. A stop request is not a native terminal receipt or effect rollback.
+
+Successful final responses carry the canonical `handoff` receipt plus `speech:"silent"` or
+`speech:"audio"`. Audio responses include `say`, `session_id`, `turn_epoch`, `speech_id` and:
+
+```json
+{"audio":{"format":"pcm_s16le","sample_rate":24000,"channels":1,"pcm":"BASE64_PCM_BYTES"}}
+```
+
+The base64 field is an encoding description, not an example of generated provider audio.
+After admission, a local provider failure returns `ok:false`, `error`, the original `handoff`
+and `speech:"silent"`. Do not repeat the request as new work. Inspect its existing trace.
+All local speech remains conditional on the latest active session, quiet broker floor and epoch.
+
+### `POST /v1/hybrid/speech`
+
+Final results still enter the existing SQLite outbox and authenticated inbox/SSE.
+The client requests local synthesis of a current final or clarification by inbox ID:
+
+```json
+{"session_id":"SESSION_ID","turn_epoch":0,"inbox_id":123}
+```
+
+The broker reads the actual inbox text. It does not accept arbitrary client-provided result text.
+Only current, unsuppressed liaison results for this epoch can produce PCM.
+Progress, broadcasts, historical speech, cancelled turns and old epochs remain silent.
+Floor-held speech remains in the existing outbox until quiet. A final cancels pending local
+acknowledgement synthesis. Retried inbox IDs never synthesize again.
+
+Speech claims use existing deduplicated event IDs, not a second task ledger.
+A synthesis attempt is not a playback receipt. The at-most-once policy deliberately avoids
+replaying speech after a lost response or synthesis failure. The text remains in the inbox.
+A broker restart requires a new local session. It does not replay prior local audio or work.
+
+### Client media obligation
+
+The client owns capture, ASR, AEC, audio-route consent and the PCM playback queue.
+On a real barge, stop playback and clear that queue immediately, before any broker round trip.
+Advance the epoch and reject late responses for another session/epoch.
+Report actual playback floor boundaries. Never play both `say` through another TTS engine
+and the returned PCM. Deduplicate `speech_id`/inbox ID at the playback boundary.
+The existing `/v1/events`, `/v1/cancel` and `cancel_work` also interrupt local generation.
+External interrupt telemetry advances the local epoch. Prefer the hybrid event endpoint to
+keep the client's epoch explicit. No Dash, Lawnchair or physical-audio integration is implied.

@@ -34,6 +34,12 @@ Android / web ── HTTPS tailnet /v1 ── z0live desktop broker
 
 **Pinned multi-agent stack:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): Realtime → fast information liaison → persistent native meta agent → cheaper native workers. z0intelligence owns the VoicePlan; z0live owns floor/barge/replay. `ask_z0` is the preferred work entry point; existing tool names stay compatible. Summaries and old-session backlog are never spoken.
 
+**Optional local L0:** `Z0LIVE_L0_PROVIDER=local` plus an exported local VoicePlan enables the
+transcript/control hybrid adapter. It uses real llama.cpp and Pocket TTS HTTP endpoints, then
+passes final requests to the existing L1–L3 stack. OpenAI remains the default. Clients own ASR,
+capture, AEC and immediate playback interruption. See [API.md](docs/API.md#optional-local-hybrid-l0).
+This is not a standalone STT server or a qualified physical-audio path.
+
 **API/Android integration:** [docs/API.md](docs/API.md).
 **Deployment, recovery and verification:** [docs/OPERATIONS.md](docs/OPERATIONS.md).
 

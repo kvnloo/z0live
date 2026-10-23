@@ -120,6 +120,10 @@ class Handler(BaseHTTPRequestHandler):
                 result = {"ok": True, "version": VERSION}
             elif method == "POST" and path == "/v1/realtime/session":
                 result = store.new_session(device, body)
+            elif method == "POST" and path == "/v1/hybrid/events":
+                result = store.hybrid.request(device, body)
+            elif method == "POST" and path == "/v1/hybrid/speech":
+                result = store.hybrid.request(device, body, speech=True)
             elif method == "POST" and path == "/v1/live/calls":
                 result = store.live.open(device, body)
             elif method == "GET" and path == "/v1/live/trace":
@@ -167,6 +171,8 @@ class Handler(BaseHTTPRequestHandler):
             elif method == "POST" and path == "/v1/cancel":
                 with store.connect() as db:
                     store.owned(db, body.get("session_id"), device)
+                if store._hybrid is not None:
+                    store._hybrid.observe(body["session_id"], "cancel", {})
                 result = store.voice.cancel(
                     body["session_id"], "client_cancel", body.get("turn_id")
                 )

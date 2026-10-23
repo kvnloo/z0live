@@ -49,8 +49,18 @@ def load_plan():
         or value.get("fallbacks") != []
     ):
         raise RuntimeError("invalid voice plan policy")
-    # This host adapter only implements the ChatGPT WebRTC actor; reject, never substitute.
-    if (
+    # Actor identity is pinned by the exported plan, never chosen per utterance.
+    local = value.get("provider") == "local" and value.get("adapter") == "desktop-hybrid-http"
+    if local:
+        if value.get("harness") != "hermes" or any(
+            not isinstance(value.get(k), str) or not IDENT.fullmatch(value[k])
+            for k in ("model", "voice")
+        ):
+            raise RuntimeError("invalid local ConversationActor plan")
+        from .hybrid import LocalHTTPBackend
+
+        LocalHTTPBackend(value)  # Validate origins without contacting/loading a model.
+    elif (
         value.get("model"),
         value.get("voice"),
         value.get("adapter"),
