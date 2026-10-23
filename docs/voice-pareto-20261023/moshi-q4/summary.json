@@ -1,0 +1,29 @@
+{
+  "candidate": "moshi-q4",
+  "command": [
+    "/workspace/cache/z0live-voice-models/runtime/moshi-sts",
+    "--bench",
+    "-r",
+    "/workspace/cache/z0live-voice-models",
+    "-c",
+    "250",
+    "--threads",
+    "0",
+    "-s",
+    "44"
+  ],
+  "exit_code": 0,
+  "elapsed_s": 29.607120235043112,
+  "context_frames": 250,
+  "measurement": "upstream 125-frame silence throughput, SDL disabled",
+  "first_pcm_p50_ms": null,
+  "first_pcm_p95_ms": null,
+  "wer_pct": null,
+  "barge_stop_ms": null,
+  "task_correctness": null,
+  "release_gate": "PARTIAL",
+  "gpu_total_peak_mib": 7435.0,
+  "gpu_free_min_mib": 4521.0,
+  "cpu_host_p95_pct": 22.1,
+  "runtime_tail": "ggml_cuda_init: GGML_CUDA_FORCE_MMQ:    no\nggml_cuda_init: GGML_CUDA_FORCE_CUBLAS: no\nggml_cuda_init: found 1 CUDA devices:\n  Device 0: NVIDIA GeForce RTX 3080 Ti, compute capability 8.6, VMM: yes\nload_backend: loaded CUDA backend from /workspace/cache/z0live-voice-models/runtime/libggml-cuda.so\nggml_vulkan: Found 1 Vulkan devices:\nggml_vulkan: 0 = NVIDIA GeForce RTX 3080 Ti (NVIDIA) | uma: 0 | fp16: 1 | bf16: 0 | warp size: 32 | shared memory: 49152 | int dot: 1 | matrix cores: NV_coopmat2\nload_backend: loaded Vulkan backend from /workspace/cache/z0live-voice-models/runtime/libggml-vulkan.so\nload_backend: loaded CPU backend from /workspace/cache/z0live-voice-models/runtime/libggml-cpu-haswell.so\nusing device: \"CUDA0\"\nfound model path: /workspace/cache/z0live-voice-models/Codes4Fun/moshika-q4_k-GGUF/\nseed: 44\nloading...\ndone loading. 14.385000\nready\n there, what's going on? Hey, I was just reading\ndevice memory delta: 4806 MiB\n\nrun frames: 125\nrun time: 5.133 s\n\nframe rate:  24.354128 frames/s\n"
+}

@@ -314,7 +314,7 @@ def probe_moshi(args):
     """Bounded upstream offline probe; --bench explicitly disables SDL I/O."""
     args.output.mkdir(parents=True, exist_ok=True, mode=0o700)
     command = [str(args.binary), "--bench", "-r", str(args.model_root),
-               "-c", str(args.context), "--threads", "2", "-s", "44"]
+               "-c", str(args.context), "--threads", "0", "-s", "44"]
     with Resources(args.reserve_mib) as resources:
         started = time.monotonic()
         with (args.output / "runtime.log").open("w") as log:
