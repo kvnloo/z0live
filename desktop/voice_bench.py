@@ -60,8 +60,9 @@ def gpu():
 
 
 class Resources:
-    def __init__(self, reserve):
+    def __init__(self, reserve, output=None):
         self.reserve = reserve
+        self.output = output
         self.samples = []
         self.stop = threading.Event()
         self.error = None
@@ -101,6 +102,8 @@ class Resources:
     def __exit__(self, *args):
         self.stop.set()
         self.thread.join(timeout=6)
+        if self.output is not None:
+            (self.output / "resources.json").write_text(json.dumps(self.samples))
 
 
 class WhisperASR:
@@ -121,7 +124,15 @@ class KyutaiASR:
         import torch
         from moshi.models import loaders, LMGen
         self.torch = torch
-        self.info = loaders.CheckpointInfo.from_hf_repo(model)
+        local = Path(model)
+        if local.is_dir():
+            self.info = loaders.CheckpointInfo.from_hf_repo(
+                "kyutai/stt-1b-en_fr", moshi_weights=local / "model.safetensors",
+                mimi_weights=local / "mimi-pytorch-e351c8d8@125.safetensors",
+                tokenizer=local / "tokenizer_en_fr_audio_8000.model",
+                config_path=local / "config.json")
+        else:
+            self.info = loaders.CheckpointInfo.from_hf_repo(model)
         self.mimi = self.info.get_mimi(device="cuda")
         self.tokenizer = self.info.get_text_tokenizer()
         self.lm = self.info.get_moshi(device="cuda", dtype=torch.bfloat16)
@@ -244,12 +255,15 @@ def run(args):
             raise ValueError("fixture hash mismatch: " + case["id"])
     rows = []
     args.output.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with Resources(args.reserve_mib) as resources:
+    with Resources(args.reserve_mib, args.output) as resources:
         start = time.monotonic()
+        print("loading ASR", flush=True)
         asr = KyutaiASR(args.asr_model) if args.candidate == "kyutai-pocket" else WhisperASR(args.asr_model)
         resources.check()
+        print("loading SLM", flush=True)
         slm = LocalSLM(args.slm_model)
         resources.check()
+        print("loading TTS", flush=True)
         tts = PocketTTS() if args.candidate == "kyutai-pocket" else KokoroTTS()
         load_ms = (time.monotonic() - start) * 1000
         for repeat in range(args.runs):
@@ -292,7 +306,6 @@ def run(args):
                    gpu_total_peak_mib=max(s["gpu_used_mib"] for s in resources.samples),
                    gpu_free_min_mib=min(s["gpu_free_mib"] for s in resources.samples),
                    cpu_host_p95_pct=percentile([s["cpu_host_pct"] for s in resources.samples], .95))
-    (args.output / "resources.json").write_text(json.dumps(resources.samples))
     (args.output / "summary.json").write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary, indent=2))
 
@@ -401,7 +414,17 @@ def main():
     charts.add_argument("--output", type=Path, required=True)
     charts.set_defaults(func=export)
     args = parser.parse_args()
-    args.func(args)
+    try:
+        args.func(args)
+    except Exception as exc:
+        if hasattr(args, "output"):
+            args.output.mkdir(parents=True, exist_ok=True, mode=0o700)
+            (args.output / "failed-run.json").write_text(json.dumps({
+                "candidate": getattr(args, "candidate", args.command),
+                "error": type(exc).__name__ + ": " + str(exc),
+                "status": "FAILED; not a completed measurement",
+            }, indent=2))
+        raise
 
 
 if __name__ == "__main__":
