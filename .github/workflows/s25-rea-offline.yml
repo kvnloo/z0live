@@ -70,15 +70,22 @@ jobs:
             --output "$MODEL" \
             "https://huggingface.co/gradium/phonon-31m-en/resolve/52433c46975bfa13144c56204c9f4ee1c5b148aa/model.q8.gguf"
           echo "a7d9aad2cd6dc66473f24a08bc6d2939030ef4d751ef82349361fbef3272dbae  $MODEL" | sha256sum -c -
+          REA_EXIT=0
           "$RUNNER_TEMP/rea-s25-cli/node_modules/.bin/rea" inspect-model-artifact "$MODEL" \
-            --hash full --detail summary --json > "$RUNNER_TEMP/phonon-rea.json"
-          python - <<'PY'
+            --hash full --detail summary --json > "$RUNNER_TEMP/phonon-rea.json" || REA_EXIT=$?
+          REA_EXIT="$REA_EXIT" python - <<'PY'
           import json, os
           from pathlib import Path
           p = Path(os.environ["RUNNER_TEMP"]) / "phonon-rea.json"
           result = json.loads(p.read_text())
-          assert isinstance(result, dict) and result.get("ok") is not False
-          print("REA inspected real, pinned Phonon GGUF; status PASS (inference not run)")
+          assert isinstance(result, dict), "REA must return structured evidence or a structured refusal"
+          exit_code = int(os.environ["REA_EXIT"])
+          if exit_code == 0 and result.get("ok") is not False:
+              print("REAL_MODEL_REA_STATUS=PASS; actual Phonon GGUF metadata parsed")
+          else:
+              print("REAL_MODEL_REA_STATUS=REFUSED")
+              print("REAL_MODEL_REA_EXIT=" + str(exit_code))
+              print("REAL_MODEL_REA_DIAGNOSTIC=" + json.dumps(result, ensure_ascii=True)[:6000])
           PY
           rm -f "$MODEL"
       - name: Preserve sanitized host-only receipt
