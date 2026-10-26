@@ -164,14 +164,11 @@ def run_protocol(
             "valid_json": valid_json,
             "stderr_present": bool(stderr),
         })
-        if code != 0 or not upstream_ok:
-            # Don't inspect later operations on a partially qualified environment.
-            break
+        # REA commands are independent, bounded reads. A missing optional
+        # host provider must not hide later model-artifact evidence.
     report["executed"] = bool(report["evidence"])
-    report["status"] = (
-        "PASS" if len(report["evidence"]) == len(operations)
-        and all(r["status"] == "PASS" for r in report["evidence"]) else "FAIL"
-    )
+    successes = sum(r["status"] == "PASS" for r in report["evidence"])
+    report["status"] = "PASS" if successes == len(operations) else ("PARTIAL" if successes else "FAIL")
     report["limitations"].append("Evidence is retained locally with 0600 permissions; raw personal device data must never be committed")
     (output_directory / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
     os.chmod(output_directory / "summary.json", 0o600)
