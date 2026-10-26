@@ -49,7 +49,7 @@ def parse_verified_phone_env(output: str) -> dict[str, str]:
             found[key] = value
     if set(found) != ALLOWED_EXPORTS:
         raise ProbeFailure("phone-adb did not verify serial and adb client")
-    if any(ord(c) < 32 for c in found["ANDROID_SERIAL"]):
+    if not re.fullmatch(r"[A-Za-z0-9._:-]+", found["ANDROID_SERIAL"]):
         raise ProbeFailure("invalid Android serial")
     return found
 
