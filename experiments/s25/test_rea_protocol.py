@@ -100,7 +100,7 @@ class S25ReaProtocolTests(unittest.TestCase):
                         rea_bin="rea", phone_adb="phone-adb",
                         output_directory=Path(d) / "evidence")
                     self.assertEqual(result["status"], "FAIL")
-                    self.assertEqual(calls.call_count, 1)
+                    self.assertEqual(calls.call_count, 2)
 
     def test_model_artifact_is_scoped_and_no_auto_download(self):
         with tempfile.TemporaryDirectory() as d, patch.object(m.shutil, "which", return_value="/verified/rea"):
