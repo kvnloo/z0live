@@ -1,0 +1,104 @@
+name: S25 REA offline protocol (no device)
+on:
+  pull_request:
+    paths:
+      - 'experiments/s25/**'
+      - '.github/workflows/s25-rea-offline.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rea-offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+      - name: Validate fail-closed S25 protocol offline
+        run: python -m unittest discover -s experiments/s25 -v
+      - name: Build synthetic local Safetensors metadata fixture
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, struct
+          from pathlib import Path
+          hdr = json.dumps({"weight":{"dtype":"F32","shape":[2],"data_offsets":[0,8]}}).encode()
+          Path("/tmp/rea-s25-metadata.safetensors").write_bytes(struct.pack("<Q", len(hdr)) + hdr + struct.pack("<ff", 1.0, 2.0))
+          PY
+      - name: Install pinned REA CLI only on ephemeral runner
+        run: npm install --no-save --no-package-lock --prefix "$RUNNER_TEMP/rea-s25-cli" rea-agents@6.8.0
+      - name: Run actual REA host+model evidence protocol
+        shell: bash
+        run: |
+          REA_BIN="$RUNNER_TEMP/rea-s25-cli/node_modules/.bin/rea"
+          test -x "$REA_BIN"
+          set +e
+          python experiments/s25/rea_protocol.py \
+            --execute \
+            --rea-bin "$REA_BIN" \
+            --model-file /tmp/rea-s25-metadata.safetensors \
+            --output-dir "$RUNNER_TEMP/s25-rea-evidence"
+          REA_STATUS=$?
+          set -e
+          test "$REA_STATUS" -le 1
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          r = json.loads((Path(os.environ["RUNNER_TEMP"])/"s25-rea-evidence/summary.json").read_text())
+          assert r["executed"] and not r["phone_accessed"]
+          assert r["status"] in {"PASS", "PARTIAL"}, r
+          assert len(r["evidence"]) == 3
+          assert all(v["valid_json"] for v in r["evidence"])
+          assert r["evidence"][2]["operation"] == "inspect-model-artifact"
+          assert r["evidence"][2]["status"] == "PASS", r
+          print("REA operation receipts:", [(e["operation"], e["status"]) for e in r["evidence"]])
+          PY
+      - name: Inspect actual source-pinned Phonon 31m q8 GGUF with REA (host only)
+        timeout-minutes: 8
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL="$RUNNER_TEMP/phonon-31m-en.q8.gguf"
+          curl --fail --location --retry 2 --retry-delay 3 --max-time 240 \
+            --output "$MODEL" \
+            "https://huggingface.co/gradium/phonon-31m-en/resolve/52433c46975bfa13144c56204c9f4ee1c5b148aa/model.q8.gguf"
+          echo "a7d9aad2cd6dc66473f24a08bc6d2939030ef4d751ef82349361fbef3272dbae  $MODEL" | sha256sum -c -
+          python experiments/s25/probe_gguf_names.py "$MODEL" > "$RUNNER_TEMP/phonon-name-audit.json"
+          cat "$RUNNER_TEMP/phonon-name-audit.json"
+          REA_EXIT=0
+          "$RUNNER_TEMP/rea-s25-cli/node_modules/.bin/rea" inspect-model-artifact "$MODEL" \
+            --hash full --detail summary --evidence_output "$RUNNER_TEMP/phonon-rea-full-evidence.json" --json > "$RUNNER_TEMP/phonon-rea.json" || REA_EXIT=$?
+          REA_EXIT="$REA_EXIT" python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p = Path(os.environ["RUNNER_TEMP"]) / "phonon-rea.json"
+          result = json.loads(p.read_text())
+          assert isinstance(result, dict), "REA must return structured evidence or a structured refusal"
+          exit_code = int(os.environ["REA_EXIT"])
+          if exit_code == 0 and result.get("ok") is not False:
+              print("REAL_MODEL_REA_STATUS=PASS; actual Phonon GGUF metadata parsed")
+          else:
+              names = json.loads((Path(os.environ["RUNNER_TEMP"]) / "phonon-name-audit.json").read_text())
+              assert (exit_code == 1 and result.get("code") == "target_unavailable"
+                      and result.get("details", {}).get("reason") == "GGUF name exceeds its format byte limit"
+                      and names["total_names_exceeding_64_bytes"] == 17
+                      and names["max_tensor_name_bytes"] == 76), result
+              print("REAL_MODEL_REA_STATUS=EXPECTED_SPEC_REFUSAL; 17 Phonon names exceed 64 bytes")
+              print("REAL_MODEL_REA_EXIT=1; raw model digest verified, no inference performed")
+          PY
+          rm -f "$MODEL"
+      - name: Preserve sanitized host-only receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: s25-rea-offline-summary
+          path: ${{ runner.temp }}/s25-rea-evidence/summary.json
+          if-no-files-found: ignore
+          retention-days: 7
