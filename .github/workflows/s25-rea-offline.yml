@@ -60,6 +60,27 @@ jobs:
           assert r["evidence"][2]["status"] == "PASS", r
           print("REA operation receipts:", [(e["operation"], e["status"]) for e in r["evidence"]])
           PY
+      - name: Inspect actual source-pinned Phonon 31m q8 GGUF with REA (host only)
+        timeout-minutes: 8
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL="$RUNNER_TEMP/phonon-31m-en.q8.gguf"
+          curl --fail --location --retry 2 --retry-delay 3 --max-time 240 \
+            --output "$MODEL" \
+            "https://huggingface.co/gradium/phonon-31m-en/resolve/52433c46975bfa13144c56204c9f4ee1c5b148aa/model.q8.gguf"
+          echo "a7d9aad2cd6dc66473f24a08bc6d2939030ef4d751ef82349361fbef3272dbae  $MODEL" | sha256sum -c -
+          "$RUNNER_TEMP/rea-s25-cli/node_modules/.bin/rea" inspect-model-artifact "$MODEL" \
+            --hash full --detail summary --json > "$RUNNER_TEMP/phonon-rea.json"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p = Path(os.environ["RUNNER_TEMP"]) / "phonon-rea.json"
+          result = json.loads(p.read_text())
+          assert isinstance(result, dict) and result.get("ok") is not False
+          print("REA inspected real, pinned Phonon GGUF; status PASS (inference not run)")
+          PY
+          rm -f "$MODEL"
       - name: Preserve sanitized host-only receipt
         if: always()
         uses: actions/upload-artifact@v4
