@@ -20,7 +20,7 @@ jobs:
           python-version: '3.11'
       - uses: actions/setup-node@v4
         with:
-          node-version: '24.11.0'
+          node-version: '24.22.1'
       - name: Validate fail-closed S25 protocol offline
         run: python -m unittest discover -s experiments/s25 -v
       - name: Build synthetic local Safetensors metadata fixture
@@ -72,7 +72,7 @@ jobs:
           echo "a7d9aad2cd6dc66473f24a08bc6d2939030ef4d751ef82349361fbef3272dbae  $MODEL" | sha256sum -c -
           REA_EXIT=0
           "$RUNNER_TEMP/rea-s25-cli/node_modules/.bin/rea" inspect-model-artifact "$MODEL" \
-            --hash full --detail summary --json > "$RUNNER_TEMP/phonon-rea.json" || REA_EXIT=$?
+            --hash full --detail summary --evidence_output "$RUNNER_TEMP/phonon-rea-full-evidence.json" --json > "$RUNNER_TEMP/phonon-rea.json" || REA_EXIT=$?
           REA_EXIT="$REA_EXIT" python - <<'PY'
           import json, os
           from pathlib import Path
