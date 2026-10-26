@@ -1,0 +1,64 @@
+name: S25 REA offline protocol (no device)
+on:
+  pull_request:
+    paths:
+      - 'experiments/s25/**'
+      - '.github/workflows/s25-rea-offline.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rea-offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.11.0'
+      - name: Validate fail-closed S25 protocol offline
+        run: python -m unittest discover -s experiments/s25 -v
+      - name: Build synthetic local Safetensors metadata fixture
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, struct
+          from pathlib import Path
+          hdr = json.dumps({"weight":{"dtype":"F32","shape":[2],"data_offsets":[0,8]}}).encode()
+          Path("/tmp/rea-s25-metadata.safetensors").write_bytes(struct.pack("<Q", len(hdr)) + hdr + struct.pack("<ff", 1.0, 2.0))
+          PY
+      - name: Install pinned REA CLI only on ephemeral runner
+        run: npm install --no-save --no-package-lock --prefix "$RUNNER_TEMP/rea-s25-cli" rea-agents@6.8.0
+      - name: Run actual REA host+model evidence protocol
+        shell: bash
+        run: |
+          REA_BIN="$RUNNER_TEMP/rea-s25-cli/node_modules/.bin/rea"
+          test -x "$REA_BIN"
+          python experiments/s25/rea_protocol.py \
+            --execute \
+            --rea-bin "$REA_BIN" \
+            --model-file /tmp/rea-s25-metadata.safetensors \
+            --output-dir "$RUNNER_TEMP/s25-rea-evidence"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          r = json.loads((Path(os.environ["RUNNER_TEMP"])/"s25-rea-evidence/summary.json").read_text())
+          assert r["executed"] and not r["phone_accessed"]
+          assert r["status"] == "PASS", r
+          assert len(r["evidence"]) == 3
+          assert all(v["valid_json"] and v["status"] == "PASS" for v in r["evidence"])
+          print("Verified local REA operations:", [e["operation"] for e in r["evidence"]])
+          PY
+      - name: Preserve sanitized host-only receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: s25-rea-offline-summary
+          path: \${{ runner.temp }}/s25-rea-evidence/summary.json
+          if-no-files-found: ignore
+          retention-days: 7
