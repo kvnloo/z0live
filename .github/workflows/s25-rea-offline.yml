@@ -85,9 +85,13 @@ jobs:
           if exit_code == 0 and result.get("ok") is not False:
               print("REAL_MODEL_REA_STATUS=PASS; actual Phonon GGUF metadata parsed")
           else:
-              print("REAL_MODEL_REA_STATUS=REFUSED")
-              print("REAL_MODEL_REA_EXIT=" + str(exit_code))
-              print("REAL_MODEL_REA_DIAGNOSTIC=" + json.dumps(result, ensure_ascii=True)[:6000])
+              names = json.loads((Path(os.environ["RUNNER_TEMP"]) / "phonon-name-audit.json").read_text())
+              assert (exit_code == 1 and result.get("code") == "target_unavailable"
+                      and result.get("details", {}).get("reason") == "GGUF name exceeds its format byte limit"
+                      and names["total_names_exceeding_64_bytes"] == 17
+                      and names["max_tensor_name_bytes"] == 76), result
+              print("REAL_MODEL_REA_STATUS=EXPECTED_SPEC_REFUSAL; 17 Phonon names exceed 64 bytes")
+              print("REAL_MODEL_REA_EXIT=1; raw model digest verified, no inference performed")
           PY
           rm -f "$MODEL"
       - name: Preserve sanitized host-only receipt
