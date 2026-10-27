@@ -19,7 +19,53 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '${{ matrix.python }}'
+      - name: Validate workflow YAML structure
+        shell: bash
+        run: |
+          ruby -rpsych <<'RUBY'
+          Dir.glob(".github/workflows/*.yml").sort.each do |path|
+            document = Psych.safe_load_file(path, aliases: false)
+            abort "#{path}: expected YAML mapping" unless document.is_a?(Hash)
+            triggers = document["on"] || document[true]
+            abort "#{path}: missing on mapping" unless triggers.is_a?(Hash) && !triggers.empty?
+            permissions = document["permissions"]
+            valid_permissions = permissions.is_a?(Hash) ? !permissions.empty? : permissions.is_a?(String) && !permissions.empty?
+            abort "#{path}: missing permissions" unless valid_permissions
+            jobs = document["jobs"]
+            abort "#{path}: missing jobs mapping" unless jobs.is_a?(Hash) && !jobs.empty?
+            puts "YAML structure OK: #{path}"
+          end
+          RUBY
+      - name: Verify pinned kit blobs and scoped label config
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+
+          # Git blob IDs independently read from verified-oss-loop at
+          # eecf09c2aa7b9dcbec153e0b98d859fcc81915c3.
+          expected_blobs = {
+              ".github/workflows/stale.yml": "4beacf14f2cb7943ec1f07e3c25bbf8d2b7a67be",
+              ".github/workflows/labeler.yml": "56ce45c32199950f89a8b3003e0564908e79d8d5",
+              ".github/workflows/scorecard.yml": "edb3a9038010079386b1946e9b08ce43b58bc1fe",
+              ".github/dependabot.yml": "04d1c803d7e2dec07dfadf00f5373b557acb848f",
+              ".github/scripts/create-labels.sh": "5655cf3fefc9096102ebb637ca77ffe23c5b0c4f",
+              # Pinned labeler config with only seven absent-path globs removed.
+              ".github/labeler.yml": "944391b26e932524d120d47f73bebe14f4c36f5c",
+          }
+          for path, expected in expected_blobs.items():
+              data = Path(path).read_bytes()
+              blob = b"blob " + str(len(data)).encode("ascii") + b"\0" + data
+              actual = hashlib.sha1(blob).hexdigest()
+              if actual != expected:
+                  raise SystemExit(f"{path}: unexpected blob {actual}, expected {expected}")
+              print(f"Pinned content OK: {path}")
+          PY
       - name: Compile root Python
         run: python -m compileall -q bin tests
       - name: Run root unittest suite
+        env:
+          # Prevent a real ADB invocation even if a test loses its mock.
+          PHONE_ADB_BIN: /dev/null
         run: python -m unittest discover -s tests -v
