@@ -37,6 +37,10 @@ def main():
     action.add_argument("--action", required=True)
     action.add_argument("--params", default="{}")
     action.add_argument("--say", default="")
+    action.add_argument(
+        "--wait", type=float, default=0.0,
+        help="seconds to wait for the phone's tool_result and print it (0 = queue only)",
+    )
     trace = sub.add_parser(
         "trace", help="Read native stack observations; no model call"
     )
@@ -50,7 +54,28 @@ def main():
     progress = sub.add_parser("progress", help="Queue a short verified partial finding")
     progress.add_argument("--turn", required=True)
     progress.add_argument("text")
+    relay_cmd = sub.add_parser(
+        "relay", help="Send a message into one of Kevin's Hermes sessions via its gateway"
+    )
+    relay_cmd.add_argument(
+        "--to", default="", help="session id/prefix or title words; default: his main session"
+    )
+    relay_cmd.add_argument("--key", help="idempotency key (same key = same delivery)")
+    relay_cmd.add_argument("text")
+    sessions_cmd = sub.add_parser(
+        "sessions", help="Recent Hermes sessions with one-line summaries (read-only)"
+    )
+    sessions_cmd.add_argument("--limit", type=int, default=8)
     args = parser.parse_args()
+    if args.command in {"relay", "sessions"}:
+        from z0live_desktop import relay
+
+        if args.command == "sessions":
+            print(dumps({"sessions": relay.recent_sessions(args.limit)}))
+            return None
+        result = relay.relay(args.text, to=args.to or None, key=args.key)
+        print(dumps(result))
+        return 0 if result.get("ok") else 1
     if args.command == "serve":
         from z0live_desktop.server import serve
 
@@ -183,15 +208,34 @@ def main():
             ).fetchone()
         if not row or args.action not in {t["name"] for t in json.loads(row["tools"])}:
             parser.error("action must be declared by that client session")
-        print(
-            dumps(
-                {
-                    "id": store.publish(args.say, args.action, params, args.session),
-                    "status": "queued",
-                }
-            )
-        )
+        queued = store.publish(args.say, args.action, params, args.session)
+        result = wait_phone_result(store, args.session, queued, args.wait) if args.wait > 0 else None
+        if result is None:
+            print(dumps({"id": queued, "status": "queued" if args.wait <= 0 else "no_phone_result"}))
+        else:
+            print(dumps({"id": queued, "status": "phone_result", "result": result}))
+
+
+def wait_phone_result(store, session, inbox_id, seconds):
+    """Poll this session's events for the phone's tool_result for one inbox action."""
+    import time
+
+    deadline = time.monotonic() + min(max(seconds, 0.0), 30.0)
+    while time.monotonic() < deadline:
+        with store.connect() as db:
+            rows = db.execute(
+                "SELECT body FROM events WHERE session_id=? AND body LIKE '%tool_result%' "
+                "ORDER BY rowid DESC LIMIT 20",
+                (session,),
+            ).fetchall()
+        for row in rows:
+            body = json.loads(row["body"])
+            data = body.get("data") or {}
+            if body.get("type") == "tool_result" and data.get("id") == inbox_id:
+                return data.get("result", data)
+        time.sleep(0.1)
+    return None
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

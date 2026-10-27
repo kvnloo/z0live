@@ -8,6 +8,10 @@ import time
 import uuid
 
 COMPONENT = "app.lawnchair.play.debug/app.lawnchair.zer0.voice.z0live.Z0LiveActivity"
+# A session whose telemetry moved within this window counts as live (the inbox staleness rule).
+ADB_LIVE_SESSION_SECONDS = 120
+# At most one adb relaunch per this many seconds, whatever the ring sends.
+ADB_DEBOUNCE_SECONDS = 3
 
 
 def adb_launch(gesture, runner=subprocess.run):
@@ -142,6 +146,30 @@ class Gestures:
                 db.execute("DELETE FROM gesture_pin WHERE device=?", (device,))
         return {"ok": True}
 
+    @staticmethod
+    def adb_refusal(db, gesture, now):
+        """Why the adb relaunch must not run, or None.
+
+        Owner mapping: double tap with no call starts one, double tap in a call toggles mute,
+        triple tap ends the call. The relaunch with `autostart` toggles mute when a call is
+        already up, so it is used deterministically: a double only when no call is live (start),
+        a triple only when one is (its `gesture=triple_tap` extra ends the call). Mute inside a
+        call needs the live session's presence heartbeat and a queued command, never a relaunch.
+        """
+        live = db.execute(
+            "SELECT 1 FROM sessions WHERE ended=0 AND client='lawnchair' AND updated>? LIMIT 1",
+            (now - ADB_LIVE_SESSION_SECONDS,),
+        ).fetchone()
+        if gesture == "double_tap" and live:
+            return "session_live_no_presence"
+        if gesture == "triple_tap" and not live:
+            return "no_call_to_end"
+        recent = db.execute(
+            "SELECT 1 FROM gesture_events WHERE created>? AND json_extract(result,'$.adb')=1 LIMIT 1",
+            (now - ADB_DEBOUNCE_SECONDS,),
+        ).fetchone()
+        return "adb_debounced" if recent else None
+
     def submit(self, device, body):
         self.identity(device, body)
         gesture, ts, nonce = (body.get(k) for k in ("gesture", "ts", "nonce"))
@@ -188,7 +216,12 @@ class Gestures:
                     key=lambda r: (r["activity"], r["kind"] == "phone", r["device"]),
                 )
             result = {"ok": False, "status": "no_active_target"}
-            if target:
+            if target is None and os.environ.get("Z0LIVE_GESTURE_ADB") == "1":
+                # No surface heartbeated in the last 15 s (Lawnchair Standby dozes on Android),
+                # so the gesture would be dropped. With the owner's adb opt-in, wake the phone's
+                # voice activity directly instead; the nonce is reserved first, as below.
+                result = {"ok": True, "status": "adb_reserved", "fallback": "no_presence"}
+            elif target:
                 result = {"ok": True, "status": "queued", "target": target["kind"]}
                 if target["kind"] == "phone" and not target["ready"]:
                     # Reserve nonce BEFORE external effect; crash recovery must never repeat a toggle.
@@ -204,6 +237,12 @@ class Gestures:
                         (target["device"], gesture, now, now + 3),
                     )
                     result["command_id"] = cursor.lastrowid
+            if result["status"] == "adb_reserved":
+                blocked = self.adb_refusal(db, gesture, now)
+                if blocked:
+                    result = {"ok": False, "status": blocked, "fallback": result.get("fallback")}
+                else:
+                    result["adb"] = True
             db.execute(
                 "INSERT INTO gesture_events VALUES(?,?,?,?)",
                 (device, nonce, now, json.dumps(result)),

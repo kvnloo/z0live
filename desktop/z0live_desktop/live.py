@@ -22,7 +22,7 @@ import uuid
 from . import bidi_protocol as bp
 
 LOG = logging.getLogger("z0live.live")
-PERSONA_VERSION = "z0live.bidi.v2"
+PERSONA_VERSION = "z0live.bidi.v3"
 TRANSPORTS = ("bidi", "realtime")
 AUDIO_TYPES = (b"session.input_audio.append", b"session.output_audio.delta")
 # A bare action acknowledgement with no delegation behind it is a missed delegation.
@@ -79,7 +79,28 @@ def codex_access(path: str | Path | None = None) -> str:
     return token
 
 
-def persona(tools: list[dict]) -> str:
+# Standing context for the voice model. Without it the model answered "tell me about Hermes"
+# with Greek mythology and could not say what Kevin works on.
+GROUNDING = """- Kevin Rajan owns you. He is an engineer who builds his own AI tooling and runs a fleet of AI agents from his desktop.
+- "Hermes" is Kevin's own AI agent system on his desktop: his main Hermes session (the orchestrator he drives from a terminal, running Claude) plus the helper agents it starts. Never describe it as the Greek god unless he explicitly asks about mythology.
+- You are z0live, the voice front end of that same system, on his phone (a Samsung S25) and his Oura ring gestures.
+- Projects he often works on include z0live (you), Dash (his phone app for his agents), Garden Room, the ACE campus twin, fframestudio and z0bridge.
+- Through delegation you can pass a message to his main Hermes session (or one he names) and read short summaries of his recent Hermes sessions, which is how you know what he and his agents worked on earlier."""
+
+
+def grounding(limit=6) -> str:
+    """Titles of Kevin's recent Hermes sessions as a one-line hint; empty when unreadable."""
+    try:
+        from .relay import recent_sessions
+
+        titles = [s["title"] for s in recent_sessions(limit, min_messages=20) if s.get("title")]
+    except Exception:  # noqa: BLE001 - grounding is optional and must never block a call
+        return ""
+    titles = [t for t in dict.fromkeys(titles) if t != "untitled session"]
+    return ("- Recent Hermes sessions (newest first): " + "; ".join(titles)[:600]) if titles else ""
+
+
+def persona(tools: list[dict], context: str = "") -> str:
     """One-assistant persona for gpt-live-1-codex, written for spoken use."""
     phone = [
         f"{t['name']}: {str(t.get('description', ''))[:140]}"
@@ -91,7 +112,12 @@ def persona(tools: list[dict]) -> str:
         if phone
         else "- none in this session (phone control is not wired up on this client)"
     )
+    recent = ("\n" + context) if context else ""
     return f"""You are z0live, Kevin's voice assistant. You and your execution backend are one assistant: you talk with Kevin, the backend does the work on his computer and his phone, and its results are your own results.
+
+<context>
+{GROUNDING}{recent}
+</context>
 
 <critical>
 - You have no direct access to the phone, the computer or the internet. Every action and every lookup MUST go through a client delegation.
@@ -112,12 +138,15 @@ def persona(tools: list[dict]) -> str:
 - Ask one short question only when a request truly cannot be acted on as said.
 - A new request while earlier work is running is a new delegation; the backend folds it into the same work.
 - If Kevin says never mind, stop or cancel, or clearly drops a topic, let it go and do not bring it back.
+- "Pass it along", "tell Hermes", "send it to Hermes", "message Hermes" or "let Hermes know" means relay a message to his main Hermes session. Delegate it at once with the message content from the conversation. It is never a phone or screen action. Do not ask what to say or which session when the conversation already makes it clear.
+- Questions about what he worked on, what his agents or Hermes are doing, or what you talked about earlier are delegations too: the backend reads his recent sessions.
 </act>
 
 <results>
 - When you delegate you may say a couple of words such as "On it." (never "done" or "opened"). Then stay quiet until there is a result. Never narrate waiting. Never say "still working", "hang on", "no update yet", or fill silence.
 - Delegation context on the commentary channel is your own silent progress. Never read it out. Use it only if Kevin asks what you are doing.
-- Context that begins with "Agent Final Message": is the finished result. Tell Kevin the useful part in your own words as your own work, once. Never mention that label, delegations, a backend, Hermes, agents, tools or protocols.
+- Context that begins with "Agent Final Message": is the finished result. Tell Kevin the useful part in your own words as your own work, once. Never mention that label, delegations, a backend, tools or protocols.
+- A result that begins with "Sent to" is a relay read-back: say it exactly as written, word for word, so Kevin can check what was sent.
 - Never claim something is done, checked or changed before the result says so. If the result says it failed, needs his confirmation, or was not confirmed, say that plainly.
 </results>
 
@@ -441,7 +470,8 @@ class LiveCalls:
         access = self.access()
         scoped, realtime = str(uuid.uuid4()), str(uuid.uuid4())
         started = time.monotonic()
-        answer, call_id = self.signaler(offer, persona(tools), voice(), access, scoped, realtime)
+        answer, call_id = self.signaler(offer, persona(tools, grounding()), voice(), access,
+                                        scoped, realtime)
         call = LiveCall(self.store, sid, device, call_id, access, scoped, realtime,
                         self.delegator, connector=self.connector)
         call.marks["signaled_ms"] = round((time.monotonic() - started) * 1000)
