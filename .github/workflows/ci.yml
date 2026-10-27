@@ -69,3 +69,24 @@ jobs:
           # Prevent a real ADB invocation even if a test loses its mock.
           PHONE_ADB_BIN: /dev/null
         run: python -m unittest discover -s tests -v
+      - name: Verify root tests require no Python networking
+        shell: bash
+        env:
+          PHONE_ADB_BIN: /dev/null
+        run: |
+          set -euo pipefail
+          guard="$(mktemp -d)"
+          trap 'rm -rf "$guard"' EXIT
+          # sitecustomize loads in the test runner and its Python subprocesses.
+          cat > "$guard/sitecustomize.py" <<'PY'
+          import socket
+
+          def deny_network(*_args, **_kwargs):
+              raise RuntimeError("root tests must not use the network")
+
+          socket.socket.connect = deny_network
+          socket.socket.connect_ex = deny_network
+          socket.create_connection = deny_network
+          socket.getaddrinfo = deny_network
+          PY
+          PYTHONPATH="$guard${PYTHONPATH:+:$PYTHONPATH}" python -m unittest discover -s tests -v
