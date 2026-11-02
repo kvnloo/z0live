@@ -48,5 +48,6 @@ jobs:
         run: |
           node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync("package.json","utf8")); if (p.omp?.extensions?.[0] !== "./integrations/omp/z0live.ts") process.exit(1)'
       - run: test -f web/dist/index.html
+      - run: test -f web/dist/voice-setup.html
       - run: test -f web/dist/assets/encoderWorker.min.js
       - run: test -f web/dist/assets/decoderWorker.min.wasm

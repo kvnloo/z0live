@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#08111f" />
+    <title>z0live · voice setup</title>
+  </head>
+  <body>
+    <main class="setup">
+      <header class="top">
+        <a href="/" class="back">← brainstorm</a>
+        <span class="wordmark">z0live / setup</span>
+      </header>
+      <section class="intro">
+        <div class="eyebrow">VOICE, YOUR WAY</div>
+        <h1>Choose your voice path.</h1>
+        <p>App handoff, private on-device speech, or a live agent through Tern. Nothing installs, authenticates, or starts listening until you choose it.</p>
+      </section>
+      <section class="panel" aria-labelledby="device-title">
+        <div class="heading">
+          <div><div class="eyebrow">01 · HARDWARE</div><h2 id="device-title">Your phone</h2></div>
+          <button id="probe" class="secondary" type="button">Inspect this browser</button>
+        </div>
+        <label for="preset">Device profile (choose manually)</label>
+        <select id="preset">
+          <option value="s25">Galaxy S25 Ultra · Snapdragon 8 Elite / 12 GB</option>
+          <option value="other">Other Android / unknown hardware</option>
+          <option value="desktop">Desktop / remote host</option>
+        </select>
+        <p id="inventory" role="status">Manual S25 Ultra profile; no hardware measurements performed.</p>
+        <p class="fine">Browser inspection gives partial hints, not proof that an NPU/GPU model can run. No hardware data is sent to a server or stored.</p>
+      </section>
+      <section class="panel" aria-labelledby="routes-title">
+        <div class="eyebrow">02 · ROUTES</div>
+        <h2 id="routes-title">Voice engine</h2>
+        <div id="routes" role="radiogroup" aria-label="Voice route"></div>
+      </section>
+      <section class="panel" aria-labelledby="next-title">
+        <div class="eyebrow">03 · NEXT STEP</div>
+        <h2 id="next-title">Your setup</h2>
+        <p id="guidance" aria-live="polite"></p>
+        <div class="actions">
+          <a id="handoff" class="action" href="/" hidden>Open</a>
+          <button id="copy" type="button" class="secondary">Copy selection</button>
+        </div>
+        <p id="copy-status" role="status" class="fine"></p>
+        <details>
+          <summary>Selection details (not a VoicePlan)</summary>
+          <pre id="receipt"></pre>
+        </details>
+      </section>
+      <footer>
+        <span>z0intelligence selects and validates the actual VoicePlan.</span>
+        <span>z0live owns the live audio session. Hermes / OMP execute actions.</span>
+      </footer>
+    </main>
+    <script type="module" src="/src/voice-setup.ts"></script>
+  </body>
+</html>

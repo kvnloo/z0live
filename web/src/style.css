@@ -29,6 +29,10 @@ input {
   border-radius: 10px; padding: 10px;
 }
 .row, .stats { display: flex; justify-content: space-between; gap: 16px; }
+.local-note { font-size: 12px; }
+#command-form button { margin-top: 12px; }
+#command-status { font-size: 12px; margin-top: 12px; }
+@media (max-width: 560px) { main { width: min(100% - 24px, 760px); } .card { padding: 17px; } }
 .transcript { min-height: 140px; white-space: pre-wrap; line-height: 1.5; color: #d7e6f6; }
 .stats > div { display: grid; gap: 4px; }
 .stats span, #floor { color: #829bb5; font-size: 12px; }

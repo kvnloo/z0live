@@ -11,6 +11,10 @@ const floorEl = $<HTMLSpanElement>("floor");
 const micEl = $<HTMLElement>("mic");
 const queueEl = $<HTMLElement>("queue");
 const codecEl = $<HTMLElement>("codec");
+const commandForm = $<HTMLFormElement>("command-form");
+const commandInput = $<HTMLInputElement>("command-text");
+const commandButton = $<HTMLButtonElement>("command-send");
+const commandStatus = $<HTMLParagraphElement>("command-status");
 
 const defaultHost = window.location.hostname || "127.0.0.1";
 gatewayInput.value = localStorage.getItem("z0live.gateway") || `ws://${defaultHost}:8765`;
@@ -29,6 +33,9 @@ let assistantSpeechActive = false;
 let assistantBelowSince = 0;
 let traceId = crypto.randomUUID();
 let transcriberCaps: Record<string, unknown> | null = null;
+let actorInputCodec = "";
+let actorOutputCodec = "";
+let pendingCommandId: string | null = null;
 let controlSource: MediaStreamAudioSourceNode | null = null;
 let controlProcessor: ScriptProcessorNode | null = null;
 let controlMute: GainNode | null = null;
@@ -87,38 +94,47 @@ function pcm16Bytes(input: Float32Array): Uint8Array {
 }
 
 function startControlTap(stream: MediaStream): void {
-  if (!audioContext || !transcriberCaps || !ws) return;
-  const codec = String(transcriberCaps.input_codec || "");
-  const sampleRate = Number(transcriberCaps.input_sample_rate_hz || 0);
-  const channels = Number(transcriberCaps.channels || 1);
-  if (codec !== "pcm16" || sampleRate !== 16000 || channels !== 1) {
-    setStatus(`control lane unsupported: ${codec}/${sampleRate}/${channels}`);
-    return;
+  if (!audioContext || !ws) return;
+  const codec = String(transcriberCaps?.input_codec || "");
+  const sampleRate = Number(transcriberCaps?.input_sample_rate_hz || 0);
+  const channels = Number(transcriberCaps?.channels || 1);
+  const wantsControl = codec === "pcm16" && sampleRate === 16000 && channels === 1;
+  const wantsActorPcm = actorInputCodec === "pcm16";
+  if (!wantsActorPcm && !wantsControl) return;
+  if (transcriberCaps && !wantsControl) {
+    commandStatus.textContent = `Separate ASR lane unavailable: ${codec}/${sampleRate}/${channels}`;
   }
 
+  // Single microphone graph feeds the selected actor and optional control STT.
+  // A ScriptProcessor is widely available on Android browsers; migrate to a
+  // worklet after physical-device latency/underrun measurements.
   controlSource = audioContext.createMediaStreamSource(stream);
-  controlProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+  controlProcessor = audioContext.createScriptProcessor(2048, 1, 1);
   controlMute = audioContext.createGain();
   controlMute.gain.value = 0;
 
   controlProcessor.onaudioprocess = event => {
     if (!ws || ws.readyState !== WebSocket.OPEN || !audioContext) return;
     const mono = event.inputBuffer.getChannelData(0);
-    const pcm = downsampleMono(mono, audioContext.sampleRate, sampleRate);
-    if (!pcm.length) return;
-    const bytes = pcm16Bytes(pcm);
-    ws.send(JSON.stringify({
-      type: "transcriber.audio",
-      audio: {
-        codec: "pcm16",
-        sample_rate_hz: sampleRate,
-        channels: 1,
-        duration_ms: pcm.length * 1000 / sampleRate,
-        data_base64: bytesToBase64(bytes),
-      },
-    }));
+    if (wantsActorPcm) {
+      const pcm = downsampleMono(mono, audioContext.sampleRate, 24000);
+      if (pcm.length) ws.send(pcm16Bytes(pcm));
+    }
+    if (wantsControl) {
+      const pcm = downsampleMono(mono, audioContext.sampleRate, 16000);
+      if (!pcm.length) return;
+      ws.send(JSON.stringify({
+        type: "transcriber.audio",
+        audio: {
+          codec: "pcm16",
+          sample_rate_hz: 16000,
+          channels: 1,
+          duration_ms: pcm.length * 1000 / 16000,
+          data_base64: bytesToBase64(pcm16Bytes(pcm)),
+        },
+      }));
+    }
   };
-
   controlSource.connect(controlProcessor);
   controlProcessor.connect(controlMute);
   controlMute.connect(audioContext.destination);
@@ -216,6 +232,32 @@ function observeAssistantPcm(pcm: Float32Array, playbackDelayMs: number): void {
   }
 }
 
+function playPcm(pcm: Float32Array, inputRate: number): void {
+  if (!audioContext || !pcm.length) return;
+  const floor = audioContext.currentTime + 0.015;
+  const scheduledStart = Math.max(playbackAt, floor);
+  const playbackDelayMs = Math.max(0, (scheduledStart - audioContext.currentTime) * 1000);
+  observeAssistantPcm(pcm, playbackDelayMs);
+  const buffer = audioContext.createBuffer(1, pcm.length, inputRate);
+  buffer.copyToChannel(new Float32Array(pcm), 0);
+  const source = audioContext.createBufferSource();
+  source.buffer = buffer;
+  source.connect(audioContext.destination);
+  source.start(scheduledStart);
+  playbackAt = scheduledStart + buffer.duration;
+  queueEl.textContent = `${Math.max(0, Math.round((playbackAt - audioContext.currentTime) * 1000))} ms`;
+}
+
+function pcm16FromBytes(bytes: Uint8Array): Float32Array {
+  if (bytes.byteLength % 2 !== 0) throw new Error("invalid PCM16 byte count");
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const samples = new Float32Array(bytes.byteLength / 2);
+  for (let i = 0; i < samples.length; i++) {
+    samples[i] = view.getInt16(i * 2, true) / 32768;
+  }
+  return samples;
+}
+
 function initDecoder(): void {
   if (!audioContext) throw new Error("audio context missing");
   decoder = new Worker("/assets/decoderWorker.min.js");
@@ -228,24 +270,7 @@ function initDecoder(): void {
   });
   decoder.onmessage = event => {
     const pcm = event.data?.[0] as Float32Array | undefined;
-    if (!pcm?.length || !audioContext) return;
-    const floor = audioContext.currentTime + 0.015;
-    const scheduledStart = Math.max(playbackAt, floor);
-    const playbackDelayMs = Math.max(
-      0,
-      (scheduledStart - audioContext.currentTime) * 1000,
-    );
-    observeAssistantPcm(pcm, playbackDelayMs);
-    const buffer = audioContext.createBuffer(1, pcm.length, audioContext.sampleRate);
-    const copy = new Float32Array(pcm.length);
-    copy.set(pcm);
-    buffer.copyToChannel(copy, 0);
-    const source = audioContext.createBufferSource();
-    source.buffer = buffer;
-    source.connect(audioContext.destination);
-    source.start(scheduledStart);
-    playbackAt = scheduledStart + buffer.duration;
-    queueEl.textContent = `${Math.max(0, Math.round((playbackAt - audioContext.currentTime) * 1000))} ms`;
+    if (pcm?.length && audioContext) playPcm(pcm, audioContext.sampleRate);
   };
 }
 
@@ -282,6 +307,17 @@ async function startRecorder(): Promise<void> {
   micEl.textContent = "live";
 }
 
+async function startPcmMicrophone(): Promise<void> {
+  if (!audioContext) throw new Error("audio context missing");
+  micStream = await navigator.mediaDevices.getUserMedia({ audio: {
+    channelCount: 1, echoCancellation: true, noiseSuppression: true,
+    autoGainControl: true,
+  }});
+  startVad(micStream);
+  startControlTap(micStream);
+  micEl.textContent = "live";
+}
+
 async function disconnect(): Promise<void> {
   stopControlTap();
   stopVad();
@@ -308,6 +344,10 @@ async function disconnect(): Promise<void> {
   micEl.textContent = "off";
   codecEl.textContent = "—";
   transcriberCaps = null;
+  actorInputCodec = "";
+  actorOutputCodec = "";
+  pendingCommandId = null;
+  commandButton.disabled = true;
   queueEl.textContent = "0 ms";
   connectButton.disabled = false;
   disconnectButton.disabled = true;
@@ -320,11 +360,25 @@ async function connect(): Promise<void> {
   setStatus("connecting");
   traceId = crypto.randomUUID();
   const url = gatewayInput.value.trim();
-  localStorage.setItem("z0live.gateway", url);
+  // A browser can reach 127.0.0.1 in its own Android network namespace.
+  // Refuse off-device microphone streaming until a separately authenticated
+  // and TLS-secured transport exists.
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+    if (parsed.protocol !== "ws:" ||
+        !["127.0.0.1", "localhost", "[::1]"].includes(parsed.hostname)) {
+      throw new Error("not a local WebSocket");
+    }
+  } catch {
+    setStatus("Hybrid requires a loopback ws:// gateway in this phone");
+    connectButton.disabled = false;
+    return;
+  }
+  localStorage.setItem("z0live.gateway", parsed.href);
 
   audioContext = new AudioContext({ latencyHint: "interactive" });
   await audioContext.resume();
-  initDecoder();
 
   const socket = new WebSocket(url);
   socket.binaryType = "arraybuffer";
@@ -333,26 +387,53 @@ async function connect(): Promise<void> {
   socket.onmessage = async event => {
     if (typeof event.data !== "string") {
       const bytes = new Uint8Array(event.data as ArrayBuffer);
-      decoder?.postMessage({ command: "decode", pages: bytes }, [bytes.buffer]);
+      if (actorOutputCodec === "pcm16") {
+        try { playPcm(pcm16FromBytes(bytes), 24000); }
+        catch (error) { setStatus(`invalid PCM audio: ${String(error)}`); }
+      } else if (actorOutputCodec === "ogg-opus") {
+        decoder?.postMessage({ command: "decode", pages: bytes }, [bytes.buffer]);
+      }
       return;
     }
     const message = JSON.parse(event.data);
     if (message.type === "hello") {
       const caps = message.actor_capabilities || {};
       transcriberCaps = message.transcriber_capabilities || null;
-      codecEl.textContent = `${caps.input_codec || "?"}/${caps.input_sample_rate_hz || "?"}`;
-      if (caps.input_codec !== "ogg-opus" || Number(caps.input_sample_rate_hz) !== 24000) {
-        setStatus("this web client currently requires Ogg/Opus 24k input");
+      actorInputCodec = String(caps.input_codec || "");
+      actorOutputCodec = String(caps.output_codec || "");
+      codecEl.textContent = `${actorInputCodec}/${caps.input_sample_rate_hz || "?"} → ${actorOutputCodec}`;
+      const supported = ["pcm16", "ogg-opus"];
+      if (!supported.includes(actorInputCodec) || !supported.includes(actorOutputCodec) ||
+          Number(caps.input_sample_rate_hz) !== 24000 ||
+          Number(caps.output_sample_rate_hz) !== 24000) {
+        setStatus("unsupported voice codec (requires PCM16 or Ogg/Opus at 24 kHz)");
         socket.close();
         return;
       }
       try {
-        await startRecorder();
+        if (actorOutputCodec === "ogg-opus") initDecoder();
+        if (actorInputCodec === "ogg-opus") await startRecorder();
+        else await startPcmMicrophone();
+        commandButton.disabled = !(message.harness_capabilities?.submit === true);
+        commandStatus.textContent = commandButton.disabled
+          ? "No OMP/Hermes harness connected; voice audio only."
+          : "OMP/Hermes ready. Actions still require harness/tool approvals.";
         setStatus(`connected · ${message.actor_id}`);
         disconnectButton.disabled = false;
       } catch (error) {
         setStatus(`microphone failed: ${String(error)}`);
         await disconnect();
+      }
+      return;
+    }
+    if (message.type === "harness.result") {
+      if (String(message.command_id) === pendingCommandId) {
+        pendingCommandId = null;
+        commandButton.disabled = false;
+        const result = message.result || {};
+        commandStatus.textContent = result.ok
+          ? "Command accepted by harness; confirm result in OMP/Hermes."
+          : `Harness refused: ${String(result.error || "unknown")}`;
       }
       return;
     }
@@ -377,6 +458,24 @@ async function connect(): Promise<void> {
     if (ws === socket) void disconnect();
   };
 }
+
+commandForm.addEventListener("submit", event => {
+  event.preventDefault();
+  if (!ws || ws.readyState !== WebSocket.OPEN || commandButton.disabled || pendingCommandId) return;
+  const text = commandInput.value.trim();
+  if (!text) return;
+  pendingCommandId = crypto.randomUUID();
+  commandButton.disabled = true;
+  commandStatus.textContent = "Submitted; checking harness receipt…";
+  ws.send(JSON.stringify({
+    type: "harness.command",
+    command: {
+      kind: "submit", command_id: pendingCommandId, trace_id: traceId, text,
+      payload: { source: "hybrid_user_explicit_submit" },
+    },
+  }));
+  commandInput.value = "";
+});
 
 connectButton.addEventListener("click", () => void connect());
 disconnectButton.addEventListener("click", () => void disconnect());
