@@ -22,12 +22,14 @@ import urllib.request
 
 from . import bidi_protocol as bp
 from . import phone_control as pc
+from . import phone_system as ps
 from . import relay as rl
 from . import relay_status as rs
 from .core import ROOT, NoRedirect, dumps, request_json
 
 LOG = logging.getLogger("z0live.delegation")
 HERMES_SESSION = "z0live-voice"
+PHONE_SESSION = "z0live-phone"
 CANCEL = re.compile(
     r"^\W*(?:never\s?mind|forget (?:it|that)|cancel(?: that| it)?|stop(?: that| it)?)\W*$", re.I
 )
@@ -40,6 +42,10 @@ PHONE_HINT = re.compile(
 )
 MAX_COMMENTARY = 24
 CONTEXT_TURNS = 16
+
+
+PHONE_LANE = """
+PHONE LANE: you are the phone-handling session. This request is about operating Kevin's Galaxy S25 Ultra at the Android system level, which this host reaches over adb. Find its transport with `adb devices` and keep the one whose `adb -s T shell getprop ro.serialno` is {serialno} (prefer a 100.x tailnet transport). Load the phone-harness and phone-adb-tailnet-qualification skills. Prefer direct adb shell commands (cmd, settings, am, pm query, input keyevent) over UI driving; for UI steps use uiautomator2 or `uiautomator dump` on display 0 only. Other agents run apps on hidden virtual displays of this phone: never touch, close or move anything on a display other than 0, and never kill another app's process. Never unlock the phone, change the lock screen, uninstall, clear app data, factory reset or turn off Wi-Fi. Ask before sending, posting, paying, deleting or calling. Read the phone back after acting and report only what you observed."""
 
 
 def backend_instructions(sid: str, tools: list[dict]) -> str:
@@ -243,9 +249,18 @@ class InboxCall:
 
 
 class Delegator:
-    def __init__(self, store, hermes=None, router=None, phone_timeout=10.0, escalator=None):
+    def __init__(self, store, hermes=None, router=None, phone_timeout=10.0, escalator=None,
+                 system=None, phone_hermes=None):
         self.store = store
         self.hermes = hermes or Hermes(store)
+        enabled = os.environ.get("Z0LIVE_PHONE_SYSTEM") == "1"
+        # System lane: exact, read-back phone settings over groot's adb (opt-in per deployment).
+        self.system = system if system is not None else (
+            ps.Lane(watcher=ps.Watcher(store.directory / "phone_system_watch.jsonl")) if enabled else None)
+        # Multi-step Android work goes to its own Hermes session, separate from general voice work.
+        self.phone_hermes = phone_hermes if phone_hermes is not None else (
+            Hermes(store, session=os.environ.get("Z0LIVE_PHONE_SESSION", PHONE_SESSION)) if enabled else None)
+        self.warmed = 0.0
         self.router = router or PhoneRouter(store)
         self.escalator = escalator or pc.Escalator()
         self.confirms = pc.Confirmations()
@@ -303,7 +318,7 @@ class Delegator:
             active = self.active.pop(sid, None)
         if not active:
             return False
-        self.hermes.stop(active["run_id"])
+        active.get("hermes", self.hermes).stop(active["run_id"])
         self.save(active["delegation_id"], status="cancelled")
         LOG.info("cancelled run=%s on owner request", active["run_id"])
         return True
@@ -408,6 +423,8 @@ class Delegator:
                           + dumps(result) + "\nAnswer Kevin's question from this data in 1–2 sentences.")
                 self.finish(call, did, answer, "completed", marks)
                 return
+            if self.system is not None and self.system_lane(call, did, text, marks):
+                return
             tools = self.tools(call.sid)
             route = None
             if getattr(call, "routes_phone", True):
@@ -427,6 +444,23 @@ class Delegator:
             LOG.warning("delegation failed id=%s error=%s", did, type(exc).__name__, exc_info=True)
             self.finish(call, did, "I couldn't reach the part of me that does that work right now.",
                         "failed", marks)
+
+    def system_lane(self, call, did, text, marks) -> bool:
+        """Exact phone settings (volume, DND, Bluetooth, brightness, media) with readback."""
+        if time.time() - self.warmed > 60:
+            self.warmed = time.time()
+            ps.warm()
+        decision, result, trail = self.system.handle(text)
+        marks["system"] = trail
+        if not decision:
+            return False
+        marks["system_decision"] = decision
+        marks["system_result"] = {k: v for k, v in (result or {}).items() if k != "say"}
+        self.save(did, route="system:" + decision["action"], status="phone", marks=marks)
+        landed = (result or {}).get("landed")
+        status = "completed" if landed or landed is None else "not_landed"
+        self.finish(call, did, (result or {}).get("say") or "That didn't work on the phone.", status, marks)
+        return True
 
     def phone_route(self, call, did, text, tools, marks):
         """In-app steps skip the liaison: phone_do runs tier 0 on the phone itself."""
@@ -504,10 +538,17 @@ class Delegator:
             status = "not_landed"
         self.finish(call, did, text, status, marks)
 
+    def lane_for(self, text):
+        """(Hermes client, extra instructions): the phone session for Android system work."""
+        if self.phone_hermes is not None and (pc.phone_intent(text) or ps.system_hint(text)):
+            serialno = os.environ.get("Z0LIVE_PHONE_SERIALNO") or "the paired phone's serial"
+            return self.phone_hermes, PHONE_LANE.format(serialno=serialno), "phone"
+        return self.hermes, "", "voice"
+
     def work(self, call, did, text, tools, marks):
         with self.lock:
             active = self.active.get(call.sid)
-        if active and self.hermes.steer(active["run_id"], text):
+        if active and active.get("hermes", self.hermes).steer(active["run_id"], text):
             with self.lock:
                 # The newest delegation receives the combined final answer.
                 if self.active.get(call.sid) is active:
@@ -520,16 +561,18 @@ class Delegator:
             marks["steered"] = time.time()
             self.save(did, run_id=active["run_id"], status="steered", marks=marks)
             return
-        run_id = self.hermes.start(self.request(call.sid, text),
-                                   backend_instructions(call.sid, tools),
-                                   self.idem_prefix + did[-200:])
+        hermes, extra, lane = self.lane_for(text)
+        marks["lane"] = lane
+        run_id = hermes.start(self.request(call.sid, text),
+                              backend_instructions(call.sid, tools) + extra,
+                              self.idem_prefix + did[-200:])
         marks["run_started"] = time.time()
-        active = {"run_id": run_id, "delegation_id": did}
+        active = {"run_id": run_id, "delegation_id": did, "hermes": hermes}
         with self.lock:
             self.active[call.sid] = active
         self.save(did, run_id=run_id, status="running", marks=marks)
         sent, last = 0, ""
-        for event in self.hermes.events(run_id):
+        for event in hermes.events(run_id):
             name = event.get("event", "")
             note = ""
             if name in {"message.interim", "assistant.commentary"}:
@@ -544,7 +587,7 @@ class Delegator:
                 call.append(active["delegation_id"], note[:600], "commentary")
             if name.startswith("run.") and name not in {"run.started", "run.queued"}:
                 break
-        run = self.await_terminal(run_id)
+        run = self.await_terminal(run_id, hermes=hermes)
         with self.lock:
             still_active = self.active.get(call.sid) is active
             if still_active:
@@ -562,11 +605,11 @@ class Delegator:
                         f"That work ended as {status or 'unknown'} without a result.",
                         status or "failed", marks)
 
-    def await_terminal(self, run_id, deadline=3600.0):
+    def await_terminal(self, run_id, deadline=3600.0, hermes=None):
         end = time.monotonic() + deadline
         while time.monotonic() < end:
             try:
-                run = self.hermes.status(run_id)
+                run = (hermes or self.hermes).status(run_id)
             except RuntimeError:
                 run = {}
             if run.get("status") in {"completed", "failed", "cancelled", "interrupted"}:
