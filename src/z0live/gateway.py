@@ -23,7 +23,7 @@ class GatewayAddress:
     port: int = 8765
 
 
-_LOOPBACK_ORIGIN = re.compile(r"http://(?:localhost|127\\.0\\.0\\.1|\\[::1\\])(?::[0-9]+)?")
+_LOOPBACK_ORIGIN = re.compile(r"http://(?:localhost|127\.0\.0\.1|\[::1\])(?::[0-9]+)?")
 
 
 def _is_loopback_host(host: str) -> bool:
