@@ -245,13 +245,25 @@ class VoiceToolsTests(unittest.TestCase):
                 "Verified fixture answer",
             )
         # A second request completes while its caller is waiting: inline only.
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(
-                self.call, "ask_hermes", {"question": "second fixture"}
-            )
-            time.sleep(0.03)
-            worker.tick()
-            inline = future.result(timeout=2)
+        # Wait for the durable queue row rather than racing a short fixed sleep.
+        with patch.dict(os.environ, Z0LIVE_ASK_SECONDS="5"):
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(
+                    self.call, "ask_hermes", {"question": "second fixture"}
+                )
+                deadline = time.monotonic() + 3
+                queued = None
+                while time.monotonic() < deadline:
+                    with self.store.connect() as db:
+                        queued = db.execute(
+                            "SELECT id FROM jobs WHERE id=2 AND status='queued'"
+                        ).fetchone()
+                    if queued:
+                        break
+                    time.sleep(0.01)
+                self.assertIsNotNone(queued, "second request was not queued")
+                worker.tick()
+                inline = future.result(timeout=3)
         self.assertEqual(inline["say"], "Verified fixture answer")
         self.assertEqual(len(self.store.inbox(self.device)["messages"]), 1)
 

@@ -122,6 +122,7 @@ class PhoneControlTests(unittest.TestCase):
         phone.start()
         self.addCleanup(phone.stop.set)
         call = FakeCall(self.sid)
+        self.store.add_events(self.device, [{"session_id": self.sid, "type": "user_transcript", "text": text}])
         delegator.delegate(call, did, text)
         end = time.time() + 5
         while time.time() < end and not any(c is None for _, _, c in call.appended):

@@ -62,18 +62,26 @@ def main():
     )
     relay_cmd.add_argument("--key", help="idempotency key (same key = same delivery)")
     relay_cmd.add_argument("text")
+    relay_cmd.add_argument("--session", required=True, help="originating voice session for durable receipts")
+    relay_status_cmd = sub.add_parser("relay-status", help="Read delivery evidence and target replies")
+    relay_status_cmd.add_argument("--limit", type=int, default=5)
     sessions_cmd = sub.add_parser(
         "sessions", help="Recent Hermes sessions with one-line summaries (read-only)"
     )
     sessions_cmd.add_argument("--limit", type=int, default=8)
     args = parser.parse_args()
+    if args.command == "relay-status":
+        from z0live_desktop.core import DATA
+        from z0live_desktop.relay_status import status
+        print(dumps(status(DATA / "broker.db", limit=args.limit)))
+        return 0
     if args.command in {"relay", "sessions"}:
         from z0live_desktop import relay
 
         if args.command == "sessions":
             print(dumps({"sessions": relay.recent_sessions(args.limit)}))
             return None
-        result = relay.relay(args.text, to=args.to or None, key=args.key)
+        result = relay.relay(args.text, to=args.to or None, key=args.key, store=Store(), sid=args.session)
         print(dumps(result))
         return 0 if result.get("ok") else 1
     if args.command == "serve":
@@ -208,6 +216,10 @@ def main():
             ).fetchone()
         if not row or args.action not in {t["name"] for t in json.loads(row["tools"])}:
             parser.error("action must be declared by that client session")
+        from z0live_desktop.phone_control import authorize
+        if not authorize(store, args.session, args.action, params):
+            print(dumps({"ok": False, "refused": "not_a_phone_request"}))
+            return 1
         queued = store.publish(args.say, args.action, params, args.session)
         result = wait_phone_result(store, args.session, queued, args.wait) if args.wait > 0 else None
         if result is None:
