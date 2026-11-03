@@ -38,13 +38,50 @@ from hermes_cli.gateway_client import GatewayClientError, connect_gateway  # noq
 from hermes_cli.gateway_runtime import attachable, discover_gateway_endpoint  # noqa: E402
 
 
+def _try_shared_runtime_endpoint(sid: str, home: str):
+    """Return a GatewayEndpoint for a GUI/dashboard session via the shared_runtime_url handshake,
+    or None when the owner does not advertise one. Raises ValueError with a user-facing message
+    when the owner IS found but the handshake fails or the URL is invalid.
+
+    This is the z0live-side adapter for the Hermes shared_runtime_url mechanism
+    (hermes_cli/shared_session_attach.py). It requires two Hermes-side changes to work:
+    1. tui_gateway/session_lifecycle.py: _lease_metadata() must include
+       shared_runtime_url=http://127.0.0.1:{port} when surface='gui'.
+    2. hermes_cli/web_server_dashboard.py (or a new router): implement
+       GET /api/session-attach?session_id=...&lease_id=...&profile_home=...
+       returning {session_id:..., lease_id:..., profile_home:...,
+                  websocket_url: ws://127.0.0.1:{port}/api/ws}.
+    Once those land, this adapter discovers the dashboard's WS URL, connects to it,
+    and prompt.submit works exactly like a CLI session.
+    """
+    try:
+        from hermes_cli.shared_session_attach import discover_attach_url
+        ws_url = discover_attach_url(sid, registry_home=home)
+        if ws_url is None:
+            return None  # session not in active_sessions.json at all
+        # discover_attach_url returns an authenticated ws:// URL; wrap it in a GatewayEndpoint.
+        from hermes_cli.gateway_client import GatewayEndpoint
+        return GatewayEndpoint(ws_url=ws_url)
+    except ValueError:
+        # Owner exists but doesn't advertise shared_runtime_url yet (Hermes-side not deployed).
+        return None
+    except Exception:
+        return None
+
+
 async def deliver(request):
     home = os.environ["HERMES_HOME"]
     found = discover_gateway_endpoint(home)
+    shared_endpoint = None
     if not attachable(found):
-        return {"ok": False, "error": "gateway_unavailable", "state": found.state,
-                "reason": found.reason_code}
-    endpoint = found.endpoint
+        # Fallback: GUI sessions owned by hermes dashboard use the shared_runtime_url handshake.
+        # This path activates once Hermes implements: _lease_metadata(shared_runtime_url=...) and
+        # GET /api/session-attach in the dashboard router.
+        shared_endpoint = _try_shared_runtime_endpoint(sid, home)
+        if shared_endpoint is None:
+            return {ok: False, error: gateway_unavailable, state: found.state,
+                    reason: found.reason_code}
+    endpoint = shared_endpoint or found.endpoint
     assert endpoint is not None  # attachable() guarantees a ready endpoint
     sid, text = request["session_id"], request["text"]
     async with connect_gateway(endpoint=endpoint) as client:
