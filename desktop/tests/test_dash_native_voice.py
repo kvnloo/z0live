@@ -125,15 +125,17 @@ class AttachedVoiceTests(unittest.TestCase):
             seen.append((text, kwargs))
             return {"ok": True, "reply_state": "completed", "final_reply": "Real causal reply"}
         with patch("z0live_desktop.delegation.rl.relay", side_effect=fake_relay):
-            delegator.handle(Call(), "did-1", "What changed?")
+            with patch("z0live_desktop.attached_lanes.small_answer", return_value=(None, {})):
+                delegator.handle(Call(), "did-1", "What changed?")
         self.assertEqual(seen, [("What changed?", {"key": "dash:voice-sid:did-1", "store": self.store, "sid": "voice-sid", "wait": 180})])
         self.assertIn("Real causal reply", json.dumps(Call.spoken))
         pending = []
         with patch("z0live_desktop.delegation.rl.relay", return_value={"ok": True, "reply_state": "pending", "final_reply": ""}):
             Call.spoken = pending
-            delegator.handle(Call(), "did-2", "Another")
+            with patch("z0live_desktop.attached_lanes.small_answer", return_value=(None, {})):
+                delegator.handle(Call(), "did-2", "Another")
         self.assertNotIn("Real causal reply", json.dumps(pending))
-        self.assertIn("not in yet", json.dumps(pending))
+        self.assertEqual(pending, [], "waiting stays silent after the one admission ack")
 
 
 if __name__ == "__main__":

@@ -455,6 +455,8 @@ class Store:
         if body["client"] == "dash" and (device.startswith("z0bridge:") or "hermes_target" in context):
             from .attached_voice import validate_target
             attached = validate_target(context.get("hermes_target"))
+            from .attached_lanes import conversation
+            context = {**context, "hermes_conversation": conversation(attached)}
         tools = body.get("tools", [])
         if not isinstance(tools, list) or len(tools) > 32 or len(dumps(tools)) > 48000:
             raise ValueError("at most 32 app tools / 48000 characters")
