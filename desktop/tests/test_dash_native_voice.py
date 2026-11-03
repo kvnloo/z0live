@@ -118,6 +118,8 @@ class AttachedVoiceTests(unittest.TestCase):
                 return True
 
         with self.store.connect() as db:
+            db.execute("INSERT INTO sessions(id,device,client,created,updated,context,tools) "
+                       "VALUES('voice-sid','unit','dash',1,1,'{}','[]')")
             bind(db, "voice-sid", self.pin)
         delegator = Delegator(self.store, hermes=NoHermes(), router=NoRouter())
         seen = []
