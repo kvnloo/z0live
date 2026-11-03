@@ -24,8 +24,8 @@ ROOT = Path(__file__).resolve().parents[2]
 HELPER = ROOT / "desktop" / "hermes_relay.py"
 # Interactive surfaces only: subagents, cron, kanban, one-shots and the voice's own API
 # sessions are workers, not places Kevin talks.
-HUMAN_SOURCES = ("local", "cli", "tui", "telegram", "discord", "slack", "signal", "whatsapp")
-DRIVEN_FROM = ("cli", "tui")
+HUMAN_SOURCES = ("local", "cli", "tui", "gui", "telegram", "discord", "slack", "signal", "whatsapp")
+DRIVEN_FROM = ("cli", "tui", "gui")
 MIN_MAIN_MESSAGES = 20  # below this a "local" row is a connectivity probe, not a work session
 DEFAULT_WORDS = {"", "main", "default", "hermes", "my main session", "main session", "orchestrator"}
 PREFIX = "Relayed from Kevin's z0live voice call"
@@ -129,7 +129,7 @@ def recent_sessions(limit=8, home=None, now=None, min_messages=4) -> list[dict]:
 
 
 def main_session(home=None):
-    """Kevin's most recently active session that he drives from a terminal (CLI/TUI)."""
+    """Kevin's most recently active interactive desktop or terminal session."""
     pinned = os.environ.get("Z0LIVE_RELAY_DEFAULT", "").strip()
     home = home or profile_home()
     with _db(home) as db:
