@@ -93,6 +93,15 @@ class RelayTests(unittest.TestCase):
         with patch.dict(os.environ, {"Z0LIVE_RELAY_DEFAULT": "local-garden"}):
             self.assertEqual(relay.main_session()["id"], "local-garden")
 
+    def test_desktop_gui_is_an_interactive_default_and_title_target(self):
+        with sqlite3.connect(self.home / "state.db") as db:
+            db.execute("INSERT INTO sessions VALUES(?,?,?,?,?,?,?,?,?,?,0,0)",
+                       ("gui-live", "gui", "gui", "Real-time Dash debugging with z0live agent",
+                        30, "/", NOW - 100, NOW, "", None))
+        self.assertEqual(relay.main_session()["id"], "gui-live")
+        self.assertEqual(relay.resolve("Real-time Dash debugging")["id"], "gui-live")
+        self.assertIn("gui-live", [r["session_id"] for r in relay.recent_sessions()])
+
     def test_session_can_be_named_by_title_words_or_id_prefix(self):
         self.assertEqual(relay.resolve("the garden room one")["id"], "local-garden")
         self.assertEqual(relay.resolve("local-gar")["id"], "local-garden")
