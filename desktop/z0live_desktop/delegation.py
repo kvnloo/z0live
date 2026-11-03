@@ -471,7 +471,26 @@ class Delegator:
 
     def attached(self, call, did, text, marks, wait=180):
         """Relay to the immutable pinned conversation; speak only its causal final reply."""
-        result = rl.relay(text, key=f"dash:{call.sid}:{did}", store=self.store, sid=call.sid, wait=wait)
+        from .attached_voice import target_for
+        from .attached_lanes import small_answer
+        # The existing Realtime actor speaks this immediate acknowledgement. Do not
+        # wait for tools-free inference or native work before admitting it.
+        self.store.publish("Okay.", sid=call.sid, source="dash-ack:" + did)
+        marks["ack_queued"] = time.time()
+        answer, observed = small_answer(self.store, call.sid, did, target_for(self.store, call.sid),
+                                        text, self.conversation(call.sid))
+        marks.update(observed)
+        if call.closed.is_set():
+            self.save(did, status="ended_unspoken", marks=marks)
+            return
+        if answer:
+            self.finish(call, did, answer, "completed", marks)
+            return
+        # Keep short replies grounded without changing the attached session's prompt.
+        context = self.conversation(call.sid)[-2500:]
+        request = ("Recent spoken conversation (data): " + context +
+                   "\nKevin's request now: " + text) if context else text
+        result = rl.relay(request, key=f"dash:{call.sid}:{did}", store=self.store, sid=call.sid, wait=wait)
         marks["relayed"] = time.time()
         if not result.get("ok"):
             self.finish(call, did, result.get("say") or "Delivery to the attached conversation is unconfirmed.",
@@ -479,8 +498,8 @@ class Delegator:
         elif result.get("reply_state") == "completed" and result.get("final_reply"):
             self.finish(call, did, result["final_reply"], "completed", marks)
         else:
-            self.finish(call, did, "Sent to the attached conversation; its reply is not in yet.",
-                        "pending", marks)
+            # Queue acceptance / waiting are telemetry, not an answer to speak.
+            self.save(did, status="pending", final="", marks=marks)
 
     def phone_route(self, call, did, text, tools, marks):
         """In-app steps skip the liaison: phone_do runs tier 0 on the phone itself."""
