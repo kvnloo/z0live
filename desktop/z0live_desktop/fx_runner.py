@@ -79,10 +79,10 @@ class FxRun:
             if status:
                 self.stop()
                 try:
-                    self.proc.wait(10)
+                    self.proc.communicate(timeout=10)
                 except subprocess.TimeoutExpired:
                     os.killpg(self.proc.pid, signal.SIGKILL)
-                    self.proc.wait()
+                    self.proc.communicate()
                 return status, "", None
             time.sleep(0.2)
         out, err = self.proc.communicate()
