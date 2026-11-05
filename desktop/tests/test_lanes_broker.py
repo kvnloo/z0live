@@ -137,6 +137,7 @@ class FanoutTests(Base):
         }, spoken)
         receipt = out.on_final(self.sid, "what's the capital of australia")
         self.assertEqual(receipt["answer"], "Sydney.")
+        self.assertEqual(out.board.entry(receipt["entry"])["turn"], "what's the capital of australia")
         first = out.read(self.sid)  # the voice hears the draft
         self.assertEqual([(e["role"], e["kind"], e["status"]) for e in first["entries"]],
                          [("fast", "intent", "draft"), ("small", "answer", "draft")])
