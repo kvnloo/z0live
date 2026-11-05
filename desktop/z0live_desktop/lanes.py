@@ -1,7 +1,7 @@
 """Broker side of z0live.lanes.v1: validate, hot reload and resolve lane bindings.
 
-`lanes_v1.py` is the card's validator, copied verbatim (kvnloo/aodl-views proto/z0live-lanes 837a714,
-prototypes/patterns-v3/lanes/lanes.py); test_lanes_broker.py fails if the copy drifts. On top of it
+`lanes_v1.py` is the card's validator, copied verbatim (kvnloo/aodl-views proto/z0live-lanes-v1-1-20261105
+af65518, prototypes/patterns-v3/lanes/lanes.py; it also checks the v1.1 keys); test_lanes_broker.py fails if the copy drifts. On top of it
 the broker accepts three additive fields, still schema z0live.lanes.v1:
 - `lanes.smol.models[i].tier`: "fast" (intent tracking from partials) or "small" (quick answerers);
   default "small".
@@ -9,6 +9,11 @@ the broker accepts three additive fields, still schema z0live.lanes.v1:
   lanes are `[driver.model] + verifiers`; they audit the blackboard and may correct it.
 - A `voice_plan` binding's `model` may name a z0int role (smol/plan/slow/judge...), so lanes bind to
   roles from the pinned z0int.voice_plan.v1, not to hard-coded models.
+Presets (Kevin 11-05: roles are defaults, chosen at launch): D is E1's winner and the default, B is
+his 2/2/2/1 example, A is today's voice + 1 smol. `preset(name)` returns a copy; a call picks one (or a
+spoken topology) at start and may change it mid-call (lane_fanout.Fanout.launch/configure).
+Privacy classes are hard filters on every binding (`allowed`): public -> any, personal -> Claude or
+local, location/credentials -> local only.
 Design: data/operations/z0live-phone-20261105/LANES.md.
 """
 from __future__ import annotations
@@ -16,6 +21,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import copy
+import re
 import threading
 from pathlib import Path
 
@@ -26,10 +33,10 @@ TIERS = {"fast", "small"}
 ROLES = {"smol", "plan", "slow", "task", "default", "judge"}  # z0int.voice_plan.v1 role names
 EXAMPLE = "gimme 2 fast lanes, 2 small, 2 large, one council"
 
-# lanes_intent.parse(EXAMPLE) with the council compile receipt; test_lanes_broker asserts equality.
-DEFAULT = {
+# B: lanes_intent.parse(EXAMPLE, B) with the council compile receipt; test_lanes_broker asserts equality.
+B = {
     "schema": "z0live.lanes.v1",
-    "revision": "example-2f-2s-2l-1c",
+    "revision": "preset-B-2f-2s-2l-1c",
     "lanes": {
         "voice": {"lane": 0, "actor": "voice_plan", "ack_within_ms": 600},
         "smol": {"lane": 1, "fanout": "race", "tools": False, "deadline_ms": 1200, "models": [
@@ -50,6 +57,43 @@ DEFAULT = {
     "splice": {"barge_in": "cancel_epoch", "bridge_after_ms": 2500, "max_bridges": 1,
                "late_result": "correct_if_changed", "late_window_ms": 30000, "max_corrections": 1},
 }
+
+# D: E1 round-1 winner (EVAL.md "What to test next" #7 = RESEARCH C2+C3): 0.6b tracks the request on
+# partials (heartbeat speculative start, prefix-validated reuse), 1.7b is the kind router, one smol
+# answers, Opus starts at the endpoint in parallel, risky kinds are held until Opus has checked them.
+D = copy.deepcopy(B)
+D["revision"] = "preset-D-2f-1s-1l-0c"
+D["lanes"]["smol"]["models"] = [B["lanes"]["smol"]["models"][i] for i in (0, 1, 2)]
+D["lanes"]["smol"].update(router="qwen3-1.7b", trigger={"on": "partials", "heartbeat_ms": 400,
+                                                        "keep_inflight": True, "reuse": "validated"})
+D["lanes"]["driver"] = {"lane": 2, "model": {"provider": "voice_plan", "model": "slow", "route": "voice_plan"},
+                        "verifiers": [], "verify_smol": True, "start": "endpoint", "parallel": True,
+                        "deadline_ms": 90000}
+D["lanes"]["council"].update(enabled=False, invoke={"when": ["owner_asks"], "max_per_call": 0})
+D["blackboard"] = {"delivery": "pull", "reinject_every_turns": 0, "spec_entries": True,
+                   "corrected_by": ["driver", "council"]}
+D["splice"].update(gate="pre_speak", gate_kinds=["math", "hard", "gather"], gate_ms=800)
+
+# A: today's attached path, voice + one smol, nothing verifies.
+A = copy.deepcopy(B)
+A["revision"] = "preset-A-0f-1s-1l-0c"
+A["lanes"]["smol"]["models"] = [B["lanes"]["smol"]["models"][2]]
+A["lanes"]["driver"].update(verifiers=[], verify_smol=False)
+A["lanes"]["council"].update(enabled=False, invoke={"when": ["owner_asks"], "max_per_call": 0})
+
+PRESETS = {"D": D, "B": B, "A": A}
+DEFAULT = D
+PRESET_WORDS = {"d": "D", "default": "D", "winner": "D", "best": "D", "recommended": "D",
+                "b": "B", "example": "B", "full": "B", "everything": "B", "all": "B",
+                "a": "A", "today": "A", "minimal": "A", "basic": "A", "simple": "A"}
+
+
+def preset(name) -> dict | None:
+    """A copy of preset D/B/A by letter or word ("preset b", "the winner", "minimal"); None if unknown."""
+    words = re.findall(r"[a-z]+", str(name).lower())
+    words = [w for w in words if w not in {"preset", "use", "the", "start", "live", "with", "topology", "lanes"}]
+    key = PRESET_WORDS.get(words[0]) if len(words) == 1 else None
+    return copy.deepcopy(PRESETS[key]) if key else None
 
 
 # route "local": the llama-server instances already serving these GGUFs on groot (OpenAI-compatible).
@@ -86,6 +130,9 @@ def validate(cfg) -> list[str]:
             out.append(f"smol.models[{i}].tier must be fast or small")
         if b["route"] == "voice_plan" and b["model"] not in ROLES:
             out.append(f"smol.models[{i}]: voice_plan binding must name a z0int role")
+    router = cfg["lanes"]["smol"].get("router")
+    if router and router not in [b["model"] for b in tier(cfg, "fast")]:
+        out.append("smol.router must be a fast-tier lane")
     driver = cfg["lanes"]["driver"]
     _large(driver["model"], "driver.model", out)
     verifiers = driver.get("verifiers", [])
@@ -95,6 +142,42 @@ def validate(cfg) -> list[str]:
         for i, b in enumerate(verifiers):
             _large(b, f"driver.verifiers[{i}]", out)
     return out
+
+
+# ------------------------------------------------------------------ privacy (Kevin decision 3, 11-05)
+PRIVACY = ("public", "personal", "location", "credentials")  # increasing strictness
+_CREDENTIALS = re.compile(r"\b(passwords?|passcodes?|passphrase|api[ -]?keys?|tokens?|secrets?|credentials?|2fa|otp|"
+                          r"one[- ]time code|pin( code| number)?|ssh key|private key|card number|credit card|cvv|cvc|"
+                          r"ssn|social security|bank account|routing number|seed phrase|log ?in code)\b", re.I)
+_LOCATION = re.compile(r"\b(address|where (do )?i live|where i am|where am i|my (house|home|apartment|street|"
+                       r"location|neighbou?rhood|city|zip)|zip ?code|postcode|coordinates|gps|latitude|longitude|"
+                       r"near me|nearby|directions (home|to my))\b", re.I)
+_PERSONAL = re.compile(r"\b(my|mine|me|myself|kevin'?s?|our|i(?:'m|'ve|'d| am| have| had| did| was))\b", re.I)
+
+
+def privacy_class(text, floor="public") -> str:
+    """Rule-based class of what a lane would be sent (transcript + quoted context). Errs strict:
+    the class is the strictest match, never lower than `floor` (an explicit caller class)."""
+    text = str(text or "")
+    found = ("credentials" if _CREDENTIALS.search(text) else "location" if _LOCATION.search(text)
+             else "personal" if _PERSONAL.search(text) else "public")
+    floor = floor if floor in PRIVACY else "credentials"
+    return max(found, floor, key=PRIVACY.index)
+
+
+def allowed(binding, cls, plan=None) -> bool:
+    """Hard filter before dispatch: public -> any lane; personal -> Claude (anthropic) or local;
+    location/credentials -> local only. Role bindings are judged by what they resolve to."""
+    if cls == "public":
+        return True
+    try:
+        b = resolve(binding, plan)
+    except ValueError:
+        return False
+    local = b["route"] == "local" and b["provider"] == "local"
+    if cls == "personal":
+        return local or b["provider"] == "anthropic"
+    return local
 
 
 def tier(cfg, name):

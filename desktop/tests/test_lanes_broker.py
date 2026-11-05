@@ -1,5 +1,6 @@
 """z0live.lanes.v1 on the broker: config + hot reload, blackboard, fan-out splice, text/voice config."""
 
+import copy
 import hashlib
 import json
 import os
@@ -17,22 +18,27 @@ from z0live_desktop.blackboard import Blackboard, Stale  # noqa: E402
 from z0live_desktop.core import Store  # noqa: E402
 from z0live_desktop.lane_fanout import Fanout  # noqa: E402
 
-CARD_SHA = "1522764dfd76b8e83d8664125d4701e823db1996ccb0b18302d31f46f3ec76e2"  # aodl-views 837a714 lanes.py
+CARD_SHA = "685fc02f4755f42bc5fbc06c347d955d5a157ce91ace20b8f56153d4a95e5214"  # aodl-views af65518 lanes.py (v1.1)
 PLAN = {"meta_role": "plan", "roles": {"smol": {"provider": "anthropic", "model": "claude-haiku-4-5"},
                                        "plan": {"provider": "anthropic", "model": "claude-opus-5-5"},
+                                       "slow": {"provider": "anthropic", "model": "claude-opus-5-5"},
                                        "task": {"provider": "openai-codex", "model": "gpt-6.1-sol"}}}
 
 
 class FakeModels:
     """Scripted lane replies by model name: (delay_s, text) or an exception."""
 
+    plan = PLAN
+
     def __init__(self, replies):
         self.replies, self.calls = replies, []
 
-    def complete(self, binding, prompt, turn="lane", timeout=20):
+    def complete(self, binding, prompt, turn="lane", timeout=20, schema=None):
         b = lanes.resolve(binding, PLAN)
         self.calls.append((b["model"], prompt))
         delay, reply = self.replies.get(b["model"], (0, RuntimeError("down")))
+        if isinstance(reply, dict):  # prompt-prefix -> reply (one model, several lane jobs)
+            reply = next((v for k, v in reply.items() if prompt.startswith(k)), RuntimeError("no script"))
         time.sleep(delay)
         if isinstance(reply, Exception):
             raise reply
@@ -62,10 +68,42 @@ class ConfigTests(Base):
     def test_card_validator_is_verbatim(self):
         self.assertEqual(hashlib.sha256(Path(lanes_v1.__file__).read_bytes()).hexdigest(), CARD_SHA)
 
-    def test_default_is_the_spoken_example_and_valid(self):
-        self.assertEqual(lanes.validate(lanes.DEFAULT), [])
-        self.assertEqual(lanes_intent.parse(lanes.EXAMPLE)["lanes"], lanes.DEFAULT["lanes"])
-        self.assertEqual(lanes_intent.counts(lanes.DEFAULT), {"fast": 2, "small": 2, "large": 2, "council": 1})
+    def test_presets_valid_default_is_d_and_b_is_the_spoken_example(self):
+        for name, cfg in lanes.PRESETS.items():
+            self.assertEqual(lanes.validate(cfg), [], name)
+        self.assertIs(lanes.DEFAULT, lanes.D)
+        d = lanes.D
+        self.assertEqual(d["lanes"]["smol"]["trigger"]["on"], "partials")
+        self.assertEqual((d["lanes"]["driver"]["start"], d["lanes"]["driver"]["parallel"]), ("endpoint", True))
+        self.assertEqual((d["splice"]["gate"], d["splice"]["gate_kinds"]), ("pre_speak", ["math", "hard", "gather"]))
+        self.assertEqual((d["lanes"]["smol"]["router"], d["lanes"]["council"]["enabled"]), ("qwen3-1.7b", False))
+        self.assertEqual(lanes_intent.parse(lanes.EXAMPLE, lanes.B)["lanes"], lanes.B["lanes"])
+        self.assertEqual(lanes_intent.counts(lanes.B), {"fast": 2, "small": 2, "large": 2, "council": 1})
+        self.assertEqual(lanes_intent.counts(lanes.A), {"fast": 0, "small": 1, "large": 1, "council": 0})
+        self.assertEqual(lanes.preset("preset b")["revision"], "preset-B-2f-2s-2l-1c")
+        self.assertEqual(lanes_intent.parse("use preset A")["revision"], "preset-A-0f-1s-1l-0c")
+        self.assertIsNone(lanes.preset("2 fast"))
+        spoken = lanes_intent.parse("start live with 2 fast, 1 large, no council")
+        self.assertEqual(lanes_intent.counts(spoken), {"fast": 2, "small": 1, "large": 1, "council": 0})
+        self.assertEqual(spoken["splice"]["gate"], "pre_speak")  # counts apply to preset D
+        one = lanes_intent.parse("one fast lane")
+        self.assertEqual(one["lanes"]["smol"]["router"], "qwen3-0.6b-q8")  # router follows the fast tier
+
+    def test_privacy_classes_and_binding_filter(self):
+        cls = lanes.privacy_class
+        self.assertEqual([cls("what's the capital of france"), cls("did my build pass"),
+                          cls("how far is the pharmacy from my house"), cls("read me my wifi password")],
+                         ["public", "personal", "location", "credentials"])
+        self.assertEqual(cls("capital of france", "location"), "location")  # caller floor wins
+        free = {"provider": "free", "model": "vllm-sr/free", "route": "vllm-sr", "billing": "free"}
+        local = {"provider": "local", "model": "qwen3.5-4b", "route": "local", "billing": "free"}
+        role = {"provider": "voice_plan", "model": "smol", "route": "voice_plan"}
+        gpt_role = {"provider": "voice_plan", "model": "task", "route": "voice_plan"}
+        self.assertEqual([lanes.allowed(b, "public", PLAN) for b in (free, local, role)], [True] * 3)
+        self.assertEqual([lanes.allowed(b, "personal", PLAN) for b in (free, local, role, gpt_role)],
+                         [False, True, True, False])
+        for c in ("location", "credentials"):
+            self.assertEqual([lanes.allowed(b, c, PLAN) for b in (free, local, role)], [False, True, False])
 
     def test_edits_rebind_one_tier_and_counts_reshape(self):
         cfg = lanes_intent.parse("make the large lanes Opus and Sonnet")
@@ -120,9 +158,10 @@ class BlackboardTests(Base):
 
 
 class FanoutTests(Base):
-    def fanout(self, replies, spoken):
+    def fanout(self, replies, spoken, preset="B"):
         models = FakeModels(replies)
         out = Fanout(self.store, models=models, publish=lambda sid, say, src: spoken.append((say, src)))
+        out.calls[self.sid] = copy.deepcopy(lanes.PRESETS[preset])
         return out, models
 
     def test_race_writes_answer_and_intent_then_large_corrects_once(self):
@@ -186,8 +225,10 @@ class BrokerWiringTests(Base):
         env.start()
         self.addCleanup(env.stop)
         models = FakeModels({"claude-haiku-4-5": (0, '{"route":"answer","answer":"Hello."}'),
-                             "claude-opus-5-5": (0, '{"verdict":"agree"}')})
+                             "qwen3-1.7b": (0, '{"route":"answer","intent":"greeting","kind":"chat","complete":true}'),
+                             "claude-opus-5-5": (0, '{"route":"answer","answer":"Hello there."}')})
         self.store.lanes.models = models
+        self.assertEqual(self.store.lanes.cfg(self.sid)["revision"], "preset-D-2f-1s-1l-0c")  # default preset
         self.store.add_events(self.device, [{"session_id": self.sid, "type": "user_transcript", "text": "hello there"}])
         for _ in range(50):
             entries = self.store.tool(self.device, "read_context", {"session_id": self.sid, "arguments": {}})["entries"]
@@ -199,11 +240,128 @@ class BrokerWiringTests(Base):
                                  {"session_id": self.sid, "arguments": {"request": "make the large lanes opus and sonnet"}})
         self.assertTrue(result["ok"], result)
         self.assertIn("claude-opus-5-5, claude-sonnet-5", result["say"])
-        self.assertEqual(json.loads(self.cfg_path.read_text())["revision"], result["revision"])
+        self.assertEqual(self.store.lanes.cfg(self.sid)["revision"], result["revision"])  # this call only
+        self.assertFalse(self.cfg_path.exists())
         refused = self.store.tool(self.device, "configure_lanes", {"session_id": self.sid, "arguments": {"request": "9 fast"}})
         self.assertFalse(refused["ok"])
         self.store.add_events(self.device, [{"session_id": self.sid, "type": "barge_in"}])
         self.assertEqual(self.store.tool(self.device, "read_context", {"session_id": self.sid, "arguments": {}})["entries"], [])
+
+
+class PresetDTests(Base):
+    """E1's winner D: router kind, pre-speak gate, parallel Opus, heartbeat speculation, privacy."""
+
+    def fanout(self, replies, spoken, preset="D"):
+        models = FakeModels(replies)
+        out = Fanout(self.store, models=models, publish=lambda sid, say, src: spoken.append((say, src)))
+        out.calls[self.sid] = copy.deepcopy(lanes.PRESETS[preset])
+        return out, models
+
+    def test_gate_holds_a_risky_answer_until_parallel_opus_checks_it(self):
+        spoken = []
+        out, models = self.fanout({
+            "qwen3-1.7b": (0, '{"route":"answer","intent":"sum","kind":"math","complete":true}'),
+            "claude-haiku-4-5": (0, '{"route":"answer","answer":"It is 12.","confidence":0.6}'),
+            "claude-opus-5-5": (0.3, '{"route":"answer","answer":"It is 13.","confidence":0.9}'),
+        }, spoken)
+        receipt = out.on_final(self.sid, "what is 6 plus 7", speak=True)
+        self.assertEqual((receipt["kind"], receipt["gated"]), ("math", True))
+        held = out.read(self.sid)
+        self.assertEqual([e["kind"] for e in held["entries"]], ["intent"])
+        self.assertEqual((held["held"], spoken), (1, []))  # nothing unverified is heard or said
+        receipt["verify"].result(timeout=5)
+        view = out.read(self.sid)["entries"]
+        self.assertEqual((view[-1]["status"], view[-1]["text"]), ("corrected", "It is 13."))
+        self.assertEqual([say for say, _ in spoken], ["It is 13."])  # first words, so no "Actually"
+        self.assertTrue(models.calls[0][1].startswith("Classify") or any(p.startswith("You are the verifier")
+                                                                        for _, p in models.calls))
+        # agreeing claim: verified, released and spoken once
+        out, _ = self.fanout({
+            "qwen3-1.7b": (0, '{"route":"answer","intent":"sum","kind":"math","complete":true}'),
+            "claude-haiku-4-5": (0, '{"route":"answer","answer":"Thirteen, 13."}'),
+            "claude-opus-5-5": (0.1, '{"route":"answer","answer":"6 plus 7 is 13."}'),
+        }, spoken)
+        receipt = out.on_final(self.sid, "and what is 6 plus 7 again", speak=True)
+        self.assertEqual(receipt["verify"].result(timeout=5)[0]["verdict"], "agree")
+        self.assertEqual(out.read(self.sid)["entries"][-1]["status"], "verified")
+        self.assertEqual(spoken[-1][0], "Thirteen, 13.")
+
+    def test_simple_kind_is_spoken_at_once(self):
+        spoken = []
+        out, _ = self.fanout({
+            "qwen3-1.7b": (0, '{"route":"answer","intent":"capital","kind":"simple","complete":true}'),
+            "claude-haiku-4-5": (0, '{"route":"answer","answer":"Canberra."}'),
+            "claude-opus-5-5": (0.2, '{"route":"answer","answer":"Canberra."}'),
+        }, spoken)
+        receipt = out.on_final(self.sid, "what is the capital of australia", speak=True)
+        self.assertFalse(receipt["gated"])
+        self.assertEqual(spoken[0][0], "Canberra.")
+        receipt["verify"].result(timeout=5)
+        self.assertEqual(out.read(self.sid)["entries"][-1]["status"], "verified")
+
+    def test_heartbeat_spec_is_reused_only_when_the_partial_is_a_clean_prefix(self):
+        intent = '{"route":"answer","intent":"capital","kind":"simple","complete":true}'
+        out, models = self.fanout({
+            "qwen3-0.6b-q8": (0, intent), "qwen3-1.7b": (0, intent),
+            "claude-haiku-4-5": (0, '{"route":"answer","answer":"Paris."}'),
+            "claude-opus-5-5": (0, '{"route":"answer","answer":"Paris."}'),
+        }, [])
+        first = out.on_partial(self.sid, "what is the capital of france")
+        self.assertEqual(first["spec"], "Paris.")
+        self.assertIsNone(out.on_partial(self.sid, "what is the capital of france please"))  # one spec per turn
+        self.assertNotIn("spec", [e["kind"] for e in out.read(self.sid)["entries"]])  # the voice never reads it
+        haiku = sum(m == "claude-haiku-4-5" for m, _ in models.calls)
+        receipt = out.on_final(self.sid, "what is the capital of france please")
+        self.assertEqual(receipt["small"], [{"reused_spec": first["entry"]}])
+        self.assertEqual(sum(m == "claude-haiku-4-5" for m, _ in models.calls), haiku)  # no second smol call
+        receipt["verify"].result(timeout=5)
+        out.on_partial(self.sid, "what is the capital of spain")
+        receipt = out.on_final(self.sid, "what is the capital of spain no wait of portugal")
+        self.assertIn("spec_discarded", receipt)
+        self.assertEqual(sum(m == "claude-haiku-4-5" for m, _ in models.calls), haiku + 2)
+
+    def test_privacy_class_filters_every_lane_before_dispatch(self):
+        cfg = copy.deepcopy(lanes.B)
+        cfg["lanes"]["smol"]["models"].append({"provider": "free", "model": "vllm-sr/free", "route": "vllm-sr",
+                                               "billing": "free", "tier": "small"})
+        out, models = self.fanout({"qwen3.5-4b": (0, '{"route":"answer","answer":"It is on the router label."}')}, [])
+        out.calls[self.sid] = cfg
+        receipt = out.on_final(self.sid, "what's my wifi password")
+        self.assertEqual(receipt["privacy"], "credentials")
+        self.assertEqual(set(receipt["privacy_blocked"]), {"small:smol", "small:vllm-sr/free", "large:plan",
+                                                           "large:claude-sonnet-5"})
+        self.assertTrue({m for m, _ in models.calls} <= {"qwen3-0.6b-q8", "qwen3-1.7b", "qwen3.5-4b"})
+        self.assertNotIn("verify", receipt)  # no lane may check it, so nothing leaves the machine
+        receipt = out.on_final(self.sid, "did my build pass")
+        self.assertEqual((receipt["privacy"], receipt["privacy_blocked"]), ("personal", ["small:vllm-sr/free"]))
+
+    def test_spoken_launch_and_mid_call_change_through_transcripts(self):
+        spoken = []
+        out, models = self.fanout({}, spoken)
+        receipt = out.on_final(self.sid, "start live with 2 fast, 1 large, no council", speak=True)
+        self.assertTrue(receipt["configured"]["ok"])
+        self.assertEqual(receipt["configured"]["counts"], {"fast": 2, "small": 1, "large": 1, "council": 0})
+        self.assertTrue(spoken[0][0].startswith("Lanes set: 2 fast, 1 small, 1 large"))
+        receipt = out.on_final(self.sid, "make the large lanes opus and sonnet")
+        self.assertEqual([b["model"] for b in lanes.large(out.cfg(self.sid))], ["claude-opus-5-5", "claude-sonnet-5"])
+        self.assertEqual(out.on_final(self.sid, "switch to preset B")["configured"]["revision"], "preset-B-2f-2s-2l-1c")
+        self.assertEqual(models.calls, [])  # configuring calls no model
+        receipt = out.on_final(self.sid, "set a timer for two large pizzas")
+        self.assertNotIn("configured", receipt)
+
+    def test_relay_route_launches_and_takes_turns(self):
+        sid = self.store.new_session(self.device, {"client": "web", "context": {}, "tools": [],
+                                                   "lanes": "preset A"})["session_id"]
+        self.assertEqual(self.store.lanes.cfg(sid)["revision"], "preset-A-0f-1s-1l-0c")
+        self.store.lanes.models = FakeModels({"claude-haiku-4-5": (0, '{"route":"answer","answer":"Hi."}')})
+        result = self.store.lane_turn(self.device, {"session_id": sid, "text": "hey there"})
+        self.assertEqual((result["receipt"]["answer"], result["checking"]), ("Hi.", False))
+        self.assertEqual(self.store.lane_turn(self.device, {"session_id": sid, "text": "hey", "final": False})["receipt"],
+                         None)  # preset A has no partial trigger
+        launched = self.store.lane_launch(self.device, {"session_id": sid, "choice": "2 fast, 1 large, no council"})
+        self.assertEqual(launched["counts"], {"fast": 2, "small": 1, "large": 1, "council": 0})
+        with self.assertRaises(LookupError):
+            self.store.lane_turn("someone-else", {"session_id": sid, "text": "hey"})
 
 
 if __name__ == "__main__":
