@@ -7,6 +7,7 @@ import fcntl
 import hashlib
 import hmac
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -24,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[2]
 DATA = Path(os.environ.get("Z0LIVE_DATA", str(ROOT.parents[1] / "data/z0live")))
 BASE = os.environ.get("Z0LIVE_BASE_URL", "https://0.taila30dc.ts.net:8791")
 VERSION = "1.0.0"
+LOG = logging.getLogger("z0live.core")
 INSTRUCTIONS_VERSION = "z0live.persona.v4"
 MODEL, VOICE = "gpt-realtime", "marin"
 TYPES = {
@@ -113,6 +115,20 @@ TOOLS.append({
     "parameters": {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 20}},
                    "additionalProperties": False},
 })
+# Shared context (blackboard) written by the z0live.lanes.v1 lanes (lane_fanout.py, LANES.md).
+TOOLS += [
+    {
+        "type": "function", "name": "read_context",
+        "description": "Read the shared context your helper models keep for what Kevin just said: quick answers, his intent, and corrections from the verifier models. Check it before ask_z0; answer from a verified or corrected entry in your own words.",
+        "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    {
+        "type": "function", "name": "configure_lanes",
+        "description": "Change the helper-model lanes when Kevin asks, e.g. \"gimme 2 fast lanes, 2 small, 2 large, one council\" or \"make the large lanes Opus and Sonnet\". Pass his words verbatim.",
+        "parameters": {"type": "object", "properties": {"request": {"type": "string"}},
+                       "required": ["request"], "additionalProperties": False},
+    },
+]
 LIVE_TOOLS = list(TOOLS)
 TOOLS += WORK_TOOLS
 INSTRUCTIONS = """You are z0live, Kevin's phone-wide voice assistant.
@@ -173,6 +189,10 @@ sentences, once. Do not mention Hermes, agents, tools, lookups, the inbox or how
 you unless he asks how it works. If the result says it failed or needs his confirmation, say so
 plainly. If he says never mind, stop or cancel, call cancel_work and drop the topic. Ordinary
 conversation and general knowledge you are sure of stay direct and brief.
+Helper models listen to Kevin too and keep a shared context. Before ask_z0, call read_context: when
+it has a verified or corrected entry for what he just asked, answer from it and skip ask_z0. A draft
+entry is a fast guess: use it only for small talk or general knowledge. When he asks to change the
+helper lanes, call configure_lanes with his words.
 """
 
 
@@ -348,6 +368,7 @@ class Store:
         self.voice_lock = threading.Lock()
         self._live = None
         self.live_lock = threading.Lock()
+        self._lanes = None
         from .gestures import Gestures
 
         self.gestures = Gestures(self)
@@ -381,6 +402,34 @@ class Store:
 
                 self._live = LiveCalls(self)
             return self._live
+
+    @property
+    def lanes(self):
+        """z0live.lanes.v1 fan-out + blackboard (hot-reloaded config, see lanes.py)."""
+        with self.live_lock:
+            if self._lanes is None:
+                from .lane_fanout import Fanout
+
+                self._lanes = Fanout(self, publish=lambda sid, say, source: self.publish(say, sid=sid, source=source))
+            return self._lanes
+
+    def fan_out(self, sid, transcript):
+        """STT final -> lanes, off the request thread. On by default only for the deployed data
+        directory (tests and qualification brokers never call real models unless they opt in with
+        Z0LIVE_LANES_FANOUT=on); Z0LIVE_LANES_FANOUT=off disables it everywhere."""
+        mode = os.environ.get("Z0LIVE_LANES_FANOUT", "")
+        enabled = mode == "on" or (not mode and self.directory.resolve() == DATA.resolve())
+        if not enabled or not transcript.strip():
+            return
+        from .lane_fanout import POOL
+
+        def run():
+            try:
+                receipt = self.lanes.on_final(sid, transcript)
+                LOG.info("lanes final sid=%s %s", sid, {k: v for k, v in receipt.items() if k != "verify"})
+            except Exception:  # noqa: BLE001 - lanes are advisory; the voice path never fails on them
+                LOG.exception("lane fan-out failed sid=%s", sid)
+        POOL.submit(run)
 
     def connect(self):
         db = sqlite3.connect(self.path, timeout=30)
@@ -672,15 +721,20 @@ class Store:
             elif kind == "floor":
                 self.voice.floor(sid, data.get("state"))
                 if data.get("barge_in") is True:
+                    self.lanes.cancel(sid, "barge_in")
                     self.voice.cancel(sid, "barge_in")
             elif kind in {"barge_in", "cancel"} or data.get("topic_changed") is True:
+                self.lanes.cancel(sid, kind)
                 self.voice.cancel(sid, kind)
             elif kind == "user_transcript" and re.fullmatch(
                 r"(?:never\s?mind|cancel(?: that)?|stop(?: that)?)[.!? ]*", value, re.I
             ):
                 if self._live is not None:
                     self._live.delegator.cancel(sid)
+                self.lanes.cancel(sid, "owner_cancel")
                 self.voice.cancel(sid, "owner_cancel")
+            elif kind == "user_transcript" and data.get("final", True) is not False:
+                self.fan_out(sid, value)
             elif kind == "app_state" and data.get("floor") in {
                 "quiet",
                 "user",
@@ -838,6 +892,18 @@ class Store:
         from .ring_recording import NAMES as RING_NAMES
         if name in RING_NAMES:
             return self.ring_recordings.execute(device, sid, name, args, body.get("call_id"))
+        if name == "read_context":
+            if args:
+                raise ValueError("read_context takes no arguments")
+            return {"ok": True, **self.lanes.read(sid)}
+        if name == "configure_lanes":
+            if set(args) != {"request"} or not isinstance(args["request"], str):
+                raise ValueError("configure_lanes requires only request")
+            from .lanes_intent import apply
+            try:
+                return apply(args["request"][:500])
+            except ValueError as exc:
+                return {"ok": False, "error": str(exc), "say": "I couldn't set that lane layout: " + str(exc)[:160]}
         if name == "relay_status":
             from .relay_status import status
             if set(args) - {"limit"}:
