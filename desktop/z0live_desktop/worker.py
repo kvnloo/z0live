@@ -7,6 +7,7 @@ import os
 import time
 
 from .core import ROOT, dumps, request_json
+from .fx_runner import hermes_binding
 
 LOG = logging.getLogger("z0live.hermes")
 API = os.environ.get("Z0LIVE_HERMES_API", "http://127.0.0.1:8644")
@@ -117,11 +118,20 @@ This message only updates your operating context; do not start tasks or change f
                     if job["kind"] == "voice_meta"
                     else None
                 )
-                binding = (
-                    plan["roles"][plan["meta_role"]]
-                    if plan
-                    else {"model": MODEL, "provider": "anthropic"}
-                )
+                # Meta runs inside Hermes, so a GPT/non-Hermes binding fails here, never runs.
+                try:
+                    binding = (
+                        hermes_binding(plan["roles"][plan["meta_role"]])
+                        if plan
+                        else {"model": MODEL, "provider": "anthropic"}
+                    )
+                except RuntimeError as exc:
+                    db.execute(
+                        "UPDATE jobs SET status='failed',error=? WHERE id=?",
+                        (str(exc), job["id"]),
+                    )
+                    LOG.error("refused job=%s: %s", job["id"], exc)
+                    return
                 body = {
                     "session_id": hermes_session,
                     "input": job["text"],
