@@ -44,6 +44,9 @@ class Base(unittest.TestCase):
         selected = patch("z0live_desktop.voice_runtime.load_plan", return_value=None)
         selected.start()
         self.addCleanup(selected.stop)
+        minted = patch("z0live_desktop.core.mint", return_value={"value": "unit", "expires_at": 1})
+        minted.start()  # never mint a real provider secret from a test
+        self.addCleanup(minted.stop)
         self.tmp = tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR"))
         self.addCleanup(self.tmp.cleanup)
         self.cfg_path = Path(self.tmp.name) / "z0live-lanes.json"
