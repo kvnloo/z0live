@@ -14,7 +14,7 @@ import time
 
 ROLES = {"fast", "small", "large", "council", "voice"}
 VERIFIERS = {"large", "council"}
-KINDS = {"intent", "answer", "fact", "note"}
+KINDS = {"intent", "answer", "fact", "note", "spec"}  # spec: a speculative answer from a partial (lanes only)
 
 
 class Stale(ValueError):

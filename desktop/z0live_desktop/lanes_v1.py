@@ -6,6 +6,9 @@
                            ($Z0LIVE_LANES or $Z0INT_HOME/config/z0live-lanes.json)
 
 Council legality is the AODL compiler's: this only checks the card carried an ok compile receipt.
+v1.1 keys (optional, still schema z0live.lanes.v1; RESEARCH.md C2/C3/C4 in
+data/operations/z0live-lanes-20261105): smol.trigger (partial-transcript heartbeat), smol.router,
+driver.start/parallel, top-level blackboard object, splice.gate/gate_kinds/gate_ms.
 Design: data/operations/z0live-phone-20261105/LANES.md
 """
 
@@ -24,6 +27,7 @@ ACTORS = {"voice_plan", "grok_voice", "on_device"}
 SMOL_ROUTES = {"vllm-sr", "local", "voice_plan"}
 TRIGGERS = {"owner_asks", "driver_escalates"}
 LATE = {"drop", "correct_if_changed"}
+KINDS = {"simple", "math", "gather", "hard", "chat"}  # router kinds (E1 FAST_P)
 CEIL = {"ack_within_ms": 1500, "deadline_ms_smol": 3000, "bridge_after_ms": 5000,
         "deadline_ms_driver": 300000, "deadline_ms_council": 1800000, "late_window_ms": 120000}
 
@@ -138,6 +142,7 @@ def validate(cfg) -> list[str]:
         if not (isinstance(sp.get(k), int) and not isinstance(sp.get(k), bool) and 0 <= sp[k] <= 2):
             out.append(f"splice.{k} must be 0..2")
 
+    out += _v11(cfg, s, d, sp)
     if not out:  # latency order only once every field is a valid int
         order = [("voice.ack_within_ms", v["ack_within_ms"]), ("smol.deadline_ms", s["deadline_ms"]),
                  ("splice.bridge_after_ms", sp["bridge_after_ms"])]
@@ -148,6 +153,55 @@ def validate(cfg) -> list[str]:
             out.append("latency order: splice.bridge_after_ms < driver.deadline_ms")
         if d["deadline_ms"] > c["deadline_ms"]:
             out.append("latency order: driver.deadline_ms <= council.deadline_ms")
+    return out
+
+
+def _v11(cfg, s, d, sp) -> list[str]:
+    """Optional v1.1 keys: absent means v1 behaviour (finals only, verify after smol, no gate, pull)."""
+    out: list[str] = []
+    trig = s.get("trigger")
+    if trig is not None:
+        if not isinstance(trig, dict) or trig.get("on") not in {"finals", "partials"}:
+            out.append("smol.trigger.on must be finals or partials")
+        else:
+            if trig.get("on") == "partials" and not _ms(trig.get("heartbeat_ms"), 2000):
+                out.append("smol.trigger.heartbeat_ms out of range")
+            if not isinstance(trig.get("keep_inflight", True), bool):
+                out.append("smol.trigger.keep_inflight must be boolean")
+            if trig.get("reuse", "validated") not in {"validated", "never"}:
+                out.append("smol.trigger.reuse must be validated or never")
+    if "router" in s:
+        names = [b.get("model") for b in s.get("models") or [] if isinstance(b, dict)]
+        if s["router"] not in names:
+            out.append("smol.router must name one of smol.models")
+    if d.get("start", "after_smol") not in {"endpoint", "after_smol"}:
+        out.append("driver.start must be endpoint or after_smol")
+    if "parallel" in d and (not isinstance(d["parallel"], bool) or (d["parallel"] and d.get("start") != "endpoint")):
+        out.append("driver.parallel must be boolean and needs driver.start=endpoint")
+    bb = cfg.get("blackboard")
+    if bb is not None:
+        if not isinstance(bb, dict) or bb.get("delivery") not in {"push", "pull"}:
+            out.append("blackboard.delivery must be push or pull")
+        else:
+            r = bb.get("reinject_every_turns", 0)
+            if not (isinstance(r, int) and not isinstance(r, bool) and 0 <= r <= 10):
+                out.append("blackboard.reinject_every_turns must be 0..10")
+            if not isinstance(bb.get("spec_entries", False), bool):
+                out.append("blackboard.spec_entries must be boolean")
+            cb = bb.get("corrected_by", ["driver", "council"])
+            if not isinstance(cb, list) or not cb or not set(cb) <= {"driver", "council"}:
+                out.append("blackboard.corrected_by must be a non-empty subset of driver, council")
+    gate = sp.get("gate", "none")
+    if gate not in {"none", "pre_speak"}:
+        out.append("splice.gate must be none or pre_speak")
+    elif gate == "pre_speak":
+        kinds = sp.get("gate_kinds")
+        if not isinstance(kinds, list) or not kinds or not set(kinds) <= KINDS:
+            out.append(f"splice.gate_kinds must be a non-empty subset of {sorted(KINDS)}")
+        if not _ms(sp.get("gate_ms"), CEIL["bridge_after_ms"]):
+            out.append("splice.gate_ms out of range")
+        if d.get("verify_smol") is not True:
+            out.append("splice.gate=pre_speak needs driver.verify_smol (something must release the gate)")
     return out
 
 

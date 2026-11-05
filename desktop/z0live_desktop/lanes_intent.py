@@ -29,8 +29,8 @@ POOLS = {
     "small": [{"provider": "voice_plan", "model": "smol", "route": "voice_plan", "billing": "subscription"},
               {"provider": "local", "model": "qwen3.5-4b", "route": "local", "billing": "free"},
               {"provider": "free", "model": "vllm-sr/free", "route": "vllm-sr", "billing": "free"}],
-    "large": [{"provider": "voice_plan", "model": "plan", "route": "voice_plan"},
-              {"provider": "anthropic", "model": "claude-sonnet-5", "route": "hermes"},
+    "large": [{"provider": "anthropic", "model": "claude-sonnet-5", "route": "hermes"},
+              {"provider": "voice_plan", "model": "plan", "route": "voice_plan"},
               {"provider": "voice_plan", "model": "slow", "route": "voice_plan"},
               {"provider": "anthropic", "model": "claude-haiku-4-5", "route": "hermes"}],
 }
@@ -82,9 +82,13 @@ def _bindings(cfg, tier):
 
 def parse(utterance, base=None) -> dict:
     """Apply one spoken/typed lane request to `base` (default: lanes.DEFAULT); returns a valid config."""
-    cfg = copy.deepcopy(base or lanes.DEFAULT)
     text = " " + re.sub(r"[^a-z0-9. ]+", " ", utterance.lower()) + " "
-    changed = False
+    named = re.search(r"\bpreset\s+([abd])\b", text)
+    whole = lanes.preset(utterance)
+    if whole:  # "preset b", "the winner", "minimal": the preset as-is
+        return whole
+    cfg = copy.deepcopy(lanes.PRESETS[named.group(1).upper()] if named else (base or lanes.DEFAULT))
+    changed = bool(named)
     # Edits first: "make the large lanes opus and sonnet", "set fast lanes to qwen 0.6b and vllm".
     for m in re.finditer(r"(?:make|set|use|switch)\s+(?:the\s+)?(\w+)\s+lanes?\s+(?:to\s+|use\s+|be\s+)?"
                          r"((?:[\w.]+(?:\s+[\d.]+b)?)(?:\s+(?:and|,)?\s*[\w.]+(?:\s+[\d.]+b)?)*)", text):
@@ -110,7 +114,16 @@ def parse(utterance, base=None) -> dict:
             _set_tier(cfg, tier, [{k: v for k, v in b.items() if k != "tier"} for b in (have + pool)[:n]])
         changed = True
     if not changed:
-        raise ValueError("no lane counts or edits recognised")
+        raise ValueError("no lane counts, edits or preset recognised")
+    if named and cfg["lanes"] == lanes.PRESETS[named.group(1).upper()]["lanes"]:
+        return copy.deepcopy(lanes.PRESETS[named.group(1).upper()])
+    smol = cfg["lanes"]["smol"]
+    fast = [b["model"] for b in lanes.tier(cfg, "fast")]
+    if smol.get("router") and smol["router"] not in fast:  # the router follows the fast tier
+        if fast:
+            smol["router"] = fast[-1]
+        else:
+            smol.pop("router")
     c = counts(cfg)
     cfg["revision"] = "spoken-%df-%ds-%dl-%dc-" % (c["fast"], c["small"], c["large"], c["council"]) + \
         hashlib.sha256(json.dumps(cfg["lanes"], sort_keys=True).encode()).hexdigest()[:8]
@@ -125,7 +138,12 @@ def describe(cfg) -> str:
     c = counts(cfg)
     large = ", ".join(b["model"] for b in lanes.large(cfg))
     council = "one council" if c["council"] else "no council"
-    return f"{c['fast']} fast, {c['small']} small, {c['large']} large ({large}), {council}."
+    extra = ""
+    if cfg.get("splice", {}).get("gate") == "pre_speak":
+        extra += " Risky answers (" + ", ".join(cfg["splice"]["gate_kinds"]) + ") wait for the check."
+    if cfg["lanes"]["smol"].get("trigger", {}).get("on") == "partials":
+        extra += " Lanes start while you talk."
+    return f"{c['fast']} fast, {c['small']} small, {c['large']} large ({large}), {council}.{extra}"
 
 
 def apply(utterance, path=None) -> dict:

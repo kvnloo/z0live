@@ -413,7 +413,7 @@ class Store:
                 self._lanes = Fanout(self, publish=lambda sid, say, source: self.publish(say, sid=sid, source=source))
             return self._lanes
 
-    def fan_out(self, sid, transcript):
+    def fan_out(self, sid, transcript, partial=False):
         """STT final -> lanes, off the request thread. On by default only for the deployed data
         directory (tests and qualification brokers never call real models unless they opt in with
         Z0LIVE_LANES_FANOUT=on); Z0LIVE_LANES_FANOUT=off disables it everywhere."""
@@ -425,6 +425,9 @@ class Store:
 
         def run():
             try:
+                if partial:
+                    self.lanes.on_partial(sid, transcript)
+                    return
                 receipt = self.lanes.on_final(sid, transcript)
                 LOG.info("lanes final sid=%s %s", sid, {k: v for k, v in receipt.items() if k != "verify"})
             except Exception:  # noqa: BLE001 - lanes are advisory; the voice path never fails on them
@@ -524,6 +527,9 @@ class Store:
                     "tools must be unique Realtime function schemas; builtin names are reserved"
                 )
             names.add(t["name"])
+        launch = body.get("lanes")  # launch-time lane topology: a preset name or a spoken topology
+        if launch is not None and (not isinstance(launch, str) or not 0 < len(launch) <= 500):
+            raise ValueError("lanes must be a preset name or topology of 1..500 characters")
         from .live import choose_transport
 
         transport = choose_transport(body.get("transports"))
@@ -559,15 +565,52 @@ class Store:
                 db.execute(
                     "INSERT INTO voice_plans(sid,plan) VALUES(?,?)", (sid, dumps(plan))
                 )
+        lanes = self.lanes.launch(sid, launch) if launch else {"ok": True, "revision": self.lanes.cfg(sid)["revision"]}
         return {
             **result,
             "voice_plan": plan,
+            "lanes": lanes,
             "session_id": sid,
             # Frameless Bidi has no function tools: the model delegates, the broker routes.
             "builtin_tools": []
             if transport == "bidi"
             else [t["name"] for t in builtin_tools()],
         }
+
+    def lane_turn(self, device, body):
+        """POST /v1/lanes/turn: one transcript (final or partial) from a client that owns its voice,
+        e.g. the Hermes-app relay. Final: blocks until smol's race settles and returns the receipt
+        (large lanes keep checking in the background; poll read_context). Partial: heartbeat only."""
+        if not isinstance(body, dict) or not isinstance(body.get("text"), str) or not body["text"].strip():
+            raise ValueError("text required")
+        privacy = body.get("privacy", "public")
+        if privacy not in {"public", "personal", "location", "credentials"}:
+            raise ValueError("privacy must be public, personal, location or credentials")
+        context = body.get("context", "")
+        if not isinstance(context, str):
+            raise ValueError("context must be a string")
+        sid = body.get("session_id")
+        with self.connect() as db:
+            self.owned(db, sid, device)
+        sid = session_id(sid)
+        text_value = body["text"][:2000]
+        if body.get("final", True) is False:
+            receipt = self.lanes.on_partial(sid, text_value, context[-2000:], privacy=privacy)
+            return {"ok": True, "partial": True, "receipt": receipt}
+        if re.fullmatch(r"(?:never\s?mind|cancel(?: that)?|stop(?: that)?)[.!? ]*", text_value, re.I):
+            return {"ok": True, "epoch": self.lanes.cancel(sid, "owner_cancel")}
+        receipt = self.lanes.on_final(sid, text_value, context[-2000:], privacy=privacy)
+        LOG.info("lanes relay final sid=%s %s", sid, {k: v for k, v in receipt.items() if k != "verify"})
+        return {"ok": True, "receipt": {k: v for k, v in receipt.items() if k != "verify"},
+                "checking": "verify" in receipt}
+
+    def lane_launch(self, device, body):
+        """POST /v1/lanes/launch: pick (or change) this call's lane topology."""
+        if not isinstance(body, dict) or not isinstance(body.get("choice"), str) or not body["choice"].strip():
+            raise ValueError("choice required")
+        with self.connect() as db:
+            self.owned(db, body.get("session_id"), device)
+        return self.lanes.launch(session_id(body["session_id"]), body["choice"][:500])
 
     def owned(self, db, sid, device):
         row = db.execute(
@@ -733,8 +776,8 @@ class Store:
                     self._live.delegator.cancel(sid)
                 self.lanes.cancel(sid, "owner_cancel")
                 self.voice.cancel(sid, "owner_cancel")
-            elif kind == "user_transcript" and data.get("final", True) is not False:
-                self.fan_out(sid, value)
+            elif kind == "user_transcript":
+                self.fan_out(sid, value, partial=data.get("final", True) is False)
             elif kind == "app_state" and data.get("floor") in {
                 "quiet",
                 "user",
@@ -899,11 +942,8 @@ class Store:
         if name == "configure_lanes":
             if set(args) != {"request"} or not isinstance(args["request"], str):
                 raise ValueError("configure_lanes requires only request")
-            from .lanes_intent import apply
-            try:
-                return apply(args["request"][:500])
-            except ValueError as exc:
-                return {"ok": False, "error": str(exc), "say": "I couldn't set that lane layout: " + str(exc)[:160]}
+            # This call's topology only; the Hermes /z0live-lanes command sets the default for new calls.
+            return self.lanes.configure(sid, args["request"][:500])
         if name == "relay_status":
             from .relay_status import status
             if set(args) - {"limit"}:

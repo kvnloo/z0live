@@ -142,6 +142,10 @@ class Handler(BaseHTTPRequestHandler):
                     if call
                     else None,
                 }
+            elif method == "POST" and path == "/v1/lanes/turn":
+                result = store.lane_turn(device, body)
+            elif method == "POST" and path == "/v1/lanes/launch":
+                result = store.lane_launch(device, body)
             elif method == "POST" and path == "/v1/events":
                 result = store.add_events(device, body)
             elif method == "POST" and path == "/v1/hermes/send":
