@@ -10,6 +10,7 @@ import uuid
 
 from .core import ROOT, dumps, text
 from .voice_runtime import Journal, Native, TERMINAL
+from .fx_runner import fx_alive
 
 BRIEF = """Turn the user's request into a crisp brief for a smarter meta agent. Return ONLY JSON:
 {"action":"delegate|clarify", "brief":"faithful self-contained brief", "say":"necessary clarification or empty", "missing_input":"specific fact only the human can supply, or empty"}.
@@ -155,9 +156,12 @@ class Liaison:
         # Never replay possibly effectful L2 work as a fresh request. Existing jobs retain their native IDs.
         with self.store.connect() as db:
             db.execute("UPDATE voice_turns SET status='queued' WHERE status='briefing'")
-            # fx children die with the broker's cgroup and cannot be reattached.
-            db.execute("""UPDATE voice_runs SET status='interrupted' WHERE run_id LIKE 'fx:%'
-                AND status NOT IN ('completed','failed','cancelled','interrupted','timeout')""")
+            # An fx child whose process is gone left no result to reattach; never resubmit it.
+            for run in db.execute("""SELECT turn_id,node,run_id FROM voice_runs WHERE run_id LIKE 'fx:%'
+                AND status NOT IN ('completed','failed','cancelled','interrupted','timeout')""").fetchall():
+                if not fx_alive(run["run_id"]):
+                    db.execute("UPDATE voice_runs SET status='interrupted' WHERE turn_id=? AND node=?",
+                               (run["turn_id"], run["node"]))
             rows = db.execute("""SELECT t.id,j.status AS native_status,j.result FROM voice_turns t
                 JOIN jobs j ON j.id=t.job_id WHERE t.status IN ('meta_queued','running','delivering')
                 AND j.status IN ('completed','failed','cancelled','interrupted')""").fetchall()

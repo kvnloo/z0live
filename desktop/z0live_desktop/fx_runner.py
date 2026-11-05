@@ -32,6 +32,16 @@ def hermes_binding(binding):
     return {"provider": binding["provider"], "model": binding["model"]}
 
 
+def fx_alive(run_id):
+    try:
+        os.kill(int(run_id.split(":", 1)[1]), 0)
+        return True
+    except (ProcessLookupError, ValueError):
+        return False
+    except PermissionError:
+        return True
+
+
 class FxRun:
     """One `fx ask` child: explicit model and effort, nice 10, hard timeout, killable."""
 

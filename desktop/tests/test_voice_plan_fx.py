@@ -146,6 +146,19 @@ class FxTests(base.StackTests):
         self.assertIn("fx is not installed", missing[0]["output"])
 
 
+    def test_recover_interrupts_only_dead_fx_children(self):
+        reply = self.ask()
+        self.wait(reply["id"])
+        with self.store.connect() as db:
+            for node, pid in (("worker-0", 2**22 + 7), ("worker-1", os.getpid())):
+                db.execute("INSERT INTO voice_runs(turn_id,node,role,model,run_id,status,created,updated) "
+                           "VALUES(?,?,?,?,?,'running',0,0)", (reply["id"], node, "task", "gpt-6.1-sol", "fx:%d" % pid))
+        self.voice.recover()
+        with self.store.connect() as db:
+            rows = dict(db.execute("SELECT node,status FROM voice_runs WHERE turn_id=?", (reply["id"],)).fetchall())
+        self.assertEqual(rows, {"worker-0": "interrupted", "worker-1": "running"})
+
+
 # Run only the fx tests here; the base stack tests run in their own file.
 for _name in dir(base.StackTests):
     if _name.startswith("test_"):
