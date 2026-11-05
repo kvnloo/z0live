@@ -11,7 +11,8 @@ import time
 import urllib.request
 import uuid
 
-from .core import NoRedirect, dumps, request_json
+from .core import ROOT, NoRedirect, dumps, request_json
+from .fx_runner import HARNESSES, FxRun, harness, hermes_binding, is_gpt
 
 TERMINAL = {"completed", "failed", "cancelled", "interrupted", "timeout"}
 IDENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$")
@@ -40,13 +41,21 @@ def load_plan():
     }:
         raise RuntimeError("invalid z0intelligence voice profile")
     for binding in value["roles"].values():
-        if set(binding) != {"provider", "model"} or any(
-            not isinstance(v, str) or not IDENT.fullmatch(v) for v in binding.values()
+        if (
+            not {"provider", "model"} <= set(binding) <= {"provider", "model", "harness", "effort"}
+            or any(not isinstance(v, str) or not IDENT.fullmatch(v) for v in binding.values())
+            or harness(binding) not in HARNESSES
+            # Owner rule 2026-11-04: GPT never runs inside Hermes; fx needs an explicit effort.
+            or (is_gpt(binding) and harness(binding) == "hermes")
+            or (harness(binding) == "fx") != ("effort" in binding)
         ):
             raise RuntimeError("invalid voice role binding")
     if (
         value.get("meta_role") not in {"default", "plan", "slow"}
         or value.get("fallbacks") != []
+        # The meta agent is a Hermes session; task workers may run through hermes or fx only.
+        or harness(value["roles"][value["meta_role"]]) != "hermes"
+        or harness(value["roles"]["task"]) not in {"hermes", "fx"}
     ):
         raise RuntimeError("invalid voice plan policy")
     # This host adapter only implements the ChatGPT WebRTC actor; reject, never substitute.
@@ -327,6 +336,9 @@ class Journal:
             raise ValueError("turn is not active")
         plan = self.plan(row["sid"])
         binding = plan["roles"]["task"]
+        fx = harness(binding) == "fx"
+        if not fx:
+            hermes = hermes_binding(binding)  # GPT/old plans fail here, visibly, before any run.
         self.speak(
             turn, f"{len(briefs)} agents are checking the context.", "workers_started"
         )
@@ -334,13 +346,20 @@ class Journal:
         def child(index, brief):
             node = "worker-" + str(index)
             sid = "z0live-" + turn + "-" + node
-            body = {
-                "session_id": sid,
-                "provider": binding["provider"],
-                "model": binding["model"],
-                "input": "You are a bounded read-only z0live context worker, not the meta agent. Use tools for facts; do not edit, publish, deploy, delegate, message people or change credentials. Preserve citations and uncertainty. Run terminal commands with nice -n 10 and explicit workdir. Return a concise evidence summary.\n"
-                + brief,
-            }
+            prompt = (
+                "You are a bounded read-only z0live context worker, not the meta agent. Use tools for facts; do not edit, publish, deploy, delegate, message people or change credentials. Preserve citations and uncertainty. Run terminal commands with nice -n 10 and explicit workdir. Return a concise evidence summary.\n"
+                + brief
+            )
+            if fx:
+                body = {
+                    "harness": "fx",
+                    "model": binding["model"],
+                    "effort": binding["effort"],
+                    "workdir": os.environ.get("Z0LIVE_FX_WORKDIR", str(ROOT)),
+                    "input": prompt,
+                }
+            else:
+                body = {"session_id": sid, **hermes, "input": prompt}
             with self.store.connect() as db:
                 db.execute("BEGIN IMMEDIATE")
                 if self.cancelled(turn):
@@ -374,6 +393,8 @@ class Journal:
                     )
             start = time.monotonic()
             run_id = row["run_id"] if row else None
+            if fx:
+                return self.fx_child(turn, node, binding, body, run_id, start)
             submitting = False
             try:
                 if not run_id:
@@ -388,7 +409,7 @@ class Journal:
                                 "id": sid,
                                 "title": sid,
                                 "source": "api_server",
-                                **binding,
+                                **hermes,
                                 "require_model_lock": True,
                             },
                         )
@@ -495,3 +516,37 @@ class Journal:
         ) as pool:
             futures = [pool.submit(child, i, brief) for i, brief in enumerate(briefs)]
             return [f.result() for f in futures]
+
+    def fx_child(self, turn, node, binding, body, run_id, start):
+        """GPT task worker via `fx ask`; same voice_runs row, cancel and epoch rules."""
+        model = binding["model"]
+        if run_id:
+            # A replayed call never resubmits; the live child (if any) owns the row.
+            return {"node": node, "status": "running", "output": None, "run_id": run_id}
+        else:
+            try:
+                seconds = float(os.environ.get("Z0LIVE_WORKER_SECONDS", "120"))
+                run = FxRun(binding, body["input"], body["workdir"], seconds)
+                run_id = run.run_id
+                with self.store.connect() as db:
+                    db.execute(
+                        "UPDATE voice_runs SET run_id=?,status='running',updated=? WHERE turn_id=? AND node=?",
+                        (run_id, time.time(), turn, node),
+                    )
+                self.trace(turn, "L3", "started", "task", model, node=node, run_id=run_id,
+                           harness="fx", argv=run.argv[:-1])
+                status, output, usage = run.wait(
+                    lambda: self.cancelled(turn), time.monotonic() + seconds
+                )
+            except Exception as exc:
+                status, output, usage = "failed", type(exc).__name__ + ": " + str(exc)[:300], None
+        self.trace(turn, "L3", status, "task", model, ms=round((time.monotonic() - start) * 1000),
+                   usage=usage, node=node, run_id=run_id, harness="fx")
+        with self.store.connect() as db:
+            db.execute(
+                "UPDATE voice_runs SET status=?,output=?,usage=?,updated=? WHERE turn_id=? AND node=?",
+                (status, output, dumps(usage), time.time(), turn, node),
+            )
+        if status == "completed":
+            self.speak(turn, "One agent has returned its findings.", node + "_finished")
+        return {"node": node, "status": status, "output": output, "run_id": run_id}

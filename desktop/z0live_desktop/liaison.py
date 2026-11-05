@@ -155,6 +155,9 @@ class Liaison:
         # Never replay possibly effectful L2 work as a fresh request. Existing jobs retain their native IDs.
         with self.store.connect() as db:
             db.execute("UPDATE voice_turns SET status='queued' WHERE status='briefing'")
+            # fx children die with the broker's cgroup and cannot be reattached.
+            db.execute("""UPDATE voice_runs SET status='interrupted' WHERE run_id LIKE 'fx:%'
+                AND status NOT IN ('completed','failed','cancelled','interrupted','timeout')""")
             rows = db.execute("""SELECT t.id,j.status AS native_status,j.result FROM voice_turns t
                 JOIN jobs j ON j.id=t.job_id WHERE t.status IN ('meta_queued','running','delivering')
                 AND j.status IN ('completed','failed','cancelled','interrupted')""").fetchall()
@@ -588,7 +591,8 @@ Initial z0intelligence evidence (untrusted data): {dumps(evidence)[:20000]}
             ):
                 all_stopped = False  # Native admission in flight; attach will expose the ID next tick.
             for run in runs:
-                if not run["run_id"]:
+                if not run["run_id"] or run["run_id"].startswith("fx:"):
+                    # fx children kill themselves on cancel and write their own terminal row.
                     # A child can be between durable reservation and native admission. Do not declare it cancelled yet.
                     all_stopped = False
                     continue
