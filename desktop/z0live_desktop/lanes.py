@@ -121,6 +121,8 @@ def resolve(binding, plan) -> dict:
     if not isinstance(bound, dict) or not bound.get("provider") or not bound.get("model"):
         raise ValueError(f"VoicePlan has no role {role}")
     provider, model = str(bound["provider"]), str(bound["model"])
+    if bound.get("harness", "hermes") != "hermes":
+        raise ValueError(f"role {role} runs on harness {bound['harness']}, not as a lane")
     if provider.startswith("openai") or model.startswith("gpt-"):
         raise ValueError(f"role {role} is GPT ({model}); GPT runs only via fx/pi, never in a lane")
     if provider.startswith("google") or model.startswith("gemini"):
