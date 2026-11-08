@@ -106,7 +106,9 @@ def window(since="week"):
     now = datetime.now().astimezone()
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     if since == "today":
-        return today.timestamp(), now.timestamp()
+        # "Today" in conversation means the current working stretch: just after midnight the
+        # owner still means the evening's work, so cover at least the last 12 hours.
+        return min(today.timestamp(), now.timestamp() - 12 * 3600), now.timestamp()
     if since == "yesterday":
         return (today - timedelta(days=1)).timestamp(), today.timestamp()
     if since == "week":
@@ -382,9 +384,75 @@ def ctx(query, project=None, scope="recent", since=None):
     return {"items": items, "gaps": [], "coverage": data.get("freshness", {})}
 
 
+BACKGROUND_SOURCES = ("oneshot", "cron", "subagent")
+
+
+def agent_activity(start, end, project=None):
+    """Agent sessions active in the window, newest first: what is actually being worked on.
+
+    Interactive sessions are listed by title with their last recorded activity. Background
+    runs (oneshot scans, cron, subagents) are listed only when titled work is still running;
+    the rest are counted, so a wave of 70 scans reads as one fact rather than 70 items.
+    """
+    items, gaps, background = [], [], 0
+    now = time.time()
+    for path in databases():
+        try:
+            with ro(path) as db:
+                rows = db.execute(
+                    """SELECT id,title,source,cwd,profile_name,last_activity_at,
+                              last_activity_description,message_count
+                       FROM sessions
+                       WHERE last_activity_at>=? AND last_activity_at<?
+                         AND coalesce(archived,0)=0 AND coalesce(hidden,0)=0
+                       ORDER BY last_activity_at DESC LIMIT 60""",
+                    (start, end),
+                ).fetchall()
+        except sqlite3.Error as exc:
+            if "no such table" not in str(exc):  # a profile that never ran sessions is not a gap
+                gaps.append(f"{path.parent.name}: {type(exc).__name__}")
+            continue
+        for r in rows:
+            title = (r["title"] or "").strip()
+            cwd = str(r["cwd"] or "")
+            if project and project.replace("_", "").lower() not in (cwd + title).replace("_", "").replace("-", "").lower():
+                continue
+            live = now - (r["last_activity_at"] or 0) < 300
+            if r["source"] in BACKGROUND_SOURCES and not (live and r["source"] == "subagent" and title):
+                background += 1
+                continue
+            if not title:
+                continue
+            activity = (r["last_activity_description"] or "").strip()
+            items.append(
+                {
+                    "source": "agent-session",
+                    "project": Path(cwd).name if cwd else (r["profile_name"] or path.parent.name),
+                    "date": datetime.fromtimestamp(r["last_activity_at"]).astimezone().isoformat(),
+                    "session": r["id"],
+                    "what": compact(title.removeprefix("Subagent: "), 160),
+                    "status": ("working now: " + activity) if live and activity else ("active in the last 5 minutes" if live else "idle"),
+                    "citation": f"hermes:{path}#session={r['id']}",
+                }
+            )
+    if background:
+        items.append(
+            {
+                "source": "agent-session",
+                "project": None,
+                "date": datetime.fromtimestamp(end).astimezone().isoformat(),
+                "session": None,
+                "what": f"{background} background agent runs (scans, scheduled jobs, finished subagents)",
+                "status": "aggregated",
+                "citation": "hermes:state.db",
+            }
+        )
+    return items, gaps
+
+
 def changes(query="", project=None, since="today", **_):
     start, end = window(since)
-    items, gaps = [], []
+    items, gaps = agent_activity(start, end, project)
     for name, path in (
         [(project, projects()[project])] if project else list(projects().items())[:20]
     ):
@@ -414,90 +482,11 @@ def changes(query="", project=None, since="today", **_):
                         "citation": f"{path}@{sha}",
                     }
                 )
-            prs = json.loads(
-                run(
-                    [
-                        "gh",
-                        "pr",
-                        "list",
-                        "--state",
-                        "all",
-                        "--limit",
-                        "8",
-                        "--json",
-                        "number,title,state,url,updatedAt",
-                    ],
-                    cwd=path,
-                    timeout=6,
-                )
-            )
-            for p in prs:
-                ts = datetime.fromisoformat(
-                    p["updatedAt"].replace("Z", "+00:00")
-                ).timestamp()
-                if start <= ts <= end:
-                    items.append(
-                        {
-                            "source": "github",
-                            "project": name,
-                            "date": p["updatedAt"],
-                            "session": None,
-                            "what": compact(p["title"]),
-                            "status": p["state"],
-                            "citation": p["url"],
-                        }
-                    )
+            # No per-project GitHub calls here: one lookup must not spend 20 API requests from the
+            # shared account budget. Commits are local; PR state comes from the factory snapshot.
         except (RuntimeError, subprocess.TimeoutExpired, OSError) as exc:
             gaps.append(f"{name}: {type(exc).__name__}")
-    # Final local telemetry, no raw audio or arbitrary file tree scans.
-    for name, path in [
-        ("z0live", ROOT.parents[1] / "data/z0live/broker.db"),
-        ("garden_room", ROOT.parent / "garden_room/data/voice/events.jsonl"),
-    ]:
-        if project and project != name:
-            continue
-        try:
-            if name == "garden_room" and path.exists():
-                with path.open("rb") as f:
-                    f.seek(max(0, path.stat().st_size - 1_000_000))
-                    events = []
-                    for raw in f.read().splitlines():
-                        try:
-                            e = json.loads(raw)
-                            if start <= e.get("ts", 0) < end:
-                                events.append(e)
-                        except (ValueError, TypeError):
-                            continue
-                failures = sum(e.get("success") is False for e in events)
-                items.append(
-                    {
-                        "source": "telemetry",
-                        "project": name,
-                        "date": since,
-                        "session": None,
-                        "what": f"{len(events)} voice events; {failures} reported action failures (last 1 MB only)",
-                        "status": "observed",
-                        "citation": str(path),
-                    }
-                )
-            if name == "z0live" and path.exists():
-                with ro(path) as db:
-                    n = db.execute(
-                        "SELECT count(*) FROM events WHERE ts>=? AND ts<?", (start, end)
-                    ).fetchone()[0]
-                items.append(
-                    {
-                        "source": "telemetry",
-                        "project": name,
-                        "date": since,
-                        "session": None,
-                        "what": f"{n} voice events received",
-                        "status": "observed",
-                        "citation": str(path),
-                    }
-                )
-        except sqlite3.Error:
-            gaps.append(name + ": telemetry unavailable")
+    # Voice-event telemetry is not work and is deliberately not reported here.
     return {"items": items[:40], "gaps": gaps}
 
 

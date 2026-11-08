@@ -26,6 +26,10 @@ the token in Keystore-backed encrypted storage. Treat pairing links/QRs as beare
 (established SSE streams recheck at their next 15-second heartbeat).
 Tokens have no automatic expiry; pair again after loss/revocation. Each pairing is a separate device.
 
+## Multi-agent work (additive desktop contract)
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for ownership and failure semantics. New planned sessions expose `voice_plan` (full immutable z0intelligence binding + digest), `ask_z0` and `cancel_work` in `builtin_tools`. The five required ephemeral fields remain unchanged. A missing plan is explicit (`voice_plan:null`); legacy tools still work, but `ask_z0` reports unavailable. Reconnect to adopt new roles; no turn-by-turn model change.
+
 ## Endpoints
 
 ### `GET /v1/health`
@@ -52,18 +56,23 @@ use OpenAI Realtime function format (not Chat Completions' nested `function`). M
 48k characters in tools; unique names; builtins cannot be overridden. Context max 16k characters.
 The broker registers these schemas, but **the client executes app tools locally** with its own
 permission/approval and argument validation. This broker does not grant Android permissions.
-Persona `z0live.persona.v2` also injects the exact mint-time builtin + app tool catalog (names,
+Persona `z0live.persona.v3` also injects the exact mint-time builtin + app tool catalog (names,
 descriptions and schemas) into instructions, so unavailable tools are not advertised. It identifies
 Realtime `gpt-realtime`/`marin`, direct phone/OpenAI WebRTC, the short-lived tailnet mint broker and
 separate persistent Claude Opus Hermes session. Local phone commands stay local unless delegation
 is requested. Results, ambiguity and required permissions must be reported honestly; dial/SMS tools
 open a composer only, never auto-send. Back/recents require explicit optional accessibility and a
-supporting declared tool. App context is metadata, not an ability to read screens.
+supporting declared tool. App context remains metadata. A declared accessibility tool may return bounded
+screen text only after Android enablement and explicit per-session phone consent; the broker grants neither.
+
+Waiting is silent: at most one brief dispatch acknowledgement, no status polling, no repeated
+“no update yet” turns. Lifecycle telemetry is not speech. Only new verified findings, real blockers,
+completion, or an explicit owner question justify another spoken turn.
 
 Response (the first five fields are the stable required contract; `session_id` is additive):
 
 ```json
-{"value":"EPHEMERAL_SECRET","expires_at":1790000000,"model":"gpt-realtime","voice":"marin","instructions_version":"z0live.persona.v2","session_id":"SERVER_GENERATED_ID"}
+{"value":"EPHEMERAL_SECRET","expires_at":1790000000,"model":"gpt-realtime","voice":"marin","instructions_version":"z0live.persona.v3","session_id":"SERVER_GENERATED_ID"}
 ```
 
 Use this `session_id` for all events/tools/end calls. Mint at connection time: the client secret expires
@@ -71,6 +80,42 @@ Use this `session_id` for all events/tools/end calls. Mint at connection time: t
 promptly. This is not the duration of an established conversation. No underlying ChatGPT OAuth token
 is returned. The host reads the owner's existing `~/.codex/auth.json` lazily and derives
 `ChatGPT-Account-ID`; OAuth refresh failure is a 502, not a paid-key fallback.
+
+### Frameless Bidi transport (OMP `/live` architecture)
+
+Clients that can use it add `"transports":["bidi","realtime"]` to the session request. When the broker
+setting `Z0LIVE_LIVE_TRANSPORT` is `bidi` (the default) the broker answers without a provider call:
+
+```json
+{"transport":"bidi","model":"gpt-live-1-codex","voice":"sol","instructions_version":"z0live.bidi.v1","session_id":"SERVER_GENERATED_ID","builtin_tools":[],"voice_plan":null}
+```
+
+There is no `value`: the phone never holds a provider credential. Requests without `transports`
+(every APK before this change) or with `Z0LIVE_LIVE_TRANSPORT=realtime` get the gpt-realtime mint
+below, unchanged except for an additive `"transport":"realtime"`. See [LIVE-BIDI.md](LIVE-BIDI.md).
+
+#### `POST /v1/live/calls`
+
+```json
+{"session_id":"SERVER_GENERATED_ID","sdp":"v=0\r\n..."}
+```
+
+The broker posts the phone's SDP offer to Codex signaling with the host's ChatGPT/Codex login,
+opens the call's sideband WebSocket, and returns `{"sdp":"v=0...","call_id":"rtc_...","model":"gpt-live-1-codex","voice":"sol","instructions_version":"z0live.bidi.v1"}`.
+Media stays direct between the phone and OpenAI. Errors: 400 for a non-bidi, ended or already-called
+session; 404 for another device's session; 502 when signaling fails (clients then mint
+`transports:["realtime"]` and post the same offer to OpenAI). Ending the session closes the call.
+
+The phone's data channel receives Frameless Bidi events (`input_transcript.added`,
+`output_transcript.added`, `turn.done`, `delegation.created`, `error`) for captions only. It sends
+no control messages. Phone actions arrive as ordinary inbox actions (`say:""`); the phone executes
+them and posts the usual `tool_result` event with `data.id` set to the inbox id, which becomes the
+spoken result. Transcripts are recorded by the broker from the sideband.
+
+#### `GET /v1/live/trace?session_id=...`
+
+Owner-scoped delegation receipts: route (`phone:TOOL` or `hermes`), status, timing marks
+(`created`, `routed`, `run_started`, `first_commentary`, `final`) and the final text, plus call stats.
 
 ### Direct OpenAI WebRTC (not proxied through desktop)
 
@@ -89,7 +134,10 @@ is returned. The host reads the owner's existing `~/.codex/auth.json` lazily and
 7. On `response.function_call_arguments.done`, parse arguments, execute the builtin or declared local
    tool, then send `conversation.item.create` with `{type:"function_call_output",call_id,output:JSON.stringify(result)}`.
    Log `tool_call` and `tool_result`. Only send the continuation `response.create` **after** the previous
-   `response.done`; function arguments can complete while a response is still active.
+   `response.done`; function arguments can complete while a response is still active. A result with
+   `speech:"silent"` is data-only: append its function output but **do not create a continuation response**.
+   It is an async acceptance/no-news receipt, not a new conversation turn. Other parallel tool results
+   that require a response must still retain their pending continuation.
 8. Never present an upstream error as success. On connection loss close peer/tracks, flush events,
    end the broker session, and mint a new one. Reconnect with bounded exponential backoff.
 
@@ -97,8 +145,11 @@ Builtins available in every session:
 
 | Name | Arguments | Client dispatch |
 |---|---|---|
+| `ask_z0` | `{question}` | `POST /v1/tools/ask_z0`; preferred single work entry point |
+| `cancel_work` | `{}` | `POST /v1/tools/cancel_work`; cancel current session work tree |
 | `tell_hermes` | `{text,kind}`; kind `request|complaint|bug|praise` | `POST /v1/tools/tell_hermes` |
 | `get_context` | `{}` | `POST /v1/tools/get_context` |
+| `relay_status` | `{limit?}`; integer 1–20, default 5 | `POST /v1/tools/relay_status`; read-only exact relay receipts and later target assistant activity, scoped to paired device |
 | `summarize` | `{text}` | `POST /v1/tools/summarize` |
 | `work_search` | `{query,scope?,project?}`; scope `recent|all` | `POST /v1/tools/work_search` |
 | `ask_hermes` | `{question}` | `POST /v1/tools/ask_hermes` |
@@ -106,9 +157,18 @@ Builtins available in every session:
 | `task_status` | `{id?,project?}` | `POST /v1/tools/task_status` |
 | `what_changed` | `{since?,project?}`; since `today|yesterday|week` | `POST /v1/tools/what_changed` |
 
-New session responses also include `builtin_tools:["tell_hermes",…]`. Route these names to the
-broker; execute declared app tools locally. Clients with a static allowlist must add all five work
-tools, including `what_changed`. No new pairing/permission is required; reconnect to mint them.
+New Realtime session responses also include `builtin_tools:["tell_hermes","get_context","summarize","ask_z0","cancel_work","relay_status"]` (persona v4: the legacy work tools in the table stay executable and reserved but are no longer offered to the model). Route these names to the
+broker; execute declared app tools locally. Clients with a static allowlist must dispatch all returned builtins, including `what_changed`, `ask_z0` and `cancel_work`. No new pairing/permission is required; reconnect to mint them.
+
+`relay_status` uses `{session_id,arguments:{limit?}}` and checks session ownership. It returns
+`{relays,gaps,reply_note}`. Each relay includes exact `text`, `target_session_id`, `current_title`,
+`latest_topic`, `delivery_state` (`delivered`, `accepted by gateway`, `failed`, or explicit `unknown`
+when evidence is missing), `error`, `replied_since` (null when unreadable), `reply_excerpt`,
+`reply_at`, `created`, `id`, and `evidence`. This is post-relay assistant activity, not causal proof
+of a response to that message. No LLM and no phone access. Bidi resolves status through its
+existing client delegation, not provider function schemas. See [RELAY.md](RELAY.md).
+
+`ask_z0` requires `{session_id,call_id?,arguments:{question}}`. By default (`Z0LIVE_REALTIME_WORK=delegate`) it runs on the persistent Hermes backend shared with Frameless Bidi and returns `{ok,id,status:"working",say:"",speech:"silent"}`; the final answer arrives as one inbox item with `source:"run:<id>"` and `params.delegation_id`, for the phone's model to answer from in its own words. With `Z0LIVE_REALTIME_WORK=liaison` it returns `{ok,id,turn_id,status,say,speech?,trace?}` immediately; queued acceptance uses `say:"",speech:"silent"` (L0 may acknowledge once before dispatch). Repeated pending acceptance stays silent. Cached model identity is `status:completed,cache:pinned_voice_plan`. Otherwise the brief/meta/workers run asynchronously and short progress/final speech arrives through inbox/SSE, with `params.turn_id`, `params.event`, and the full final `params.result`. Reuse the exact provider `call_id` on retry; changed arguments fail. Latest active user-started session only: old/ended sessions cannot admit new liaison work. For planned sessions `ask_hermes` and `tell_hermes(kind:request)` are compatibility aliases to L1 (immediate async response, not the old 24-second wait). Other legacy tool schemas remain unchanged.
 
 Work-tool bodies may include the provider `call_id`. For `ask_hermes` and `start_task`, retrying the
 same session/call ID reuses its durable job; changed arguments with the same ID are rejected.
@@ -140,7 +200,21 @@ Body is a **bare batched array**, not `{events:[...]}`:
 ]
 ```
 
-Types exactly: `user_transcript|assistant_transcript|tool_call|tool_result|summary|feedback|app_state`.
+Types: `user_transcript|assistant_transcript|tool_call|tool_result|summary|feedback|app_state|floor|barge_in|cancel|model_usage`.
+
+Floor/cancel events are ordered client observations, not inferred from audio on the broker:
+
+```json
+[
+  {"session_id":"...","type":"floor","data":{"event_id":"floor-42","state":"user","barge_in":true}},
+  {"session_id":"...","type":"floor","data":{"event_id":"floor-43","state":"quiet"}}
+]
+```
+
+Map Realtime `input_audio_buffer.speech_started` to `state:user`, with `barge_in:true` when interrupting outstanding work; `speech_stopped` can release to `quiet` only if no assistant/TTS is active. `response.created` → `assistant`; `response.done` → `quiet` when the user/TTS is also quiet. Explicit `barge_in` or `cancel` events and `data.topic_changed:true` cancel the session's admitted voice tree. The final literal “never mind”/“cancel that” transcript and `cancel_work` also cancel it. Provider-only `response.cancel` does not reach desktop workers. On local barge-in, discard queued TTS for the interrupted `params.turn_id` before speaking anything else.
+
+Optional usage telemetry: `model_usage.data:{turn_id,response_id,usage,ms?}` from `response.done`. The turn must belong to the supplied session. This is client-observed L0 accounting, not a billing assertion. IDs deduplicate telemetry like other events.
+
 `ts` is client Unix seconds (ISO string accepted); server receipt time is stored separately.
 `text` max 16k, `data` object; max 100 events/batch, 32k characters/event, 1 MB request.
 An invalid batch is rejected atomically; retry only after correction. Response `{ok:true,accepted:N}`.
@@ -183,12 +257,18 @@ string `session_id`. A broadcast reply can have `session_id:null`. Empty pages p
 {"messages":[],"after":0,"has_more":false}
 ```
 
+Speech is **not an audible backlog**. Summaries, setup/context notes and status-only sessions never produce spoken replies. Only the latest non-ended session for this device, active in the last 120 s, may receive non-empty `say`/an action. Historical/superseded/ended/broadcast items still advance their normal IDs/cursor but have `say:""`, `action:null`, and `params:{silent:true,suppressed:...,historical_say:...}` in addition to existing parameters. Cancelled turns are similarly silent. Do not read `historical_say` aloud. Floor-held new stack speech is not emitted until `quiet`. Clients must also filter to the currently human-started session and queue against actual local audio; server floor knowledge depends on these client events.
+
 IDs monotonically increase across speech and actions. Start at 0; persist the returned cursor after
 processing. Up to 100 messages/page; follow `has_more`. A message with `action:null` is speech only.
 For non-null action, dispatch only a tool supported/declared by this client, validate params and permissions,
 then report `tool_result` (failure as well as success). Unsupported/stale-session actions must not execute.
-Use `say` for phone TTS. Prevent TTS echo (pause/mute mic while local Hermes TTS is playing), and do not
-speak over the user or an active Realtime response: queue until a safe turn boundary. Do not acknowledge
+Use `say` as data for the existing Realtime model to interpret in its own words, not Android/browser TTS.
+Append a data-only system item and request a tool-free response without overriding the session persona.
+Optional `source` names the originating lookup/run/voice result and frames it as a continuation of requested work.
+Lifecycle/empty-status rows retain IDs but are silent. Identical normalized partial findings deduplicate
+across retries/restarts; a final answer replaces progress still held for the floor.
+Do not speak over the user or an active Realtime response: queue until a safe turn boundary. Do not acknowledge
 an action as complete until the actual device result is known. Deduplicate on message ID.
 
 ### `GET /v1/stream?after=N` (SSE)
@@ -204,9 +284,17 @@ inbox are read-only/replayable, not destructive queues.
 `{sessions:[{id,client,created,updated,ended}]}`: latest 100 sessions for this device, newest first.
 Timestamps are Unix seconds, `ended` is 0/1. `GET /v1/context?session_id=...` also exposes latest context.
 
+### `POST /v1/cancel`
+
+`{"session_id":"...","turn_id":"optional exact turn"}`. Session ownership is checked before cancellation. Returns `{ok,status,turn_ids,say}`. `cancelling` means stops are requested; trace `cancel_confirmed` events name exact native run IDs and terminal statuses. No false terminal success when the native host is unavailable. `cancel_work` is the equivalent Realtime tool for all admitted work in the session.
+
+### `GET /v1/trace?turn_id=...` (or `session_id=...`)
+
+Returns `{events:[...]}` for the owning paired device only. Each observation has `turn_id,sid,layer,role,model,event,ts,ms,usage,cost_usd,details,cost_status`. Native lifecycle/runtime IDs and per-layer usage are included where supplied. Missing dollar billing is `cost_usd:null`, not zero. Local Hermes can use `z0live trace --turn ID` without another model call. JSONL snapshots are under `Z0LIVE_DATA/traces/` (0600); SQLite is canonical. This is observation/replay, not a second task ledger or proof of successful effects.
+
 ### `POST /v1/sessions/SESSION_ID/end`
 
-Body `{}`. Flushes an outstanding compact summary and marks the session ended; safe to repeat.
+Body `{}`. Flushes an outstanding compact summary as a **silent note to Hermes** and marks the session ended; safe to repeat.
 Alternatively set `data.session_end:true` on the final event (e.g. `summary`). Always call at hangup.
 If the phone disappears, the service independently flushes after 120 idle seconds, without deleting history.
 Every 300 active-conversation seconds it also produces an extractive compact summary (last 16 salient
@@ -214,6 +302,49 @@ transcripts/results, counts, and all feedback since the prior summary); GPT-supp
 The service does not fabricate an LLM summary if none was sent. `Z0LIVE_SUMMARY_SECONDS` and
 `Z0LIVE_IDLE_SECONDS` configure these intervals. Active time accumulates across transcript/tool events,
 with individual gaps capped at 60 seconds; silence alone does not count as conversation.
+
+## Voice-labelled ring recordings (experimental, coordinated NOOP update)
+
+The mint-time builtin catalog adds `ring_recording_start({kind:"labelled"|"baseline",note?})`,
+`ring_label({label:"double"|"triple"|"none"|"undo",note?})`, `ring_recording_stop({})`, and
+`ring_recording_status({})`. POST each to `/v1/tools/NAME` with the standard session_id/arguments
+body. Optional call_id makes retries durable/idempotent; changed arguments with the same call_id
+fail. Only the latest non-ended session of the authenticated voice device may control a recording.
+There is one recording at a time, targeted to the current opted-in gesture listener. No new pairing
+or Lawnchair APK is required for Realtime's dynamic builtin dispatch. Bidi has no builtin function
+catalog: its existing delegation channel now fast-routes narrowly matched recording phrases locally
+without starting desktop work. Reconnect after deployment to adopt instructions.
+
+During an existing voice call: “start ring recording” / “recording now”; “double” / “doing triples”;
+“nothing” / “baseline” / “walking now” / “still now”; “that was a miss”; “undo”; “stop recording”. The voice model
+confirms in 1–3 words. Start/stop return queued (Starting/Stopping), NOT proof of a phone effect.
+Status returns the last device report plus receipt timestamp; report staleness is visible. Never say
+Recording/Saved until the device confirms. A miss annotates the current segment, not a made-up
+attempt count. Baseline sessions remain none; stop and start labelled before recording taps.
+
+`GET /v1/gesture/commands` retains its commands array and adds broker_ts (Unix seconds) and recording
+(null or {id,kind,note,broker_start,expires,labels:[{ts,label,note}],revision,desired,broker_stop?}).
+The authenticated NOOP listener polls this existing channel; no raw sensor frames cross it. Only the
+bound source device receives that recording. NOOP maps broker time to its monotonic clock using the
+poll exchange midpoint and records clock_offset_ms and clock_rtt_ms in its local labels sidecar.
+Labels begin at broker tool acceptance, not at acoustic speech onset, and continue until the next label.
+Undo removes the last label, extending the preceding segment. Notes are <=160 printable characters,
+<=100 labels and <=24 KB total payload. These caps fit NOOP's existing bounded response reader.
+
+NOOP POSTs `/v1/gesture/recording-report` with exactly {id,status:"recording"|"saved"|"failed",
+frames:integer,counts:{double:integer,triple:integer,quadruple:integer}}. Only the bound source may
+update it. Status exposes device-confirmed detections, NOT recall: a segment label supplies no number
+of attempted repetitions. The broker records metadata and counts only; CSV and labels JSON remain
+app-private until explicitly pulled read-only for offline evaluation.
+
+Both broker dispatch and NOOP callback delivery suppress tap ACTIONS during diagnostics (including
+the pending-start interval on the broker). Existing queued gesture commands are denied on start;
+commands already claimed before start cannot be recalled. Detector decisions still log privately.
+Stop saves and detaches the recorder; a hard 600-second deadline independently restores normal
+actions on both sides if the network disappears. The fixed gesture map outside recordings is unchanged.
+Starting diagnostics never starts/ends/mutes the voice call. NOOP uses a connectedDevice foreground
+service and a bounded recording-only wake lock; no microphone is requested. Screen-off/One UI and
+physical tap acceptance are not established by isolated HTTP/JVM tests.
 
 ## Errors/security
 
@@ -234,3 +365,130 @@ retain Garden Room's mic/audio gesture and turn-continuation handling. Allowlist
 in `data/z0live/service.env` as `Z0LIVE_CORS_ORIGINS=https://0.taila30dc.ts.net:8790` before testing.
 Do not embed a permanent token in public JS; obtain it via pairing and keep it in an authenticated client
 store. This is a separate adapter, not a change to the portable v0 WebSocket/VoicePlan protocol in PRs #6/#7.
+
+## Optional local hybrid L0
+
+This desktop-only seam does not replace the portable actor protocol in PRs #6/#7.
+`Z0LIVE_L0_PROVIDER` accepts `openai` (default) or `local`. Unknown values fail.
+The existing OpenAI Bidi/Realtime transport negotiation remains unchanged by default.
+Local mode requires both an exported local VoicePlan and `"transports":["hybrid"]`.
+An old client cannot silently enter local mode.
+
+The selector must export these actor fields together with the existing `schema`, six `roles`,
+`meta_role`, `harness:"hermes"`, `fallbacks:[]` and canonical SHA-256 `digest`:
+
+```json
+{
+  "provider":"local",
+  "adapter":"desktop-hybrid-http",
+  "model":"voice-slm",
+  "voice":"alba",
+  "local_http":{"llm":"http://127.0.0.1:8091","tts":"http://127.0.0.1:8088"}
+}
+```
+
+This is a field fragment, not a complete exported plan. Do not edit a signed plan in place.
+The broker stores the complete plan at mint. Endpoint/model/voice changes require a new mint.
+Only literal HTTP loopback origins are accepted. URL credentials, paths, queries, redirects
+and remote origins are not supported. No provider credentials or local routing table are added.
+
+The backend contracts are real external APIs:
+
+- llama.cpp: `GET /v1/models` must advertise the pinned model ID. `POST /v1/chat/completions`
+  accepts non-streaming chat with `response_format.json_schema`, no tools and thinking disabled.
+  Its only permitted output is JSON `{"say":""}`, `{"say":"Okay."}`, `{"say":"On it."}`
+  or `{"say":"Got it."}`. A model cannot answer work or assert success through this path.
+- [Pocket TTS](https://github.com/kyutai-labs/pocket-tts/blob/main/pocket_tts/main.py):
+  `GET /health` returns `{"status":"healthy"}`. `POST /tts` receives form fields `text` and
+  `voice_url` (the pinned built-in voice). It must return mono PCM16 24 kHz WAV.
+  The adapter buffers the bounded WAV, then returns base64 PCM. This is not streaming TTFA.
+
+Mint probes both backends without generating speech. Unavailable endpoints or a missing model
+produce `502`, not an OpenAI fallback. The client receives no OpenAI ephemeral secret:
+
+```json
+{"client":"web","transports":["hybrid"]}
+```
+
+Response fields include `transport:"hybrid"`, `provider:"local"`, `session_id`, `voice_plan`,
+`model`, `voice`, `instructions_version:"z0live.hybrid.v1"`, `builtin_tools:[]`,
+`input:"finalized_transcript"` and `output:"pcm_s16le_24000_mono"`.
+
+### `POST /v1/hybrid/events`
+
+This authenticated endpoint accepts one local control event, not raw microphone audio:
+
+```json
+{"session_id":"SESSION_ID","kind":"stt.final","turn_epoch":0,"seq":2,"text":"Investigate the requested change."}
+```
+
+- Kinds: `stt.partial`, `stt.final`, `floor`, `barge_in`, `cancel`, `playback.ack`.
+- `turn_epoch` and `seq` are nonnegative integers. The first epoch is zero.
+  Use the next epoch for each new utterance or barge. Epochs cannot decrease or skip.
+  Retry a final with its original epoch. The final admission key is `(session, epoch)`,
+  regardless of retransmitted sequence numbers. Changed final text for that key fails.
+- `stt.partial` is ephemeral and silent. It does not persist transcripts, call a model or admit work.
+- `floor` requires `state:"user"|"assistant"|"quiet"` and uses the existing broker floor.
+  Report quiet after the user finishes. The broker does not infer a quiet audio boundary from STT.
+- `stt.final` admits the exact final request through the existing pinned L1–L3 liaison,
+  independently of `Z0LIVE_REALTIME_WORK`. It then records one deduplicated final transcript.
+  No local model selects the harness, changes the plan or calls tools.
+- An acknowledgement follows admission only, at most once. Cached facts and cancellation
+  receipts do not receive an extra acknowledgement. Completed work suppresses a late acknowledgement.
+- `barge_in` and `cancel` use the existing native cancellation path. They also disconnect
+  pending local HTTP generation. A stop request is not a native terminal receipt or effect rollback.
+
+Successful final responses carry the canonical `handoff` receipt plus `speech:"silent"` or
+`speech:"audio"`. Audio responses include `say`, `session_id`, `turn_epoch`, `speech_id` and:
+
+```json
+{"audio":{"format":"pcm_s16le","sample_rate":24000,"channels":1,"pcm":"BASE64_PCM_BYTES"}}
+```
+
+The base64 field is an encoding description, not an example of generated provider audio.
+After admission, a local provider failure returns `ok:false`, `error`, the original `handoff`
+and `speech:"silent"`. Do not repeat the request as new work. Inspect its existing trace.
+All local speech remains conditional on the latest active session, quiet broker floor and epoch.
+
+### `POST /v1/hybrid/speech`
+
+Final results still enter the existing SQLite outbox and authenticated inbox/SSE.
+The client requests local synthesis of a current final or clarification by inbox ID:
+
+```json
+{"session_id":"SESSION_ID","turn_epoch":0,"inbox_id":123}
+```
+
+The broker reads the actual inbox text. It does not accept arbitrary client-provided result text.
+Only current, unsuppressed liaison results for this epoch can produce PCM.
+Progress, broadcasts, historical speech, cancelled turns and old epochs remain silent.
+Floor-held speech remains in the existing outbox until quiet. A final cancels pending local
+acknowledgement synthesis. Failed or floor-suppressed result synthesis does not consume the
+inbox ID: retry it without admitting work again. Concurrent synthesis returns
+`status:"synthesizing"`; retry after the in-flight attempt finishes.
+
+Generated result audio has a stable `speech_id`. Until the client acknowledges actual
+playback, a response retry returns the same cached PCM and `speech_id` with `replayed:true`,
+not another synthesis or work run. Deduplicate that ID at the playback boundary. Only after
+playback completes, acknowledge it through `/v1/hybrid/events`:
+
+```json
+{"session_id":"SESSION_ID","kind":"playback.ack","turn_epoch":0,"seq":3,"inbox_id":123,"speech_id":"hybrid:SESSION_ID:0:inbox:123"}
+```
+
+The acknowledgement uses the existing deduplicated event store, not a second task ledger.
+Later requests for an acknowledged inbox ID are silent. An acknowledgement is a
+**client-reported playback receipt**, not proof of acoustic audibility or human comprehension.
+Receipt of HTTP bytes and synthesis completion must not be reported as playback.
+A broker restart requires a new local session; it never replays prior local audio or work.
+
+### Client media obligation
+
+The client owns capture, ASR, AEC, audio-route consent and the PCM playback queue.
+On a real barge, stop playback and clear that queue immediately, before any broker round trip.
+Advance the epoch and reject late responses for another session/epoch.
+Report actual playback floor boundaries. Never play both `say` through another TTS engine
+and the returned PCM. Deduplicate `speech_id`/inbox ID at the playback boundary.
+The existing `/v1/events`, `/v1/cancel` and `cancel_work` also interrupt local generation.
+External interrupt telemetry advances the local epoch. Prefer the hybrid event endpoint to
+keep the client's epoch explicit. No Dash, Lawnchair or physical-audio integration is implied.
