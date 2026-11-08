@@ -20,6 +20,9 @@ from z0live_desktop.server import Server, Handler
 
 class BrokerTests(unittest.TestCase):
     def setUp(self):
+        selected = patch("z0live_desktop.voice_runtime.load_plan", return_value=None)
+        selected.start()
+        self.addCleanup(selected.stop)
         self.tmp = tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR"))
         self.store = Store(self.tmp.name)
         self.token = self.store.pair("unit device")
@@ -133,7 +136,9 @@ class BrokerTests(unittest.TestCase):
         self.store.end(self.device, self.sid)
         with self.store.connect() as db:
             rows = db.execute("SELECT kind,text FROM jobs ORDER BY id").fetchall()
-        self.assertEqual([r["kind"] for r in rows], ["feedback", "direct", "summary"])
+        self.assertEqual(
+            [r["kind"] for r in rows], ["feedback", "feedback_note", "summary"]
+        )
         self.assertIn("unit transcript", rows[-1]["text"])
         self.assertIn("unit feedback", rows[-1]["text"])
         with self.assertRaises(ValueError):
@@ -231,7 +236,13 @@ class BrokerTests(unittest.TestCase):
         FakeWorker(self.store, threading.Event()).tick()
         FakeWorker(self.store, threading.Event()).tick()
         self.assertEqual(sum(path == "/v1/runs" for path, _, _ in calls), 1)
-        self.assertEqual(calls[0][2], "z0live-job-1")
+        with self.store.connect() as db:
+            persisted_key = db.execute(
+                "SELECT native_key FROM jobs WHERE id=1"
+            ).fetchone()[0]
+        self.assertEqual(calls[0][2], persisted_key)
+        self.assertTrue(persisted_key.startswith("z0live-"))
+        self.assertTrue(persisted_key.endswith("-job-1"))
         self.assertEqual(
             self.store.inbox(self.device)["messages"][0]["say"], "unit reply"
         )

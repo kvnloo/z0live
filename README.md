@@ -32,8 +32,11 @@ Android / web ── HTTPS tailnet /v1 ── z0live desktop broker
 - Dedicated native Hermes API-only host: no messaging adapters, cron or kanban startup.
 - Device pairing/revocation; 0600 verifier/key/database files under a 0700 data directory.
 
+**Pinned multi-agent stack:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): Realtime → fast information liaison → persistent native meta agent → cheaper native workers. z0intelligence owns the VoicePlan; z0live owns floor/barge/replay. `ask_z0` is the preferred work entry point; existing tool names stay compatible. Summaries and old-session backlog are never spoken.
+
 **API/Android integration:** [docs/API.md](docs/API.md).
 **Deployment, recovery and verification:** [docs/OPERATIONS.md](docs/OPERATIONS.md).
+**Isolated local voice benchmark:** [docs/VOICE-PARETO.md](docs/VOICE-PARETO.md) (synthetic PCM, explicit acoustic/duplex limits; no provider promotion).
 
 ```bash
 # Host CLI (does not overwrite the future portable Python package)

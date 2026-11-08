@@ -1,0 +1,18 @@
+{
+  "candidate": "gpt-realtime-historical",
+  "measurement": "2026-10-20 synthetic Piper input through WebRTC, real RMS output detection; question stratum only",
+  "source": "docs/BIDI-VERIFICATION.md:27-45 at deployed e29d564824f3d271331a8186fbf576c06ee6da49",
+  "n": 10,
+  "complete_n": 10,
+  "first_audio_p50_ms": 2756,
+  "first_audio_p95_ms": 5356,
+  "barge_p50_ms": 329,
+  "barge_p95_ms": 407,
+  "wer_pct": null,
+  "task_correctness": "question/phone/work 10/10 each in original recorded study; not matched new arm",
+  "gpu_total_peak_mib": null,
+  "cpu_host_p95_pct": null,
+  "total_cost_usd_per_hour": null,
+  "cost_status": "UNKNOWN: recorded provider dollars not supplied; no new metered control run",
+  "release_gate": "NOT_COMPARABLE: historical acoustic boundary versus new batch PCM boundary"
+}

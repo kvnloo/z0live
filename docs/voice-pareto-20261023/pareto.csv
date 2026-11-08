@@ -1,0 +1,5 @@
+candidate,endpoint,p50_ms,p95_ms,wer_pct,gpu_total_peak_mib,cpu_host_p95_pct,cpu_process_p95_pct,barge_p50_ms,barge_p95_ms
+kyutai-pocket,generated_pcm,1691.231,3532.504,14.473684,6484,19.1,105.4,,
+whisper-kokoro,generated_pcm,2804.101,9428.664,10.526316,4022,21.3,153.6,,
+moshi-q4,silence_throughput_only,,,,7435,22.1,,,
+gpt-realtime-historical,2026-10-20_acoustic,2756,5356,,,,,329,407
