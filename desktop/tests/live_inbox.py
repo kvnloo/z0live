@@ -36,9 +36,13 @@ try:
         "messages": [
             {
                 "id": message_id,
-                "say": "Z0LIVE_INBOX_CONTRACT",
+                "say": "",
                 "action": None,
-                "params": {},
+                "params": {
+                    "silent": True,
+                    "suppressed": "stale_session",
+                    "historical_say": "Z0LIVE_INBOX_CONTRACT",
+                },
                 "session_id": None,
             }
         ],

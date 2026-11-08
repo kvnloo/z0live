@@ -110,6 +110,32 @@ class Handler(BaseHTTPRequestHandler):
                 result = store.send(device, body)
             elif method == "GET" and path == "/v1/sessions":
                 result = store.sessions(device)
+            elif method == "GET" and path == "/v1/trace":
+                sid = query.get("session_id", [None])[0]
+                turn = query.get("turn_id", [None])[0]
+                if not sid and not turn:
+                    raise ValueError("session_id or turn_id required")
+                if turn:
+                    with store.connect() as db:
+                        row = (
+                            db.execute(
+                                "SELECT sid FROM voice_turns WHERE id=?", (turn,)
+                            ).fetchone()
+                            if store.voice
+                            else None
+                        )
+                    if not row:
+                        raise LookupError("turn not found")
+                    sid = row[0]
+                with store.connect() as db:
+                    store.owned(db, sid, device)
+                result = {"events": store.voice.journal.read(turn, sid)}
+            elif method == "POST" and path == "/v1/cancel":
+                with store.connect() as db:
+                    store.owned(db, body.get("session_id"), device)
+                result = store.voice.cancel(
+                    body["session_id"], "client_cancel", body.get("turn_id")
+                )
             elif method == "GET" and path == "/v1/context":
                 result = store.context(device, query.get("session_id", [""])[0])
             elif method == "GET" and path in {"/v1/inbox", "/v1/stream"}:

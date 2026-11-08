@@ -14,6 +14,11 @@ from z0live_desktop import core
 
 
 class PersonaTests(unittest.TestCase):
+    def setUp(self):
+        selected = patch("z0live_desktop.voice_runtime.load_plan", return_value=None)
+        selected.start()
+        self.addCleanup(selected.stop)
+
     def mint_payload(self, tools, context=None):
         # Synthetic credential only, with no host credential access or network traffic.
         claims = {"https://api.openai.com/auth": {"chatgpt_account_id": "unit-account"}}

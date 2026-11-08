@@ -38,7 +38,7 @@ is already enabled on this host; services survive terminal logout and restart af
 ## Services/state
 
 - `z0live.service`: `127.0.0.1:8791`, HTTP + one serialized bridge thread.
-- `z0live-hermes.service`: `127.0.0.1:8644`, dedicated native API-only host.
+- `z0live-hermes.service`: `127.0.0.1:8644`, dedicated native API-only host; tools-free streaming liaison inference on loopback `8645` in the same process.
 - Hermes session `z0live`, title `z0live`, locked `anthropic/claude-opus-5-5`, repository cwd.
 - Existing Garden Room services/API port 8643 are not modified or reused as a second cwd.
 - Data: `/mnt/zer0models/workspace/zer0/data/z0live/` (outside the public repository).
@@ -46,6 +46,7 @@ is already enabled on this host; services survive terminal logout and restart af
   - `.hermes-api-key`: local API key; 0600, never shared with phones.
   - `broker.db{,-wal,-shm}`: sessions, events, jobs, inbox, native session pointer.
   - `sessions/ID.jsonl`: event archive; recovered from canonical SQLite after partial writes.
+  - `traces/TURN_ID.jsonl`: private layer/model/native-run/usage replay snapshots; SQLite is canonical.
   - `.service.lock`, `.export.lock`, `.devices.lock`: singleton/interprocess serialization.
   - optional `service.env`: non-secret broker settings, loaded by systemd.
 - Hermes transcript/run state remains in the clean profile's native state.db; the broker never writes it.
@@ -57,6 +58,14 @@ additional web origins), `Z0LIVE_HERMES_API` (loopback 8644). The service's own 
 Voice model/voice are intentionally pinned to `gpt-realtime`/`marin` for this chosen route; no hidden
 provider fallback. Do not put passwords/provider credentials into this environment file.
 
+## VoicePlan / liaison activation
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) and z0intelligence PR #174. Export `manifests/z0live_voice.v1.json` through `python -m z0int.voice_plan`, then install its complete JSON privately at `$Z0INT_HOME/config/z0live-voice-plan.json`, or point `Z0LIVE_VOICE_PLAN` at an exported file. No profile credentials are copied. New sessions store their own immutable plan; old sessions keep their bindings. The native host's explicit runtime-lock path disables implicit fallback for selected roles. Settings also include `Z0LIVE_LIAISON_API` (loopback 8645) and `Z0LIVE_WORKER_SECONDS` (120).
+
+Run deterministic tests before restarting owner-path services. For real-provider testing use an isolated `Z0LIVE_DATA`, loopback broker port, temporary pairing and explicit data path in L2 CLI commands; never inject test progress into the owner's phone inbox. The active stack's regression test is `desktop/tests/live_voice_stack.mjs`. It uses real GPT WebRTC, Haiku, Opus, and at least two native Sol workers, not fake responses. No microphone recording is needed; this does not certify physical audio/TTS.
+
+No audible summary/feedback-note/setup/backlog delivery: old records retain cursor/history but are silent. Forward client floor and barge state, queue local TTS against actual audio, and drop queued interrupted-turn speech. Native cancellation is confirmed only after reading the exact run's terminal state. A lost worker acceptance stays unknown for reconciliation, never false success.
+
 ## Recovery
 
 ```bash
@@ -65,7 +74,7 @@ systemctl --user show z0live.service z0live-hermes.service -p MainPID -p ActiveS
 tailscale serve status
 ```
 
-Jobs persist exact native request JSON before HTTP and use stable `z0live-job-ID` Idempotency-Key.
+Jobs persist exact native request JSON and `native_key` before HTTP. New keys are `z0live-DIRECTORY_HASH-job-ID`; previously persisted requests keep the legacy `z0live-job-ID` key for lost-acceptance reconciliation.
 After restart the bridge polls an existing run, rather than starting a new side-effecting turn. Terminal
 failed/cancelled/interrupted runs are retained and reported, not replayed automatically. New runs follow
 the native returned session ID if Hermes compresses. Reply insertion and completion checkpoint are atomic.
@@ -99,9 +108,9 @@ native run idempotency, HTTP/SSE. No fake test output is treated as live evidenc
 The opt-in `desktop/tests/live_webrtc.mjs` pairs a temporary test device, prints only the ephemeral secret
 **length**, mints a real session, establishes a real headless Chromium/OpenAI text-mode WebRTC channel,
 checks registered app tools, induces a real GPT `tell_hermes`, posts transcripts/tool receipts, explicitly ends,
-then waits for both the native summary completion and a marker-bearing Hermes reply in inbox/SSE.
+then waits for native summary and marker-bearing note completion in canonical job receipts. Notes and summaries are never spoken; it checks empty speech after session end and an authenticated SSE connection. Use `live_voice_stack.mjs` for current active-session work replies, floor and worker cancellation.
 It sends no host microphone/audio. It uses HTTPS through the real Tailscale Serve listener, not a proxy mock.
-The test leaves its private session history/device verifier as receipts; revoke test devices when done.
+The test leaves private history/verifier receipts and revokes its disposable bearer after success.
 The test's SQLite receipt inspection assumes the standard local data path.
 
 `python3 desktop/tests/live_recovery.py` additionally exercises direct send, feedback, supplied summaries,

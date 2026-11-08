@@ -38,6 +38,9 @@ FIXTURE = {
 
 class VoiceToolsTests(unittest.TestCase):
     def setUp(self):
+        selected = patch("z0live_desktop.voice_runtime.load_plan", return_value=None)
+        selected.start()
+        self.addCleanup(selected.stop)
         self.tmp = tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR"))
         self.store = Store(self.tmp.name)
         self.device = self.store.authenticate(self.store.pair("fixture"))
