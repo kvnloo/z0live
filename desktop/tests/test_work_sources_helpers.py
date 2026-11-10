@@ -3,6 +3,7 @@
 from datetime import datetime
 from pathlib import Path
 import sys
+import json
 import unittest
 from unittest.mock import patch
 
@@ -25,6 +26,25 @@ class WorkSourcesHelpersTests(unittest.TestCase):
         self.assertEqual(sources.compact("sk-" + "A" * 20), "[REDACTED]")
         self.assertEqual(sources.compact("ghp_" + "b" * 16), "[REDACTED]")
         self.assertEqual(sources.compact("sk-short"), "sk-short")
+
+    def test_compact_redacts_quoted_json_credentials(self):
+        value = {
+            "api_key": "synthetic key with spaces",
+            "nested": {"TOKEN": 'synthetic"escaped\\value'},
+            "password": "synthetic pass",
+            "secret": "synthetic secret",
+            "label": "keep this text",
+        }
+        expected = {
+            "api_key": "[REDACTED]",
+            "nested": {"TOKEN": "[REDACTED]"},
+            "password": "[REDACTED]",
+            "secret": "[REDACTED]",
+            "label": "keep this text",
+        }
+        for source in (value, json.dumps(value)):
+            with self.subTest(source_type=type(source).__name__):
+                self.assertEqual(json.loads(sources.compact(source)), expected)
 
     def test_compact_non_string_and_limit(self):
         self.assertEqual(sources.compact({"a": "é"}), '{"a": "é"}')
