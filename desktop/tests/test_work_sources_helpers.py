@@ -1,9 +1,11 @@
 """Hermetic unit tests for desktop work-source pure helpers."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import sys
 import json
+import os
+import time
 import unittest
 from unittest.mock import patch
 
@@ -81,6 +83,27 @@ class WorkSourcesHelpersTests(unittest.TestCase):
         self.assertEqual(
             str(error.exception), "since must be today, yesterday or week"
         )
+
+    @unittest.skipUnless(hasattr(time, "tzset"), "requires local timezone control")
+    def test_window_uses_each_local_dates_dst_offset(self):
+        try:
+            with patch.dict(os.environ, {"TZ": "America/New_York"}):
+                time.tzset()
+                for now, hours in ((datetime(2026, 3, 9, 12), 23),
+                                   (datetime(2026, 11, 2, 12), 25)):
+                    with self.subTest(now=now), patch.object(sources, "datetime", wraps=datetime) as clock:
+                        clock.now.return_value = now
+                        start, end = sources.window("yesterday")
+                        midnight = now.replace(hour=0)
+                        previous = midnight.replace(day=midnight.day - 1)
+                        self.assertEqual(start, previous.timestamp())
+                        self.assertEqual(end, midnight.timestamp())
+                        self.assertEqual(end - start, hours * 3600)
+                        week_start, week_end = sources.window("week")
+                        self.assertEqual(week_start, (now - timedelta(days=7)).timestamp())
+                        self.assertEqual(week_end, now.timestamp())
+        finally:
+            time.tzset()
 
     def test_in_window(self):
         self.assertTrue(sources.in_window(10, 10, 20))

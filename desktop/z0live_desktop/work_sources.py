@@ -109,7 +109,8 @@ def project_name(value):
 
 
 def window(since="week"):
-    now = datetime.now().astimezone()
+    # Keep wall-clock arithmetic local; timestamp() resolves each date's DST offset.
+    now = datetime.now()
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     if since == "today":
         return today.timestamp(), now.timestamp()
