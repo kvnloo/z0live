@@ -178,6 +178,25 @@ class DeliveryTests(unittest.TestCase):
         )
         self.assertEqual(self.cursor(), last_id)
 
+    def test_non_object_receipts_keep_cursor_without_crashing(self):
+        last_id = self.store.publish(
+            "retain after malformed receipt", sid=self.sid, source="lookup:shape"
+        )
+        for receipt in ("null", "[]", '"synthetic"', "42", "true"):
+            with self.subTest(receipt=receipt):
+                self.send.return_value = subprocess.CompletedProcess(
+                    args=["hermes"], returncode=0, stdout=receipt
+                )
+                self.tick()
+                self.assertEqual(self.cursor(), self.initial_cursor)
+                self.assertEqual(
+                    self.send.call_args.kwargs["input"],
+                    HEADER + "retain after malformed receipt",
+                )
+        self.send.return_value = SUCCESS
+        self.tick()
+        self.assertEqual(self.cursor(), last_id)
+
     def test_no_messages_still_advances_cursor(self):
         self.store.publish("maintenance one", sid=self.sid, source="housekeeping:a")
         last_id = self.store.publish(

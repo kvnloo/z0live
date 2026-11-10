@@ -95,6 +95,7 @@ class Delivery:
                 result = json.loads(p.stdout)
                 if (
                     p.returncode
+                    or not isinstance(result, dict)
                     or result.get("error")
                     or result.get("success") is False
                 ):
