@@ -18,6 +18,12 @@ from .core import ROOT, request_json
 def compact(value, limit=600):
     value = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
     # Defense in depth: excerpts go to a voice model, never credentials.
+    # Match JSON strings as a whole, including escaped quotes and whitespace.
+    value = re.sub(
+        r'(?i)("(?:api[_-]?key|token|password|secret)"\s*:\s*)"(?:\\.|[^"\\])*"',
+        r'\1"[REDACTED]"',
+        value,
+    )
     value = re.sub(
         r"(?i)(bearer\s+|(?:api[_-]?key|token|password|secret)\s*[=:]\s*)[^\s,\"}]+",
         r"\1[REDACTED]",
