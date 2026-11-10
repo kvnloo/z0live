@@ -292,7 +292,8 @@ export class DesktopBrokerClient {
   }
 
   private async open(method: "GET" | "POST", path: string, body: unknown,
-      signal?: AbortSignal): Promise<{ response: Response; cleanup: () => void }> {
+      signal?: AbortSignal): Promise<{ response: Response; cleanup: () => void;
+      abortError: () => BrokerError | undefined }> {
     const controller = new AbortController();
     let timedOut = false;
     let cancelled = signal?.aborted ?? false;
@@ -300,6 +301,9 @@ export class DesktopBrokerClient {
     if (signal) signal.addEventListener("abort", abort, { once: true });
     if (cancelled) controller.abort();
     const timer = setTimeout(() => { timedOut = true; controller.abort(); }, this.timeoutMs);
+    const abortError = () => timedOut
+      ? new BrokerError("timeout", "broker request timed out")
+      : cancelled ? new BrokerError("aborted", "broker request aborted") : undefined;
     const cleanup = () => {
       clearTimeout(timer);
       if (signal) signal.removeEventListener("abort", abort);
@@ -319,7 +323,7 @@ export class DesktopBrokerClient {
       if (response.redirected || (response.status >= 300 && response.status < 400)) {
         throw new BrokerError("http", "redirect refused", response.status);
       }
-      return { response, cleanup };
+      return { response, cleanup, abortError };
     } catch (error) {
       cleanup();
       if (error instanceof BrokerError) throw error;
@@ -339,7 +343,7 @@ export class DesktopBrokerClient {
     const bounded = method === "GET" ? Math.min(2, Math.max(0, Math.trunc(retries))) : 0;
     for (let attempt = 0; ; attempt++) {
       try {
-        const { response, cleanup } = await this.open(method, path, body, signal);
+        const { response, cleanup, abortError } = await this.open(method, path, body, signal);
         try {
           const raw = await response.text();
           if (!response.ok) {
@@ -349,6 +353,9 @@ export class DesktopBrokerClient {
               response.status);
           }
           return parser(parseJson(raw));
+        } catch (error) {
+          // Fetch can resolve headers before the request timer aborts its body.
+          throw abortError() ?? error;
         } finally { cleanup(); }
       } catch (error) {
         const err = error instanceof BrokerError ? error :
@@ -456,7 +463,7 @@ export class DesktopBrokerClient {
 
   async *stream(after = 0, signal?: AbortSignal): AsyncGenerator<SSEMessage> {
     let cursor = integer(after, "stream.after");
-    const { response, cleanup } = await this.open(
+    const { response, cleanup, abortError } = await this.open(
       "GET", "/v1/stream?after=" + cursor, undefined, signal);
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     try {
@@ -505,6 +512,8 @@ export class DesktopBrokerClient {
       }
       if (pending.trim().length !== 0) fail("truncated SSE message");
     } catch (error) {
+      const aborted = abortError();
+      if (aborted) throw aborted;
       if (error instanceof BrokerError) throw error;
       throw new BrokerError(signal?.aborted ? "aborted" : "network", "broker SSE interrupted");
     } finally {
