@@ -130,6 +130,32 @@ class DeliveryTests(unittest.TestCase):
         )
         self.assertEqual(self.cursor(), last_id)
 
+    def test_mixed_sources_preserve_inbox_order(self):
+        with self.store.connect() as db:
+            for run_id, kind in (("first", "task"), ("middle", "question"),
+                                 ("filtered", "summary")):
+                db.execute(
+                    "INSERT INTO jobs(kind,session_id,text,created,run_id) VALUES(?,?,?,?,?)",
+                    (kind, self.sid, "fixture", 1.0, run_id),
+                )
+        entries = [
+            ("first result", "run:first"),
+            ("next lookup", "lookup:next"),
+            ("omit summary", "run:filtered"),
+            ("middle result", "run:middle"),
+            ("last update", "task-progress:last"),
+            ("omit housekeeping", "housekeeping:last"),
+        ]
+        for text, source in entries:
+            last_id = self.store.publish(text, sid=self.sid, source=source)
+        self.tick()
+        self.send.assert_called_once()
+        self.assertEqual(
+            self.send.call_args.kwargs["input"],
+            HEADER + "first result\n\nnext lookup\n\nmiddle result\n\nlast update",
+        )
+        self.assertEqual(self.cursor(), last_id)
+
     def test_failure_keeps_cursor_for_retry(self):
         last_id = self.store.publish(
             "retry this work", sid=self.sid, source="lookup:retry"
