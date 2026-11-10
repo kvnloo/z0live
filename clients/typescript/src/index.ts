@@ -331,6 +331,10 @@ export class DesktopBrokerClient {
 
   private async json<T>(method: "GET" | "POST", path: string, body: unknown,
       parser: (v: unknown) => T, signal?: AbortSignal, retries = 0): Promise<T> {
+    // NaN would make attempt >= bounded permanently false and retry forever.
+    if (!Number.isFinite(retries)) {
+      throw new BrokerError("configuration", "retries must be finite");
+    }
     // At most two retries for explicitly requested idempotent GET reads.
     const bounded = method === "GET" ? Math.min(2, Math.max(0, Math.trunc(retries))) : 0;
     for (let attempt = 0; ; attempt++) {
@@ -388,7 +392,7 @@ export class DesktopBrokerClient {
     }
     const parse = name === "tell_hermes" ? parseQueue :
       name === "summarize" ? parseSummary : parseContext;
-    return this.json("POST", "/v1/tools/" + name, {
+    return this.json<QueueResult | ContextResult | SummaryResult>("POST", "/v1/tools/" + name, {
       session_id: sid, arguments: args,
     }, parse, signal);
   }
