@@ -60,3 +60,5 @@ AbortSignal supported for each request; a bounded timeout and redirect refusal a
 `BrokerError.kind`: `configuration`, `protocol`, `auth` (401), `http` (other non-2xx/redirect), `network`, `aborted`, `timeout`. HTTP status is retained but bearer, headers, and server body are not reflected in messages. App-local permissions, unsupported tools, stale sessions and `queued` are distinct from verified completion. A timed-out mutation is uncertain: obtain an independent receipt or user approval before replay; never silently remint/reexecute.
 
 Known bounds: server replay is at-least-once and device-scoped; this SDK cannot atomically commit a local phone action and cursor. In-memory cursor loss after process death will replay messages. Provider audio/device/worker qualification: **NOT RUN**. See [desktop API](../../docs/API.md).
+
+Concurrent acknowledgments through one client are serialized so delayed cursor writes cannot move its cursor backward. Separate clients/processes sharing a cursor store still require caller-managed coordination; this is not an atomic action-and-cursor transaction.

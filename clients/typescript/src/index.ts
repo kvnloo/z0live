@@ -278,6 +278,7 @@ export class DesktopBrokerClient {
   private readonly nowSeconds: () => number;
   private readonly cursorStore: CursorStore | undefined;
   private readonly timeoutMs: number;
+  private cursorWrites: Promise<void> = Promise.resolve();
 
   constructor(options: Options) {
     this.origin = requireOrigin(options.origin);
@@ -431,12 +432,17 @@ export class DesktopBrokerClient {
   async acknowledge(message: InboxMessage): Promise<boolean> {
     const parsed = parseMessage(message);
     if (!this.cursorStore) throw new BrokerError("configuration", "no injected cursor store");
-    const previous = this.cursorStore.load();
-    const old = (await previous) ?? 0;
-    integer(old, "stored cursor");
-    if (parsed.id <= old) return false;
-    await this.cursorStore.save(parsed.id);
-    return true;
+    const store = this.cursorStore;
+    const update = this.cursorWrites.then(async () => {
+      const old = (await store.load()) ?? 0;
+      integer(old, "stored cursor");
+      if (parsed.id <= old) return false;
+      await store.save(parsed.id);
+      return true;
+    });
+    // Serialize read/compare/write, but do not poison the queue after a failure.
+    this.cursorWrites = update.then(() => undefined, () => undefined);
+    return update;
   }
 
   async listSessions(signal?: AbortSignal): Promise<Session[]> {

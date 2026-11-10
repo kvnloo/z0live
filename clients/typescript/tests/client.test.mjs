@@ -353,3 +353,40 @@ test("SSE supports CR, LF and CRLF lines across transport boundaries", async () 
     }
   }
 });
+
+test("concurrent acknowledgments never move the stored cursor backward", async () => {
+  let after = 0;
+  const cursorStore = {
+    load: () => after,
+    async save(id) {
+      if (id === 1) await new Promise(resolve => setImmediate(resolve));
+      after = id;
+    },
+  };
+  const { client } = createClient(() => json(page()), { cursorStore });
+  assert.deepEqual(await Promise.all([
+    client.acknowledge(goodMessage(1)), client.acknowledge(goodMessage(2)),
+  ]), [true, true]);
+  assert.equal(after, 2);
+  assert.deepEqual(await Promise.all([
+    client.acknowledge(goodMessage(3)), client.acknowledge(goodMessage(3)),
+  ]), [true, false]);
+  assert.equal(after, 3);
+});
+
+test("a failed cursor write does not block subsequent acknowledgments", async () => {
+  let after = 0;
+  const failure = new Error("synthetic write failure");
+  const { client } = createClient(() => json(page()), { cursorStore: {
+    load: () => after,
+    async save(id) {
+      if (id === 1) throw failure;
+      after = id;
+    },
+  } });
+  const failed = client.acknowledge(goodMessage(1));
+  const next = client.acknowledge(goodMessage(2));
+  await assert.rejects(failed, error => error === failure);
+  assert.equal(await next, true);
+  assert.equal(after, 2);
+});
