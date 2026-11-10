@@ -485,9 +485,10 @@ export class DesktopBrokerClient {
         pending += decoder.decode(chunk.value, { stream: !done });
         // Preserve a trailing isolated CR until the next chunk.
         pending = pending.replace(/\r\n/g, "\n");
-        if (pending.length > 131072) fail("SSE message buffer exceeded");
         let boundary = pending.indexOf("\n\n");
         while (boundary >= 0) {
+          // A transport chunk may contain many individually bounded frames.
+          if (boundary > 131072) fail("SSE message buffer exceeded");
           const block = pending.slice(0, boundary);
           pending = pending.slice(boundary + 2);
           boundary = pending.indexOf("\n\n");
@@ -509,6 +510,7 @@ export class DesktopBrokerClient {
           cursor = parsedId;
           yield { event: "message", id: parsedId, data: message };
         }
+        if (pending.length > 131072) fail("SSE message buffer exceeded");
       }
       if (pending.trim().length !== 0) fail("truncated SSE message");
     } catch (error) {

@@ -312,3 +312,29 @@ test("JSON and SSE body cancellation remains distinct from network failure", asy
     }
   }
 });
+
+
+test("SSE frame limits are independent of transport chunk batching", async () => {
+  const frames = Array.from({ length: 1500 }, (_, i) =>
+    `id: ${i + 1}\ndata: ${JSON.stringify(goodMessage(i + 1))}\n\n`);
+  const packet = frames.join("");
+  assert.ok(packet.length > 131072);
+  for (const parts of [[packet], frames]) {
+    const { client } = createClient(() => sseResponse(
+      parts.map(part => new TextEncoder().encode(part))));
+    const ids = [];
+    for await (const event of client.stream()) ids.push(event.id);
+    assert.deepEqual(ids, frames.map((_, i) => i + 1));
+  }
+});
+
+test("SSE oversized complete and incomplete frames remain rejected", async () => {
+  for (const ending of ["", "\n\n"]) {
+    const oversized = ":" + "x".repeat(131072) + ending;
+    for (const parts of [[oversized], [oversized.slice(0, 65536), oversized.slice(65536)]]) {
+      const { client } = createClient(() => sseResponse(
+        parts.map(part => new TextEncoder().encode(part))));
+      await errorKind(client.stream().next(), "protocol");
+    }
+  }
+});
