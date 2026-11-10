@@ -245,3 +245,16 @@ test("server redirects refused and invalid queued/completed claims rejected", as
   await errorKind(falseClaim.client.callBuiltin(
     "tell_hermes", sid, { kind: "request", text: "synthetic" }), "protocol");
 });
+
+test("non-finite retry limits fail before sending a request", async () => {
+  for (const retries of [NaN, Infinity, -Infinity]) {
+    // Succeed on the fourth call so a broken unbounded retry loop terminates.
+    let attempts = 0;
+    const { client, calls } = createClient(() => {
+      attempts++;
+      return attempts <= 3 ? json({}, 503) : json(page());
+    });
+    await errorKind(client.getInbox(0, { retries }), "configuration");
+    assert.equal(calls.length, 0);
+  }
+});
