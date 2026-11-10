@@ -483,8 +483,10 @@ export class DesktopBrokerClient {
         const chunk = await reader.read();
         done = chunk.done;
         pending += decoder.decode(chunk.value, { stream: !done });
-        // Preserve a trailing isolated CR until the next chunk.
-        pending = pending.replace(/\r\n/g, "\n");
+        // SSE accepts CR, LF and CRLF. Defer a trailing CR until we know
+        // whether the next chunk starts with LF, or the stream has ended.
+        pending = pending.replace(/\r\n/g, "\n")
+          .replace(done ? /\r/g : /\r(?!$)/g, "\n");
         let boundary = pending.indexOf("\n\n");
         while (boundary >= 0) {
           // A transport chunk may contain many individually bounded frames.

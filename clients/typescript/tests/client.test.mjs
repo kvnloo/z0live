@@ -338,3 +338,18 @@ test("SSE oversized complete and incomplete frames remain rejected", async () =>
     }
   }
 });
+
+test("SSE supports CR, LF and CRLF lines across transport boundaries", async () => {
+  const original = goodMessage(1, "synthetic café");
+  for (const newline of ["\r", "\n", "\r\n"]) {
+    const packet = [": heartbeat", "", "id: 1", "event: message",
+      "data: " + JSON.stringify(original), "", ""].join(newline);
+    const bytes = new TextEncoder().encode(packet);
+    for (const parts of [[bytes], Array.from(bytes, byte => Uint8Array.of(byte))]) {
+      const { client } = createClient(() => sseResponse(parts));
+      const events = [];
+      for await (const event of client.stream()) events.push(event);
+      assert.deepEqual(events, [{ event: "message", id: 1, data: original }]);
+    }
+  }
+});
