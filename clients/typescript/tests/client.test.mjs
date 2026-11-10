@@ -258,3 +258,57 @@ test("non-finite retry limits fail before sending a request", async () => {
     assert.equal(calls.length, 0);
   }
 });
+
+test("JSON body timeouts retain timeout classification after headers arrive", async () => {
+  const { client, calls } = createClient((_, init) => new Response(
+    new ReadableStream({
+      start(controller) {
+        init.signal.addEventListener("abort", () => {
+          controller.error(new DOMException("aborted", "AbortError"));
+        }, { once: true });
+      },
+    }),
+    { headers: { "Content-Type": "application/json" } },
+  ), { timeoutMs: 5 });
+  await errorKind(client.getInbox(), "timeout");
+  assert.equal(calls.length, 1);
+});
+
+test("SSE body timeouts retain timeout classification after headers arrive", async () => {
+  const { client } = createClient((_, init) => new Response(
+    new ReadableStream({
+      start(controller) {
+        init.signal.addEventListener("abort", () => {
+          controller.error(new DOMException("aborted", "AbortError"));
+        }, { once: true });
+      },
+    }),
+    { headers: { "Content-Type": "text/event-stream" } },
+  ), { timeoutMs: 5 });
+  await errorKind(client.stream().next(), "timeout");
+});
+
+test("JSON and SSE body cancellation remains distinct from network failure", async () => {
+  for (const streaming of [false, true]) {
+    for (const cancel of [false, true]) {
+      const caller = new AbortController();
+      const { client } = createClient((_, init) => new Response(
+        new ReadableStream({
+          start(controller) {
+            init.signal.addEventListener("abort", () => {
+              controller.error(new DOMException("aborted", "AbortError"));
+            }, { once: true });
+            queueMicrotask(() => {
+              if (cancel) caller.abort();
+              else controller.error(new Error("transport body failed"));
+            });
+          },
+        }),
+        { headers: { "Content-Type": streaming ? "text/event-stream" : "application/json" } },
+      ));
+      const result = streaming ? client.stream(0, caller.signal).next()
+        : client.getInbox(0, { signal: caller.signal });
+      await errorKind(result, cancel ? "aborted" : "network");
+    }
+  }
+});
