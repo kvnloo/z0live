@@ -180,5 +180,6 @@ def status(fanout, sid) -> dict:
             "ms": a.get("ms"),
             "entry": {k: entry[k] for k in ("id", "text", "confidence", "status", "kind")} if entry else None,
         })
+    stamps = [t for a in activity.values() for t in (a.get("started"), a.get("finished")) if t]
     return {"session_id": sid, "revision": cfg.get("revision"), "epoch": board["epoch"], "lanes": lanes,
-            "at": time.time()}
+            "active_at": max(stamps, default=None), "at": time.time()}

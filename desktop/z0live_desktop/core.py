@@ -620,7 +620,12 @@ class Store:
                                  (device,)).fetchone()
         if row is None:
             return {"session_id": None, "open": False, "lanes": []}
-        return {**status(self.lanes, row["id"]), "open": not row["ended"], "started": row["created"]}
+        out = status(self.lanes, row["id"])
+        # Sessions are only ended explicitly, so an abandoned call would stay "open" for hours: open also
+        # needs session or lane activity within Z0LIVE_LANES_STALE_SECONDS.
+        last = max(row["updated"], row["created"], out["active_at"] or 0)
+        fresh = time.time() - last < float(os.environ.get("Z0LIVE_LANES_STALE_SECONDS", "900"))
+        return {**out, "open": not row["ended"] and fresh, "started": row["created"]}
 
     def lane_launch(self, device, body):
         """POST /v1/lanes/launch: pick (or change) this call's lane topology."""
