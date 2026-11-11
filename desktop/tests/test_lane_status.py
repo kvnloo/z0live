@@ -32,6 +32,13 @@ class LaneStatusTests(Base):
         for key in ("fast:qwen3-1.7b", "small:smol", "large:slow"):
             self.assertEqual((rows[key]["state"], rows[key]["researching"], rows[key]["entry"]), ("idle", None, None))
 
+    def test_model_bound_twice_in_one_role_is_one_lane(self):
+        out = self.fanout({})
+        models = out.calls[self.sid]["lanes"]["smol"]["models"]
+        models[1] = dict(models[0])  # the stored "router06b" variant: the 0.6b both routes and races
+        ids = [r["id"] for r in lane_status.status(out, self.sid)["lanes"]]
+        self.assertEqual(ids, ["fast:qwen3-0.6b-q8", "small:smol", "large:slow"])
+
     def test_answer_then_verify_and_errors(self):
         out = self.fanout({
             "qwen3-1.7b": (0, '{"route":"answer","intent":"capital","kind":"simple","complete":true}'),
