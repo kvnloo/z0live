@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 from collections import Counter, defaultdict, deque
+from array import array
 import hashlib
 import importlib.util
 import json
@@ -354,16 +355,86 @@ class Protocol:
         return result
 
 
+# Per-call event trace (owner 2026-11-10: "make sure the trace works and it's being stored so we can
+# analyze and optimize"). One JSONL per call, local only, includes transcripts; no audio is stored.
+# Analyze with trace_report.py. HERMES_MOBILE_VOICE_TRACE=0 turns it off.
+TRACE_DIR = Path(os.environ.get("HERMES_MOBILE_VOICE_TRACE_DIR",
+                                "/mnt/zer0models/sft-svlm/data/voice-traces/hermes-mobile-live"))
+ADAPTER_REV = hashlib.sha1(Path(__file__).read_bytes()).hexdigest()[:12]
+LEVEL_ON = 800          # s16 peak (~-32 dBFS) that counts as sound
+LEVEL_OFF_SECONDS = 0.3  # quiet this long ends a sound span
+
+
+class Trace:
+    def __init__(self, call_id):
+        self.t0, self.f = time.monotonic(), None
+        if os.environ.get("HERMES_MOBILE_VOICE_TRACE", "1") == "0":
+            return
+        try:
+            day = TRACE_DIR / time.strftime("%Y-%m-%d")
+            day.mkdir(parents=True, exist_ok=True)
+            self.path = day / f"{time.strftime('%H%M%S')}-{call_id}.jsonl"
+            self.f = open(self.path, "a", buffering=1, encoding="utf-8")
+        except OSError as exc:
+            LOG.warning("voice trace unavailable: %s", type(exc).__name__)
+
+    def __call__(self, ev, **data):
+        if self.f:
+            try:
+                self.f.write(json.dumps({"t": round(time.monotonic() - self.t0, 3), "wall": round(time.time(), 3),
+                                         "ev": ev, **data}, ensure_ascii=False, default=str) + "\n")
+            except (OSError, ValueError):
+                pass
+
+    def close(self):
+        if self.f:
+            self.f.close()
+            self.f = None
+
+
+def slim(event, limit=1500):
+    raw = json.dumps(event, ensure_ascii=False, default=str)
+    return event if len(raw) <= limit else {"type": event.get("type"), "truncated": raw[:limit]}
+
+
+class Level:
+    """Sound on/off spans of one audio direction, from frame peaks (energy, not speech recognition)."""
+    def __init__(self, call, direction):
+        self.call, self.direction, self.on, self.quiet, self.peak = call, direction, None, 0.0, 0
+
+    def frame(self, frame):
+        try:
+            pcm = array("h", bytes(frame.planes[0])[:frame.samples * len(frame.layout.channels) * 2])
+            peak = max(max(pcm), -min(pcm)) if pcm else 0
+        except Exception:  # noqa: BLE001 - tracing must never break audio
+            return
+        now = time.monotonic()
+        if peak >= LEVEL_ON:
+            self.quiet = 0.0
+            self.peak = max(self.peak, peak)
+            if self.on is None:
+                self.on = now
+                self.call.trace("audio.on", dir=self.direction, peak=peak, muted=self.call.muted)
+        elif self.on is not None:
+            self.quiet = self.quiet or now
+            if now - self.quiet >= LEVEL_OFF_SECONDS:
+                self.call.trace("audio.off", dir=self.direction, at=round(self.quiet - self.call.trace.t0, 3),
+                                span=round(self.quiet - self.on, 3), peak=self.peak)
+                self.on, self.quiet, self.peak = None, 0.0, 0
+
+
 class AudioBridge(MediaStreamTrack):
     kind = "audio"
 
     def __init__(self, source, call, direction):
         super().__init__()
         self.source, self.call, self.direction = source, call, direction
+        self.level = Level(call, direction)
 
     async def recv(self):
         frame = await self.source.recv()
         self.call.counts[self.direction + "_frames"] += 1
+        self.level.frame(frame)
         if self.direction == "input" and self.call.muted:
             for plane in frame.planes:
                 plane.update(bytes(plane.buffer_size))
@@ -390,6 +461,9 @@ class Call:
         self.tasks = set()
         self.relay = LaneRelay.from_env() if (LaneRelay and HOST_DELEGATION) else None
         self.lane_said = {}  # delegation id -> (lane answer, entry id)
+        self.trace = Trace(self.id)
+        self.trace("call.created", profile=profile, model=MODEL, rev=ADAPTER_REV, pid=os.getpid(),
+                   host_delegation=HOST_DELEGATION, lanes=bool(self.relay))
 
         @self.mobile.on("track")
         def mobile_track(track):
@@ -425,6 +499,8 @@ class Call:
         for peer in (self.mobile, self.provider):
             @peer.on("connectionstatechange")
             async def changed(peer=peer):
+                self.trace("peer.state", peer="mobile" if peer is self.mobile else "provider",
+                           state=peer.connectionState)
                 if peer.connectionState in ("failed", "closed"):
                     self.spawn(self.close("transport_closed"))
 
@@ -439,6 +515,7 @@ class Call:
             channel.send(json.dumps(pending.popleft()))
 
     def send(self, event, to_provider=False):
+        self.trace("tx", to="provider" if to_provider else "mobile", type=event.get("type"), event=slim(event))
         channel = self.provider_dc if to_provider else self.mobile_dc
         pending = self.to_provider if to_provider else self.to_mobile
         if channel is not None and channel.readyState == "open" and (not to_provider or self.provider_ready):
@@ -459,6 +536,7 @@ class Call:
         if not isinstance(event, dict):
             return
         kind = str(event.get("type", ""))[:80]
+        self.trace("rx", src="provider" if from_provider else "mobile", type=kind, event=slim(event))
         self.counts[("provider:" if from_provider else "mobile:") + kind] += 1
         if from_provider and kind == "session.started":
             self.provider_ready = True
@@ -481,6 +559,7 @@ class Call:
             self.spawn(self.close("client_closed" if not from_provider else "provider_closed"))
 
     async def start(self, sdp, history):
+        self.trace("call.start", history_items=len(history) if isinstance(history, list) else None)
         try:
             await self.mobile.setRemoteDescription(RTCSessionDescription(sdp=sdp, type="offer"))
             if not any(t.kind == "audio" for t in self.provider.getTransceivers()):
@@ -492,6 +571,7 @@ class Call:
                                    "audio": {"output": {"voice": "sol"}},
                                    "delegation": {"type": "client"}}}
             headers = await asyncio.to_thread(codex_headers)
+            self.trace("signaling.request")
             async with self.manager.http.post(SIGNALING, json=payload, headers=headers,
                                              timeout=ClientTimeout(total=35)) as resp:
                 if resp.status not in (200, 201):
@@ -503,6 +583,7 @@ class Call:
                         raise RuntimeError("The ChatGPT subscription voice quota is exhausted")
                     raise RuntimeError("Subscription voice signaling failed (HTTP %s)" % resp.status)
                 answer = await resp.text()
+                self.trace("signaling.answer", status=resp.status)
                 if not answer.startswith("v=0"):
                     raise RuntimeError("Subscription voice returned an invalid SDP answer")
             await self.provider.setRemoteDescription(RTCSessionDescription(sdp=answer, type="answer"))
@@ -531,10 +612,12 @@ class Call:
             self.spawn(self.watchdog())
             if self.relay:
                 self.spawn(self.relay_start())
+            self.trace("call.negotiated", setup_s=round(time.monotonic() - self.created, 3), context_items=len(context))
             LOG.info("subscription voice negotiated id=%s", self.id)
             return {"ok": True, "session": {"id": self.id},
                     "transport": {"type": "webrtc", "sdp": self.mobile.localDescription.sdp}}
-        except BaseException:
+        except BaseException as exc:
+            self.trace("call.setup_failed", error=type(exc).__name__, detail=str(exc)[:300])
             await self.close("setup_failed")
             raise
 
@@ -556,6 +639,8 @@ class Call:
             while not job.done() and not self.closed:
                 if path.exists():
                     quick = json.loads(path.read_text()).get("answer", "")
+                    self.trace("fast_lane.answer", did=did, text=quick[:2000],
+                               unhelpful=bool(quick and UNHELPFUL.match(quick)))
                     if quick and UNHELPFUL.match(quick):
                         self.counts["fast_lane_unhelpful"] += 1
                     elif quick:
@@ -622,12 +707,15 @@ class Call:
 
     async def host_delegate(self, did, request):
         self.counts["host_delegations"] += 1
+        began = time.monotonic()
+        self.trace("delegation.start", did=did, request=(request or "")[:4000])
         lane = None
         if self.relay:
             try:
                 lane = await self.relay.answer(request)
             except Exception as exc:  # noqa: BLE001
                 LOG.warning("lanes relay answer failed id=%s: %s", self.id, type(exc).__name__)
+            self.trace("delegation.lane", did=did, text=(lane or "")[:2000], s=round(time.monotonic() - began, 3))
             if lane and not self.closed:
                 self.counts["lane_answer_spoken"] += 1
                 receipt = (self.relay.turn or {}).get("receipt") or {}
@@ -652,14 +740,19 @@ class Call:
                 runner.stop()
             answer = await job
             self.counts["host_delegation_ok"] += 1
+            self.trace("delegation.done", did=did, s=round(time.monotonic() - began, 3), answer=answer[:4000],
+                       closed=self.closed)
             if lane and covered(lane, answer, request):
                 self.counts["host_delegation_covered"] += 1  # the lane already said it
                 return
         except Exception as exc:  # noqa: BLE001 - every failure is spoken, never silent
             LOG.warning("host delegation failed id=%s: %s", self.id, type(exc).__name__)
             self.counts["host_delegation_failed"] += 1
+            self.trace("delegation.failed", did=did, s=round(time.monotonic() - began, 3), error=type(exc).__name__,
+                       detail=str(exc)[:300])
             answer = "I couldn't finish that in Hermes: " + str(exc)[:200]
         if self.closed:
+            self.trace("delegation.dropped_after_close", did=did)
             return
         for msg in self.protocol.from_mobile({"type": "session.commentary.append",
                                               "delegation_id": did, "content": answer}):
@@ -693,6 +786,9 @@ class Call:
         self.manager.recent.append({"id": self.id, "reason": reason,
                                     "seconds": round(time.monotonic() - self.created, 1),
                                     "counts": dict(self.counts)})
+        self.trace("call.closed", reason=reason, seconds=round(time.monotonic() - self.created, 1),
+                   counts=dict(self.counts))
+        self.trace.close()
         LOG.info("subscription voice closed id=%s reason=%s counts=%s", self.id, reason, dict(self.counts))
 
 
