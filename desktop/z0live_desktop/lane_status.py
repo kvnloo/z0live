@@ -145,7 +145,8 @@ def _bindings(cfg) -> list[tuple[str, dict]]:
         seats = (council.get("params") or {}).get("seats") or []
         out.append(("council", {"model": "+".join(map(str, seats)) or council.get("pattern", "council"),
                                 "route": "council", "provider": "council"}))
-    return out
+    seen = set()  # a model bound twice under one role (e.g. router + racer) is one lane: activity is keyed by role:model
+    return [(r, b) for r, b in out if (r, b.get("model")) not in seen and not seen.add((r, b.get("model")))]
 
 
 def status(fanout, sid) -> dict:
