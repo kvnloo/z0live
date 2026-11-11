@@ -311,7 +311,23 @@ export class DesktopBrokerClient {
     };
     try {
       // Origin comes from validated constructor; paths are internal literals only.
-      const token = string(await this.token(), "device bearer");
+      const bearer = await new Promise<string>((resolve, reject) => {
+        const stop = () => reject(abortError() ??
+          new BrokerError("aborted", "broker request aborted"));
+        if (controller.signal.aborted) { stop(); return; }
+        controller.signal.addEventListener("abort", stop, { once: true });
+        // Do not let a stalled credential provider outlive the request deadline.
+        Promise.resolve().then(() => this.token()).then(value => {
+          controller.signal.removeEventListener("abort", stop);
+          resolve(value);
+        }, error => {
+          controller.signal.removeEventListener("abort", stop);
+          reject(error);
+        });
+      });
+      const stopped = abortError();
+      if (stopped) throw stopped;
+      const token = string(bearer, "device bearer");
       const response = await this.fetchImpl(this.origin + path, {
         method, redirect: "manual", credentials: "omit", cache: "no-store",
         headers: {
