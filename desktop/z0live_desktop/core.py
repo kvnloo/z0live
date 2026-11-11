@@ -411,6 +411,9 @@ class Store:
                 from .lane_fanout import Fanout
 
                 self._lanes = Fanout(self, publish=lambda sid, say, source: self.publish(say, sid=sid, source=source))
+                from .lane_status import install
+
+                install(self._lanes)
             return self._lanes
 
     def fan_out(self, sid, transcript, partial=False):
@@ -603,6 +606,21 @@ class Store:
         LOG.info("lanes relay final sid=%s %s", sid, {k: v for k, v in receipt.items() if k != "verify"})
         return {"ok": True, "receipt": {k: v for k, v in receipt.items() if k != "verify"},
                 "checking": "verify" in receipt}
+
+    def lane_status(self, device, sid=None):
+        """GET /v1/lanes/status: each helper lane's real state for one call (default: this device's newest
+        session), for live-mode UIs. See lane_status.py."""
+        from .lane_status import status
+
+        with self.connect() as db:
+            if sid:
+                row = self.owned(db, sid, device)
+            else:
+                row = db.execute("SELECT * FROM sessions WHERE device=? ORDER BY created DESC LIMIT 1",
+                                 (device,)).fetchone()
+        if row is None:
+            return {"session_id": None, "open": False, "lanes": []}
+        return {**status(self.lanes, row["id"]), "open": not row["ended"], "started": row["created"]}
 
     def lane_launch(self, device, body):
         """POST /v1/lanes/launch: pick (or change) this call's lane topology."""
