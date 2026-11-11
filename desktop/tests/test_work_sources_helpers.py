@@ -113,6 +113,14 @@ class WorkSourcesHelpersTests(unittest.TestCase):
         self.assertFalse(sources.in_window("garbage", 0, 1))
         self.assertFalse(sources.in_window(None, 0, 1))
 
+    def test_in_window_rejects_overflowing_numeric_timestamps(self):
+        for value in (10**400, -(10**400)):
+            with self.subTest(sign=value > 0):
+                self.assertFalse(sources.in_window(value, 0, 100))
+        # Reject the malformed record without preventing later valid records.
+        values = [10**400, 10, -(10**400), 20]
+        self.assertEqual([v for v in values if sources.in_window(v, 10, 20)], [10])
+
     def test_terms(self):
         self.assertEqual(
             sources.terms("What was I working on in z0live yesterday?"),

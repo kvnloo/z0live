@@ -129,7 +129,7 @@ def in_window(value, start, end):
             else datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
         )
         return start <= stamp < end
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return False
 
 
