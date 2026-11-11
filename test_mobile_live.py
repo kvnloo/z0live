@@ -4,7 +4,7 @@ import json
 import os
 import unittest
 
-# Unit tests never spawn a real liaison engine (fx/hermes); tests that need one patch live.liaison.
+# Unit tests never spawn a real lane or driver: tests patch live.run_hermes and use fake relays.
 os.environ.setdefault('HERMES_MOBILE_VOICE_LIAISON', '0')
 from unittest.mock import patch
 
@@ -328,96 +328,81 @@ class IntegrationTests(unittest.IsolatedAsyncioTestCase):
 
 
 
-class FastLaneVoiceTests(unittest.IsolatedAsyncioTestCase):
-    async def test_quick_answer_is_spoken_before_full_answer(self):
-        import tempfile, types
-        from collections import Counter
-        from pathlib import Path
-        said = []
-        call = types.SimpleNamespace(id="c1", closed=False, counts=Counter(),
-                                     speak_for=lambda did, text: said.append((did, text)))
-        with tempfile.TemporaryDirectory() as d:
-            spool = Path(d) / "a.json"
-            async def hermes():
-                await asyncio.sleep(0.2)
-                spool.write_text(json.dumps({"answer": "9168", "model": "gpt-6-luna"}))
-                await asyncio.sleep(1.5)
-                return "full"
-            job = asyncio.ensure_future(hermes())
-            await live.Call.speak_fast_lane(call, "d1", spool, job)
-            self.assertFalse(job.done())          # spoken while the full answer was still running
-            self.assertEqual(said, [("d1", "Quick first look, still being checked: 9168")])
-            self.assertFalse(spool.exists())
-            await job
+class OneFastLaneTests(unittest.IsolatedAsyncioTestCase):
+    """L2 (11-11): one fast-lane system. The z0live lanes (smol + the tool-using gather lane) race the
+    driver, which starts at once; there is no second, adapter-owned liaison any more."""
 
-    async def test_not_found_quick_answer_is_never_spoken(self):
-        import tempfile, types
-        from collections import Counter
-        from pathlib import Path
-        said = []
-        call = types.SimpleNamespace(id="c1", closed=False, counts=Counter(),
-                                     speak_for=lambda did, text: said.append((did, text)))
-        with tempfile.TemporaryDirectory() as d:
-            spool = Path(d) / "a.json"
-            spool.write_text(json.dumps({"answer": "Not found in the local workspace.", "model": "gpt-6-luna"}))
-            job = asyncio.ensure_future(asyncio.sleep(0.3))
-            await live.Call.speak_fast_lane(call, "d1", spool, job)
-            self.assertEqual(said, [])
-            self.assertEqual(call.counts["fast_lane_unhelpful"], 1)
-            await job
+    class Relay:
+        def __init__(self, text, delay, source=None):
+            self.text, self.delay, self.cancelled = text, delay, False
+            self.counts, self.turn = {}, {"text": "q", "receipt": {}, **({"source": source} if source else {})}
 
-    async def test_liaison_answers_first_and_driver_runs_without_its_own_lane(self):
-        """Voice/driver split: the adapter starts the liaison at delegation, before the driver's cold start."""
-        import tempfile, threading, types
-        from pathlib import Path
-        with tempfile.TemporaryDirectory() as d:
-            logs = Path(d)
+        async def answer(self, request):
+            try:
+                await asyncio.sleep(self.delay)
+            except asyncio.CancelledError:
+                self.cancelled = True
+                raise
+            return self.text
 
-            class Lane:
-                def __init__(self, parent, text, key):
-                    self.key, self.stopped = key, False
-                def watch(self):  # the real plugin's spool thread writes the answer when it exists
-                    threading.Timer(0.1, lambda: (logs / "answers" / f"{self.key}.json").write_text(
-                        json.dumps({"answer": "detached HEAD at 2dd8589", "model": "gpt-6-luna"}))).start()
-                def stop(self):
-                    self.stopped = True
-            fl = types.SimpleNamespace(LOGS=logs, _lock=threading.Lock(), _lanes={}, Lane=Lane,
-                                       answer_key=lambda q: "k1", brief=lambda q: "brief " + q)
-            driver = []
-            def run_hermes(request, profile, own_lane=False):
-                driver.append(own_lane)
-                live.time.sleep(0.6)
-                return "The z0live checkout is on a detached HEAD (2dd8589)."
-            call = live.Call(live.Manager(None), profile='ayo')
-            call.relay = None
-            call.protocol.seen.append('d1')
-            sent = []
-            call.send = lambda event, to_provider=False: event.get('content') and sent.append(event['content'][0]['text'])
-            with patch.object(live, 'liaison', return_value=fl), patch.object(live, 'run_hermes', run_hermes):
-                await call.host_delegate('d1', 'which branch is z0live on')
-            self.assertEqual(driver, [True])  # FAST_LANE_OFF for the driver: one liaison, not two
-            self.assertIn('Quick first look', sent[0])
-            self.assertIn('2dd8589', sent[0])
-            self.assertIn('detached HEAD (2dd8589)', sent[-1])  # the driver's answer still follows
-            self.assertTrue(fl._lanes['%s' % call.id].stopped)
-            self.assertEqual(call.counts['liaison_started'], 1)
-            await call.close('test')
+        async def close(self):
+            pass
 
-    async def test_liaison_off_keeps_plugin_spool_path(self):
-        driver = []
-        call = live.Call(live.Manager(None), profile='')
-        call.relay = None
-        call.protocol.seen.append('d1')
-        call.send = lambda event, to_provider=False: None
+    async def delegate(self, relay, driver_s, answer="The z0live checkout is on a detached HEAD (2dd8589)."):
+        flags, sent = [], []
         def run_hermes(request, profile, own_lane=False):
-            driver.append(own_lane)
-            return 'ok'
-        with patch.object(live, 'liaison', return_value=None), patch.object(live, 'run_hermes', run_hermes):
-            await call.host_delegate('d1', 'q')
-        self.assertEqual(driver, [False])
+            flags.append(own_lane)
+            live.time.sleep(driver_s)
+            return answer
+        call = live.Call(live.Manager(None), profile='clean')
+        call.relay = relay
+        call.protocol.seen.append('d1')
+        call.send = lambda event, to_provider=False: event.get('content') and sent.append(
+            event['content'][0]['text'].split('\n\n', 1)[-1])  # minus the protocol's message header
+        began = live.time.monotonic()
+        with patch.object(live, 'run_hermes', run_hermes):
+            await call.host_delegate('d1', 'which branch is z0live on')
+        call.relay = None
         await call.close('test')
+        return call, flags, sent, live.time.monotonic() - began
 
-    def test_driver_env_disables_its_own_fast_lane_only_when_adapter_runs_one(self):
+    async def test_gather_answer_is_framed_and_spoken_while_the_driver_runs(self):
+        relay = self.Relay("You're on a detached HEAD at 2dd8589.", 0.1, source="gather")
+        call, flags, sent, took = await self.delegate(relay, 0.6)
+        self.assertEqual(flags, [True])  # FAST_LANE_OFF: the profile plugin starts no second lane
+        self.assertEqual(sent[0], "Quick first look, still being checked: You're on a detached HEAD at 2dd8589.")
+        self.assertIn('detached HEAD (2dd8589)', sent[-1])
+        self.assertLess(took, 1.2)  # the lane wait never runs before the driver (it used to add up to 9.5 s)
+
+    async def test_driver_first_cancels_the_lane_and_speaks_once(self):
+        relay = self.Relay("late lane", 2.0)
+        call, flags, sent, took = await self.delegate(relay, 0.1)
+        self.assertTrue(relay.cancelled)
+        self.assertEqual(len(sent), 1)
+        self.assertNotIn('late lane', sent[0])
+        self.assertLess(took, 1.0)
+
+    async def test_unhelpful_gather_answer_is_not_spoken(self):
+        relay = self.Relay("I couldn't find anything about that.", 0.05, source="gather")
+        call, flags, sent, _ = await self.delegate(relay, 0.3)
+        self.assertEqual(call.counts['lane_unhelpful'], 1)
+        self.assertEqual(len(sent), 1)
+        self.assertIn('detached HEAD', sent[0])
+
+    async def test_smol_answer_is_plain_and_driver_only_if_it_adds(self):
+        relay = self.Relay("Canberra.", 0.05)
+        call, _, sent, _ = await self.delegate(relay, 0.2, answer="The capital of Australia is Canberra.")
+        self.assertEqual(sent, ["Canberra."])
+        self.assertEqual(call.counts['host_delegation_covered'], 1)
+
+    async def test_lane_layout_line_is_answered_without_the_driver(self):
+        relay = self.Relay(None, 0)
+        relay.turn["receipt"] = {"configured": {"ok": True, "say": "Two fast lanes, one large."}}
+        call, flags, sent, _ = await self.delegate(relay, 0.1)
+        self.assertEqual(flags, [])
+        self.assertEqual(sent, ["Two fast lanes, one large."])
+
+    def test_driver_env_disables_its_own_fast_lane_only_when_lanes_run(self):
         seen = []
         def run(args, **kw):
             seen.append(kw.get('env'))
@@ -427,12 +412,6 @@ class FastLaneVoiceTests(unittest.IsolatedAsyncioTestCase):
             live._hermes_once('q', 'clean', '', False)
         self.assertEqual(seen[0]['FAST_LANE_OFF'], '1')
         self.assertIsNone(seen[1])
-
-    def test_spool_key_matches_plugin(self):
-        import hashlib
-        p = live.fast_lane_spool("  what   port\n", "clean")
-        self.assertEqual(p.name, hashlib.sha1(b"what port").hexdigest() + ".json")
-        self.assertEqual(p.parent.parts[-4:], ("clean", "cache", "fast-lane", "answers"))
 
 
 class DrainTests(unittest.IsolatedAsyncioTestCase):

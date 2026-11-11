@@ -11,7 +11,6 @@ import base64
 from collections import Counter, defaultdict, deque
 from array import array
 import hashlib
-import importlib.util
 import json
 import re
 import logging
@@ -102,7 +101,7 @@ def _hermes_once(request: str, profile: str, resume: str, own_lane: bool = False
         # Explicit --source: a source inherited from a parent Hermes (HERMES_SESSION_SOURCE=kanban)
         # makes the run fail before any model call ("couldn't start the model connection: invalid_params").
         "chat", "-q", request, "--oneshot", "-Q", "--source", "oneshot"] + (["--resume", resume] if resume else [])
-    # The adapter already runs this turn's liaison: the driver must not start a second one.
+    # The lanes are this turn's fast lane: the driver's profile plugin must not start a second one.
     env = {**os.environ, "FAST_LANE_OFF": "1"} if own_lane else None
     proc = subprocess.run(args, capture_output=True, text=True, timeout=DELEGATION_TIMEOUT_SECONDS,
                           cwd=str(Path.home()), stdin=subprocess.DEVNULL, env=env)
@@ -114,40 +113,6 @@ def _hermes_once(request: str, profile: str, resume: str, own_lane: bool = False
     if proc.returncode != 0 or not text:
         raise RuntimeError("Hermes did not return an answer (exit %s)" % proc.returncode)
     return text, sid
-
-
-def fast_lane_spool(request: str, profile: str) -> Path:
-    """Where the Hermes fast-lane plugin drops its quick answer to this exact request (same key as the plugin)."""
-    key = hashlib.sha1(" ".join(request.split())[:2000].encode()).hexdigest()
-    return Path.home() / ".hermes/profiles" / (profile or "default") / "cache/fast-lane/answers" / f"{key}.json"
-
-
-# Voice/driver split (owner design 2026-10-19): the realtime voice only talks. A fast liaison (the
-# fast-lane plugin's engine, Luna via fx) starts the moment the voice delegates and its answer is spoken
-# first; the persistent Hermes driver (Opus with its memory and tools) answers in parallel and corrects.
-# The adapter owns the liaison for every profile: the plugin is installed in only some profiles (the
-# app's `ayo` has none) and would start only after the driver's cold start.
-# HERMES_MOBILE_VOICE_LIAISON=0 restores the plugin-spool-only behaviour.
-LIAISON_PLUGIN = Path(os.environ.get("HERMES_MOBILE_VOICE_LIAISON_PLUGIN",
-                                     str(Path.home() / ".hermes/profiles/clean/plugins/fast-lane/__init__.py")))
-_LIAISON = []
-
-
-def liaison():
-    """The fast-lane plugin module (loaded once), or None when off or unloadable."""
-    if os.environ.get("HERMES_MOBILE_VOICE_LIAISON", "1") == "0":
-        return None
-    if not _LIAISON:
-        mod = None
-        try:
-            spec = importlib.util.spec_from_file_location("voice_liaison_fast_lane", LIAISON_PLUGIN)
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-        except Exception as exc:  # noqa: BLE001 - no liaison; the driver still answers
-            LOG.warning("voice liaison unavailable: %s", type(exc).__name__)
-            mod = None
-        _LIAISON.append(mod)
-    return _LIAISON[0]
 
 
 def run_hermes(request: str, profile: str, own_lane: bool = False) -> str:
@@ -632,27 +597,6 @@ class Call:
         for msg in self.protocol.from_mobile({"type": "session.commentary.append", "delegation_id": did, "content": text}):
             self.send(msg, to_provider=True)
 
-    async def speak_fast_lane(self, did, spool, job):
-        """Say the Hermes fast lane's quick answer while the full answer is still running."""
-        path = spool
-        try:
-            while not job.done() and not self.closed:
-                if path.exists():
-                    quick = json.loads(path.read_text()).get("answer", "")
-                    self.trace("fast_lane.answer", did=did, text=quick[:2000],
-                               unhelpful=bool(quick and UNHELPFUL.match(quick)))
-                    if quick and UNHELPFUL.match(quick):
-                        self.counts["fast_lane_unhelpful"] += 1
-                    elif quick:
-                        self.counts["fast_lane_spoken"] += 1
-                        self.speak_for(did, "Quick first look, still being checked: " + quick)
-                    return
-                await asyncio.sleep(0.5)
-        except (OSError, ValueError) as exc:
-            LOG.warning("fast lane spool unreadable id=%s: %s", self.id, type(exc).__name__)
-        finally:
-            path.unlink(missing_ok=True)
-
     def note(self, text):
         for part in chunks(text[:4000]):
             self.send({"type": "session.context.append", "channel": "commentary",
@@ -680,64 +624,44 @@ class Call:
                     self.counts["lane_verified"] += 1
                     self.note(f'Verified note for "{text[:200]}": {value}')
 
-    async def start_liaison(self, request):
-        """Start this turn's liaison now, in parallel with the driver. Returns (lane, spool) or (None, None)."""
-        fl = liaison()
-        if fl is None or not request:
-            return None, None
-        try:
-            key = fl.answer_key(request)
-            runner = await asyncio.to_thread(self.new_lane, fl, request, key)
-        except Exception as exc:  # noqa: BLE001 - e.g. engine binary missing: the driver still answers
-            LOG.warning("voice liaison failed to start id=%s: %s", self.id, type(exc).__name__)
-            self.counts["liaison_failed"] += 1
-            return None, None
-        self.counts["liaison_started"] += 1
-        return runner, fl.LOGS / "answers" / f"{key}.json"
-
-    def new_lane(self, fl, request, key):
-        (fl.LOGS / "answers").mkdir(parents=True, exist_ok=True)
-        (fl.LOGS / "answers" / f"{key}.json").unlink(missing_ok=True)
-        with fl._lock:  # one live liaison per call: a newer question replaces the older one
-            old = fl._lanes.pop(self.id, None)
-            if old:
-                old.stop()
-            fl._lanes[self.id] = runner = fl.Lane(self.id, fl.brief(request), key)
-        return runner
-
     async def host_delegate(self, did, request):
+        """One fast-lane system (L2, 11-11): the driver starts at once and the z0live lanes race it: smol
+        for chat and simple turns, the tool-using gather lane (the liaison's engine) for questions about
+        Kevin's own work. The first lane answer is spoken once; the driver is spoken only if it adds to it."""
         self.counts["host_delegations"] += 1
         began = time.monotonic()
         self.trace("delegation.start", did=did, request=(request or "")[:4000])
+        turn = self.relay.turn if self.relay else None
+        configured = ((turn or {}).get("receipt") or {}).get("configured")
+        if configured and not self.closed:  # a lane-layout line, not a request for Hermes
+            self.speak_for(did, configured.get("say") or "")
+            return
         lane = None
-        if self.relay:
-            try:
-                lane = await self.relay.answer(request)
-            except Exception as exc:  # noqa: BLE001
-                LOG.warning("lanes relay answer failed id=%s: %s", self.id, type(exc).__name__)
-            self.trace("delegation.lane", did=did, text=(lane or "")[:2000], s=round(time.monotonic() - began, 3))
-            if lane and not self.closed:
-                self.counts["lane_answer_spoken"] += 1
-                receipt = (self.relay.turn or {}).get("receipt") or {}
-                self.lane_said[did] = (lane, receipt.get("entry"))
-                self.speak_for(did, lane)
-                if receipt.get("configured"):
-                    return  # a lane-layout line, not a request for Hermes
         try:
             if not request:
                 raise RuntimeError("The delegated request was empty")
-            spool = runner = None
-            if not lane:
-                runner, spool = await self.start_liaison(request)
-                spool = spool or fast_lane_spool(request, self.profile)
-                spool.unlink(missing_ok=True)  # an answer to an earlier identical question is stale
-                if runner:
-                    runner.watch()
-            job = asyncio.ensure_future(asyncio.to_thread(run_hermes, request, self.profile, runner is not None))
-            if spool:
-                await self.speak_fast_lane(did, spool, job)
-            if runner:
-                runner.stop()
+            # FAST_LANE_OFF: the lanes are this turn's fast lane; the profile plugin must not start another.
+            job = asyncio.ensure_future(asyncio.to_thread(run_hermes, request, self.profile, True))
+            if self.relay:
+                lane_job = asyncio.ensure_future(self.relay.answer(request))
+                await asyncio.wait({lane_job, job}, return_when=asyncio.FIRST_COMPLETED)
+                if lane_job.done() and not lane_job.cancelled():
+                    try:
+                        lane = lane_job.result()
+                    except Exception as exc:  # noqa: BLE001
+                        LOG.warning("lanes relay answer failed id=%s: %s", self.id, type(exc).__name__)
+                else:
+                    lane_job.cancel()  # the driver was first: no lane answer for this turn
+                gathered = bool(turn and turn.get("source") == "gather")
+                self.trace("delegation.lane", did=did, text=(lane or "")[:2000], gather=gathered,
+                           s=round(time.monotonic() - began, 3))
+                if lane and gathered and UNHELPFUL.match(lane):
+                    self.counts["lane_unhelpful"] += 1  # "I couldn't find it" adds nothing before the driver
+                    lane = None
+                if lane and not self.closed:
+                    self.counts["lane_answer_spoken"] += 1
+                    self.lane_said[did] = (lane, ((turn or {}).get("receipt") or {}).get("entry"))
+                    self.speak_for(did, ("Quick first look, still being checked: " + lane) if gathered else lane)
             answer = await job
             self.counts["host_delegation_ok"] += 1
             self.trace("delegation.done", did=did, s=round(time.monotonic() - began, 3), answer=answer[:4000],
