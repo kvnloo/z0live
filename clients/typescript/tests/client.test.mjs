@@ -390,3 +390,15 @@ test("a failed cursor write does not block subsequent acknowledgments", async ()
   assert.equal(await next, true);
   assert.equal(after, 2);
 });
+
+test("aborting SSE stops messages already buffered in the same chunk", async () => {
+  const caller = new AbortController();
+  const packet = [1, 2].map(id =>
+    `id: ${id}\ndata: ${JSON.stringify(goodMessage(id))}\n\n`).join("");
+  const { client } = createClient(() => sseResponse([new TextEncoder().encode(packet)]));
+  const iterator = client.stream(0, caller.signal);
+  assert.equal((await iterator.next()).value.id, 1);
+  caller.abort();
+  await errorKind(iterator.next(), "aborted");
+  assert.equal((await iterator.next()).done, true);
+});
