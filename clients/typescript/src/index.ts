@@ -486,6 +486,8 @@ export class DesktopBrokerClient {
       let pending = "";
       let done = false;
       while (!done) {
+        const stopped = abortError();
+        if (stopped) throw stopped;
         const chunk = await reader.read();
         done = chunk.done;
         pending += decoder.decode(chunk.value, { stream: !done });
@@ -495,6 +497,9 @@ export class DesktopBrokerClient {
           .replace(done ? /\r/g : /\r(?!$)/g, "\n");
         let boundary = pending.indexOf("\n\n");
         while (boundary >= 0) {
+          // A consumer may cancel while the generator is paused at yield.
+          const stopped = abortError();
+          if (stopped) throw stopped;
           // A transport chunk may contain many individually bounded frames.
           if (boundary > 131072) fail("SSE message buffer exceeded");
           const block = pending.slice(0, boundary);
