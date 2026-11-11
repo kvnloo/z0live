@@ -102,6 +102,15 @@ class LaneStatusTests(Base):
         self.assertTrue(view["open"])
         self.assertTrue(view["lanes"])
 
+    def test_abandoned_call_is_not_open(self):
+        with self.store.connect() as db:  # never ended, nothing heard for an hour
+            db.execute("UPDATE sessions SET created=created-3600, updated=updated-3600 WHERE id=?", (self.sid,))
+        with patch.object(lane_status, "_probe", return_value=None), \
+                patch.object(Fanout, "_models", lambda self, sid: FakeModels({})):
+            view = self.store.lane_status(self.device)
+        self.assertEqual(view["session_id"], self.sid)
+        self.assertFalse(view["open"])
+
 
 if __name__ == "__main__":
     unittest.main()
