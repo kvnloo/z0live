@@ -652,6 +652,13 @@ class Call:
                         LOG.warning("lanes relay answer failed id=%s: %s", self.id, type(exc).__name__)
                 else:
                     lane_job.cancel()  # the driver was first: no lane answer for this turn
+                late = ((turn or {}).get("receipt") or {}).get("configured")
+                if late:  # the receipt landed after delegation began: still a lane-layout line
+                    self.counts["host_delegation_layout_late"] += 1
+                    self.trace("delegation.layout_late", did=did, s=round(time.monotonic() - began, 3))
+                    if not self.closed:
+                        self.speak_for(did, late.get("say") or "")
+                    return  # the driver's run (already started) is discarded
                 gathered = bool(turn and turn.get("source") == "gather")
                 self.trace("delegation.lane", did=did, text=(lane or "")[:2000], gather=gathered,
                            s=round(time.monotonic() - began, 3))

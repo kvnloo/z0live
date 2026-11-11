@@ -402,6 +402,19 @@ class OneFastLaneTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(flags, [])
         self.assertEqual(sent, ["Two fast lanes, one large."])
 
+    async def test_late_lane_layout_receipt_still_skips_the_driver_answer(self):
+        relay = self.Relay("Two fast lanes, one large.", 0.05)
+        relay.turn["receipt"] = None  # the broker receipt is still in flight when the voice delegates
+        inner = relay.answer
+        async def answer(request):
+            text = await inner(request)
+            relay.turn["receipt"] = {"configured": {"ok": True, "say": text}}
+            return text
+        relay.answer = answer
+        call, flags, sent, _ = await self.delegate(relay, 0.3)
+        self.assertEqual(sent, ["Two fast lanes, one large."])
+        self.assertEqual(call.counts['host_delegation_layout_late'], 1)
+
     def test_driver_env_disables_its_own_fast_lane_only_when_lanes_run(self):
         seen = []
         def run(args, **kw):
