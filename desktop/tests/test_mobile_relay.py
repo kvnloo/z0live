@@ -34,7 +34,7 @@ class RelayTests(Base):
         self.store.lanes.models = FakeModels({
             "qwen3-0.6b-q8": (0, '{"route":"answer","intent":"sum","kind":"math","complete":true}'),
             "qwen3-1.7b": (0, '{"route":"answer","intent":"sum","kind":"math","complete":true}'),
-            "claude-haiku-4-5": (0, '{"route":"answer","answer":"It is 12."}'),
+            "claude-haiku-4-5": (0, '{"route":"answer","answer":"It is 12.","kind":"math","confidence":0.9}'),
             "claude-opus-5-5": (0.3, '{"route":"answer","answer":"6 plus 7 is 13."}'),
         })
 

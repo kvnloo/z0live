@@ -119,8 +119,9 @@ class LaneRelay:
                 return e
         return None
 
-    async def answer(self, request, wait_final=1.5, wait_gate=8.0):
-        """Speakable lane answer for the delegated request, or None (Hermes answers alone)."""
+    async def answer(self, request, wait_final=2.5, wait_gate=8.0, wait_gather=45.0):
+        """Speakable lane answer for the delegated request, or None (Hermes answers alone). The caller
+        races this against the driver, so the waits here never delay Hermes."""
         turn = self.turn
         if not self.sid or not turn:
             return None
@@ -131,6 +132,8 @@ class LaneRelay:
         r = turn["receipt"] or {}
         if r.get("configured"):
             return r["configured"].get("say")
+        if not r.get("answer") and r.get("gathering"):
+            return await self.gathered(turn["text"], wait_gather)
         if not r.get("answer"):
             return None
         if not r.get("gated"):
@@ -145,6 +148,20 @@ class LaneRelay:
                 return e["text"]
             await asyncio.sleep(0.25)
         self.count("gate_timeouts")
+        return None
+
+    async def gathered(self, text, window):
+        """The gather lane's (tool-using) answer for this turn, once it lands on the blackboard."""
+        deadline = time.monotonic() + window
+        while time.monotonic() < deadline and self.turn and self.turn["text"] == text:
+            view = await self.call("/v1/tools/read_context", {"session_id": self.sid, "arguments": {}})
+            for e in view.get("entries", []):
+                if str(e.get("lane", "")).startswith("gather:") and e.get("turn") == text[:200]:
+                    self.count("lane_answers_gathered")
+                    self.turn["source"] = "gather"  # the adapter frames it as a first look
+                    return e["text"]
+            await asyncio.sleep(0.5)
+        self.count("gather_timeouts")
         return None
 
     async def updates(self, entry_id, window=30.0):
