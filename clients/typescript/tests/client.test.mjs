@@ -402,3 +402,33 @@ test("aborting SSE stops messages already buffered in the same chunk", async () 
   await errorKind(iterator.next(), "aborted");
   assert.equal((await iterator.next()).done, true);
 });
+
+test("timeout and cancellation bound an asynchronous token provider", async () => {
+  for (const mode of ["timeout", "aborted"]) {
+    const caller = new AbortController();
+    let releaseToken;
+    let entered;
+    const started = new Promise(resolve => { entered = resolve; });
+    const token = () => {
+      entered();
+      return new Promise(resolve => { releaseToken = resolve; });
+    };
+    const { client, calls } = createClient(() => json(page()), {
+      token, timeoutMs: mode === "timeout" ? 5 : 1000,
+    });
+    const result = client.getInbox(0, { signal: caller.signal }).then(
+      () => "unexpected success", error => error.kind);
+    await started;
+    if (mode === "aborted") caller.abort();
+    let deadline;
+    const outcome = await Promise.race([result, new Promise(resolve => {
+      deadline = setTimeout(() => resolve("stalled"), 100);
+    })]);
+    clearTimeout(deadline);
+    releaseToken("synthetic-late-token");
+    await result;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(outcome, mode);
+    assert.equal(calls.length, 0, "late token must not start a request");
+  }
+});
