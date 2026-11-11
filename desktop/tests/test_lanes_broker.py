@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import threading
@@ -53,7 +54,8 @@ class Base(unittest.TestCase):
         minted = patch("z0live_desktop.core.mint", return_value={"value": "unit", "expires_at": 1})
         minted.start()  # never mint a real provider secret from a test
         self.addCleanup(minted.stop)
-        self.tmp = tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR"))
+        # Lanes keep verifying on pool threads after on_final returns; a late sqlite write must not fail cleanup.
+        self.tmp = tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR"), ignore_cleanup_errors=True)
         self.addCleanup(self.tmp.cleanup)
         self.cfg_path = Path(self.tmp.name) / "z0live-lanes.json"
         env = patch.dict(os.environ, {"Z0LIVE_LANES": str(self.cfg_path)})
@@ -71,7 +73,8 @@ class ConfigTests(Base):
     def test_presets_valid_default_is_d_and_b_is_the_spoken_example(self):
         for name, cfg in lanes.PRESETS.items():
             self.assertEqual(lanes.validate(cfg), [], name)
-        self.assertIs(lanes.DEFAULT, lanes.D)
+        self.assertIs(lanes.DEFAULT, lanes.L)  # L2.1: D plus self-labelled kinds, chat-only speak, board-only gather
+        self.assertEqual((lanes.L["splice"]["speak_kinds"], lanes.L["lanes"]["smol"]["gather"]["speak"]), (["chat"], []))
         d = lanes.D
         self.assertEqual(d["lanes"]["smol"]["trigger"]["on"], "partials")
         self.assertEqual((d["lanes"]["driver"]["start"], d["lanes"]["driver"]["parallel"]), ("endpoint", True))
@@ -228,7 +231,7 @@ class BrokerWiringTests(Base):
                              "qwen3-1.7b": (0, '{"route":"answer","intent":"greeting","kind":"chat","complete":true}'),
                              "claude-opus-5-5": (0, '{"route":"answer","answer":"Hello there."}')})
         self.store.lanes.models = models
-        self.assertEqual(self.store.lanes.cfg(self.sid)["revision"], "preset-D-2f-1s-1l-0c")  # default preset
+        self.assertEqual(self.store.lanes.cfg(self.sid)["revision"], lanes.DEFAULT["revision"])  # default preset
         self.store.add_events(self.device, [{"session_id": self.sid, "type": "user_transcript", "text": "hello there"}])
         for _ in range(50):
             entries = self.store.tool(self.device, "read_context", {"session_id": self.sid, "arguments": {}})["entries"]
@@ -362,6 +365,115 @@ class PresetDTests(Base):
         self.assertEqual(launched["counts"], {"fast": 2, "small": 1, "large": 1, "council": 0})
         with self.assertRaises(LookupError):
             self.store.lane_turn("someone-else", {"session_id": sid, "text": "hey"})
+
+
+class L2Tests(Base):
+    """L2 (11-11 real-call replay): self-labelled kind + confidence gate, gather lane, dead lanes."""
+
+    def fanout(self, replies, spoken, **smol):
+        out = Fanout(self.store, models=FakeModels(replies), publish=lambda sid, say, src: spoken.append((say, src)))
+        cfg = copy.deepcopy(lanes.D)
+        cfg["lanes"]["smol"].update(self_label=True, **smol)
+        cfg["splice"]["gate_below"] = 0.7
+        out.calls[self.sid] = cfg
+        return out
+
+    def test_confident_answer_speaks_without_a_router_call_and_unsure_one_is_held(self):
+        spoken = []
+        out = self.fanout({"claude-haiku-4-5": (0, '{"route":"answer","answer":"Hey Kevin.","kind":"chat",'
+                                                   '"confidence":0.9}'),
+                           "claude-opus-5-5": (0.3, '{"verdict":"correct","answer":"Hey.","confidence":0.9}')}, spoken)
+        r = out.on_final(self.sid, "hey can you hear me", speak=True)
+        self.assertEqual((r["answer"], r["kind"], r["gated"]), ("Hey Kevin.", "chat", False))
+        self.assertNotIn("fast", r)  # no router call
+        self.assertEqual(spoken[0][0], "Hey Kevin.")
+        out = self.fanout({"claude-haiku-4-5": (0, '{"route":"answer","answer":"Maybe 4.","kind":"math",'
+                                                   '"confidence":0.4}'),
+                           "claude-opus-5-5": (5, '{"verdict":"correct"}')}, spoken := [])
+        r = out.on_final(self.sid, "what is 17 times 23", speak=True)
+        self.assertTrue(r["gated"])
+        self.assertEqual(spoken, [])
+
+    def test_meta_turn_runs_gather_skips_an_unavailable_engine_and_writes_the_next(self):
+        spoken = []
+        g = {"enabled": True, "profile": "", "models": [
+            {"provider": "anthropic", "model": "claude-haiku-4-5", "route": "hermes"},
+            {"provider": "local", "model": "qwen3.5-4b", "route": "local", "hermes_provider": "custom:local-qwen4b"}],
+            "speak": ["qwen3.5-4b"]}
+        out = self.fanout({"claude-haiku-4-5": (0, '{"route":"meta","answer":"","kind":"gather"}')}, spoken, gather=g)
+        outputs = iter([("Anthropic credentials are rate-limited for claude-haiku-4-5; other Claude models remain "
+                         "available.\n", 0), ("You have two lanes running right now.\nsession_id: x\n", 0)])
+        seen = []
+
+        def run(cmd, **kw):
+            seen.append(cmd)
+            text, code = next(outputs)
+            self.assertEqual(kw["env"]["FAST_LANE_OFF"], "1")
+            return subprocess.CompletedProcess(cmd, code, text, "")
+
+        with patch("z0live_desktop.lane_fanout.subprocess.run", side_effect=run):
+            r = out.on_final(self.sid, "are multiple lanes working", speak=True, privacy="personal")
+            for _ in range(50):
+                if spoken:
+                    break
+                time.sleep(0.05)
+        self.assertTrue(r["gathering"])
+        self.assertEqual([c[c.index("--provider") + 1] for c in seen], ["anthropic", "custom:local-qwen4b"])
+        self.assertIn("web,session_search,z0_file_search", seen[0])  # read-only toolsets only
+        view = out.read(self.sid)["entries"]
+        self.assertEqual([(e["lane"], e["text"]) for e in view if e["lane"].startswith("gather:")],
+                         [("gather:qwen3.5-4b", "You have two lanes running right now.")])
+        self.assertEqual(spoken, [("You have two lanes running right now.", spoken[0][1])])
+
+    def test_gather_engine_outside_speak_list_writes_the_board_but_stays_silent(self):
+        # L2.1: on the 48-turn real-call replay the local gather engine was wrong 18 times, right 3.
+        spoken = []
+        g = {"enabled": True, "profile": "", "models": [
+            {"provider": "local", "model": "qwen3.5-4b", "route": "local", "hermes_provider": "custom:local-qwen4b"}]}
+        out = self.fanout({"claude-haiku-4-5": (0, '{"route":"meta","answer":"","kind":"gather"}')}, spoken, gather=g)
+        done = subprocess.CompletedProcess([], 0, "You have two lanes running right now.\n", "")
+        with patch("z0live_desktop.lane_fanout.subprocess.run", return_value=done):
+            r = out.on_final(self.sid, "are multiple lanes working", speak=True, privacy="personal")
+            for _ in range(50):
+                if any(e["lane"].startswith("gather:") for e in out.read(self.sid)["entries"]):
+                    break
+                time.sleep(0.05)
+        self.assertFalse(r["gathering"])  # the relay does not wait for it
+        self.assertIn("gather:qwen3.5-4b", [e["lane"] for e in out.read(self.sid)["entries"]])
+        self.assertEqual(spoken, [])
+
+    def test_speak_kinds_holds_a_confident_simple_fact(self):
+        # L2.1: "who did the Knicks beat in the last finals" got a confident, stale answer from the small lane.
+        spoken = []
+        out = self.fanout({"claude-haiku-4-5": (0, '{"route":"answer","answer":"The Lakers, in 1970.",'
+                                                   '"kind":"simple","confidence":0.95}')}, spoken)
+        out.calls[self.sid]["splice"]["speak_kinds"] = ["chat"]
+        r = out.on_final(self.sid, "who did the Knicks beat in the last finals", speak=True)
+        self.assertTrue(r["gated"])
+        self.assertEqual(spoken, [])
+
+    def test_gather_respects_privacy_credentials_turns_get_local_engines_only(self):
+        g = {"enabled": True, "models": [{"provider": "anthropic", "model": "claude-haiku-4-5", "route": "hermes"}]}
+        out = self.fanout({"qwen3.5-4b": (0, '{"route":"meta","answer":""}')}, [], gather=g)
+        out.calls[self.sid]["lanes"]["smol"]["models"].append(
+            {"provider": "local", "model": "qwen3.5-4b", "route": "local", "billing": "free", "tier": "small"})
+        with patch("z0live_desktop.lane_fanout.subprocess.run") as run:
+            r = out.on_final(self.sid, "read me my wifi password")
+        self.assertFalse(r.get("gathering"))
+        run.assert_not_called()
+
+    def test_a_dead_local_lane_is_skipped_for_the_rest_of_the_call(self):
+        out = self.fanout({"claude-haiku-4-5": (0, '{"route":"answer","answer":"Hi.","confidence":0.9}'),
+                           "qwen3-0.6b-q8": (0, OSError("connection refused"))}, [])
+        out.calls[self.sid]["lanes"]["smol"]["self_label"] = False
+        out.calls[self.sid]["lanes"]["smol"]["router"] = None
+        out.calls[self.sid]["lanes"]["smol"]["models"][0] = dict(out.calls[self.sid]["lanes"]["smol"]["models"][0])
+        first = out.on_final(self.sid, "hi")
+        self.assertIn({"model": "qwen3-0.6b-q8", "error": "OSError"}, first["fast"])
+        second = out.on_final(self.sid, "hello again")
+        self.assertIn("fast:qwen3-0.6b-q8", second["dead_skipped"])
+        self.assertNotIn("qwen3-0.6b-q8", [t.get("model") for t in second.get("fast", [])])
+        self.assertEqual(second["answer"], "Hi.")  # the call goes on without the dead lane
 
 
 if __name__ == "__main__":
