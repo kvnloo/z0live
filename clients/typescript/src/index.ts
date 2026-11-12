@@ -287,7 +287,8 @@ export class DesktopBrokerClient {
     this.nowSeconds = options.nowSeconds;
     this.cursorStore = options.cursorStore;
     this.timeoutMs = options.timeoutMs ?? 10000;
-    if (!Number.isFinite(this.timeoutMs) || this.timeoutMs < 1) {
+    // Larger delays overflow the signed 32-bit timers used by JS runtimes.
+    if (!Number.isFinite(this.timeoutMs) || this.timeoutMs < 1 || this.timeoutMs > 2147483647) {
       throw new BrokerError("configuration", "invalid timeoutMs");
     }
   }

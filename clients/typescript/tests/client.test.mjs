@@ -432,3 +432,14 @@ test("timeout and cancellation bound an asynchronous token provider", async () =
     assert.equal(calls.length, 0, "late token must not start a request");
   }
 });
+
+test("timeout configuration cannot overflow platform timers", async () => {
+  for (const timeoutMs of [2147483648, Number.MAX_SAFE_INTEGER, Infinity, NaN, 0, -1]) {
+    assert.throws(() => createClient(() => json(page()), { timeoutMs }),
+      err => err instanceof BrokerError && err.kind === "configuration");
+  }
+  for (const timeoutMs of [1, 1000, 2147483647]) {
+    const { client } = createClient(() => json(page()), { timeoutMs });
+    assert.deepEqual(await client.getInbox(), page());
+  }
+});
