@@ -475,3 +475,16 @@ test("SSE checks the complete media type rather than a prefix", async () => {
     assert.deepEqual(messages, [1]);
   }
 });
+
+test("unknown builtin names fail before credentials or transport are accessed", async () => {
+  let tokenReads = 0;
+  const { client, calls } = createClient(() => json({
+    session_id: sid, client: "web", context: {},
+  }), { token: () => { tokenReads++; return "synthetic-token"; } });
+  // JavaScript consumers do not have the TypeScript BuiltinName restriction.
+  for (const name of ["unknown", "../sessions/synthetic-session-1/end", "get_context?extra=1", "", null]) {
+    await errorKind(client.callBuiltin(name, sid, {}), "protocol");
+  }
+  assert.equal(tokenReads, 0);
+  assert.equal(calls.length, 0);
+});
