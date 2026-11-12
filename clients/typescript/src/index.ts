@@ -495,7 +495,8 @@ export class DesktopBrokerClient {
           response.status === 401 ? "device bearer rejected" : "broker SSE HTTP error",
           response.status);
       }
-      if (!response.headers.get("Content-Type")?.startsWith("text/event-stream") || !response.body) {
+      const mediaType = response.headers.get("Content-Type")?.split(";", 1)[0]?.trim().toLowerCase();
+      if (mediaType !== "text/event-stream" || !response.body) {
         fail("stream must be text/event-stream with a body");
       }
       reader = response.body.getReader();

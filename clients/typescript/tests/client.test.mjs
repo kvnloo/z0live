@@ -457,3 +457,21 @@ test("SSE removes only one optional ASCII space from field values", async () => 
   for await (const event of client.stream()) received.push(event.id);
   assert.deepEqual(received, [3], "non-message event names must not be normalized into message");
 });
+
+test("SSE checks the complete media type rather than a prefix", async () => {
+  const body = "id: 1\ndata: " + JSON.stringify(goodMessage(1)) + "\n\n";
+  for (const contentType of ["text/event-streaming", "text/event-stream+json"]) {
+    const { client } = createClient(() => new Response(body, {
+      headers: { "Content-Type": contentType },
+    }));
+    await errorKind(client.stream().next(), "protocol");
+  }
+  for (const contentType of ["text/event-stream", "Text/Event-Stream; charset=utf-8"]) {
+    const { client } = createClient(() => new Response(body, {
+      headers: { "Content-Type": contentType },
+    }));
+    const messages = [];
+    for await (const message of client.stream()) messages.push(message.id);
+    assert.deepEqual(messages, [1]);
+  }
+});
