@@ -528,9 +528,10 @@ export class DesktopBrokerClient {
           const data: string[] = [];
           for (const line of fields) {
             if (line.startsWith(":") || !line) continue;
-            if (line.startsWith("event:")) event = line.slice(6).trimStart();
-            else if (line.startsWith("id:")) seenId = line.slice(3).trimStart();
-            else if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+            // SSE strips one optional ASCII space, not arbitrary whitespace.
+            if (line.startsWith("event:")) event = line.slice(6).replace(/^ /, "");
+            else if (line.startsWith("id:")) seenId = line.slice(3).replace(/^ /, "");
+            else if (line.startsWith("data:")) data.push(line.slice(5).replace(/^ /, ""));
           }
           if (data.length === 0 || event !== "message") continue;
           if (!seenId || !/^(0|[1-9][0-9]*)$/.test(seenId)) fail("invalid SSE id");

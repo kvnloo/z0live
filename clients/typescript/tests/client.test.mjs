@@ -443,3 +443,17 @@ test("timeout configuration cannot overflow platform timers", async () => {
     assert.deepEqual(await client.getInbox(), page());
   }
 });
+
+test("SSE removes only one optional ASCII space from field values", async () => {
+  const text = [
+    "event:  message\nid: 1\ndata: " + JSON.stringify(goodMessage(1)) + "\n\n",
+    "event:\tmessage\nid: 2\ndata: " + JSON.stringify(goodMessage(2)) + "\n\n",
+    "event: message\nid: 3\ndata: " + JSON.stringify(goodMessage(3)) + "\n\n",
+  ].join("");
+  const { client } = createClient(() => new Response(text, {
+    headers: { "Content-Type": "text/event-stream" },
+  }));
+  const received = [];
+  for await (const event of client.stream()) received.push(event.id);
+  assert.deepEqual(received, [3], "non-message event names must not be normalized into message");
+});
