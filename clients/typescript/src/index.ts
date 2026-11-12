@@ -405,6 +405,7 @@ export class DesktopBrokerClient {
       args: { text: string }, signal?: AbortSignal): Promise<SummaryResult>;
   async callBuiltin(name: BuiltinName, sid: string,
       args: JsonObject = {}, signal?: AbortSignal): Promise<QueueResult | ContextResult | SummaryResult> {
+    if (!builtinNames.has(name)) fail("unknown builtin name");
     id(sid, "session_id");
     record(args, "arguments");
     if (name === "tell_hermes") {
