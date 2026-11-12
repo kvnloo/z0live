@@ -53,7 +53,7 @@ The SDK never calls a phone executor. `postEvents` logs observability events, no
 | `acknowledge(message)` | Explicit injected cursor save **after** caller processing; no default localStorage |
 | `memoryToken(...)` | Mutable per-process token provider with `clear()`; callers own pairing and disposal |
 
-AbortSignal supported for each request; a bounded timeout and redirect refusal are enforced. Only an exact `https://` origin is accepted (no credentials, paths, queries or fragments), no cross-origin follow or default cookies. Native clients must inject compliant `fetch` and optional storage; browser CORS may require approved origin. A native WebRTC transport is intentionally **not implemented**.
+AbortSignal supported for each request; a bounded timeout (1..2147483647 milliseconds) and redirect refusal are enforced. Only an exact `https://` origin is accepted (no credentials, paths, queries or fragments), no cross-origin follow or default cookies. Native clients must inject compliant `fetch` and optional storage; browser CORS may require approved origin. A native WebRTC transport is intentionally **not implemented**.
 
 ## Error semantics
 
