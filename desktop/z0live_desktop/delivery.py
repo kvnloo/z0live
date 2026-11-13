@@ -98,7 +98,7 @@ class Delivery:
                     p.returncode
                     or not isinstance(result, dict)
                     or result.get("error")
-                    or result.get("success") is False
+                    or result.get("success") is not True
                 ):
                     raise RuntimeError("Hermes delivery not confirmed")
             except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):
