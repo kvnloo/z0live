@@ -30,6 +30,13 @@ def compact(value, limit=600):
         lambda match: match[1] + match[2] + "[REDACTED]" + match[2],
         value,
     )
+    # Basic credentials are reversible, not safe excerpt text. Restrict this
+    # rule to authorization headers so ordinary uses of "Basic" survive.
+    value = re.sub(
+        r"""(?i)((?:proxy-)?authorization["']?\s*[:=]\s*["']?basic\s+)[^\s,\"'}]+""",
+        r"\1[REDACTED]",
+        value,
+    )
     value = re.sub(
         r"(?i)(bearer\s+|(?:api[_-]?key|token|password|secret)\s*[=:]\s*)[^\s,\"}]+",
         r"\1[REDACTED]",

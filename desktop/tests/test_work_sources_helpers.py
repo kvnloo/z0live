@@ -56,6 +56,19 @@ class WorkSourcesHelpersTests(unittest.TestCase):
                 self.assertNotIn("spaces", sources.compact(value))
                 self.assertIn("[REDACTED]", sources.compact(value))
 
+    def test_compact_redacts_basic_authorization(self):
+        for value in (
+            "Authorization: Basic syntheticValue123",
+            {"authorization": "Basic syntheticValue123"},
+            '{"Authorization": "Basic syntheticValue123"}',
+            "Proxy-Authorization: bAsIc syntheticValue123",
+        ):
+            with self.subTest(value=value):
+                result = sources.compact(value)
+                self.assertNotIn("syntheticValue123", result)
+                self.assertIn("[REDACTED]", result)
+        self.assertEqual(sources.compact("Basic introduction"), "Basic introduction")
+
     def test_compact_non_string_and_limit(self):
         self.assertEqual(sources.compact({"a": "é"}), '{"a": "é"}')
         self.assertEqual(len(sources.compact("x" * 700)), 600)
