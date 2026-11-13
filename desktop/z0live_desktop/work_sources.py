@@ -18,6 +18,25 @@ from .core import ROOT, request_json
 def compact(value, limit=600):
     value = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
     # Defense in depth: excerpts go to a voice model, never credentials.
+    # Match JSON strings as a whole, including escaped quotes and whitespace.
+    value = re.sub(
+        r'(?i)("(?:api[_-]?key|token|password|secret)"\s*:\s*)"(?:\\.|[^"\\])*"',
+        r'\1"[REDACTED]"',
+        value,
+    )
+    # Shell/log assignments can quote a multi-word value too.
+    value = re.sub(
+        r"""(?i)((?:api[_-]?key|token|password|secret)\s*[=:]\s*)(["'])(?:\\.|(?!\2).)*?\2""",
+        lambda match: match[1] + match[2] + "[REDACTED]" + match[2],
+        value,
+    )
+    # Basic credentials are reversible, not safe excerpt text. Restrict this
+    # rule to authorization headers so ordinary uses of "Basic" survive.
+    value = re.sub(
+        r"""(?i)((?:proxy-)?authorization["']?\s*[:=]\s*["']?basic\s+)[^\s,\"'}]+""",
+        r"\1[REDACTED]",
+        value,
+    )
     value = re.sub(
         r"(?i)(bearer\s+|(?:api[_-]?key|token|password|secret)\s*[=:]\s*)[^\s,\"}]+",
         r"\1[REDACTED]",
@@ -103,7 +122,8 @@ def project_name(value):
 
 
 def window(since="week"):
-    now = datetime.now().astimezone()
+    # Keep wall-clock arithmetic local; timestamp() resolves each date's DST offset.
+    now = datetime.now()
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     if since == "today":
         return today.timestamp(), now.timestamp()
@@ -122,7 +142,7 @@ def in_window(value, start, end):
             else datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
         )
         return start <= stamp < end
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return False
 
 
