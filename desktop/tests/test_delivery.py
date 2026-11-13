@@ -223,6 +223,17 @@ class DeliveryTests(unittest.TestCase):
         self.tick()
         self.assertEqual(self.cursor(), last_id)
 
+    def test_unconfirmed_object_receipts_keep_cursor(self):
+        last_id = self.store.publish("retry unconfirmed", sid=self.sid, source="lookup:receipt")
+        for receipt in ('{}', '{"success":null}', '{"success":0}', '{"success":"false"}'):
+            with self.subTest(receipt=receipt):
+                self.send.return_value = subprocess.CompletedProcess(args=["hermes"], returncode=0, stdout=receipt)
+                self.tick()
+                self.assertEqual(self.cursor(), self.initial_cursor)
+        self.send.return_value = SUCCESS
+        self.tick()
+        self.assertEqual(self.cursor(), last_id)
+
     def test_no_messages_still_advances_cursor(self):
         self.store.publish("maintenance one", sid=self.sid, source="housekeeping:a")
         last_id = self.store.publish(
