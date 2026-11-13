@@ -48,6 +48,14 @@ class WorkSourcesHelpersTests(unittest.TestCase):
             with self.subTest(source_type=type(source).__name__):
                 self.assertEqual(json.loads(sources.compact(source)), expected)
 
+    def test_compact_redacts_quoted_assignments(self):
+        for value in ('password="synthetic secret with spaces"',
+                      "token='synthetic secret with spaces'"):
+            with self.subTest(value=value):
+                self.assertNotIn("synthetic", sources.compact(value))
+                self.assertNotIn("spaces", sources.compact(value))
+                self.assertIn("[REDACTED]", sources.compact(value))
+
     def test_compact_non_string_and_limit(self):
         self.assertEqual(sources.compact({"a": "é"}), '{"a": "é"}')
         self.assertEqual(len(sources.compact("x" * 700)), 600)
