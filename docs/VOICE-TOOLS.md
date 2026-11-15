@@ -4,6 +4,25 @@ z0live's Realtime model remains the fast conversational front end. It says a sho
 “checking…” before invoking a work tool; it does not run a second agent for ordinary
 conversation or phone-local actions. Work executes on the desktop, not on the phone.
 
+## Multi-agent stack update
+
+[ARCHITECTURE.md](ARCHITECTURE.md) is the current desktop stack contract; [STACK-VERIFICATION.md](STACK-VERIFICATION.md) contains new real-provider receipts. z0intelligence supplies a pinned VoicePlan: Realtime L0 → tools-free Haiku L1 → persistent Opus L2 → cheaper native Sol L3 workers. L2 decides fan-out; no per-turn model router in z0live. Jev is reserved, not automatically sent private memory.
+
+Use **`ask_z0({question})`** for work/knowledge and **`cancel_work({})`** for abandoned work. Both are additive builtin schemas. `ask_z0` acknowledges immediately and returns `turn_id`; exact model identity is a deterministic cache hit. Other requests get an asynchronous brief, z0intelligence-first evidence, native work and concise inbox results. For planned sessions, `ask_hermes` and requested `tell_hermes` messages are compatibility aliases to L1, so they no longer wait 24 seconds. Legacy sessions without a voice plan retain the behavior below. Other existing tool names/shapes remain unchanged; consume `builtin_tools` dynamically.
+
+Progress only belongs to work explicitly requested in the current human-started voice session. It is queued while the client reports user/assistant floor, suppressed for stale/ended/superseded sessions, and never spoken as a later-session backlog. Summaries, setup/context notes and status-only sessions are silent. Forward floor/barge/topic-change events as documented in API.md; Realtime's audio interruption alone cannot cancel desktop work. Local TTS must also clear interrupted-turn items and honor its actual audio floor.
+
+Configure `Z0LIVE_VOICE_PLAN` with the canonical exported profile, or install it at `$Z0INT_HOME/config/z0live-voice-plan.json`. The model source lives in z0intelligence PR #174, not local z0live constants. L1 inference is hosted inside the native API-only process on loopback 8645 (same private API-key boundary); broker audio routing is unchanged. A missing/invalid model binding is a visible failure, never permission to select a paid fallback. Current Haiku inference misses the 800 ms target; acknowledgement/cache admission stays independent.
+
+```sh
+z0live trace --turn TURN_ID
+# For L2 only: bounded read-only native workers, plan.task model, two concurrent:
+z0live fanout --turn TURN_ID --brief 'source A' --brief 'source B'
+z0live progress --turn TURN_ID 'short verified finding'
+```
+
+The trace records layer/model/native runtime, timing and supplied usage; subscription dollar cost is unknown unless billing evidence exists. Never report null as zero. Worker/native stop confirmation, not queue acceptance, establishes cancellation. Full private outputs remain local; only short final speech is delivered.
+
 ## Available in every newly minted session
 
 POST `/v1/tools/NAME`, bearer authenticated, with
@@ -125,7 +144,7 @@ sending is not enabled or live-certified. No test message was sent to the owner.
 Configure an existing authorized gateway target before enabling it; do not move
 credentials or modify another profile to work around this.
 
-## Host setup and verification
+## Legacy host setup and verification
 
 Use `hermes config set platform_toolsets.api_server '["terminal","file","web","vision","browser","delegation","skills","code_execution","todo","session_search","kanban","z0_file_search"]'`
 to opt into tools. Preserve the rest of the platform's enabled list. The canonical

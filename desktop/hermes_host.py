@@ -54,7 +54,13 @@ async def main():
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
     )
     logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
-    adapter = APIServerAdapter(
+    sys.path.insert(0, str(ROOT / "desktop"))
+    from native_policy import PinnedVoiceRuns
+
+    class VoiceAPIServer(PinnedVoiceRuns, APIServerAdapter):
+        pass
+
+    adapter = VoiceAPIServer(
         PlatformConfig(
             enabled=True,
             extra={
@@ -78,9 +84,14 @@ async def main():
         os.getpid(),
         ROOT,
     )
+    sys.path.insert(0, str(ROOT / "desktop"))
+    from liaison_host import serve_liaison
+
+    liaison = await serve_liaison(KEY.read_text().strip())
     try:
         await stop.wait()
     finally:
+        await liaison.cleanup()
         tasks = list(getattr(adapter, "_active_run_tasks", {}).values())
         if tasks:
             _, pending = await asyncio.wait(tasks, timeout=120)
