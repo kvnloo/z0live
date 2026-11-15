@@ -438,7 +438,7 @@ class System:
 
 # -- fast model tier and watcher -------------------------------------------------------
 
-MODEL_URL = os.environ.get("Z0LIVE_SYSTEM_MODEL_URL", "http://10.43.216.55:8899/v1/chat/completions")
+MODEL_URL = os.environ.get("Z0LIVE_SYSTEM_MODEL_URL", "http://100.113.138.100:30899/v1/chat/completions")
 MODEL_TIMEOUT = float(os.environ.get("Z0LIVE_SYSTEM_MODEL_TIMEOUT", "2.5"))
 # Tried in order until one returns a usable answer. Explicit models through the vLLM
 # semantic router (Cerebras/Groq) answer a catalog choice in ~0.15-0.25 s; its `auto`
