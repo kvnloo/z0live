@@ -204,6 +204,60 @@ class DeliveryTests(unittest.TestCase):
         )
         self.assertEqual(self.cursor(), last_id)
 
+    def test_failed_delivery_retries_after_broker_restart(self):
+        last_id = self.store.publish(
+            "retry across restart", sid=self.sid, source="lookup:restart"
+        )
+        self.send.side_effect = OSError("Hermes unavailable")
+        self.tick()
+        failed_payload = self.send.call_args.kwargs["input"]
+        self.assertEqual(self.cursor(), self.initial_cursor)
+
+        # Reopen the on-disk store, not just another Delivery on the same object.
+        # Constructor initialization must not overwrite an existing retry cursor.
+        self.store = Store(self.tmp.name)
+        self.delivery = Delivery(self.store)
+        self.assertEqual(self.cursor(), self.initial_cursor)
+        self.send.reset_mock(side_effect=True)
+        self.tick()
+        self.send.assert_called_once()
+        self.assertEqual(self.send.call_args.kwargs["input"], failed_payload)
+        self.assertEqual(failed_payload, HEADER + "retry across restart")
+        self.assertEqual(self.cursor(), last_id)
+
+        # A second restart must not replay the now-confirmed notification.
+        self.delivery = Delivery(Store(self.tmp.name))
+        self.send.reset_mock()
+        self.tick()
+        self.send.assert_not_called()
+        self.assertEqual(self.cursor(), last_id)
+
+    def test_online_updates_are_not_replayed_when_session_ends(self):
+        with self.store.connect() as db:
+            db.execute(
+                "UPDATE sessions SET ended=0,updated=? WHERE id=?",
+                (1000.0, self.sid),
+            )
+        online_id = self.store.publish(
+            "already routed to voice", sid=self.sid, source="lookup:online"
+        )
+        with patch("z0live_desktop.delivery.time.time", return_value=1001.0):
+            self.tick()
+        self.send.assert_not_called()
+        self.assertEqual(self.cursor(), online_id)
+
+        self.store.end(self.device, self.sid)
+        self.delivery = Delivery(Store(self.tmp.name))
+        offline_id = self.store.publish(
+            "new offline update", sid=self.sid, source="lookup:offline"
+        )
+        self.tick()
+        self.send.assert_called_once()
+        self.assertEqual(
+            self.send.call_args.kwargs["input"], HEADER + "new offline update"
+        )
+        self.assertEqual(self.cursor(), offline_id)
+
     def test_non_object_receipts_keep_cursor_without_crashing(self):
         last_id = self.store.publish(
             "retain after malformed receipt", sid=self.sid, source="lookup:shape"
