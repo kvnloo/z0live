@@ -10,8 +10,15 @@ import shutil
 import subprocess
 import sys
 
-PHONE_IP = "100.64.0.2"
-PHONE_SERIAL = "TESTSERIAL1"
+# The owner's phone identity is local config, never committed: $PHONE_ADB_IP / $PHONE_ADB_SERIAL, else
+# ${XDG_CONFIG_HOME:-~/.config}/z0live/phone.json {"ip": ..., "serial": ...}. Defaults are placeholders.
+_CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "z0live/phone.json"
+try:
+    _PHONE = json.loads(_CONFIG.read_text()) if _CONFIG.is_file() else {}
+except (OSError, ValueError):
+    _PHONE = {}
+PHONE_IP = os.environ.get("PHONE_ADB_IP") or _PHONE.get("ip") or "100.64.0.2"
+PHONE_SERIAL = os.environ.get("PHONE_ADB_SERIAL") or _PHONE.get("serial") or "TESTSERIAL1"
 STATE = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "z0live/phone-adb.json"
 SDK_ADB = Path.home() / "android/sdk/platform-tools/adb"
 ADB = os.environ.get("PHONE_ADB_BIN") or (str(SDK_ADB) if SDK_ADB.is_file() else shutil.which("adb"))

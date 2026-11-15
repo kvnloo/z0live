@@ -13,6 +13,10 @@ import unittest
 from unittest.mock import patch
 
 PATH = Path(__file__).resolve().parents[1] / "bin/phone-adb"
+# Tests use the placeholder identity, never the owner's local config.
+os.environ.pop("PHONE_ADB_IP", None)
+os.environ.pop("PHONE_ADB_SERIAL", None)
+os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp()
 loader = importlib.machinery.SourceFileLoader("phone_adb", str(PATH))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 assert spec is not None
