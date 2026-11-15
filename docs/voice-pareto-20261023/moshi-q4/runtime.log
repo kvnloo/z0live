@@ -1,0 +1,22 @@
+ggml_cuda_init: GGML_CUDA_FORCE_MMQ:    no
+ggml_cuda_init: GGML_CUDA_FORCE_CUBLAS: no
+ggml_cuda_init: found 1 CUDA devices:
+  Device 0: NVIDIA GeForce RTX 3080 Ti, compute capability 8.6, VMM: yes
+load_backend: loaded CUDA backend from /workspace/cache/z0live-voice-models/runtime/libggml-cuda.so
+ggml_vulkan: Found 1 Vulkan devices:
+ggml_vulkan: 0 = NVIDIA GeForce RTX 3080 Ti (NVIDIA) | uma: 0 | fp16: 1 | bf16: 0 | warp size: 32 | shared memory: 49152 | int dot: 1 | matrix cores: NV_coopmat2
+load_backend: loaded Vulkan backend from /workspace/cache/z0live-voice-models/runtime/libggml-vulkan.so
+load_backend: loaded CPU backend from /workspace/cache/z0live-voice-models/runtime/libggml-cpu-haswell.so
+using device: "CUDA0"
+found model path: /workspace/cache/z0live-voice-models/Codes4Fun/moshika-q4_k-GGUF/
+seed: 44
+loading...
+done loading. 14.385000
+ready
+ there, what's going on? Hey, I was just reading
+device memory delta: 4806 MiB
+
+run frames: 125
+run time: 5.133 s
+
+frame rate:  24.354128 frames/s
