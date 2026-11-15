@@ -1,5 +1,6 @@
 """z0live.lanes.v1 on the broker: config + hot reload, blackboard, fan-out splice, text/voice config."""
 
+import concurrent.futures as cf
 import copy
 import hashlib
 import json
@@ -55,6 +56,13 @@ class Base(unittest.TestCase):
         self.addCleanup(minted.stop)
         self.tmp = tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR"))
         self.addCleanup(self.tmp.cleanup)
+        # Each test gets its own lane pool, joined before tmp is removed (cleanups run LIFO): a late
+        # verify job must not write into a deleted broker dir.
+        pool = cf.ThreadPoolExecutor(max_workers=12, thread_name_prefix="lane-test")
+        swapped = patch("z0live_desktop.lane_fanout.POOL", pool)
+        swapped.start()
+        self.addCleanup(pool.shutdown, wait=True)
+        self.addCleanup(swapped.stop)
         self.cfg_path = Path(self.tmp.name) / "z0live-lanes.json"
         env = patch.dict(os.environ, {"Z0LIVE_LANES": str(self.cfg_path)})
         env.start()

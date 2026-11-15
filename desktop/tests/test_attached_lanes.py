@@ -1,13 +1,15 @@
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from z0live_desktop.attached_lanes import small_answer
-from z0live_desktop.core import Store
-from test_voice_stack import plan
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # alphabetical discovery imports this first
+from z0live_desktop.attached_lanes import small_answer  # noqa: E402
+from z0live_desktop.core import Store  # noqa: E402
+from test_voice_stack import plan  # noqa: E402
 
 
 class AttachedLanesTests(unittest.TestCase):
