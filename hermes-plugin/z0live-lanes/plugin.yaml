@@ -1,0 +1,8 @@
+name: z0live-lanes
+version: 0.1.0
+description: Configure z0live voice lanes by text ("gimme 2 fast lanes, 2 small, 2 large, one council").
+author: kvnloo
+license: MIT
+manifest_version: 2
+provides_tools:
+  - z0live_lanes
