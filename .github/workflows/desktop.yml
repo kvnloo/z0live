@@ -1,12 +1,24 @@
 name: Desktop broker
 on:
   push:
-    paths: ['desktop/**', 'bin/z0live', 'deploy/**', '.github/workflows/desktop.yml']
+    paths: ['desktop/**', 'tests/**', 'bin/z0live', 'bin/phone-adb', 'deploy/**', '.github/workflows/desktop.yml']
   pull_request:
-    paths: ['desktop/**', 'bin/z0live', 'deploy/**', '.github/workflows/desktop.yml']
+    paths: ['desktop/**', 'tests/**', 'bin/z0live', 'bin/phone-adb', 'deploy/**', '.github/workflows/desktop.yml']
 permissions:
   contents: read
 jobs:
+  root-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.11', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '${{ matrix.python }}'
+      - run: python -m unittest discover -s tests -p 'test*.py' -v
+
   stdlib-tests:
     runs-on: ubuntu-latest
     strategy:
