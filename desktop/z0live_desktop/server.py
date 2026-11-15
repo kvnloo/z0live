@@ -104,6 +104,24 @@ class Handler(BaseHTTPRequestHandler):
                 result = {"ok": True, "version": VERSION}
             elif method == "POST" and path == "/v1/realtime/session":
                 result = store.new_session(device, body)
+            elif method == "POST" and path == "/v1/live/calls":
+                result = store.live.open(device, body)
+            elif method == "GET" and path == "/v1/live/trace":
+                sid = query.get("session_id", [""])[0]
+                with store.connect() as db:
+                    store.owned(db, sid, device)
+                call = store.live.get(sid)
+                result = {
+                    "delegations": store.live.delegator.trace(sid),
+                    "call": {
+                        "call_id": call.call_id,
+                        "open": call.opened.is_set() and not call.closed.is_set(),
+                        "marks": call.marks,
+                        "stats": call.stats,
+                    }
+                    if call
+                    else None,
+                }
             elif method == "POST" and path == "/v1/events":
                 result = store.add_events(device, body)
             elif method == "POST" and path == "/v1/hermes/send":
@@ -244,5 +262,7 @@ def serve():
         server.serve_forever(poll_interval=0.5)
     finally:
         stop.set()
+        if store._live is not None:
+            store._live.close_all()
         server.server_close()
         worker.join(timeout=30)

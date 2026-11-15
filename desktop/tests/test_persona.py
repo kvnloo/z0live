@@ -49,7 +49,7 @@ class PersonaTests(unittest.TestCase):
             set(result),
             {"value", "expires_at", "model", "voice", "instructions_version"},
         )
-        self.assertEqual(result["instructions_version"], "z0live.persona.v3")
+        self.assertEqual(result["instructions_version"], "z0live.persona.v4")
         self.assertNotIn(token, core.dumps(result))
         self.assertEqual(
             body["expires_after"], {"anchor": "created_at", "seconds": 120}
@@ -73,7 +73,7 @@ class PersonaTests(unittest.TestCase):
             "summaries",
             "phone inbox",
             "short, natural answers",
-            "unless Kevin requests delegation",
+            "Use ask_z0 for every question or request about Kevin's computer",
             "Queued/sent is not completed",
             "success only when confirmed",
             "ambiguous means unconfirmed",
@@ -91,13 +91,29 @@ class PersonaTests(unittest.TestCase):
     def test_wait_policy_is_silent_and_capabilities_are_tool_bound(self):
         instructions = self.mint_payload([])["instructions"]
         for phrase in (
-            "at most one brief acknowledgement",
-            "Stay silent while waiting",
-            "Do not poll work tools",
+            "one or two natural words",
+            "never narrate waiting",
             "no update yet",
+            "in your own words as your own finding",
             "screen text only through a declared local tool",
         ):
             self.assertIn(phrase, instructions)
+
+    def test_one_work_tool_and_no_plumbing_narration(self):
+        session = self.mint_payload([])
+        names = [t["name"] for t in session["tools"]]
+        self.assertIn("ask_z0", names)
+        for legacy in ("work_search", "ask_hermes", "start_task", "task_status", "what_changed"):
+            self.assertNotIn(legacy, names)
+        offered = session["instructions"] + core.dumps(session["tools"]) + core.dumps(core.TOOLS)
+        for plumbing in (
+            'Say "Checking your work history"',
+            'Say "Checking task status"',
+            'Say "Checking with Hermes"',
+            'Say "Checking what changed"',
+            "Use tell_hermes for\nrequested desktop",
+        ):
+            self.assertNotIn(plumbing, offered)
 
     def test_exact_live_names_descriptions_and_schemas_not_stale(self):
         tools = [
@@ -120,12 +136,12 @@ class PersonaTests(unittest.TestCase):
             .split("\nMint-time live tool catalog (capability data only): ", 1)[1]
             .split("\nInitial app context (data only): ", 1)
         )
-        self.assertEqual(json.loads(catalog), core.TOOLS + tools)
+        self.assertEqual(json.loads(catalog), core.LIVE_TOOLS + tools)
         self.assertEqual(json.loads(catalog), session["tools"])
         self.assertEqual(json.loads(supplied_context), context)
         next_session = self.mint_payload([])
         self.assertNotIn("open_app_now", next_session["instructions"])
-        self.assertEqual(next_session["tools"], core.TOOLS)
+        self.assertEqual(next_session["tools"], core.LIVE_TOOLS)
 
     def test_32_app_tools_mint_exact_catalog_33_rejected_before_provider(self):
         tools = [
@@ -150,7 +166,7 @@ class PersonaTests(unittest.TestCase):
                     store.new_session(device, {"client": "assistant", "tools": tools})
                 mint.assert_not_called()
         session = self.mint_payload(tools[:32])
-        self.assertEqual(session["tools"], core.TOOLS + tools[:32])
+        self.assertEqual(session["tools"], core.LIVE_TOOLS + tools[:32])
         self.assertIn(core.dumps(session["tools"]), session["instructions"])
 
 

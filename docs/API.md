@@ -81,6 +81,42 @@ promptly. This is not the duration of an established conversation. No underlying
 is returned. The host reads the owner's existing `~/.codex/auth.json` lazily and derives
 `ChatGPT-Account-ID`; OAuth refresh failure is a 502, not a paid-key fallback.
 
+### Frameless Bidi transport (OMP `/live` architecture)
+
+Clients that can use it add `"transports":["bidi","realtime"]` to the session request. When the broker
+setting `Z0LIVE_LIVE_TRANSPORT` is `bidi` (the default) the broker answers without a provider call:
+
+```json
+{"transport":"bidi","model":"gpt-live-1-codex","voice":"sol","instructions_version":"z0live.bidi.v1","session_id":"SERVER_GENERATED_ID","builtin_tools":[],"voice_plan":null}
+```
+
+There is no `value`: the phone never holds a provider credential. Requests without `transports`
+(every APK before this change) or with `Z0LIVE_LIVE_TRANSPORT=realtime` get the gpt-realtime mint
+below, unchanged except for an additive `"transport":"realtime"`. See [LIVE-BIDI.md](LIVE-BIDI.md).
+
+#### `POST /v1/live/calls`
+
+```json
+{"session_id":"SERVER_GENERATED_ID","sdp":"v=0\r\n..."}
+```
+
+The broker posts the phone's SDP offer to Codex signaling with the host's ChatGPT/Codex login,
+opens the call's sideband WebSocket, and returns `{"sdp":"v=0...","call_id":"rtc_...","model":"gpt-live-1-codex","voice":"sol","instructions_version":"z0live.bidi.v1"}`.
+Media stays direct between the phone and OpenAI. Errors: 400 for a non-bidi, ended or already-called
+session; 404 for another device's session; 502 when signaling fails (clients then mint
+`transports:["realtime"]` and post the same offer to OpenAI). Ending the session closes the call.
+
+The phone's data channel receives Frameless Bidi events (`input_transcript.added`,
+`output_transcript.added`, `turn.done`, `delegation.created`, `error`) for captions only. It sends
+no control messages. Phone actions arrive as ordinary inbox actions (`say:""`); the phone executes
+them and posts the usual `tool_result` event with `data.id` set to the inbox id, which becomes the
+spoken result. Transcripts are recorded by the broker from the sideband.
+
+#### `GET /v1/live/trace?session_id=...`
+
+Owner-scoped delegation receipts: route (`phone:TOOL` or `hermes`), status, timing marks
+(`created`, `routed`, `run_started`, `first_commentary`, `final`) and the final text, plus call stats.
+
 ### Direct OpenAI WebRTC (not proxied through desktop)
 
 1. Acquire microphone from a user gesture with Android's microphone permission; use a foreground
@@ -120,10 +156,10 @@ Builtins available in every session:
 | `task_status` | `{id?,project?}` | `POST /v1/tools/task_status` |
 | `what_changed` | `{since?,project?}`; since `today|yesterday|week` | `POST /v1/tools/what_changed` |
 
-New session responses also include `builtin_tools:["tell_hermes",…]`. Route these names to the
+New session responses also include `builtin_tools:["tell_hermes","get_context","summarize","ask_z0","cancel_work"]` (persona v4: the legacy work tools in the table stay executable and reserved but are no longer offered to the model). Route these names to the
 broker; execute declared app tools locally. Clients with a static allowlist must dispatch all returned builtins, including `what_changed`, `ask_z0` and `cancel_work`. No new pairing/permission is required; reconnect to mint them.
 
-`ask_z0` requires `{session_id,call_id?,arguments:{question}}`. It returns `{ok,id,turn_id,status,say,speech?,trace?}` immediately; queued acceptance uses `say:"",speech:"silent"` (L0 may acknowledge once before dispatch). Repeated pending acceptance stays silent. Cached model identity is `status:completed,cache:pinned_voice_plan`. Otherwise the brief/meta/workers run asynchronously and short progress/final speech arrives through inbox/SSE, with `params.turn_id`, `params.event`, and the full final `params.result`. Reuse the exact provider `call_id` on retry; changed arguments fail. Latest active user-started session only: old/ended sessions cannot admit new liaison work. For planned sessions `ask_hermes` and `tell_hermes(kind:request)` are compatibility aliases to L1 (immediate async response, not the old 24-second wait). Other legacy tool schemas remain unchanged.
+`ask_z0` requires `{session_id,call_id?,arguments:{question}}`. By default (`Z0LIVE_REALTIME_WORK=delegate`) it runs on the persistent Hermes backend shared with Frameless Bidi and returns `{ok,id,status:"working",say:"",speech:"silent"}`; the final answer arrives as one inbox item with `source:"run:<id>"` and `params.delegation_id`, for the phone's model to answer from in its own words. With `Z0LIVE_REALTIME_WORK=liaison` it returns `{ok,id,turn_id,status,say,speech?,trace?}` immediately; queued acceptance uses `say:"",speech:"silent"` (L0 may acknowledge once before dispatch). Repeated pending acceptance stays silent. Cached model identity is `status:completed,cache:pinned_voice_plan`. Otherwise the brief/meta/workers run asynchronously and short progress/final speech arrives through inbox/SSE, with `params.turn_id`, `params.event`, and the full final `params.result`. Reuse the exact provider `call_id` on retry; changed arguments fail. Latest active user-started session only: old/ended sessions cannot admit new liaison work. For planned sessions `ask_hermes` and `tell_hermes(kind:request)` are compatibility aliases to L1 (immediate async response, not the old 24-second wait). Other legacy tool schemas remain unchanged.
 
 Work-tool bodies may include the provider `call_id`. For `ask_hermes` and `start_task`, retrying the
 same session/call ID reuses its durable job; changed arguments with the same ID are rejected.
