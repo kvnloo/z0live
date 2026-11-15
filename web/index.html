@@ -11,6 +11,8 @@
         <div class="eyebrow">z0live</div>
         <h1>brainstorm</h1>
         <p id="status">disconnected</p>
+        <p class="local-note">Hybrid phone mode connects only to Tern on this phone, via 127.0.0.1.</p>
+        <p><a href="/voice-setup.html" style="color: #a4da48">Choose voice engine / inspect phone →</a></p>
         <button id="connect">connect</button>
         <button id="disconnect" disabled>disconnect</button>
         <details>
@@ -20,6 +22,17 @@
             <input id="gateway" />
           </label>
         </details>
+      </section>
+      <section class="card">
+        <div class="row"><strong>send to OMP / Hermes</strong><span>user-triggered</span></div>
+        <p>Optional typed fallback. Hermes phone-harness keeps its own per-tool approval.</p>
+        <form id="command-form">
+          <label for="command-text">command
+            <input id="command-text" autocomplete="off" placeholder="Inspect my phone screen" />
+          </label>
+          <button id="command-send" type="submit" disabled>send to harness</button>
+        </form>
+        <p id="command-status" role="status">Connect a harness to enable commands.</p>
       </section>
       <section class="card transcript-card">
         <div class="row">

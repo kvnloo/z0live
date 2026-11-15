@@ -140,7 +140,29 @@ class ConversationRuntime:
                 ):
                     await self.transcriber.assistant_speech_changed(False)
 
-            await self._publish_event(event)
+            # Full-duplex actors (e.g. OpenAI Realtime) can provide final
+            # transcripts directly. Forward ONLY completed speech to the
+            # harness and never grant authority to a partial. If a separate
+            # input transcriber is attached, that lane owns observations so
+            # we do not submit the same utterance twice.
+            if (
+                self.transcriber is None
+                and event.kind == EventKind.INPUT_TRANSCRIPT_FINAL
+            ):
+                text = str(event.payload.get("text") or "").strip()
+                backchannel = bool(event.payload.get("backchannel"))
+                event.payload = {
+                    **event.payload,
+                    "authority": bool(text) and not backchannel,
+                }
+                if event.trace_id is None:
+                    event.trace_id = self._active_input_trace_id or uuid.uuid4().hex
+                published = await self._publish_event(event)
+                if event.payload["authority"]:
+                    await self._send_observation(published)
+                self._active_input_trace_id = None
+            else:
+                await self._publish_event(event)
             if (
                 decision.action == FloorAction.INTERRUPT_ASSISTANT
                 and not self.actor.capabilities.native_barge_in
