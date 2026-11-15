@@ -16,6 +16,14 @@ def schema(name, description, properties, required=()):
 
 
 STRING = {"type": "string"}
+
+TURBO_TOOLS = [
+    schema("turbo_run", "Start explicitly requested Turbo work asynchronously. z0intelligence owns placement; never choose models. Queued is not completed.",
+           {"task": STRING, "repo": STRING, "deadline": STRING}, ["task"]),
+    schema("turbo_status", "Read only this voice session's latest or specified Turbo run.", {"run_id": STRING}),
+    schema("turbo_stop", "Stop only this session's latest or specified Turbo run through the z0int cancellation marker. Stop requested is not confirmed.", {"run_id": STRING}),
+]
+
 PROJECT = {
     "type": "string",
     "description": "Registered project name, e.g. garden_room, lawnchair, z0live",
