@@ -52,9 +52,15 @@ desktop broker  ── POST /codex/realtime/calls ────────┘
   for that user turn (matched by the provider's `user_bidi_turn_id`), the broker waits 1.5 s and
   then runs the owner's transcript itself; the result goes back through `session.context.append`.
   Unreadable or empty delegation events are recorded in the call stats instead of dropped.
-- **Persona** (`live.persona`, version `z0live.bidi.v2`): one assistant, action-biased, brief,
+- **Persona** (`live.persona`, version `z0live.bidi.v3`): one assistant, action-biased, brief,
   silent while waiting, never claims an action before its final message, never reads commentary,
-  lists the real phone tools from the mint, and says "not wired up yet" for anything else.
+  lists the real phone tools from the mint, and says "not wired up yet" for anything else. A
+  `<context>` block grounds it: who Kevin is, "Hermes" = his own agent system (not mythology),
+  his usual projects and, at mint, his recent Hermes session titles. "Pass it along / tell Hermes"
+  is a relay delegation, never a phone action, and a `Sent to …` result is read back verbatim
+  ([RELAY.md](RELAY.md)).
+- **Conversation context**: each new Hermes run gets the last 16 spoken turns as data before the
+  request, so a bare "yeah" or "the issue I just described" is understood.
 
 ## Decision: phone actions are delegation results, not client tools
 
