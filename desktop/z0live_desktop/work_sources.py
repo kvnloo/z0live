@@ -26,7 +26,7 @@ def compact(value, limit=600):
     )
     # Shell/log assignments can quote a multi-word value too.
     value = re.sub(
-        r"""(?i)((?:api[_-]?key|token|password|secret)\s*[=:]\s*)(["'])(?:\\.|(?!\2).)*?\2""",
+        r"""(?is)((?:api[_-]?key|token|password|secret)\s*[=:]\s*)(["'])(?:\\.|(?!\2).)*?\2""",
         lambda match: match[1] + match[2] + "[REDACTED]" + match[2],
         value,
     )

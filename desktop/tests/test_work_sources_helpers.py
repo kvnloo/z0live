@@ -56,6 +56,16 @@ class WorkSourcesHelpersTests(unittest.TestCase):
                 self.assertNotIn("spaces", sources.compact(value))
                 self.assertIn("[REDACTED]", sources.compact(value))
 
+    def test_compact_redacts_multiline_quoted_assignments(self):
+        for quote in ("'", '"'):
+            with self.subTest(quote=quote):
+                value = "password=" + quote + "synthetic first\nsynthetic second" + quote + " label=keep"
+                self.assertEqual(
+                    sources.compact(value),
+                    ('password="[REDACTED]" label=keep' if quote == '"'
+                     else "password=[REDACTED] label=keep"),
+                )
+
     def test_compact_redacts_basic_authorization(self):
         for value in (
             "Authorization: Basic syntheticValue123",
