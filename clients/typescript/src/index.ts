@@ -531,11 +531,13 @@ export class DesktopBrokerClient {
           for (const line of fields) {
             if (line.startsWith(":") || !line) continue;
             // SSE strips one optional ASCII space, not arbitrary whitespace.
-            if (line.startsWith("event:")) event = line.slice(6).replace(/^ /, "");
+            if (line === "event") event = "";
+            else if (line.startsWith("event:")) event = line.slice(6).replace(/^ /, "");
             else if (line.startsWith("id:")) seenId = line.slice(3).replace(/^ /, "");
             else if (line.startsWith("data:")) data.push(line.slice(5).replace(/^ /, ""));
           }
-          if (data.length === 0 || event !== "message") continue;
+          // An empty event type dispatches the default message event.
+          if (data.length === 0 || (event !== "" && event !== "message")) continue;
           if (!seenId || !/^(0|[1-9][0-9]*)$/.test(seenId)) fail("invalid SSE id");
           const parsedId = integer(Number(seenId), "SSE id", 1);
           const message = parseMessage(parseJson(data.join("\n")));

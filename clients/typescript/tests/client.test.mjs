@@ -488,3 +488,15 @@ test("unknown builtin names fail before credentials or transport are accessed", 
   assert.equal(tokenReads, 0);
   assert.equal(calls.length, 0);
 });
+
+test("empty SSE event fields select the default message event", async () => {
+  for (const eventField of ["event:", "event: ", "event: ignored\nevent"]) {
+    const body = eventField + "\nid: 1\ndata: " + JSON.stringify(goodMessage(1)) + "\n\n";
+    const { client } = createClient(() => new Response(body, {
+      headers: { "Content-Type": "text/event-stream" },
+    }));
+    const messages = [];
+    for await (const message of client.stream()) messages.push(message.id);
+    assert.deepEqual(messages, [1], eventField);
+  }
+});
