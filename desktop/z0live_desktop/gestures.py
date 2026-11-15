@@ -64,6 +64,8 @@ def adb_launch(gesture, runner=subprocess.run):
 class Gestures:
     def __init__(self, store, *, clock=time.time, adb=adb_launch):
         self.store, self.clock, self.adb = store, clock, adb
+        from .accessibility import AccessibilityWatchdog
+        self.accessibility = AccessibilityWatchdog(store)
         with store.connect() as db:
             db.executescript("""
             CREATE TABLE IF NOT EXISTS gesture_presence(device TEXT PRIMARY KEY, kind TEXT NOT NULL,
@@ -119,6 +121,9 @@ class Gestures:
             or type(body.get("ready")) is not bool
         ):
             raise ValueError("kind, recent activity_ts, available and ready required")
+        for key in ("in_app_control", "a11y_enabled"):
+            if key in body and type(body[key]) is not bool:
+                raise ValueError(key + " must be boolean")
         with self.store.connect() as db:
             # Refuse one credential claiming two target kinds.
             row = db.execute(
@@ -130,6 +135,7 @@ class Gestures:
                 "INSERT OR REPLACE INTO gesture_presence VALUES(?,?,?,?,?,?)",
                 (device, kind, now, min(at, now), body["available"], body["ready"]),
             )
+        self.accessibility.offer(device, body)
         return {"ok": True}
 
     def pin(self, device, body):
