@@ -105,6 +105,8 @@ TOOLS += [
 # task_status, ...) stay executable and reserved for older clients, but are never offered: with
 # them in the catalog the model picked work_search for repo questions and answered from an empty
 # partial ("I couldn't find it") instead of delegating.
+from .ring_recording import TOOLS as RING_TOOLS
+TOOLS += RING_TOOLS
 LIVE_TOOLS = list(TOOLS)
 TOOLS += WORK_TOOLS
 INSTRUCTIONS = """You are z0live, Kevin's phone-wide voice assistant.
@@ -335,6 +337,8 @@ class Store:
         from .gestures import Gestures
 
         self.gestures = Gestures(self)
+        from .ring_recording import RingRecordings
+        self.ring_recordings = RingRecordings(self)
         self.export_events()
 
     @property
@@ -805,6 +809,9 @@ class Store:
             raise ValueError("arguments must be object")
         with self.connect() as db:
             self.owned(db, sid, device)
+        from .ring_recording import NAMES as RING_NAMES
+        if name in RING_NAMES:
+            return self.ring_recordings.execute(device, sid, name, args, body.get("call_id"))
         if name == "ask_z0":
             if set(args) != {"question"}:
                 raise ValueError("ask_z0 requires only question")
