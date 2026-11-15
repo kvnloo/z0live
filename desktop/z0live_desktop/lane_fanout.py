@@ -131,7 +131,17 @@ class Models:
                 data = json.loads(r.read())
             return {"text": data["choices"][0]["message"]["content"], "model": data.get("model", b["model"]),
                     "ms": round((time.monotonic() - start) * 1000)}
-        # vllm-sr, voice_plan roles and anthropic-via-hermes all go through the broker's liaison
+        if b["route"] == "vllm-sr":  # direct to the router (k3s NodePort): ~0.4 s vs the liaison hop
+            body = {"model": b["model"], "max_tokens": 1024, "temperature": 0.2,  # reasoning backends need room
+                    "messages": [{"role": "user", "content": prompt}]}
+            req = urllib.request.Request(lanes_mod.SR_BASE + "/chat/completions", data=json.dumps(body).encode(),
+                                         headers={"Content-Type": "application/json", "User-Agent": "z0live-lanes"})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                data = json.loads(r.read())
+                picked = r.headers.get("X-Vsr-Selected-Model")
+            return {"text": data["choices"][0]["message"]["content"] or "", "model": picked or b["model"],
+                    "ms": round((time.monotonic() - start) * 1000)}
+        # voice_plan roles and anthropic-via-hermes go through the broker's liaison
         # host (`/complete`, the clean profile's provider resolution), the same path as attached smol.
         from .voice_runtime import Native
         provider = "vllm-sr" if b["route"] == "vllm-sr" else b["provider"]

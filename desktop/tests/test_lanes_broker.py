@@ -378,5 +378,35 @@ class PresetDTests(Base):
             self.store.lane_turn("someone-else", {"session_id": sid, "text": "hey"})
 
 
+class RouterRouteTests(unittest.TestCase):
+    def test_vllm_sr_lane_calls_the_router_directly_and_reports_the_picked_backend(self):
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        from z0live_desktop import lane_fanout
+        seen = {}
+
+        class H(BaseHTTPRequestHandler):
+            def do_POST(self):
+                seen["path"] = self.path
+                seen["body"] = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                out = json.dumps({"choices": [{"message": {"content": '{"route":"answer","answer":"Paris"}'}}]}).encode()
+                self.send_response(200)
+                self.send_header("X-Vsr-Selected-Model", "groq-qwen3.8-27b")
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers()
+                self.wfile.write(out)
+
+            def log_message(self, format, *args):
+                pass
+
+        srv = HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.shutdown)
+        binding = {"provider": "free", "model": "vllm-sr/turbo", "route": "vllm-sr", "billing": "free"}
+        with patch.object(lanes, "SR_BASE", f"http://127.0.0.1:{srv.server_port}/v1"):
+            result = lane_fanout.Models(None).complete(binding, "capital of france?", timeout=5)
+        self.assertEqual((seen["path"], seen["body"]["model"]), ("/v1/chat/completions", "vllm-sr/turbo"))
+        self.assertEqual((result["model"], lane_fanout._json(result["text"])["answer"]), ("groq-qwen3.8-27b", "Paris"))
+
+
 if __name__ == "__main__":
     unittest.main()

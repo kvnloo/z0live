@@ -144,6 +144,10 @@ def validate(cfg) -> list[str]:
     return out
 
 
+# vLLM Semantic Router (k3s NodePort on groot since 11-15); free models only, public-class turns only.
+SR_BASE = os.environ.get("Z0LIVE_SR_URL", "http://100.113.138.100:30899/v1").rstrip("/")
+
+
 # ------------------------------------------------------------------ privacy (Kevin decision 3, 11-05)
 PRIVACY = ("public", "personal", "location", "credentials")  # increasing strictness
 _CREDENTIALS = re.compile(r"\b(passwords?|passcodes?|passphrase|api[ -]?keys?|tokens?|secrets?|credentials?|2fa|otp|"
