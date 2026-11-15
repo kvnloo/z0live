@@ -103,6 +103,12 @@ class ConfigTests(Base):
                           cls("how far is the pharmacy from my house"), cls("read me my wifi password")],
                          ["public", "personal", "location", "credentials"])
         self.assertEqual(cls("capital of france", "location"), "location")  # caller floor wins
+        # model-speed talk is not a credential (11-15: "time to first token" locked a call to local lanes)
+        self.assertEqual([cls("what happened to the time to first token test"), cls("how many tokens per second"),
+                          cls("cut the output tokens and the token budget"), cls("is ttft faster on groq")],
+                         ["public"] * 4)
+        self.assertEqual([cls("read me the github token"), cls("paste the api token"), cls("first token, then password")],
+                         ["credentials"] * 3)
         free = {"provider": "free", "model": "vllm-sr/free", "route": "vllm-sr", "billing": "free"}
         local = {"provider": "local", "model": "qwen3.5-4b", "route": "local", "billing": "free"}
         role = {"provider": "voice_plan", "model": "smol", "route": "voice_plan"}
