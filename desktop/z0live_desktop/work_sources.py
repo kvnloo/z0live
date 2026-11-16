@@ -25,8 +25,9 @@ def compact(value, limit=600):
         value,
     )
     # Shell/log assignments and Python mapping reprs can quote multi-word values.
+    # A truncated quoted credential stays sensitive through the end of the excerpt.
     value = re.sub(
-        r"""(?is)((?:api[_-]?key|token|password|secret)["']?\s*[=:]\s*)(["'])(?:\\.|(?!\2).)*?\2""",
+        r"""(?is)((?:api[_-]?key|token|password|secret)["']?\s*[=:]\s*)(["'])(?:\\.|(?!\2).)*?(?:\2|\Z)""",
         lambda match: match[1] + match[2] + "[REDACTED]" + match[2],
         value,
     )

@@ -91,6 +91,15 @@ class WorkSourcesHelpersTests(unittest.TestCase):
         self.assertEqual(result.count("[REDACTED]"), 3)
         self.assertIn("'label': 'keep this text'", result)
 
+    def test_compact_redacts_unterminated_quoted_assignments(self):
+        for quote in ("'", '"'):
+            with self.subTest(quote=quote):
+                value = "password=" + quote + "synthetic first line\nsynthetic trailing words"
+                result = sources.compact(value)
+                self.assertNotIn("synthetic", result)
+                self.assertNotIn("trailing words", result)
+                self.assertIn("[REDACTED]", result)
+
     def test_compact_non_string_and_limit(self):
         self.assertEqual(sources.compact({"a": "é"}), '{"a": "é"}')
         self.assertEqual(len(sources.compact("x" * 700)), 600)
