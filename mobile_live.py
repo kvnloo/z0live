@@ -32,6 +32,7 @@ from aiortc import MediaStreamTrack
 
 LOG = logging.getLogger("hermes.mobile.subscription_voice")
 import chat_continuity  # noqa: E402 - sibling module (voice turns land in the owner's open chat)
+import handoff  # noqa: E402 - sibling module (call continues on z0live when Kevin leaves the screen)
 CHAT_CONTINUITY = os.environ.get("HERMES_MOBILE_VOICE_CHAT", "1") != "0"
 TTFT_MODEL = os.environ.get("VOICE_TTFT_MODEL", "qwen/qwen3.8-27b")  # Groq: ~0.2 s whole answer (11-15 probe)
 # Children (claude, hermes, lanes) get their own transient scope. Inside this unit's 768M cap they pushed it
@@ -345,6 +346,7 @@ class Protocol:
         self.turn_text = {"user": "", "assistant": ""}
         self.last_user = ""
         self.last_delegation = ""
+        self.exchanges = deque(maxlen=8)  # finished (role, text) turns, for the z0live handoff
         self.seen = deque(maxlen=256)
         self.started_at = time.monotonic()
 
@@ -377,6 +379,8 @@ class Protocol:
             self.turn_text[role] = ""
             if role == "user":
                 self.last_user = text
+            if (text or prior).strip():
+                self.exchanges.append((role, (text or prior).strip()))
             remainder = text[len(prior):] if text.startswith(prior) else (text if not prior else "")
             return [self.transcript(role, remainder)] if remainder else []
         if kind == "delegation.created":
@@ -978,6 +982,24 @@ class Call:
         await asyncio.sleep(MAX_CALL_SECONDS - 35)
         await self.close("duration_limit")
 
+    async def maybe_handoff(self, reason):
+        """Kevin left the call screen: hand the conversation to z0live on the phone (opt-out: HERMES_VOICE_HANDOFF=off)."""
+        how = handoff.mode()
+        if how == "off" or reason not in handoff.PHONE_CLOSES or not self.protocol.exchanges:
+            return
+        serial = os.environ.get("HERMES_VOICE_PHONE", "192.168.1.2:40059")
+        try:
+            front = await asyncio.to_thread(handoff.foreground, serial) if how == "auto" else None
+            if not handoff.decide(reason, front, how):
+                self.trace("handoff.skipped", front=front, mode=how)
+                return
+            await asyncio.to_thread(handoff.record, self.chat, self.profile, list(self.protocol.exchanges), self.id)
+            started = await asyncio.to_thread(handoff.start_z0live, serial)
+            self.trace("handoff.z0live", front=front, mode=how, started=started)
+            LOG.info("handoff to z0live front=%s started=%s", front, started)
+        except Exception as exc:  # noqa: BLE001 - a failed switch must never break the close
+            LOG.warning("handoff failed: %s", type(exc).__name__)
+
     async def close(self, reason):
         if self.closed:
             return
@@ -1000,6 +1022,7 @@ class Call:
         self.manager.recent.append({"id": self.id, "reason": reason,
                                     "seconds": round(time.monotonic() - self.created, 1),
                                     "counts": dict(self.counts)})
+        await self.maybe_handoff(reason)
         self.trace("call.closed", reason=reason, seconds=round(time.monotonic() - self.created, 1),
                    counts=dict(self.counts))
         self.trace.close()
