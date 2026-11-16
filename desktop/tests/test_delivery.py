@@ -297,6 +297,31 @@ class DeliveryTests(unittest.TestCase):
         self.send.assert_not_called()
         self.assertEqual(self.cursor(), last_id)
 
+    def test_batch_boundary_retries_without_skipping_or_replaying(self):
+        texts = [f"update {index:03}" for index in range(101)]
+        ids = [
+            self.store.publish(text, sid=self.sid, source="lookup:batch:" + text)
+            for text in texts
+        ]
+        self.tick()
+        self.assertEqual(self.send.call_args.kwargs["input"], HEADER + "\n\n".join(texts[:100]))
+        self.assertEqual(self.cursor(), ids[99])
+
+        self.send.return_value = subprocess.CompletedProcess(
+            args=["hermes"], returncode=1, stdout='{"success":false}'
+        )
+        self.tick()
+        self.assertEqual(self.send.call_args.kwargs["input"], HEADER + texts[100])
+        self.assertEqual(self.cursor(), ids[99])
+
+        self.send.return_value = SUCCESS
+        self.tick()
+        self.assertEqual(self.send.call_args.kwargs["input"], HEADER + texts[100])
+        self.assertEqual(self.cursor(), ids[100])
+        self.assertEqual(self.send.call_count, 3)
+        self.tick()
+        self.assertEqual(self.send.call_count, 3, "drained batches must not replay")
+
     def test_truncates_payload(self):
         self.store.publish("X" * 13000, sid=self.sid, source="lookup:long")
         self.tick()
