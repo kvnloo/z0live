@@ -53,15 +53,16 @@ class Delivery:
         if not rows:
             return
         # Non-request housekeeping is not an owner notification.
-        messages = [
-            r["say"]
-            for r in rows
-            if r["source"] is None
-            or r["source"].startswith(("lookup:", "task-progress:", "delegation:"))
-        ]
+        messages = []
         with self.store.connect() as db:
+            # Filter in inbox order rather than appending run results in a second pass.
             for r in rows:
-                if (r["source"] or "").startswith("run:"):
+                source = r["source"]
+                if source is None or source.startswith(
+                    ("lookup:", "task-progress:", "delegation:")
+                ):
+                    messages.append(r["say"])
+                elif source.startswith("run:"):
                     job = db.execute(
                         "SELECT kind FROM jobs WHERE run_id=?", (r["source"][4:],)
                     ).fetchone()
@@ -95,8 +96,9 @@ class Delivery:
                 result = json.loads(p.stdout)
                 if (
                     p.returncode
+                    or not isinstance(result, dict)
                     or result.get("error")
-                    or result.get("success") is False
+                    or result.get("success") is not True
                 ):
                     raise RuntimeError("Hermes delivery not confirmed")
             except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired):
