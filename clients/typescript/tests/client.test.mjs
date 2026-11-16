@@ -500,3 +500,18 @@ test("empty SSE event fields select the default message event", async () => {
     assert.deepEqual(messages, [1], eventField);
   }
 });
+
+
+test("context responses must belong to the requested session", async () => {
+  for (const invoke of [client => client.getContext(sid),
+    client => client.callBuiltin("get_context", sid)]) {
+    const wrong = createClient(() => json({
+      session_id: "synthetic-other-session", client: "web", context: { note: "wrong context" },
+    }));
+    await errorKind(invoke(wrong.client), "protocol");
+    assert.equal(wrong.calls.length, 1, "identity mismatch is not retried");
+    const response = { session_id: sid, client: "web", context: { note: "matching context" } };
+    const matching = createClient(() => json(response));
+    assert.deepEqual(await invoke(matching.client), response);
+  }
+});

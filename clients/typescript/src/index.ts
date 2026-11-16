@@ -194,9 +194,11 @@ function parseMint(value: unknown): MintResult {
     instructions_version: string(obj.instructions_version, "instructions_version"),
   };
 }
-function parseContext(value: unknown): ContextResult {
+function parseContext(value: unknown, expectedSessionId: string): ContextResult {
   const obj = record(value, "context");
-  return { session_id: id(obj.session_id, "session_id"), client: client(obj.client),
+  const session = id(obj.session_id, "session_id");
+  if (session !== expectedSessionId) fail("context session does not match requested session");
+  return { session_id: session, client: client(obj.client),
     context: record(obj.context, "context") };
 }
 function parseQueue(value: unknown): QueueResult {
@@ -417,7 +419,7 @@ export class DesktopBrokerClient {
       string(args.text, "summarize.text");
     }
     const parse = name === "tell_hermes" ? parseQueue :
-      name === "summarize" ? parseSummary : parseContext;
+      name === "summarize" ? parseSummary : (value: unknown) => parseContext(value, sid);
     return this.json<QueueResult | ContextResult | SummaryResult>("POST", "/v1/tools/" + name, {
       session_id: sid, arguments: args,
     }, parse, signal);
@@ -474,7 +476,7 @@ export class DesktopBrokerClient {
   async getContext(sid: string, signal?: AbortSignal): Promise<ContextResult> {
     id(sid, "session_id");
     return this.json("GET", "/v1/context?session_id=" + encodeURIComponent(sid),
-      undefined, parseContext, signal);
+      undefined, value => parseContext(value, sid), signal);
   }
 
   async endSession(sid: string, signal?: AbortSignal): Promise<{ ok: true; id: number | null }> {
