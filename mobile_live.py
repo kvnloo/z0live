@@ -30,6 +30,67 @@ from aiortc.mediastreams import MediaStreamError
 from aiortc import MediaStreamTrack
 
 LOG = logging.getLogger("hermes.mobile.subscription_voice")
+import chat_continuity  # noqa: E402 - sibling module (voice turns land in the owner's open chat)
+CHAT_CONTINUITY = os.environ.get("HERMES_MOBILE_VOICE_CHAT", "1") != "0"
+TTFT_MODEL = os.environ.get("VOICE_TTFT_MODEL", "qwen/qwen3.8-27b")  # Groq: ~0.2 s whole answer (11-15 probe)
+
+
+def _ttft_key():
+    """GROQ_API_KEY from the ttft bot's env (bws-deployed); never logged."""
+    try:
+        for line in (Path.home() / ".hermes/profiles/ttft/.env").read_text().splitlines():
+            if line.startswith("GROQ_API_KEY="):
+                return line.split("=", 1)[1].strip().strip("'\"")
+    except OSError:
+        pass
+    return ""
+
+
+FAST_SYSTEM = ("You are the instant fast lane ({who}) on Kevin's live voice call; this very answer is the fast lane he "
+               "hears first. Answer in one or two short spoken sentences from the context. Never guess whether something "
+               "worked or what he heard; if the context doesn't say, or it needs a live check of his machine, say the "
+               "slower lanes are checking. Never invent numbers.")
+
+
+class WarmHaiku:
+    """One `claude -p` Haiku process kept warm for a whole call: ~0.7 s first token vs ~3 s cold (11-15 probe)."""
+
+    def __init__(self, system):
+        self.system, self.proc, self.lock = system, None, asyncio.Lock()
+
+    async def start(self):
+        env = {**os.environ, "CLAUDE_CONFIG_DIR": str(Path.home() / ".claude-sub2"), "FAST_LANE_CHILD": "1"}
+        self.proc = await asyncio.create_subprocess_exec(
+            "claude", "-p", "--model", "haiku", "--input-format", "stream-json", "--output-format", "stream-json",
+            "--verbose", "--tools", "", "--strict-mcp-config", "--append-system-prompt", self.system,
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+            env=env, cwd=str(Path.home()), limit=1 << 22)
+        await self.ask("Reply with just: ready", 30)  # pays the cold start before Kevin's first question
+
+    async def ask(self, text, timeout=8):
+        async with self.lock:
+            proc = self.proc
+            if not proc or proc.returncode is not None or not proc.stdin or not proc.stdout:
+                raise RuntimeError("warm haiku not running")
+            out = proc.stdout
+            msg = {"type": "user", "message": {"role": "user", "content": text}}
+            proc.stdin.write((json.dumps(msg) + "\n").encode())
+            await proc.stdin.drain()
+
+            async def result():
+                while line := await out.readline():
+                    d = json.loads(line)
+                    if d.get("type") == "result":
+                        return " ".join(str(d.get("result") or "").split())
+                raise RuntimeError("warm haiku exited")
+            return await asyncio.wait_for(result(), timeout)
+
+    def close(self):
+        if self.proc and self.proc.returncode is None:
+            self.proc.kill()
+
+
+FABLE_SCRIPT = os.environ.get("FAST_LANE_FABLE_SCRIPT", "/workspace/repos/home/tools/fable-lanes.py")
 UPSTREAM = "http://127.0.0.1:9119"
 SIGNALING = "https://chatgpt.com/backend-api/codex/realtime/calls?intent=quicksilver&architecture=avas"
 MODEL = "gpt-live-1-codex"
@@ -426,6 +487,11 @@ class Call:
         self.tasks = set()
         self.relay = LaneRelay.from_env() if (LaneRelay and HOST_DELEGATION) else None
         self.lane_said = {}  # delegation id -> (lane answer, entry id)
+        self.token = ""  # the app's own bearer, for submitting voice turns into its open chat
+        self.chat_lookup = None
+        self.context_text = ""  # recent chat history text, for the ttft lane
+        self.haiku = None  # WarmHaiku, started once chat context is known
+        self.chat = ""   # stored id of the chat Live Voice was started from ('' = hidden voice session)
         self.trace = Trace(self.id)
         self.trace("call.created", profile=profile, model=MODEL, rev=ADAPTER_REV, pid=os.getpid(),
                    host_delegation=HOST_DELEGATION, lanes=bool(self.relay))
@@ -524,6 +590,8 @@ class Call:
             self.spawn(self.close("client_closed" if not from_provider else "provider_closed"))
 
     async def start(self, sdp, history):
+        if CHAT_CONTINUITY and self.token:  # off the setup path: a slow lookup must never stall the phone's offer
+            self.chat_lookup = asyncio.ensure_future(asyncio.to_thread(chat_continuity.find_chat, history, self.profile))
         self.trace("call.start", history_items=len(history) if isinstance(history, list) else None)
         try:
             await self.mobile.setRemoteDescription(RTCSessionDescription(sdp=sdp, type="offer"))
@@ -571,6 +639,10 @@ class Call:
                         context.append(role + ": " + text[:2000])
             if context:
                 text = "Recent chat context (do not read aloud):\n" + "\n".join(context)
+                self.context_text = text
+                if os.environ.get("VOICE_WARM_HAIKU", "1") != "0" and shutil.which("claude"):
+                    self.haiku = WarmHaiku(FAST_SYSTEM.format(who="Haiku") + "\n\n" + text[-6000:])
+                    self.spawn(self.start_haiku())
                 for part in chunks(text[-16000:]):
                     self.send({"type": "session.context.append", "channel": "commentary",
                                "content": [{"type": "input_text", "text": part}]}, True)
@@ -641,7 +713,12 @@ class Call:
             if not request:
                 raise RuntimeError("The delegated request was empty")
             # FAST_LANE_OFF: the lanes are this turn's fast lane; the profile plugin must not start another.
-            job = asyncio.ensure_future(asyncio.to_thread(run_hermes, request, self.profile, True))
+            job = asyncio.ensure_future(self.ask_hermes(did, request))
+            self.latest_did = did  # an older question's lanes go quiet once this one starts
+            lanes = asyncio.ensure_future(self.fable_lanes(did, time.time()))
+            self.spawn(self.run_fable_lanes(did, request))
+            self.spawn(self.ttft_lane(did, request))
+            job.add_done_callback(lambda _: asyncio.get_running_loop().call_later(150, lanes.cancel))
             if self.relay:
                 lane_job = asyncio.ensure_future(self.relay.answer(request))
                 await asyncio.wait({lane_job, job}, return_when=asyncio.FIRST_COMPLETED)
@@ -689,6 +766,112 @@ class Call:
                                               "delegation_id": did, "content": answer}):
             self.send(msg, to_provider=True)
 
+    async def start_haiku(self):
+        began, haiku = time.monotonic(), self.haiku
+        if not haiku:
+            return
+        try:
+            await haiku.start()
+            self.trace("haiku.warm", s=round(time.monotonic() - began, 2))
+        except Exception as exc:  # noqa: BLE001 - Groq stays the fast lane
+            self.trace("haiku.warm_failed", error=type(exc).__name__)
+            haiku.close()
+            self.haiku = None
+
+    async def ttft_lane(self, did, request):
+        """Warm Haiku answers first; the ttft bot's fastest provider (Groq) covers when Haiku isn't warm."""
+        if self.haiku:
+            began = time.monotonic()
+            try:
+                text = await self.haiku.ask(request)
+                self.trace("delegation.haiku_fast", did=did, s=round(time.monotonic() - began, 3), text=text[:500])
+                if text and not self.closed:
+                    self.counts["haiku_fast_spoken"] += 1
+                    self.speak_for(did, "Quick answer from Haiku: " + text)
+                return
+            except Exception as exc:  # noqa: BLE001
+                self.trace("delegation.haiku_fast_failed", did=did, error=type(exc).__name__)
+        key = _ttft_key()
+        if not key:
+            return
+        began = time.monotonic()
+        body = {"model": TTFT_MODEL, "max_tokens": 120, "messages": [
+            {"role": "system", "content": FAST_SYSTEM.format(who="Qwen on Groq") + "\n\n" + self.context_text[-6000:]},
+            {"role": "user", "content": request}]}
+        try:
+            async with self.manager.http.post("https://api.groq.com/openai/v1/chat/completions", json=body,
+                                              headers={"Authorization": "Bearer " + key},
+                                              timeout=ClientTimeout(total=8)) as resp:
+                data = await resp.json()
+            text = " ".join(str(data["choices"][0]["message"].get("content") or "").split())
+        except Exception as exc:  # noqa: BLE001
+            self.trace("delegation.ttft_failed", did=did, error=type(exc).__name__)
+            return
+        self.trace("delegation.ttft", did=did, s=round(time.monotonic() - began, 3), text=text[:500])
+        if text and not self.closed:
+            self.counts["ttft_spoken"] += 1
+            self.speak_for(did, "Quick answer from the fast lane: " + text)
+
+    async def run_fable_lanes(self, did, request):
+        """Start the Haiku+Fable lanes here: the chat's plugin hook does not fire for dashboard turns."""
+        root = Path.home() / ".hermes" / "profiles" / (self.profile or "clean") / "cache" / "fast-lane"
+        if not (root / "fable-on").exists():
+            return
+        try:
+            n = str(max(1, int((root / "fable-n").read_text().strip())))
+        except (OSError, ValueError):
+            n = "5"
+        proc = await asyncio.create_subprocess_exec(
+            "python3", "-I", FABLE_SCRIPT, request, "--n", n, "--timeout", "150",
+            "--out", str(root / "fable" / f"voice-{did[-24:]}"),
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+        self.trace("delegation.fable_start", did=did, n=n, pid=proc.pid)
+        await proc.wait()
+
+    async def fable_lanes(self, did, since):
+        """Speak each Haiku+Fable lane (fast-lane plugin, `fable` engine) as its answer lands during this turn."""
+        root = Path.home() / ".hermes" / "profiles" / (self.profile or "clean") / "cache" / "fast-lane" / "fable"
+        heard = set()
+        while not self.closed and getattr(self, "latest_did", did) == did:
+            # only this delegation's own lanes: a shared glob made every open question re-speak every lane
+            for f in sorted(root.glob(f"voice-{did[-24:]}/*.json"), key=lambda p: p.stat().st_mtime):
+                try:
+                    if f in heard or f.stat().st_mtime < since:
+                        continue
+                    heard.add(f)
+                    lane = json.loads(f.read_text())
+                except (OSError, ValueError):
+                    continue
+                said = " ".join(str(lane.get("answer") or "").split())[:280]
+                if said:
+                    self.counts["fable_lanes_spoken"] += 1
+                    self.trace("delegation.fable_lane", did=did, lane=lane.get("lane"), secs=lane.get("secs"))
+                    self.speak_for(did, f"Helper lane {lane.get('lane')} reports: {said}")
+            await asyncio.sleep(2)
+
+    async def ask_hermes(self, did, request):
+        """The open chat when known (visible in the app afterwards), else the hidden voice session."""
+        if self.chat_lookup and not self.chat:
+            try:
+                self.chat = await asyncio.wait_for(asyncio.shield(self.chat_lookup), 5)
+            except Exception:  # noqa: BLE001
+                self.chat = ""
+            self.trace("chat.resolved", chat=self.chat)
+        if self.chat:
+            try:
+                answer = await asyncio.wait_for(chat_continuity.ask_chat(
+                    self.manager.http, self.token, self.profile, self.chat, request, DELEGATION_TIMEOUT_SECONDS),
+                    DELEGATION_TIMEOUT_SECONDS)
+                self.counts["chat_turns"] += 1
+                self.trace("delegation.chat", did=did, chat=self.chat)
+                return answer
+            except Exception as exc:  # noqa: BLE001 - fall back to the voice session, never lose the turn
+                self.counts["chat_failed"] += 1
+                self.trace("delegation.chat_failed", did=did, chat=self.chat, error=type(exc).__name__,
+                           detail=str(exc)[:300])
+                LOG.warning("chat continuity failed id=%s: %s", self.id, str(exc)[:200])
+        return await asyncio.to_thread(run_hermes, request, self.profile, True)
+
     async def watchdog(self):
         await asyncio.sleep(35)
         if self.mobile.connectionState != "connected" or self.provider.connectionState != "connected":
@@ -701,6 +884,8 @@ class Call:
         if self.closed:
             return
         self.closed = True
+        if self.haiku:
+            self.haiku.close()
         self.send({"type": "session.closed", "reason": reason,
                    "usage": {"seconds": int(time.monotonic() - self.created)}})
         if self.provider_dc.readyState == "open":
@@ -787,6 +972,8 @@ async def session(request):
     except (ValueError, AttributeError):
         raise web.HTTPBadRequest(text="A valid SDP offer is required") from None
     call = Call(manager, profile_name(request.headers.get("X-Hermes-Profile") or request.query.get("profile")))
+    auth = request.headers.get("Authorization", "")
+    call.token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
     manager.calls[call.id] = call
     try:
         async with asyncio.timeout(55):
