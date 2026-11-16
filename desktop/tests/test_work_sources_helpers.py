@@ -79,6 +79,18 @@ class WorkSourcesHelpersTests(unittest.TestCase):
                 self.assertIn("[REDACTED]", result)
         self.assertEqual(sources.compact("Basic introduction"), "Basic introduction")
 
+    def test_compact_redacts_python_mapping_credentials(self):
+        value = repr({
+            "password": "synthetic multi word password",
+            "nested": {"token": "synthetic token"},
+            "api_key": "synthetic key",
+            "label": "keep this text",
+        })
+        result = sources.compact(value)
+        self.assertNotIn("synthetic", result)
+        self.assertEqual(result.count("[REDACTED]"), 3)
+        self.assertIn("'label': 'keep this text'", result)
+
     def test_compact_non_string_and_limit(self):
         self.assertEqual(sources.compact({"a": "é"}), '{"a": "é"}')
         self.assertEqual(len(sources.compact("x" * 700)), 600)

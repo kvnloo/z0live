@@ -24,9 +24,9 @@ def compact(value, limit=600):
         r'\1"[REDACTED]"',
         value,
     )
-    # Shell/log assignments can quote a multi-word value too.
+    # Shell/log assignments and Python mapping reprs can quote multi-word values.
     value = re.sub(
-        r"""(?is)((?:api[_-]?key|token|password|secret)\s*[=:]\s*)(["'])(?:\\.|(?!\2).)*?\2""",
+        r"""(?is)((?:api[_-]?key|token|password|secret)["']?\s*[=:]\s*)(["'])(?:\\.|(?!\2).)*?\2""",
         lambda match: match[1] + match[2] + "[REDACTED]" + match[2],
         value,
     )
