@@ -989,7 +989,7 @@ class Call:
             return
         serial = os.environ.get("HERMES_VOICE_PHONE", "192.168.1.2:40059")
         try:
-            front = await asyncio.to_thread(handoff.foreground, serial) if how == "auto" else None
+            front = await asyncio.to_thread(handoff.foreground, serial)  # traced only
             if not handoff.decide(reason, front, how):
                 self.trace("handoff.skipped", front=front, mode=how)
                 return

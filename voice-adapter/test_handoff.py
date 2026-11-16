@@ -13,11 +13,10 @@ class Decide(unittest.TestCase):
         self.assertTrue(handoff.decide("client_closed", "com.android.chrome", "auto"))
         self.assertTrue(handoff.decide("transport_closed", "app.lawnchair.play.debug", "auto"))
 
-    def test_hanging_up_inside_hermes_stays_ended(self):
-        self.assertFalse(handoff.decide("client_closed", handoff.HERMES_APP, "auto"))
-
-    def test_unknown_foreground_stays_ended(self):
-        self.assertFalse(handoff.decide("client_closed", None, "auto"))
+    def test_hanging_up_inside_hermes_switches(self):
+        # the app has no back button: ending the call in-app is how Kevin leaves it (11-16)
+        self.assertTrue(handoff.decide("client_closed", handoff.HERMES_APP, "auto"))
+        self.assertTrue(handoff.decide("client_closed", None, "auto"))
 
     def test_opt_out_and_provider_close(self):
         self.assertFalse(handoff.decide("client_closed", "com.android.chrome", "off"))

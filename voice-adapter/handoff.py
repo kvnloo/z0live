@@ -1,7 +1,8 @@
 """Switch a Hermes Live Voice call to z0live on the phone when Kevin leaves the call screen.
 
-Mode (HERMES_VOICE_HANDOFF): "auto" (default) switches when the call closes while another app
-is in front; "always" switches on every phone-side close; "off" never switches (opt-out).
+Mode (HERMES_VOICE_HANDOFF): "auto" (default) switches on every phone-side close, because the
+Hermes app has no back button: hanging up is how Kevin leaves the call screen (11-16 call: closed
+with Hermes still in front). "off" never switches (opt-out). "always" is kept as an alias of auto.
 The handoff record is a small JSON file z0live reads when it opens the next call.
 """
 from __future__ import annotations
@@ -29,9 +30,7 @@ def decide(reason: str, front: str | None, how: str) -> bool:
     """True when this close should continue on z0live. Unknown foreground in auto mode = stay ended."""
     if how == "off" or reason not in PHONE_CLOSES:
         return False
-    if how == "always":
-        return True
-    return bool(front) and front != HERMES_APP
+    return True
 
 
 def adb(serial: str, *args: str, timeout: float = 4.0) -> str:
