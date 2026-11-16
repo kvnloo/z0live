@@ -85,7 +85,7 @@ class HostDelegationTests(unittest.IsolatedAsyncioTestCase):
             self.skipTest("z0live checkout without mobile_relay (set Z0LIVE_DESKTOP)")
 
         class Relay:
-            counts, turn = {}, {"receipt": {"entry": 7}}
+            counts, turn = {}, {"text": "what is the capital of australia", "receipt": {"entry": 7}}
 
             async def answer(self, request):
                 return "Canberra."
@@ -335,7 +335,7 @@ class OneFastLaneTests(unittest.IsolatedAsyncioTestCase):
     class Relay:
         def __init__(self, text, delay, source=None):
             self.text, self.delay, self.cancelled = text, delay, False
-            self.counts, self.turn = {}, {"text": "q", "receipt": {}, **({"source": source} if source else {})}
+            self.counts, self.turn = {}, {"text": "which branch is z0live on", "receipt": {}, **({"source": source} if source else {})}
 
         async def answer(self, request):
             try:
@@ -370,7 +370,7 @@ class OneFastLaneTests(unittest.IsolatedAsyncioTestCase):
         relay = self.Relay("You're on a detached HEAD at 2dd8589.", 0.1, source="gather")
         call, flags, sent, took = await self.delegate(relay, 0.6)
         self.assertEqual(flags, [True])  # FAST_LANE_OFF: the profile plugin starts no second lane
-        self.assertEqual(sent[0], "Quick first look, still being checked: You're on a detached HEAD at 2dd8589.")
+        self.assertEqual(sent[0], "You're on a detached HEAD at 2dd8589.")  # no plumbing framing (11-16)
         self.assertIn('detached HEAD (2dd8589)', sent[-1])
         self.assertLess(took, 1.2)  # the lane wait never runs before the driver (it used to add up to 9.5 s)
 

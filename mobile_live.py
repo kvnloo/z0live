@@ -18,6 +18,7 @@ import os
 from pathlib import Path
 import selectors
 import shutil
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -33,6 +34,39 @@ LOG = logging.getLogger("hermes.mobile.subscription_voice")
 import chat_continuity  # noqa: E402 - sibling module (voice turns land in the owner's open chat)
 CHAT_CONTINUITY = os.environ.get("HERMES_MOBILE_VOICE_CHAT", "1") != "0"
 TTFT_MODEL = os.environ.get("VOICE_TTFT_MODEL", "qwen/qwen3.8-27b")  # Groq: ~0.2 s whole answer (11-15 probe)
+# Children (claude, hermes, lanes) get their own transient scope. Inside this unit's 768M cap they pushed it
+# to its limit; the kernel then stalled the adapter's event loop ~10 s and the phone hung up (4 calls, 11-16).
+SCOPE = (["systemd-run", "--user", "--scope", "--quiet", "--collect", "-p", "MemoryMax=4G"]
+         if shutil.which("systemd-run") and os.environ.get("HERMES_MOBILE_VOICE_SCOPE", "1") != "0" else [])
+# Lane output that must never be spoken: hook chatter and the fast lane declining.
+NOISE = re.compile(r"^\W*(skip\b|model guard|the hook flagged)", re.I)
+SESSION_WORDS = re.compile(r"\b(sessions?|chief of staff|progress|what.{0,12}(running|working on|going on)|status)\b", re.I)
+
+
+def same_words(a: str, b: str) -> bool:
+    """True when two transcripts of one utterance share most of their words (ASR differs in small ways)."""
+    wa, wb = (set(re.findall(r"[a-z0-9']{3,}", x.lower()[:400])) for x in (a, b))
+    return bool(wa and wb) and len(wa & wb) >= 0.5 * min(len(wa), len(wb))
+
+
+def live_sessions(hours: float = 3.0, limit: int = 12) -> str:
+    """Open Hermes sessions active in the last `hours`, all profiles, newest first: plain facts for a summary."""
+    out = []
+    for db in sorted((Path.home() / ".hermes" / "profiles").glob("*/state.db")):
+        try:
+            with sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=1) as con:
+                rows = con.execute(
+                    "SELECT s.title, s.last_activity_at, coalesce(s.last_activity_description,''), (SELECT substr(m.content,1,220) "
+                    "FROM messages m WHERE m.session_id=s.id AND m.role='assistant' AND length(m.content)>40 "
+                    "ORDER BY m.id DESC LIMIT 1) FROM sessions s WHERE s.ended_at IS NULL AND s.title IS NOT NULL "
+                    "AND s.last_activity_at > strftime('%s','now') - ? ORDER BY s.last_activity_at DESC LIMIT ?",
+                    (int(hours * 3600), limit)).fetchall()
+        except sqlite3.Error:
+            continue
+        out += [(at, db.parent.name, t, d, " ".join((last or "").split())) for t, at, d, last in rows]
+    now = time.time()
+    return "\n".join(f"- [{p}] {t} ({int((now - at) // 60)} min ago{', ' + d if d else ''}): {last}"
+                     for at, p, t, d, last in sorted(out, reverse=True)[:limit])
 
 
 def _ttft_key():
@@ -48,8 +82,8 @@ def _ttft_key():
 
 FAST_SYSTEM = ("You are the instant fast lane ({who}) on Kevin's live voice call; this very answer is the fast lane he "
                "hears first. Answer in one or two short spoken sentences from the context. Never guess whether something "
-               "worked or what he heard; if the context doesn't say, or it needs a live check of his machine, say the "
-               "slower lanes are checking. Never invent numbers.")
+               "worked or what he heard. If the context can't answer it, reply with exactly SKIP (slower lanes are already "
+               "checking; never say so yourself). Most important fact first. Never invent numbers.")
 
 
 class WarmHaiku:
@@ -57,11 +91,12 @@ class WarmHaiku:
 
     def __init__(self, system):
         self.system, self.proc, self.lock = system, None, asyncio.Lock()
+        self.stale = 0  # results still owed to asks that timed out; the next ask must skip them
 
     async def start(self):
         env = {**os.environ, "CLAUDE_CONFIG_DIR": str(Path.home() / ".claude-sub2"), "FAST_LANE_CHILD": "1"}
         self.proc = await asyncio.create_subprocess_exec(
-            "claude", "-p", "--model", "haiku", "--input-format", "stream-json", "--output-format", "stream-json",
+            *SCOPE, "claude", "-p", "--model", "haiku", "--input-format", "stream-json", "--output-format", "stream-json",
             "--verbose", "--tools", "", "--strict-mcp-config", "--append-system-prompt", self.system,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
             env=env, cwd=str(Path.home()), limit=1 << 22)
@@ -81,15 +116,24 @@ class WarmHaiku:
                 while line := await out.readline():
                     d = json.loads(line)
                     if d.get("type") == "result":
+                        if self.stale:  # a timed-out ask's late answer (spoke "Model guard..." for a new question)
+                            self.stale -= 1
+                            continue
                         return " ".join(str(d.get("result") or "").split())
                 raise RuntimeError("warm haiku exited")
-            return await asyncio.wait_for(result(), timeout)
+            try:
+                return await asyncio.wait_for(result(), timeout)
+            except asyncio.TimeoutError:
+                self.stale += 1
+                raise
 
     def close(self):
         if self.proc and self.proc.returncode is None:
             self.proc.kill()
 
 
+LANE_MERGE_WAIT = 20  # seconds after the first lane lands before speaking the merge without the stragglers
+LANE_POLL = 1.0
 FABLE_SCRIPT = os.environ.get("FAST_LANE_FABLE_SCRIPT", "/workspace/repos/home/tools/fable-lanes.py")
 UPSTREAM = "http://127.0.0.1:9119"
 SIGNALING = "https://chatgpt.com/backend-api/codex/realtime/calls?intent=quicksilver&architecture=avas"
@@ -158,7 +202,7 @@ VOICE_LOCKS = defaultdict(threading.Lock)
 
 
 def _hermes_once(request: str, profile: str, resume: str, own_lane: bool = False):
-    args = [HERMES_BIN] + (["-p", profile] if profile else []) + [
+    args = SCOPE + [HERMES_BIN] + (["-p", profile] if profile else []) + [
         # Explicit --source: a source inherited from a parent Hermes (HERMES_SESSION_SOURCE=kanban)
         # makes the run fail before any model call ("couldn't start the model connection: invalid_params").
         "chat", "-q", request, "--oneshot", "-Q", "--source", "oneshot"] + (["--resume", resume] if resume else [])
@@ -715,11 +759,12 @@ class Call:
             # FAST_LANE_OFF: the lanes are this turn's fast lane; the profile plugin must not start another.
             job = asyncio.ensure_future(self.ask_hermes(did, request))
             self.latest_did = did  # an older question's lanes go quiet once this one starts
-            lanes = asyncio.ensure_future(self.fable_lanes(did, time.time()))
+            lanes = asyncio.ensure_future(self.fable_lanes(did, time.time(), request))
             self.spawn(self.run_fable_lanes(did, request))
             self.spawn(self.ttft_lane(did, request))
             job.add_done_callback(lambda _: asyncio.get_running_loop().call_later(150, lanes.cancel))
-            if self.relay:
+            if self.relay and await self.relay_turn_for(request):
+                turn = self.relay.turn
                 lane_job = asyncio.ensure_future(self.relay.answer(request))
                 await asyncio.wait({lane_job, job}, return_when=asyncio.FIRST_COMPLETED)
                 if lane_job.done() and not lane_job.cancelled():
@@ -742,10 +787,9 @@ class Call:
                 if lane and gathered and UNHELPFUL.match(lane):
                     self.counts["lane_unhelpful"] += 1  # "I couldn't find it" adds nothing before the driver
                     lane = None
-                if lane and not self.closed:
+                if lane and self.say_first(did, lane):
                     self.counts["lane_answer_spoken"] += 1
                     self.lane_said[did] = (lane, ((turn or {}).get("receipt") or {}).get("entry"))
-                    self.speak_for(did, ("Quick first look, still being checked: " + lane) if gathered else lane)
             answer = await job
             self.counts["host_delegation_ok"] += 1
             self.trace("delegation.done", did=did, s=round(time.monotonic() - began, 3), answer=answer[:4000],
@@ -778,39 +822,70 @@ class Call:
             haiku.close()
             self.haiku = None
 
-    async def ttft_lane(self, did, request):
-        """Warm Haiku answers first; the ttft bot's fastest provider (Groq) covers when Haiku isn't warm."""
-        if self.haiku:
-            began = time.monotonic()
-            try:
-                text = await self.haiku.ask(request)
-                self.trace("delegation.haiku_fast", did=did, s=round(time.monotonic() - began, 3), text=text[:500])
-                if text and not self.closed:
-                    self.counts["haiku_fast_spoken"] += 1
-                    self.speak_for(did, "Quick answer from Haiku: " + text)
-                return
-            except Exception as exc:  # noqa: BLE001
-                self.trace("delegation.haiku_fast_failed", did=did, error=type(exc).__name__)
+    async def relay_turn_for(self, request, wait=2.0):
+        """The relay's latest final, once it is THIS request. delegation.created can beat the user's turn.done,
+        and the previous turn's lane answer ("Hey Kevin! Not much...") was spoken for a new question (11-16)."""
+        deadline = time.monotonic() + wait
+        while True:
+            turn = self.relay.turn
+            if turn and same_words(turn.get("text", ""), request):
+                return turn
+            if time.monotonic() > deadline:
+                self.counts["relay_turn_stale"] += 1
+                return None
+            await asyncio.sleep(0.1)
+
+    async def groq(self, system, user, max_tokens=120):
+        """One Groq completion (~0.3 s), or '' on any failure. Key from the ttft bot's env; never logged."""
         key = _ttft_key()
         if not key:
-            return
-        began = time.monotonic()
-        body = {"model": TTFT_MODEL, "max_tokens": 120, "messages": [
-            {"role": "system", "content": FAST_SYSTEM.format(who="Qwen on Groq") + "\n\n" + self.context_text[-6000:]},
-            {"role": "user", "content": request}]}
+            return ""
+        body = {"model": TTFT_MODEL, "max_tokens": max_tokens,
+                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
         try:
             async with self.manager.http.post("https://api.groq.com/openai/v1/chat/completions", json=body,
                                               headers={"Authorization": "Bearer " + key},
                                               timeout=ClientTimeout(total=8)) as resp:
                 data = await resp.json()
-            text = " ".join(str(data["choices"][0]["message"].get("content") or "").split())
+            return " ".join(str(data["choices"][0]["message"].get("content") or "").split())
         except Exception as exc:  # noqa: BLE001
-            self.trace("delegation.ttft_failed", did=did, error=type(exc).__name__)
-            return
-        self.trace("delegation.ttft", did=did, s=round(time.monotonic() - began, 3), text=text[:500])
-        if text and not self.closed:
+            self.trace("groq_failed", error=type(exc).__name__)
+            return ""
+
+    def say_first(self, did, text):
+        """Speak one instant answer per question; a second instant lane (relay vs Haiku/Groq) stays silent."""
+        if not text or NOISE.match(text) or self.closed or getattr(self, "latest_did", did) != did:
+            return False
+        said = self.__dict__.setdefault("first_said", {})
+        if did in said:
+            return False
+        said[did] = text
+        self.speak_for(did, text)
+        return True
+
+    async def ttft_lane(self, did, request):
+        """Instant answer: warm Haiku, else Groq. Session/progress questions get the live Hermes sessions as facts."""
+        facts = ""
+        if SESSION_WORDS.search(request or ""):
+            facts = await asyncio.to_thread(live_sessions)
+            self.trace("delegation.sessions", did=did, n=len(facts.splitlines()))
+        ask = request + (f"\n\nLive Hermes sessions right now (newest first):\n{facts}\nSummarize the top few in at most "
+                         "three short spoken sentences, most important first." if facts else "")
+        text = ""
+        if self.haiku:
+            began = time.monotonic()
+            try:
+                text = await self.haiku.ask(ask)
+                self.trace("delegation.haiku_fast", did=did, s=round(time.monotonic() - began, 3), text=text[:500])
+            except Exception as exc:  # noqa: BLE001
+                self.trace("delegation.haiku_fast_failed", did=did, error=type(exc).__name__)
+        if not text or NOISE.match(text):
+            began = time.monotonic()
+            text = await self.groq(FAST_SYSTEM.format(who="Qwen on Groq") + "\n\n" + self.context_text[-6000:], ask,
+                                   200 if facts else 120)
+            self.trace("delegation.ttft", did=did, s=round(time.monotonic() - began, 3), text=text[:500])
+        if self.say_first(did, text):
             self.counts["ttft_spoken"] += 1
-            self.speak_for(did, "Quick answer from the fast lane: " + text)
 
     async def run_fable_lanes(self, did, request):
         """Start the Haiku+Fable lanes here: the chat's plugin hook does not fire for dashboard turns."""
@@ -821,17 +896,20 @@ class Call:
             n = str(max(1, int((root / "fable-n").read_text().strip())))
         except (OSError, ValueError):
             n = "5"
+        self.__dict__.setdefault("lane_n", {})[did] = int(n)
         proc = await asyncio.create_subprocess_exec(
-            "python3", "-I", FABLE_SCRIPT, request, "--n", n, "--timeout", "150",
+            *SCOPE, "python3", "-I", FABLE_SCRIPT, request, "--n", n, "--timeout", "150",
             "--out", str(root / "fable" / f"voice-{did[-24:]}"),
             stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
         self.trace("delegation.fable_start", did=did, n=n, pid=proc.pid)
         await proc.wait()
 
-    async def fable_lanes(self, did, since):
-        """Speak each Haiku+Fable lane (fast-lane plugin, `fable` engine) as its answer lands during this turn."""
+    async def fable_lanes(self, did, since, request=""):
+        """Collect this question's helper lanes silently, then speak ONE merged update. Speaking each lane
+        made a 22 s monologue (11-16 call); Kevin wants the most important fact first and little else."""
         root = Path.home() / ".hermes" / "profiles" / (self.profile or "clean") / "cache" / "fast-lane" / "fable"
-        heard = set()
+        heard, answers, first = set(), [], None
+        want = self.__dict__.get("lane_n", {}).get(did, 5)
         while not self.closed and getattr(self, "latest_did", did) == did:
             # only this delegation's own lanes: a shared glob made every open question re-speak every lane
             for f in sorted(root.glob(f"voice-{did[-24:]}/*.json"), key=lambda p: p.stat().st_mtime):
@@ -842,12 +920,32 @@ class Call:
                     lane = json.loads(f.read_text())
                 except (OSError, ValueError):
                     continue
-                said = " ".join(str(lane.get("answer") or "").split())[:280]
-                if said:
-                    self.counts["fable_lanes_spoken"] += 1
+                said = " ".join(str(lane.get("answer") or "").split())[:600]
+                if said and not NOISE.match(said):
+                    answers.append((lane.get("lane"), said))
+                    first = first or time.monotonic()
                     self.trace("delegation.fable_lane", did=did, lane=lane.get("lane"), secs=lane.get("secs"))
-                    self.speak_for(did, f"Helper lane {lane.get('lane')} reports: {said}")
-            await asyncio.sleep(2)
+            if answers and (len(answers) >= want or time.monotonic() - first > LANE_MERGE_WAIT):
+                break
+            await asyncio.sleep(LANE_POLL)
+        if not answers or self.closed or getattr(self, "latest_did", did) != did:
+            return
+        text = await self.merge_lanes(did, request, answers)
+        self.trace("delegation.lanes_merged", did=did, n=len(answers), text=(text or "")[:500])
+        if text and not NOISE.match(text) and not self.closed and getattr(self, "latest_did", did) == did:
+            self.counts["fable_lanes_spoken"] += 1
+            self.speak_for(did, text)
+
+    async def merge_lanes(self, did, request, answers):
+        """Two spoken sentences from the lanes, most important first; SKIP if they add nothing to what was said."""
+        before = self.__dict__.get("first_said", {}).get(did, "")
+        found = "\n".join(f"- {name}: {text}" for name, text in answers)
+        text = await self.groq(
+            "Merge helper findings into what Kevin hears on a live voice call: at most two short spoken sentences, "
+            "the single most important fact first, no lane names, no plumbing. If the findings add nothing to what "
+            "he already heard, reply exactly SKIP.",
+            f"He asked: {request}\nAlready said: {before or '(nothing)'}\nFindings:\n{found}", 160)
+        return text or answers[0][1][:280]
 
     async def ask_hermes(self, did, request):
         """The open chat when known (visible in the app afterwards), else the hidden voice session."""
