@@ -100,6 +100,26 @@ class WorkSourcesHelpersTests(unittest.TestCase):
                 self.assertNotIn("trailing words", result)
                 self.assertIn("[REDACTED]", result)
 
+    def test_compact_redacts_numeric_mapping_credentials(self):
+        value = {"password": 123456789, "nested": {"token": 987654321},
+                 "label": 42}
+        for source in (value, json.dumps(value), repr(value)):
+            with self.subTest(source_type=type(source).__name__):
+                result = sources.compact(source)
+                self.assertNotIn("123456789", result)
+                self.assertNotIn("987654321", result)
+                self.assertEqual(result.count("[REDACTED]"), 2)
+                self.assertIn("42", result)
+                if not isinstance(source, str) or source.startswith('{"'):
+                    self.assertEqual(json.loads(result), {
+                        "password": "[REDACTED]", "nested": {"token": "[REDACTED]"},
+                        "label": 42,
+                    })
+        self.assertEqual(
+            sources.compact('{"secret": -1.25e+10, "label": 42}'),
+            '{"secret": "[REDACTED]", "label": 42}',
+        )
+
     def test_compact_non_string_and_limit(self):
         self.assertEqual(sources.compact({"a": "é"}), '{"a": "é"}')
         self.assertEqual(len(sources.compact("x" * 700)), 600)

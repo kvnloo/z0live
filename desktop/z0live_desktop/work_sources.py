@@ -24,6 +24,12 @@ def compact(value, limit=600):
         r'\1"[REDACTED]"',
         value,
     )
+    # Numeric passwords/tokens in JSON or mapping reprs are credentials too.
+    value = re.sub(
+        r"""(?i)(["'](?:api[_-]?key|token|password|secret)["']\s*:\s*)-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?""",
+        r'\1"[REDACTED]"',
+        value,
+    )
     # Shell/log assignments and Python mapping reprs can quote multi-word values.
     # A truncated quoted credential stays sensitive through the end of the excerpt.
     value = re.sub(
