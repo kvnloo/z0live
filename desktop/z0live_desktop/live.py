@@ -100,6 +100,27 @@ def grounding(limit=6) -> str:
     return ("- Recent Hermes sessions (newest first): " + "; ".join(titles)[:600]) if titles else ""
 
 
+HANDOFF = Path(os.environ.get("Z0LIVE_HANDOFF_FILE", "/mnt/zer0models/workspace/zer0/data/z0live/handoff.json"))
+
+
+def handoff_context(path: Path = HANDOFF, max_age: float = 300.0, now: float | None = None) -> str:
+    """A Hermes app call Kevin just left, as context for this call. Read once: the file is consumed."""
+    try:
+        data = json.loads(path.read_text())
+        path.unlink()
+    except (OSError, ValueError):
+        return ""
+    if not isinstance(data, dict) or (now or time.time()) - float(data.get("at", 0)) > max_age:
+        return ""
+    lines = [f"{'Kevin' if r == 'user' else 'You'}: {str(t)[:600]}" for r, t in data.get("exchanges", [])
+             if r in ("user", "assistant")]
+    if not lines:
+        return ""
+    chat = f" (Hermes chat {data['chat']})" if data.get("chat") else ""
+    return ("- This call continues Kevin's Hermes app voice call" + chat + ", which he just left to use his phone. "
+            "Pick up where it left off; do not greet or re-introduce yourself. Last exchanges:\n" + "\n".join(lines[-8:]))
+
+
 def persona(tools: list[dict], context: str = "") -> str:
     """One-assistant persona for gpt-live-1-codex, written for spoken use."""
     phone = [
@@ -472,7 +493,7 @@ class LiveCalls:
         access = self.access()
         scoped, realtime = str(uuid.uuid4()), str(uuid.uuid4())
         started = time.monotonic()
-        answer, call_id = self.signaler(offer, persona(tools, grounding()), voice(), access,
+        answer, call_id = self.signaler(offer, persona(tools, "\n".join(x for x in (grounding(), handoff_context()) if x)), voice(), access,
                                         scoped, realtime)
         call = LiveCall(self.store, sid, device, call_id, access, scoped, realtime,
                         self.delegator, connector=self.connector)
