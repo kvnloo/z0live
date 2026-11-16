@@ -312,6 +312,8 @@ class IntegrationTests(unittest.IsolatedAsyncioTestCase):
                 pass
             dc.send(json.dumps({'type': 'session.commentary.append', 'delegation_id': 'd1', 'content': 'Fixture passed'}))
             event = await self.received.get()
+            while event['type'] == 'session.context.append':  # the call brief arrives first (11-16)
+                event = await self.received.get()
             self.assertEqual(event['type'], 'delegation.context.append')
             self.assertEqual(event['channel'], 'speakable')
             self.assertEqual(event['delegation_item_id'], 'd1')

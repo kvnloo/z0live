@@ -32,6 +32,7 @@ from aiortc import MediaStreamTrack
 
 LOG = logging.getLogger("hermes.mobile.subscription_voice")
 import chat_continuity  # noqa: E402 - sibling module (voice turns land in the owner's open chat)
+import call_brief  # noqa: E402 - sibling module (context packet in the session instructions)
 import handoff  # noqa: E402 - sibling module (call continues on z0live when Kevin leaves the screen)
 CHAT_CONTINUITY = os.environ.get("HERMES_MOBILE_VOICE_CHAT", "1") != "0"
 TTFT_MODEL = os.environ.get("VOICE_TTFT_MODEL", "qwen/qwen3.8-27b")  # Groq: ~0.2 s whole answer (11-15 probe)
@@ -84,7 +85,8 @@ def _ttft_key():
 FAST_SYSTEM = ("You are the instant fast lane ({who}) on Kevin's live voice call; this very answer is the fast lane he "
                "hears first. Answer in one or two short spoken sentences from the context. Never guess whether something "
                "worked or what he heard. If the context can't answer it, reply with exactly SKIP (slower lanes are already "
-               "checking; never say so yourself). Most important fact first. Never invent numbers.")
+               "checking; never say so yourself). Most important fact first. Never invent numbers. "
+               "Kevin's Hermes chat runs on his PC with adb to his phone: it can screenshot and read his screen, watch logs and run commands. Never say you can't see his screen or aren't connected to the call. Screen, phone and action requests: reply SKIP so the chat does them.")
 
 
 class WarmHaiku:
@@ -150,6 +152,7 @@ PERSONA = """You are Hermes, speaking with the user in the official Hermes mobil
 Be natural, brief and direct. Do not speak until the user speaks. Listen while speaking
 and stop immediately when interrupted. Handle greetings and ordinary small talk yourself.
 You have no tools. For facts, lookups or actions, delegate the complete request to the client.
+Kevin's Hermes chat runs on his PC with adb to his phone: it can screenshot and read his screen, watch logs and run commands. Never say you can't see his screen or aren't connected to the call. "Look at my screen" is a delegation, not a refusal.
 The client is the user's existing Hermes chat with its chosen model, tools and approvals.
 Do not claim work happened until the client returns its actual result. Progress arriving on
 the commentary channel is silent context, not something to read aloud. Present an Agent
@@ -691,10 +694,15 @@ class Call:
                 if os.environ.get("VOICE_WARM_HAIKU", "1") != "0" and shutil.which("claude"):
                     self.haiku = WarmHaiku(FAST_SYSTEM.format(who="Haiku") + "\n\n" + text[-6000:])
                     self.spawn(self.start_haiku())
-                for part in chunks(text[-16000:]):
-                    self.send({"type": "session.context.append", "channel": "commentary",
-                               "content": [{"type": "input_text", "text": part}]}, True)
+                # raw tail is for the lanes only: as live context items the model answered them (catch-up, 11-16)
+            # The subscription endpoint ignores session instructions (11-16 canary: "I'm ChatGPT"), so the
+            # persona and the call brief go in as context, framed as background so they are not answered.
+            channel = os.environ.get("HERMES_VOICE_BRIEF_CHANNEL", "developer")
+            for part in chunks(PERSONA + "\n" + call_brief.build(history, self.chat), int(os.environ.get("HERMES_VOICE_BRIEF_CHUNK", "1800"))):
+                self.send({"type": "session.context.append", "channel": channel,
+                           "content": [{"type": "input_text", "text": part}]}, True)
             self.spawn(self.watchdog())
+            self.spawn(self.audio_health())
             if self.relay:
                 self.spawn(self.relay_start())
             self.trace("call.negotiated", setup_s=round(time.monotonic() - self.created, 3), context_items=len(context))
@@ -973,6 +981,19 @@ class Call:
                            detail=str(exc)[:300])
                 LOG.warning("chat continuity failed id=%s: %s", self.id, str(exc)[:200])
         return await asyncio.to_thread(run_hermes, request, self.profile, True)
+
+    async def audio_health(self):
+        """Once a second for the first 60 s: frames each way and event-loop lag (choppy starts, 11-16)."""
+        last = (0, 0)
+        for _ in range(60):
+            t = time.monotonic()
+            await asyncio.sleep(1)
+            lag = round((time.monotonic() - t - 1) * 1000)
+            now = (self.counts["input_frames"], self.counts["output_frames"])
+            self.trace("audio.rate", input=now[0] - last[0], output=now[1] - last[1], loop_lag_ms=lag)
+            last = now
+            if self.closed:
+                return
 
     async def watchdog(self):
         await asyncio.sleep(35)
