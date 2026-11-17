@@ -164,6 +164,7 @@ function parsePage(value: unknown): InboxPage {
   const messages = obj.messages.map(parseMessage);
   const after = integer(obj.after, "inbox.after");
   const has_more = bool(obj.has_more, "inbox.has_more");
+  if (has_more && messages.length === 0) fail("inbox continuation requires cursor progress");
   let previous = 0;
   for (const item of messages) {
     if (item.id <= previous || item.id > after) fail("nonmonotonic inbox ids or invalid cursor");

@@ -535,3 +535,16 @@ test("empty inbox pages preserve explicit and stored request cursors", async () 
   const nonempty = createClient(() => json(expected));
   assert.deepEqual(await nonempty.client.getInbox(7), expected, "nonempty pages may advance across global ID gaps");
 });
+
+test("inbox continuation requires at least one message of cursor progress", async () => {
+  for (const after of [0, 7]) {
+    const invalid = createClient(() => json({ messages: [], after, has_more: true }));
+    await errorKind(invalid.client.getInbox(after, { retries: 2 }), "protocol");
+    assert.equal(invalid.calls.length, 1, "nonprogressing pages are not retried");
+  }
+  for (const has_more of [false, true]) {
+    const expected = { messages: [goodMessage(9)], after: 9, has_more };
+    const valid = createClient(() => json(expected));
+    assert.deepEqual(await valid.client.getInbox(7), expected);
+  }
+});
