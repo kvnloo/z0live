@@ -445,6 +445,9 @@ export class DesktopBrokerClient {
     if (page.messages.some(msg => msg.id <= cursor) || page.after < cursor) {
       fail("inbox response regressed past requested cursor");
     }
+    if (page.messages.length === 0 && page.after !== cursor) {
+      fail("empty inbox response must preserve requested cursor");
+    }
     return page;
   }
 

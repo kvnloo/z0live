@@ -515,3 +515,23 @@ test("context responses must belong to the requested session", async () => {
     assert.deepEqual(await invoke(matching.client), response);
   }
 });
+
+test("empty inbox pages preserve explicit and stored request cursors", async () => {
+  for (const stored of [false, true]) {
+    for (const after of [0, 7]) {
+      const invalid = createClient(() => json({ messages: [], after: after + 1, has_more: false }));
+      invalid.store.after = after;
+      await errorKind(invalid.client.getInbox(stored ? undefined : after, { retries: 2 }), "protocol");
+      assert.equal(invalid.calls.length, 1, "protocol failures are not retried");
+      assert.equal(invalid.store.after, after, "reads do not acknowledge skipped messages");
+
+      const expected = { messages: [], after, has_more: false };
+      const valid = createClient(() => json(expected));
+      valid.store.after = after;
+      assert.deepEqual(await valid.client.getInbox(stored ? undefined : after), expected);
+    }
+  }
+  const expected = { messages: [goodMessage(12)], after: 12, has_more: false };
+  const nonempty = createClient(() => json(expected));
+  assert.deepEqual(await nonempty.client.getInbox(7), expected, "nonempty pages may advance across global ID gaps");
+});
