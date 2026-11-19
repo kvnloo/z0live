@@ -33,6 +33,7 @@ from aiortc import MediaStreamTrack
 LOG = logging.getLogger("hermes.mobile.subscription_voice")
 import chat_continuity  # noqa: E402 - sibling module (voice turns land in the owner's open chat)
 import call_brief  # noqa: E402 - sibling module (context packet in the session instructions)
+import grok_leg  # noqa: E402 - sibling module (Grok Voice as the voice model)
 import handoff  # noqa: E402 - sibling module (call continues on z0live when Kevin leaves the screen)
 CHAT_CONTINUITY = os.environ.get("HERMES_MOBILE_VOICE_CHAT", "1") != "0"
 TTFT_MODEL = os.environ.get("VOICE_TTFT_MODEL", "qwen/qwen3.8-27b")  # Groq: ~0.2 s whole answer (11-15 probe)
@@ -191,6 +192,24 @@ if os.environ.get("HERMES_MOBILE_VOICE_LANES", "1") != "0":
         from z0live_desktop.mobile_relay import LaneRelay, covered
     except ImportError as exc:  # an older z0live checkout: no lanes, same adapter
         logging.getLogger("hermes.mobile.subscription_voice").warning("lanes relay unavailable: %s", exc)
+
+
+# The voice model is lane 0 of the z0live lanes config (z0live.lanes.v1 lanes.voice.actor), hot-reloaded per
+# call, so `z0live engine grok` (or a config edit) before a call picks the engine. HERMES_VOICE_ENGINE overrides.
+ENGINES = {"voice_plan": "gpt-live", "grok_voice": "grok", "on_device": "chained"}
+
+
+def voice_engine() -> str:
+    forced = os.environ.get("HERMES_VOICE_ENGINE", "").strip()
+    if forced:
+        return forced
+    if Z0LIVE_DESKTOP not in sys.path:  # also when lanes are off (HERMES_MOBILE_VOICE_LANES=0)
+        sys.path.insert(0, Z0LIVE_DESKTOP)
+    try:
+        from z0live_desktop import lanes as lanes_mod
+        return ENGINES.get(lanes_mod.Lanes().get()["lanes"]["voice"]["actor"], "gpt-live")
+    except Exception:  # noqa: BLE001 - no z0live checkout or a bad config: the subscription voice
+        return "gpt-live"
 
 
 def profile_name(raw) -> str:
@@ -549,13 +568,22 @@ class Call:
         self.haiku = None  # WarmHaiku, started once chat context is known
         self.chat = ""   # stored id of the chat Live Voice was started from ('' = hidden voice session)
         self.trace = Trace(self.id)
-        self.trace("call.created", profile=profile, model=MODEL, rev=ADAPTER_REV, pid=os.getpid(),
+        self.engine = voice_engine()
+        if self.engine not in ("gpt-live", "grok"):  # on_device (STT -> model -> TTS) is not built yet
+            self.trace("engine.unavailable", wanted=self.engine, using="gpt-live")
+            self.engine = "gpt-live"
+        self.leg = grok_leg.GrokLeg(self, PERSONA) if self.engine == "grok" else None
+        self.trace("call.created", profile=profile, engine=self.engine,
+                   model=grok_leg.URL.rsplit("=", 1)[-1] if self.leg else MODEL, rev=ADAPTER_REV, pid=os.getpid(),
                    host_delegation=HOST_DELEGATION, lanes=bool(self.relay))
 
         @self.mobile.on("track")
         def mobile_track(track):
             if track.kind == "audio":
-                self.provider.addTrack(AudioBridge(track, self, "input"))
+                if self.leg:
+                    self.leg.attach(AudioBridge(track, self, "input"))
+                else:
+                    self.provider.addTrack(AudioBridge(track, self, "input"))
 
         @self.provider.on("track")
         def provider_track(track):
@@ -603,6 +631,9 @@ class Call:
 
     def send(self, event, to_provider=False):
         self.trace("tx", to="provider" if to_provider else "mobile", type=event.get("type"), event=slim(event))
+        if to_provider and self.leg:
+            self.leg.outbound(event)
+            return
         channel = self.provider_dc if to_provider else self.mobile_dc
         pending = self.to_provider if to_provider else self.to_mobile
         if channel is not None and channel.readyState == "open" and (not to_provider or self.provider_ready):
@@ -651,31 +682,39 @@ class Call:
         self.trace("call.start", history_items=len(history) if isinstance(history, list) else None)
         try:
             await self.mobile.setRemoteDescription(RTCSessionDescription(sdp=sdp, type="offer"))
-            if not any(t.kind == "audio" for t in self.provider.getTransceivers()):
-                raise ValueError("An audio track is required")
-            offer = await self.provider.createOffer()
-            await self.provider.setLocalDescription(offer)
-            payload = {"sdp": self.provider.localDescription.sdp,
-                       "session": {"model": MODEL, "instructions": PERSONA,
-                                   "audio": {"output": {"voice": "sol"}},
-                                   "delegation": {"type": "client"}}}
-            headers = await asyncio.to_thread(codex_headers)
-            self.trace("signaling.request")
-            async with self.manager.http.post(SIGNALING, json=payload, headers=headers,
-                                             timeout=ClientTimeout(total=35)) as resp:
-                if resp.status not in (200, 201):
-                    # Vendor bodies can contain account details. Keep them out of logs/responses.
-                    LOG.warning("subscription signaling rejected status=%s", resp.status)
-                    if resp.status in (401, 403):
-                        raise RuntimeError("Codex subscription authorization was rejected; refresh the host Codex login")
-                    if resp.status == 429:
-                        raise RuntimeError("The ChatGPT subscription voice quota is exhausted")
-                    raise RuntimeError("Subscription voice signaling failed (HTTP %s)" % resp.status)
-                answer = await resp.text()
-                self.trace("signaling.answer", status=resp.status)
-                if not answer.startswith("v=0"):
-                    raise RuntimeError("Subscription voice returned an invalid SDP answer")
-            await self.provider.setRemoteDescription(RTCSessionDescription(sdp=answer, type="answer"))
+            if self.leg:  # Grok Voice: a WebSocket, no provider peer; its speech is our own track
+                if not any(t.kind == "audio" for t in self.mobile.getTransceivers()):
+                    raise ValueError("An audio track is required")
+                self.trace("signaling.request", engine="grok")
+                await self.leg.start()
+                self.trace("signaling.answer", status="grok")
+                self.mobile.addTrack(AudioBridge(self.leg.output, self, "output"))  # same level/frame trace
+            else:
+                if not any(t.kind == "audio" for t in self.provider.getTransceivers()):
+                    raise ValueError("An audio track is required")
+                offer = await self.provider.createOffer()
+                await self.provider.setLocalDescription(offer)
+                payload = {"sdp": self.provider.localDescription.sdp,
+                           "session": {"model": MODEL, "instructions": PERSONA,
+                                       "audio": {"output": {"voice": "sol"}},
+                                       "delegation": {"type": "client"}}}
+                headers = await asyncio.to_thread(codex_headers)
+                self.trace("signaling.request")
+                async with self.manager.http.post(SIGNALING, json=payload, headers=headers,
+                                                 timeout=ClientTimeout(total=35)) as resp:
+                    if resp.status not in (200, 201):
+                        # Vendor bodies can contain account details. Keep them out of logs/responses.
+                        LOG.warning("subscription signaling rejected status=%s", resp.status)
+                        if resp.status in (401, 403):
+                            raise RuntimeError("Codex subscription authorization was rejected; refresh the host Codex login")
+                        if resp.status == 429:
+                            raise RuntimeError("The ChatGPT subscription voice quota is exhausted")
+                        raise RuntimeError("Subscription voice signaling failed (HTTP %s)" % resp.status)
+                    answer = await resp.text()
+                    self.trace("signaling.answer", status=resp.status)
+                    if not answer.startswith("v=0"):
+                        raise RuntimeError("Subscription voice returned an invalid SDP answer")
+                await self.provider.setRemoteDescription(RTCSessionDescription(sdp=answer, type="answer"))
             answer = await self.mobile.createAnswer()
             await self.mobile.setLocalDescription(answer)
             context = []
@@ -1002,7 +1041,8 @@ class Call:
 
     async def watchdog(self):
         await asyncio.sleep(35)
-        if self.mobile.connectionState != "connected" or self.provider.connectionState != "connected":
+        voice_up = self.leg.ready if self.leg else self.provider.connectionState == "connected"
+        if self.mobile.connectionState != "connected" or not voice_up:
             await self.close("connection_timeout")
             return
         await asyncio.sleep(MAX_CALL_SECONDS - 35)
@@ -1040,7 +1080,8 @@ class Call:
         for task in list(self.tasks):
             if task is not current:
                 task.cancel()
-        await asyncio.gather(self.mobile.close(), self.provider.close(), return_exceptions=True)
+        await asyncio.gather(self.mobile.close(), self.provider.close(), *([self.leg.close()] if self.leg else []),
+                             return_exceptions=True)
         if self.relay:
             await self.relay.close()
             self.counts.update({"relay_" + k: v for k, v in self.relay.counts.items()})

@@ -41,6 +41,19 @@ council", "make the large lanes Opus", "switch to preset B". The core parses it 
 it to this call only and the voice confirms in one sentence. Presets live in `desktop/z0live_desktop/lanes.py`;
 the default layout file is `$Z0INT_HOME/config/z0live-lanes.json` (`z0live.lanes.v1`, validated by `lanes_v1.py`).
 
+## Pick the voice model
+
+```sh
+bin/z0live engine            # show
+bin/z0live engine grok       # Grok Voice (grok-voice-latest) via Hermes's xAI login
+bin/z0live engine gpt-live   # GPT-Live over the ChatGPT subscription (default)
+```
+
+It sets `lanes.voice.actor` in the lanes config (validated write, hot-reloaded); the next call uses it.
+Grok needs `hermes auth add xai-oauth --type oauth` once. `voice-adapter/xai_secret.py` runs under the
+Hermes runtime and hands the adapter a client secret that expires in minutes; the login never leaves Hermes.
+`HERMES_VOICE_ENGINE` in the adapter's environment overrides the config.
+
 ## Verify
 
 ```sh
@@ -56,7 +69,7 @@ The probe drives the real subscription voice with synthetic speech: `heard` must
 
 ## Known gaps (2026-11-19)
 
-- Engine choice (`lanes.voice.actor`: `voice_plan` GPT-Live, `grok_voice`, `on_device` STT→model→TTS) is
-  validated by the core but the adapter only drives GPT-Live so far.
+- Engines: GPT-Live and Grok Voice work. `on_device` (STT → Claude → TTS) is validated by the core but not
+  built; a call configured for it runs on GPT-Live. Switching engines mid-call is not built.
 - The phone app must use `:9165`. Taking over `:9119` means rebinding the dashboard to loopback.
 - The semantic-router lanes (`Z0LIVE_SYSTEM_MODEL_URL`) point at the k3s cluster, which is being moved to a Studio control plane.

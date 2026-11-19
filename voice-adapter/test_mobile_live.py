@@ -12,7 +12,8 @@ from aiohttp import web, ClientSession
 from aiohttp.test_utils import TestServer
 from aiortc import RTCPeerConnection, RTCSessionDescription, RTCConfiguration, AudioStreamTrack
 
-import mobile_live as live
+os.environ.setdefault("HERMES_VOICE_ENGINE", "gpt-live")  # never the owner's lanes config (~/.z0int)
+import mobile_live as live  # noqa: E402
 
 
 class ProtocolTests(unittest.TestCase):

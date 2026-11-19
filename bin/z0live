@@ -13,6 +13,9 @@ from urllib.parse import urlencode
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "desktop"))
 from z0live_desktop.core import BASE, Store, dumps
 
+# Spoken/typed engine names -> z0live.lanes.v1 lanes.voice.actor. on_device (STT -> model -> TTS) is next.
+ENGINE_ACTORS = {"gpt-live": "voice_plan", "grok": "grok_voice"}
+
 
 def main():
     parser = argparse.ArgumentParser(description="z0live desktop broker")
@@ -70,7 +73,25 @@ def main():
         "sessions", help="Recent Hermes sessions with one-line summaries (read-only)"
     )
     sessions_cmd.add_argument("--limit", type=int, default=8)
+    engine_cmd = sub.add_parser(
+        "engine", help="Show or set the voice model for the next call (lanes.voice.actor in the lanes config)"
+    )
+    engine_cmd.add_argument("name", nargs="?", choices=sorted(ENGINE_ACTORS))
     args = parser.parse_args()
+    if args.command == "engine":
+        from z0live_desktop import lanes as lanes_mod
+
+        current = lanes_mod.Lanes().get()
+        if args.name:
+            cfg = json.loads(json.dumps(current))
+            cfg["lanes"]["voice"]["actor"] = ENGINE_ACTORS[args.name]
+            cfg["revision"] = cfg["revision"].split("+voice-")[0] + "+voice-" + args.name
+            lanes_mod.write(cfg)  # validated; the voice adapter reads it at the next call
+            current = cfg
+        actor = current["lanes"]["voice"]["actor"]
+        print(dumps({"engine": {v: k for k, v in ENGINE_ACTORS.items()}.get(actor, actor), "actor": actor,
+                     "revision": current["revision"], "config": str(lanes_mod.lanes_v1.broker_path())}))
+        return 0
     if args.command == "relay-status":
         from z0live_desktop.core import DATA
         from z0live_desktop.relay_status import status
