@@ -5,4 +5,4 @@ cd "$(dirname "$0")/../../voice-adapter"
 if [ -f "$HOME/.config/z0live/voice.env" ]; then
   set -a; . "$HOME/.config/z0live/voice.env"; set +a
 fi
-exec .venv/bin/python "$1"
+exec .venv/bin/python "$@"  # paths are relative to voice-adapter/

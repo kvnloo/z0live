@@ -35,7 +35,7 @@ if "--native" not in sys.argv:
     os.chdir(ROOT)
     runtime = json.loads(
         subprocess.check_output(
-            [str(Path.home() / ".local/bin/hermes"), "--print-runtime-command"],
+            [os.environ.get("Z0LIVE_HERMES_BIN", str(Path.home() / ".local/bin/hermes")), "--print-runtime-command"],
             text=True,
         )
     )
