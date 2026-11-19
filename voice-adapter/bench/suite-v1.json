@@ -1,0 +1,25 @@
+{
+  "suite": "z0live-voice-v1",
+  "frozen": "2026-11-19",
+  "note": "Do not edit cases once a baseline exists; add suite-v2 instead. reply/request are regexes (case-insensitive). delegate: true = must hand to Hermes, false = must answer itself.",
+  "cases": [
+    {"id": "r-apples", "kind": "reasoning", "ask": "I have three apples and eat one, then buy twice as many as I have left. How many apples do I have now?", "reply": "\\b(six|6)\\b", "delegate": false},
+    {"id": "r-mult", "kind": "reasoning", "ask": "What is seventeen times twenty-three?", "reply": "\\b(391|three hundred (and )?ninety[- ]one)\\b", "delegate": false},
+    {"id": "r-order", "kind": "reasoning", "ask": "Alice is taller than Bob, and Bob is taller than Carol. Who is the shortest?", "reply": "\\bcarol\\b", "delegate": false},
+    {"id": "r-time", "kind": "reasoning", "ask": "A train leaves at nine forty and the trip takes one hour and thirty-five minutes. What time does it arrive?", "reply": "\\b(11:15|eleven fifteen|quarter past eleven)\\b", "delegate": false},
+    {"id": "r-liar", "kind": "reasoning", "ask": "Tom always lies. Tom says it is raining. Is it raining?", "reply": "\\b(no|not raining|isn.t raining|it isn.t)\\b", "delegate": false},
+    {"id": "r-letters", "kind": "reasoning", "ask": "How many letter R's are in the word strawberry?", "reply": "\\b(three|3)\\b", "delegate": false},
+    {"id": "c-smalltalk", "kind": "conversation", "ask": "Hey, how's it going?", "reply": ".+", "delegate": false},
+    {"id": "h-screen", "kind": "hermes", "ask": "Hey. Can you take a look at my screen right now?", "request": "screen", "delegate": true},
+    {"id": "h-commit", "kind": "hermes", "ask": "What did the last commit on my z0live repo change?", "request": "commit|z0live", "delegate": true},
+    {"id": "h-message", "kind": "hermes", "ask": "Text Harsha that I'll be ten minutes late.", "request": "harsha", "delegate": true},
+    {"id": "x-fact", "kind": "context", "ask": "Quick one, what's my favorite fruit?", "reply": "\\bmango", "delegate": false,
+     "history": [
+       {"role": "user", "content": [{"type": "input_text", "text": "Remember for later: my favorite fruit is mango."}]},
+       {"role": "assistant", "content": [{"type": "output_text", "text": "Got it, mango."}]}]},
+    {"id": "x-approval", "kind": "context", "ask": "Can you check what's on my screen?", "request": "screen", "delegate": true,
+     "history": [
+       {"role": "user", "content": [{"type": "input_text", "text": "You have my OK to watch my phone screen over adb during calls."}]},
+       {"role": "assistant", "content": [{"type": "output_text", "text": "Understood, I'll use adb to check your screen when you ask."}]}]}
+  ]
+}
