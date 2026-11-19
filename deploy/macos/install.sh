@@ -26,6 +26,7 @@ if [ ! -x "$VA/.venv/bin/python" ]; then
   "$PY" -m venv "$VA/.venv"
 fi
 "$VA/.venv/bin/pip" -q install --only-binary=:all: -r "$VA/requirements.lock"
+"$VA/.venv/bin/pip" -q install edge-tts  # synthetic speech for context_probe.py (docs/STUDIO.md, Verify)
 
 plist() {  # label, script, env-xml
   cat > "$AGENTS/$1.plist" <<EOF
