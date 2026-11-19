@@ -4,7 +4,9 @@ from unittest.mock import patch
 from aiohttp import ClientSession, web
 from aiohttp.test_utils import TestServer
 
-spec = importlib.util.spec_from_file_location('proxy', '/workspace/zer0/portfolios/chief-of-staff/scripts/tailnet_dashboard_proxy.py')
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location('proxy', Path(__file__).with_name('dashboard_proxy.py'))
 proxy = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(proxy)
 

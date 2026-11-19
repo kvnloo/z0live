@@ -72,7 +72,10 @@ def live_sessions(hours: float = 3.0, limit: int = 12) -> str:
 
 
 def _ttft_key():
-    """GROQ_API_KEY from the ttft bot's env (bws-deployed); never logged."""
+    """GROQ_API_KEY from the process env (a bws-synced env file on hosts without the ttft bot), else the ttft
+    bot's env (bws-deployed on groot); never logged."""
+    if os.environ.get("GROQ_API_KEY"):
+        return os.environ["GROQ_API_KEY"].strip()
     try:
         for line in (Path.home() / ".hermes/profiles/ttft/.env").read_text().splitlines():
             if line.startswith("GROQ_API_KEY="):
@@ -137,8 +140,10 @@ class WarmHaiku:
 
 LANE_MERGE_WAIT = 20  # seconds after the first lane lands before speaking the merge without the stragglers
 LANE_POLL = 1.0
-FABLE_SCRIPT = os.environ.get("FAST_LANE_FABLE_SCRIPT", "/workspace/repos/home/tools/fable-lanes.py")
-UPSTREAM = "http://127.0.0.1:9119"
+FABLE_SCRIPT = os.environ.get("FAST_LANE_FABLE_SCRIPT", str(Path(__file__).with_name("fable_lanes.py")))
+# The dashboard that validates the phone's bearer. groot binds it to loopback; the Studio binds its tailnet IP.
+UPSTREAM_HOST = os.environ.get("HERMES_DASHBOARD_UPSTREAM", "127.0.0.1:9119")
+UPSTREAM = f"http://{UPSTREAM_HOST}"
 SIGNALING = "https://chatgpt.com/backend-api/codex/realtime/calls?intent=quicksilver&architecture=avas"
 MODEL = "gpt-live-1-codex"
 MAX_CALL_SECONDS = 1800
@@ -1073,7 +1078,7 @@ async def authenticate(request):
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer ") or not auth[7:].strip():
         raise web.HTTPUnauthorized(text="Hermes native authentication required")
-    headers = {"Authorization": auth, "Host": "127.0.0.1:9119"}
+    headers = {"Authorization": auth, "Host": UPSTREAM_HOST}
     if request.headers.get("X-Hermes-Profile"):
         headers["X-Hermes-Profile"] = request.headers["X-Hermes-Profile"]
     query = {"profile": request.query["profile"]} if request.query.get("profile") else None

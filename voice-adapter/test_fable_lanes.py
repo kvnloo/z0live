@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import shutil
 import tempfile
 import time
 import unittest
@@ -97,6 +98,7 @@ class OneVoice(unittest.IsolatedAsyncioTestCase):
         lines.put_nowait(json.dumps({"type": "result", "result": "answer to q2"}).encode())
         self.assertEqual(await haiku.ask("q2", 1), "answer to q2")
 
+    @unittest.skipUnless(shutil.which("systemd-run"), "systemd hosts only; macOS caps children via launchd instead")
     def test_children_run_outside_the_adapters_memory_cap(self):
         self.assertEqual(mobile_live.SCOPE[:3], ["systemd-run", "--user", "--scope"])
 
