@@ -31,6 +31,12 @@ class RaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((text, model), ("About 70 degrees.", "luna"))
         self.assertEqual(errors, {"haiku": "SKIP"})
 
+    async def test_skip_anywhere_is_a_skip_but_a_lowercase_skip_is_speech(self):
+        ask = fake_ask({"haiku": "I can't send that message for you right now. SKIP", "luna": "You can skip breakfast."})
+        with mock.patch.object(tiers, "ask", ask):
+            text, model, _, _ = await tiers.race(None, "fast", FAST, "", "q")
+        self.assertEqual((text, model), ("You can skip breakfast.", "luna"))
+
     async def test_no_answer_when_every_lane_skips_or_fails(self):
         ask = fake_ask({"haiku": "SKIP", "luna": RuntimeError("no Codex credentials")})
         with mock.patch.object(tiers, "ask", ask):

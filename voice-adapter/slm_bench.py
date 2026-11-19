@@ -42,7 +42,7 @@ def messages(suite, case):
 
 def score(case, reply):
     text = THINK.sub("", reply).strip()
-    is_skip = bool(tiers.SKIP.match(text))
+    is_skip = bool(tiers.SKIP.search(text))
     words, sentences = len(text.split()), len([s for s in re.split(r"[.!?]+(\s|$)", text) if s and s.strip()])
     spoken = bool(text) and not MARKDOWN.search(text) and words <= 45 and sentences <= 3
     if case.get("skip"):

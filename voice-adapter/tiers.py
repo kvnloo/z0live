@@ -27,12 +27,17 @@ DEADLINE = {"fast": 4, "medium": 15, "slow": 45}  # seconds; a tier past its dea
 MAX_SPOKEN = 3  # first answer + two updates per request (a 22 s lane monologue on 11-16 was too much)
 FILE = Path(os.environ.get("Z0LIVE_TIERS_FILE", str(Path.home() / ".config/z0live/tiers.json")))
 URL = os.environ.get("Z0LIVE_LANE_URL", "http://127.0.0.1:8646/v1/ask")
-SKIP = re.compile(r"^\W*(skip\b|model guard|the hook flagged)", re.I)
+# SKIP anywhere is a skip: "I can't send that right now. SKIP" was spoken whole (slm-v1, 11-19).
+SKIP = re.compile(r"(\bSKIP\b|^\W*(model guard|the hook flagged))")
+# v2 (11-19): v1 said "any lookup you cannot do from the text below" and Gemma 4 E4B / Qwen3.5-9B / LFM3 then
+# skipped general knowledge ("What's the capital of Canada?" -> SKIP) while Haiku did not.
 SYSTEM = ("You are the {tier} lane on Kevin's live voice call; what you write may be spoken aloud. Answer in one or "
-          "two short spoken sentences, most important fact first, using the conversation and context below. Never "
-          "invent numbers or claim something worked. If it needs his phone, screen, files, messages, or any action "
-          "or lookup you cannot do from the text below, reply exactly SKIP (his Hermes chat, which has those tools, "
-          "is already on it; never say so yourself).")
+          "two short spoken sentences, most important fact first. Answer general knowledge, math and reasoning "
+          "yourself. For Kevin's own plans and facts use only the conversation and context below. Reply with exactly "
+          "SKIP and nothing else when the request needs his phone, screen, apps, files, messages, email or any "
+          "action; needs live data such as weather, news or the state of his builds; or asks a personal fact that "
+          "is not in the context. Never say you can't do something; reply SKIP instead (his Hermes chat, which has "
+          "the tools, is already on it). Never invent numbers or claim something worked.")
 
 
 def load() -> dict:
@@ -80,7 +85,7 @@ async def race(http, tier, bindings, context, request):
                 except Exception as exc:  # noqa: BLE001
                     errors[jobs[job]] = str(exc)[:160]
                     continue
-                if out["text"] and not SKIP.match(out["text"]):
+                if out["text"] and not SKIP.search(out["text"]):
                     return out["text"], jobs[job], out["first_s"], errors
                 errors[jobs[job]] = "SKIP" if out["text"] else "empty"
     finally:
