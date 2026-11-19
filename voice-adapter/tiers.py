@@ -18,10 +18,13 @@ from aiohttp import ClientTimeout
 
 CLAUDE = "claude-subscription-directsdk-experimental"
 CODEX = "openai-codex"
+# GPT: newest of each tier this ChatGPT account's Codex catalog offers (11-19: 6.2 has only sol/astra, 6.1
+# terra/sol, luna is newest at 6.0; gpt-6-terra is refused for ChatGPT accounts). Measured through
+# lane_server: luna 1.38 s, terra 1.49 s, sol 1.54 s for a one-sentence answer.
 TIERS = {
-    "fast": [{"provider": CLAUDE, "model": "claude-haiku-5-5"}, {"provider": CODEX, "model": "gpt-5.6-luna"}],
-    "medium": [{"provider": CLAUDE, "model": "claude-sonnet-5-5"}, {"provider": CODEX, "model": "gpt-5.6-terra"}],
-    "slow": [{"provider": CLAUDE, "model": "claude-opus-5-5"}, {"provider": CODEX, "model": "gpt-5.6-sol"}],
+    "fast": [{"provider": CLAUDE, "model": "claude-haiku-5-5"}, {"provider": CODEX, "model": "gpt-6-luna"}],
+    "medium": [{"provider": CLAUDE, "model": "claude-sonnet-5-5"}, {"provider": CODEX, "model": "gpt-6.1-terra"}],
+    "slow": [{"provider": CLAUDE, "model": "claude-opus-5-5"}, {"provider": CODEX, "model": "gpt-6.2-sol"}],
 }
 DEADLINE = {"fast": 4, "medium": 15, "slow": 45}  # seconds; a tier past its deadline is no answer
 MAX_SPOKEN = 3  # first answer + two updates per request (a 22 s lane monologue on 11-16 was too much)

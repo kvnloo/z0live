@@ -4,8 +4,11 @@
 #   com.zer0.z0live.core   bin/z0live serve on 127.0.0.1:8791 (lanes config: presets, spoken layouts, mid-call edits)
 #   com.zer0.z0live.hermes desktop/hermes_host.py, Hermes API-only host on 127.0.0.1:8644 for the core's lanes
 #   com.zer0.z0live.voice  voice-adapter/mobile_live.py on 127.0.0.1:9168 (ChatGPT-subscription GPT-Live via codex)
-#   com.zer0.z0live.proxy  voice-adapter/dashboard_proxy.py on <tailnet-ip>:9165; voice-live paths -> :9168,
-#                          everything else -> the Hermes dashboard on <tailnet-ip>:9119
+#   com.zer0.z0live.proxy  voice-adapter/dashboard_proxy.py on <tailnet-ip>:9119 (the address the Hermes app
+#                          already uses); voice-live paths -> :9168, everything else -> the dashboard on
+#                          127.0.0.1:9119. Same layout as groot: the app needs no change, and every call goes
+#                          through the adapter (and its event trace). The dashboard must bind loopback, see
+#                          docs/STUDIO.md "Front door"; Z0LIVE_FRONT_PORT=9165 keeps the old side-door port.
 #   com.zer0.z0live.lanes  voice-adapter/lane_server.py on 127.0.0.1:8646 under the Hermes runtime: fast/medium/
 #                          slow model lanes (tiers.py) as plain model calls through the poteto profile's logins
 #
@@ -16,6 +19,8 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 VA="$REPO/voice-adapter"
 TS_IP="${Z0LIVE_TAILNET_IP:-$(/opt/homebrew/bin/tailscale ip -4 | head -1)}"
+FRONT_PORT="${Z0LIVE_FRONT_PORT:-9119}"
+DASHBOARD="${HERMES_DASHBOARD_UPSTREAM:-127.0.0.1:9119}"
 DATA="$HOME/.local/share/z0live"
 LOGS="$HOME/Library/Logs/z0live"
 AGENTS="$HOME/Library/LaunchAgents"
@@ -46,7 +51,7 @@ plist() {  # label, script, env-xml
   <key>StandardErrorPath</key><string>$LOGS/$1.log</string>
   <key>EnvironmentVariables</key><dict>
     <key>PATH</key><string>$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
-    <key>HERMES_DASHBOARD_UPSTREAM</key><string>$TS_IP:9119</string>
+    <key>HERMES_DASHBOARD_UPSTREAM</key><string>$DASHBOARD</string>
 $3
   </dict>
 </dict></plist>
@@ -66,7 +71,7 @@ plist com.zer0.z0live.lanes lane_server.py "    <key>Z0LIVE_PY</key><string>$PY<
 
 plist com.zer0.z0live.proxy dashboard_proxy.py "    <key>HERMES_MOBILE_VOICE_UPSTREAM</key><string>http://127.0.0.1:9168</string>
     <key>HERMES_PROXY_HOSTS</key><string>$TS_IP</string>
-    <key>HERMES_PROXY_PORT</key><string>9165</string>"
+    <key>HERMES_PROXY_PORT</key><string>$FRONT_PORT</string>"
 
 # z0live core (broker + lanes: presets, spoken layouts, mid-call edits) and its Hermes API-only host.
 CORE_ENV="    <key>Z0LIVE_DATA</key><string>$DATA/core</string>
@@ -91,4 +96,4 @@ for label in com.zer0.z0live.core com.zer0.z0live.hermes com.zer0.z0live.lanes c
   for _ in $(seq 40); do launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1 || break; sleep 0.5; done
   launchctl bootstrap "gui/$(id -u)" "$AGENTS/$label.plist"
 done
-echo "installed; phone URL for voice: http://$TS_IP:9165 (dashboard stays on :9119)"
+echo "installed; Hermes app URL: http://$TS_IP:$FRONT_PORT (dashboard behind it on $DASHBOARD)"

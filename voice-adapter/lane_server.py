@@ -24,13 +24,17 @@ WARM = os.environ.get("Z0LIVE_LANE_WARM", "claude-subscription-directsdk-experim
 def ask(provider, model, system, user, max_tokens=300, timeout=60.0):
     t0, first, text = time.monotonic(), None, ""
     messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": user}]
-    for chunk in call_llm(provider=provider, model=model, messages=messages, max_tokens=max_tokens,
-                          stream=True, timeout=timeout):
-        choices = getattr(chunk, "choices", None)
-        piece = (choices[0].delta.content if choices else None) or ""
-        if piece and first is None:
-            first = time.monotonic() - t0
-        text += piece
+    out = call_llm(provider=provider, model=model, messages=messages, max_tokens=max_tokens, stream=True,
+                   timeout=timeout)
+    if hasattr(out, "choices"):  # the Codex route answers whole even when asked to stream (11-19)
+        text, first = out.choices[0].message.content or "", time.monotonic() - t0
+    else:
+        for chunk in out:
+            choices = getattr(chunk, "choices", None)
+            piece = (choices[0].delta.content if choices else None) or ""
+            if piece and first is None:
+                first = time.monotonic() - t0
+            text += piece
     return {"text": " ".join(text.split()), "first_s": round(first or 0, 3), "total_s": round(time.monotonic() - t0, 3)}
 
 

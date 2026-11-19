@@ -41,10 +41,25 @@ council", "make the large lanes Opus", "switch to preset B". The core parses it 
 it to this call only and the voice confirms in one sentence. Presets live in `desktop/z0live_desktop/lanes.py`;
 the default layout file is `$Z0INT_HOME/config/z0live-lanes.json` (`z0live.lanes.v1`, validated by `lanes_v1.py`).
 
+## Front door (one app URL, every call traced)
+
+The Hermes app keeps using `http://100.100.77.46:9119`. The z0live proxy owns that address; it sends the
+voice-live paths to the adapter (`:9168`, which writes `~/.local/share/z0live/voice-traces/<day>/*.jsonl`)
+and everything else to the dashboard on `127.0.0.1:9119`. This is groot's layout. Without it the app talks to
+the dashboard directly, calls run on stock Hermes voice (no lanes, no brief, no trace), and the only sign of
+a call is `ws_ticket_minted` lines in `~/.hermes/logs/dashboard-auth.log` (what happened on 11-19).
+
+The dashboard therefore binds loopback: in `~/Library/LaunchAgents/com.kvn.hermes-dashboard.plist` use
+`hermes dashboard --host 127.0.0.1 --port 9119`, restart it (`launchctl kickstart -k
+gui/$(id -u)/com.kvn.hermes-dashboard`; not during a call), then run `deploy/macos/install.sh`. Check:
+`lsof -nP -iTCP:9119 -sTCP:LISTEN` shows the dashboard on 127.0.0.1 and the proxy on the tailnet IP.
+Read a call: `voice-adapter/trace_report.py <trace.jsonl>`.
+
 ## Model lanes (fast, medium, slow)
 
 When the voice hands a request to Hermes, three lane tiers start at once beside Hermes's own agent turn:
-fast = Haiku 5.5 + GPT-5.6 luna, medium = Sonnet 5.5 + terra, slow = Opus 5.5 + sol (`voice-adapter/tiers.py`).
+fast = Haiku 5.5 + gpt-6-luna, medium = Sonnet 5.5 + gpt-6.1-terra, slow = Opus 5.5 + gpt-6.2-sol
+(`voice-adapter/tiers.py`; the newest of each tier in the Codex catalog for a ChatGPT account).
 Models race within a tier. Every lane gets the same context: the chat brief plus the call's recent turns.
 The first real answer is spoken; a later tier, and Hermes's own answer, speak only if they add something
 (at most three spoken parts per request). Lanes go quiet once a newer request starts or Hermes answers.
