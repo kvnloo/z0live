@@ -41,6 +41,26 @@ council", "make the large lanes Opus", "switch to preset B". The core parses it 
 it to this call only and the voice confirms in one sentence. Presets live in `desktop/z0live_desktop/lanes.py`;
 the default layout file is `$Z0INT_HOME/config/z0live-lanes.json` (`z0live.lanes.v1`, validated by `lanes_v1.py`).
 
+## Model lanes (fast, medium, slow)
+
+When the voice hands a request to Hermes, three lane tiers start at once beside Hermes's own agent turn:
+fast = Haiku 5.5 + GPT-5.6 luna, medium = Sonnet 5.5 + terra, slow = Opus 5.5 + sol (`voice-adapter/tiers.py`).
+Models race within a tier. Every lane gets the same context: the chat brief plus the call's recent turns.
+The first real answer is spoken; a later tier, and Hermes's own answer, speak only if they add something
+(at most three spoken parts per request). Lanes go quiet once a newer request starts or Hermes answers.
+Lanes reply SKIP for phone, screen, file or action requests, which leaves those to Hermes.
+
+`lane_server.py` (LaunchAgent `com.zer0.z0live.lanes`, 127.0.0.1:8646) makes plain model calls through the
+poteto profile's logins: the Claude subscription, and a separate Hermes Codex login for GPT
+(`HERMES_HOME=~/.hermes/profiles/poteto hermes auth add openai-codex`). Don't adopt `~/.codex`: GPT-Live uses
+that token family, and sharing it logs one of them out. Change the models per call without a restart by
+writing `~/.config/z0live/tiers.json` in the shape of `tiers.TIERS`. `Z0LIVE_TIERS=off` in the voice plist
+restores the older instant/Fable/relay lanes.
+
+Check one request end to end (real GPT-Live, synthetic speech, real lanes, Hermes faked after 20 s):
+`PROBE_HERMES_DELAY=20 PROBE_ASK="Can you find out how deep the Mariana Trench is?" Z0LIVE_TIERS=on ... context_probe.py`;
+the receipt's `spoken` lists when each part was said, and the trace has `lanes.tier` / `lanes.spoken` rows.
+
 ## Pick the voice model
 
 ```sh

@@ -6,6 +6,8 @@
 #   com.zer0.z0live.voice  voice-adapter/mobile_live.py on 127.0.0.1:9168 (ChatGPT-subscription GPT-Live via codex)
 #   com.zer0.z0live.proxy  voice-adapter/dashboard_proxy.py on <tailnet-ip>:9165; voice-live paths -> :9168,
 #                          everything else -> the Hermes dashboard on <tailnet-ip>:9119
+#   com.zer0.z0live.lanes  voice-adapter/lane_server.py on 127.0.0.1:8646 under the Hermes runtime: fast/medium/
+#                          slow model lanes (tiers.py) as plain model calls through the poteto profile's logins
 #
 # Secrets never live in this repo or the plists. Optional ~/.config/z0live/voice.env (mode 600, bws-synced)
 # is sourced by run.sh, e.g. GROQ_API_KEY for the Groq instant lane.
@@ -55,7 +57,12 @@ plist com.zer0.z0live.voice mobile_live.py "    <key>HERMES_BIN</key><string>$HO
     <key>HERMES_MOBILE_VOICE_TRACE_DIR</key><string>$DATA/voice-traces</string>
     <key>HERMES_VOICE_BRIEF_DIR</key><string>$DATA/call-briefs</string>
     <key>Z0LIVE_HANDOFF_FILE</key><string>$DATA/handoff.json</string>
-    <key>Z0LIVE_DESKTOP</key><string>$REPO/desktop</string>"
+    <key>Z0LIVE_DESKTOP</key><string>$REPO/desktop</string>
+    <key>Z0LIVE_TIERS</key><string>on</string>"
+
+plist com.zer0.z0live.lanes lane_server.py "    <key>Z0LIVE_PY</key><string>$PY</string>
+    <key>HERMES_HOME</key><string>${Z0LIVE_LANES_HERMES_HOME:-$HOME/.hermes/profiles/poteto}</string>
+    <key>Z0LIVE_HERMES_SOURCE</key><string>$HOME/.hermes/hermes-agent</string>"
 
 plist com.zer0.z0live.proxy dashboard_proxy.py "    <key>HERMES_MOBILE_VOICE_UPSTREAM</key><string>http://127.0.0.1:9168</string>
     <key>HERMES_PROXY_HOSTS</key><string>$TS_IP</string>
@@ -78,7 +85,7 @@ fi
 plist com.zer0.z0live.core "../bin/z0live serve" "$CORE_ENV"
 plist com.zer0.z0live.hermes "../desktop/hermes_host.py" "$CORE_ENV"
 
-for label in com.zer0.z0live.core com.zer0.z0live.hermes com.zer0.z0live.voice com.zer0.z0live.proxy; do
+for label in com.zer0.z0live.core com.zer0.z0live.hermes com.zer0.z0live.lanes com.zer0.z0live.voice com.zer0.z0live.proxy; do
   launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
   # bootout returns before the old job is gone; bootstrapping then fails with "5: Input/output error".
   for _ in $(seq 40); do launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1 || break; sleep 0.5; done

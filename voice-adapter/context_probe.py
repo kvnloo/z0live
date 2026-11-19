@@ -32,6 +32,11 @@ import mobile_live as live  # noqa: E402
 ASK = os.environ.get("PROBE_ASK", "Hey. Can you take a look at my screen right now?")
 REFUSAL = re.compile(r"can.?t (see|watch|access)|not (actually )?(tapped|connected|able to see)|don.?t have (your|access)|no access", re.I)
 SILENCE_S = 6.0  # seconds of silence before the ask: any speech here is catch-up
+# PROBE_HERMES_DELAY=N: keep the real delegation (and its lanes); only Hermes's agent turn is faked, answering
+# PROBE_HERMES_ANSWER after N seconds. Then "spoken" shows when each part of the reply arrived.
+HERMES_DELAY = float(os.environ.get("PROBE_HERMES_DELAY", "0"))
+HERMES_ANSWER = os.environ.get("PROBE_HERMES_ANSWER", "Hermes checked: nothing to add.")
+LISTEN_S = float(os.environ.get("PROBE_LISTEN", str(max(14, HERMES_DELAY + 10))))
 
 
 def speech(text: str, path: Path) -> bytes:
@@ -93,13 +98,21 @@ async def probe(history):
 
         async def fixture(did, request):  # no Hermes run: record what the voice asked for
             delegated.append(request)
-        call.host_delegate = fixture
+
+        async def slow_hermes(did, request):  # real lanes, fake Hermes: the agent turn answers after the delay
+            delegated.append(request)
+            await asyncio.sleep(HERMES_DELAY)
+            return HERMES_ANSWER
+        if HERMES_DELAY:
+            call.ask_hermes = slow_hermes
+        else:
+            call.host_delegate = fixture
         try:
             await client.setLocalDescription(await client.createOffer())
             answer = await call.start(client.localDescription.sdp, history)
             await client.setRemoteDescription(RTCSessionDescription(sdp=answer["transport"]["sdp"], type="answer"))
             t0 = time.monotonic()
-            await asyncio.sleep(SILENCE_S + 14)
+            await asyncio.sleep(SILENCE_S + LISTEN_S)
         finally:
             for closer in (manager.close(), client.close()):
                 try:
@@ -117,7 +130,21 @@ async def probe(history):
         "pass_no_refusal": bool(reply or delegated) and not REFUSAL.search(reply),
         "pass_delegated": bool(delegated),
         "events": dict(events),
+        "spoken": spoken(said),
     }
+
+
+def spoken(said):
+    """The reply as (seconds after the ask started, text) runs: a gap over 1 s starts a new run."""
+    runs, last = [], None
+    for at, d in said:
+        if at < SILENCE_S:
+            continue
+        if last is None or at - last > 1.0:
+            runs.append([round(at - SILENCE_S, 1), ""])
+        runs[-1][1] += d
+        last = at
+    return [(at, text.strip()) for at, text in runs if text.strip()]
 
 
 async def drain(track):

@@ -34,6 +34,11 @@ LOG = logging.getLogger("hermes.mobile.subscription_voice")
 import chat_continuity  # noqa: E402 - sibling module (voice turns land in the owner's open chat)
 import call_brief  # noqa: E402 - sibling module (context packet in the session instructions)
 import grok_leg  # noqa: E402 - sibling module (Grok Voice as the voice model)
+import tiers  # noqa: E402 - sibling module (fast/medium/slow model lanes)
+
+# Z0LIVE_TIERS=on: a delegated request runs the tiers.py lanes (via lane_server.py) beside Hermes, instead of
+# the warm-Haiku/Groq instant lane, the Fable lanes and the core lanes relay.
+TIERS_ON = os.environ.get("Z0LIVE_TIERS", "off") == "on"
 import handoff  # noqa: E402 - sibling module (call continues on z0live when Kevin leaves the screen)
 CHAT_CONTINUITY = os.environ.get("HERMES_MOBILE_VOICE_CHAT", "1") != "0"
 TTFT_MODEL = os.environ.get("VOICE_TTFT_MODEL", "qwen/qwen3.8-27b")  # Groq: ~0.2 s whole answer (11-15 probe)
@@ -192,6 +197,13 @@ if os.environ.get("HERMES_MOBILE_VOICE_LANES", "1") != "0":
         from z0live_desktop.mobile_relay import LaneRelay, covered
     except ImportError as exc:  # an older z0live checkout: no lanes, same adapter
         logging.getLogger("hermes.mobile.subscription_voice").warning("lanes relay unavailable: %s", exc)
+if covered is None:  # a pure text check the tier lanes need even with the core relay off
+    if Z0LIVE_DESKTOP not in sys.path:
+        sys.path.insert(0, Z0LIVE_DESKTOP)
+    try:
+        from z0live_desktop.mobile_relay import covered
+    except ImportError:
+        pass
 
 
 # The voice model is lane 0 of the z0live lanes config (z0live.lanes.v1 lanes.voice.actor), hot-reloaded per
@@ -815,11 +827,14 @@ class Call:
             # FAST_LANE_OFF: the lanes are this turn's fast lane; the profile plugin must not start another.
             job = asyncio.ensure_future(self.ask_hermes(did, request))
             self.latest_did = did  # an older question's lanes go quiet once this one starts
-            lanes = asyncio.ensure_future(self.fable_lanes(did, time.time(), request))
-            self.spawn(self.run_fable_lanes(did, request))
-            self.spawn(self.ttft_lane(did, request))
-            job.add_done_callback(lambda _: asyncio.get_running_loop().call_later(150, lanes.cancel))
-            if self.relay and await self.relay_turn_for(request):
+            if TIERS_ON:
+                self.spawn(self.tier_lanes(did, request))
+            else:
+                lanes = asyncio.ensure_future(self.fable_lanes(did, time.time(), request))
+                self.spawn(self.run_fable_lanes(did, request))
+                self.spawn(self.ttft_lane(did, request))
+                job.add_done_callback(lambda _: asyncio.get_running_loop().call_later(150, lanes.cancel))
+            if not TIERS_ON and self.relay and await self.relay_turn_for(request):
                 turn = self.relay.turn
                 lane_job = asyncio.ensure_future(self.relay.answer(request))
                 await asyncio.wait({lane_job, job}, return_when=asyncio.FIRST_COMPLETED)
@@ -847,10 +862,14 @@ class Call:
                     self.counts["lane_answer_spoken"] += 1
                     self.lane_said[did] = (lane, ((turn or {}).get("receipt") or {}).get("entry"))
             answer = await job
+            self.__dict__.setdefault("hermes_done", set()).add(did)  # tier lanes go quiet: Hermes has the answer
+            if TIERS_ON:
+                lane = " ".join(self.__dict__.get("tier_said", {}).get(did, [])) or None
             self.counts["host_delegation_ok"] += 1
             self.trace("delegation.done", did=did, s=round(time.monotonic() - began, 3), answer=answer[:4000],
                        closed=self.closed)
-            if lane and covered(lane, answer, request):
+            # Tier lanes: Hermes is skipped when everything it says was already spoken (answer within said).
+            if lane and covered and (covered(answer, lane, request) if TIERS_ON else covered(lane, answer, request)):
                 self.counts["host_delegation_covered"] += 1  # the lane already said it
                 return
         except Exception as exc:  # noqa: BLE001 - every failure is spoken, never silent
@@ -865,6 +884,36 @@ class Call:
         for msg in self.protocol.from_mobile({"type": "session.commentary.append",
                                               "delegation_id": did, "content": answer}):
             self.send(msg, to_provider=True)
+
+    async def tier_lanes(self, did, request):
+        """Fast, medium and slow lanes race within each tier; tiers run at once. The first answer from any tier
+        is spoken; a later tier speaks only if it adds to what was said (tiers.MAX_SPOKEN per request). Lanes go
+        quiet once a newer request starts or Hermes answers."""
+        began, cfg = time.monotonic(), tiers.load()
+        context = tiers.snapshot(self.context_text, list(self.protocol.exchanges))
+        said = self.__dict__.setdefault("tier_said", {}).setdefault(did, [])
+
+        async def one(name):
+            return name, await tiers.race(self.manager.http, name, cfg[name], context, request)
+
+        for job in asyncio.as_completed([one(name) for name in tiers.DEADLINE if cfg.get(name)]):
+            name, (text, model, first_s, errors) = await job
+            self.trace("lanes.tier", did=did, tier=name, model=model, first_s=first_s, text=text[:500], errors=errors,
+                       s=round(time.monotonic() - began, 3))
+            quiet = (self.closed or getattr(self, "latest_did", did) != did
+                     or did in self.__dict__.get("hermes_done", set()))
+            if not text or quiet or len(said) >= tiers.MAX_SPOKEN:
+                continue
+            if not said:
+                if self.say_first(did, text):
+                    said.append(text)
+                    self.counts["tier_first_spoken"] += 1
+                    self.trace("lanes.spoken", did=did, tier=name, model=model, first=True)
+            elif covered and not covered(text, " ".join(said), request):  # no check: no updates
+                said.append(text)
+                self.counts["tier_update_spoken"] += 1
+                self.trace("lanes.spoken", did=did, tier=name, model=model, first=False)
+                self.speak_for(did, text)
 
     async def start_haiku(self):
         began, haiku = time.monotonic(), self.haiku
