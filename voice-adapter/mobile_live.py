@@ -15,6 +15,7 @@ import json
 import re
 import logging
 import os
+import signal
 from pathlib import Path
 import selectors
 import shutil
@@ -1709,20 +1710,46 @@ async def resources(app):
         await app["manager"].close()
 
 
+async def health(request):
+    # Direct loopback startup check. This does not authenticate to a provider.
+    ready = not request.app["manager"].draining
+    return web.json_response({"ready": ready, "pid": os.getpid()}, status=200 if ready else 503)
+
+
 def make_app():
     from live_progress import PATH, progress
 
     app = web.Application(client_max_size=512 * 1024)
     app.cleanup_ctx.append(resources)
     app.router.add_post(PATH, progress)
+    app.router.add_get("/_z0live/ready", health)
     app.router.add_get("/api/audio/voice-live/status", status)
     app.router.add_post("/api/audio/voice-live/session", session)
     app.router.add_get("/api/audio/voice-live/diagnostics", diagnostics)
     return app
 
 
+async def serve(port, stop, *, app=None, sock=None):
+    runner = web.AppRunner(make_app() if app is None else app, access_log=None, shutdown_timeout=70)
+    await runner.setup()
+    try:
+        site = web.TCPSite(runner, "127.0.0.1", port) if sock is None else web.SockSite(runner, sock)
+        await site.start()
+        await stop.wait()
+    finally:
+        await runner.cleanup()
+
+
+async def main():
+    stop = asyncio.Event()
+    # Reissuing SIGTERM after an interrupted rollout must not interrupt the drain.
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        asyncio.get_running_loop().add_signal_handler(sig, stop.set)
+    await serve(int(os.environ.get("HERMES_MOBILE_VOICE_PORT", "9168")), stop)
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.WARNING, format="%(name)s %(levelname)s %(message)s")
     LOG.setLevel(logging.INFO)
     # aioice addresses and SDP payloads are deliberately not logged.
-    web.run_app(make_app(), host="127.0.0.1", port=9168, access_log=None)
+    asyncio.run(main())
