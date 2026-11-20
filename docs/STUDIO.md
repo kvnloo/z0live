@@ -16,14 +16,27 @@ copy keeps working from its own tree; nothing here depends on groot.
 LaunchAgents load at login and log to `~/Library/Logs/z0live/<label>.log`. The active voice slot restarts after a crash. The inactive slot stays stopped between rollouts.
 
 Call path: Hermes app → Tailscale HTTPS → proxy → adapter → GPT-Live (`gpt-live-1-codex`) over
-the codex ChatGPT login. Delegated work runs `hermes -p <app profile> chat` on the Studio. Lane turns go
-adapter → core `/v1/lanes/turn` with the relay token.
+the Codex ChatGPT login. The `poteto` profile hands delegated work to the local Hermes API host.
+Lane turns go adapter → core `/v1/lanes/turn` with the relay token.
 
 ## Install or repair
 
+Wait until no Live Voice call is active. From the deployed checkout of the approved revision, run:
+
 ```sh
-~/workspace/repos/z0live/deploy/macos/install.sh
+Z0LIVE_PRIMARY_HOST_PROFILE=poteto ./deploy/macos/install.sh
 ```
+
+The installer builds `voice-adapter/.venv` from `requirements.lock`, writes the LaunchAgent plists,
+pairs the relay token once, and re-registers the jobs. It sets `HERMES_HOME` for
+`com.zer0.z0live.hermes` to `$HOME/.hermes/profiles/poteto` and sets `Z0LIVE_PRIMARY_HOST_PROFILE`
+for `com.zer0.z0live.voice` to match. Use the installer rather than `kickstart` alone, which does not
+reload changed plist environment variables. The separate Tek host is not managed by this installer.
+
+After install, check that ports 8644 and 9168 listen on loopback. Send an authenticated request to
+`/p/poteto/v1/models` on port 8644 using the existing core API credential. Expect HTTP 200.
+Then run an in-process primary hand-off against port 8644 and check `delegation.api` and
+`delegation.done` for the same delegation ID. Do not set the probe-only provider cap in launchd.
 
 Run `install.sh` only in an idle maintenance window. It builds `voice-adapter/.venv`, pairs the relay token once, and re-registers the LaunchAgents, including the proxy. The first install of rolling restart switches the proxy to managed routing and starts with slot A. Do not rerun `install.sh` for routine adapter releases.
 
@@ -206,8 +219,29 @@ alternate voices file. Set `HERMES_VOICE_ENGINE=gpt-live`, `PROBE_GAP=15`, `PROB
 Use `PROBE_PAUSE=0.55` and put `~` inside a turn to insert a 550 ms pause. Use `PROBE_SAVE` and
 `PROBE_SAVE_IN` for local phone and caller WAVs. Check both signaling answers and `session.started` events.
 Match `guest.delegation.done` against the Tek host session, then check `floor.answer_sent`, the transcript,
-and the output audio. The probe's default fixture covers only the primary delegation. The guest uses the real
-Tek host.
+and the output audio. Primary and guest delegations both run by default. Set `PROBE_HERMES_FIXTURE=1`
+to record primary requests without running them. Guest delegations still use the real Tek host.
+
+## Primary hand-offs and call limits
+
+The primary profile defaults to `poteto`. `Z0LIVE_PRIMARY_HOST_PROFILE` selects the profile for
+both the API-only host and the voice adapter. The adapter uses the profile-qualified Responses API
+on loopback port 8644. Calls for other profiles keep their legacy routing. Each primary call has its
+own stored `z0live-primary-` conversation. The call brief seeds it. The adapter does not resubmit a
+failed turn because Hermes may already have acted. Set `HERMES_VOICE_PRIMARY_DELEGATION=legacy`
+to use the old chat or CLI path on new calls.
+
+`HERMES_VOICE_MAX_CALL_SECONDS` defaults to 14400. Each GPT-Live leg uses its own advertised expiry.
+The adapter prepares a silent replacement and swaps it in at a quiet boundary if time allows.
+The new primary gets the original call brief and a bounded recap. Tek gets its guest persona and a
+bounded call-only recap, never the primary's brief or chat history. Primary renewal does not touch
+Tek's transport. Tek renews independently and keeps the same Tek Hermes session. The phone WebRTC
+connection, floor, and answer queues stay in place across both swaps. If Tek's replacement fails and
+the old guest disconnects, the primary gives one notice and relays any stranded guest answers.
+
+`HERMES_VOICE_PROVIDER_CAP_SECONDS` can force a shorter provider deadline for a probe. At a 90-second
+cap, allow at least 65 seconds before the follow-up ask. Look for `call.renewed`, `guest.renewed`
+(if enabled), and spoken recall on the same call.
 
 ## Pick the voice model
 

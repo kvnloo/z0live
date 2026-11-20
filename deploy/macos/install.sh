@@ -19,6 +19,15 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 VA="$REPO/voice-adapter"
 DASHBOARD="${HERMES_DASHBOARD_UPSTREAM:-127.0.0.1:9119}"
+PRIMARY_PROFILE="${Z0LIVE_PRIMARY_HOST_PROFILE:-poteto}"
+case "$PRIMARY_PROFILE" in
+  default|*[!a-zA-Z0-9_-]*) printf 'Expected a named primary Hermes profile\n' >&2; exit 1 ;;
+esac
+PRIMARY_HOME="$HOME/.hermes/profiles/$PRIMARY_PROFILE"
+if [ ! -d "$PRIMARY_HOME" ]; then
+  printf 'Primary Hermes profile not found: %s\n' "$PRIMARY_HOME" >&2
+  exit 1
+fi
 DATA="$HOME/.local/share/z0live"
 LOGS="$HOME/Library/Logs/z0live"
 AGENTS="$HOME/Library/LaunchAgents"
@@ -64,6 +73,9 @@ VOICE_ENV="    <key>HERMES_BIN</key><string>$HOME/.hermes/hermes-agent/.hermes/b
     <key>HERMES_MOBILE_VOICE_TRACE_DIR</key><string>$DATA/voice-traces</string>
     <key>HERMES_VOICE_BRIEF_DIR</key><string>$DATA/call-briefs</string>
     <key>Z0LIVE_HANDOFF_FILE</key><string>$DATA/handoff.json</string>
+    <key>Z0LIVE_DESKTOP</key><string>$REPO/desktop</string>
+    <key>Z0LIVE_DATA</key><string>$DATA/core</string>
+    <key>Z0LIVE_PRIMARY_HOST_PROFILE</key><string>$PRIMARY_PROFILE</string>
     <key>Z0LIVE_TIERS</key><string>on</string>"
 VOICE_KEEPALIVE='<dict><key>SuccessfulExit</key><false/></dict>'
 plist com.zer0.z0live.voice 'voice-slot 9168' "$VOICE_ENV" "$VOICE_KEEPALIVE"
@@ -93,7 +105,8 @@ if [ ! -s "$RELAY_TOKEN" ]; then
       | sed -n 's/^Device token: //p' > "$RELAY_TOKEN" )
 fi
 plist com.zer0.z0live.core "../bin/z0live serve" "$CORE_ENV"
-plist com.zer0.z0live.hermes "../desktop/hermes_host.py" "$CORE_ENV"
+plist com.zer0.z0live.hermes "../desktop/hermes_host.py" "$CORE_ENV
+    <key>HERMES_HOME</key><string>$PRIMARY_HOME</string>"
 
 for label in com.zer0.z0live.core com.zer0.z0live.hermes com.zer0.z0live.lanes com.zer0.z0live.voice com.zer0.z0live.voice-next com.zer0.z0live.proxy; do
   launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true

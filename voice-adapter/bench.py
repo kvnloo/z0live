@@ -42,7 +42,7 @@ def run(engine: str, case: dict) -> dict:
     before = set(TRACES.rglob("*.jsonl"))
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
         json.dump(case.get("history", []), f)
-    env = {**os.environ, "HERMES_VOICE_ENGINE": engine, "PROBE_ASK": case["ask"],
+    env = {**os.environ, "HERMES_VOICE_ENGINE": engine, "PROBE_ASK": case["ask"], "PROBE_HERMES_FIXTURE": "1",
            "HERMES_MOBILE_VOICE_TRACE_DIR": str(TRACES)}
     try:
         out = subprocess.run([sys.executable, str(HERE / "context_probe.py"), f.name], env=env,
