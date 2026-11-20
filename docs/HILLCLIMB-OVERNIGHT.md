@@ -103,6 +103,16 @@ Hypothesis backlog (cheapest first; each names its mechanism):
    pre-rendered "mm-hm"/"yeah" in the engine's own voice (cached clips), never over speech.
 5. Brevity: cap spoken replies at 1-2 sentences in the persona (hosted voices over-talk); measure ai_talk_s too.
 6. GPT-Live: persona backchannel policy "frequent" + "start answering as soon as the user is clearly done".
+   KEPT 11-20 (A7, 952dca6, deployed ~05:39): three persona sentences (acknowledge longer stories with "mm-hm"/"yeah",
+   answer as soon as the user is clearly done). 3 runs (a7p1-3) D 0.881 / 1.129 / 0.980, mean 0.997 vs 1.370
+   (-0.37, past the 0.3 resolution; Welch t ~2.7, df ~3.4, so marginal: confirm with 2 more runs per arm when
+   cheap). Median gap 1.12 -> 0.94 s, waits > 1 s 58.8 -> 45.6 %, bc 1.29 -> 1.85/min, false cut-in 18.6 -> 15.9 %,
+   missed take 30.7 % both, ai_talk_s 72 -> 56 s, spurts < 0.5 s 23 -> 26 per run. Trace transcripts show the new
+   backchannels are real words inside the human's story ("Mm-hm.", "Yeah?"), not blips. spoke_first 3/12 calls vs
+   2/12 baseline: in every case an "Mm-h"/noise token at t = 1.6 s, before any human audio, and baseline has it
+   too (pre-existing; new item 11). context_probe on the deployed persona: all_pass (delegates "look at my screen").
+11. GPT-Live speaks a lone "Mm-hm" (or a noise token) ~1.6 s into 1 in 5 replay calls, before the human says anything.
+    Find the trigger (context append, lead-in silence, or the recorder's first frames) before it reaches a real call.
 7. GPT-Live: drop or delay the z0live context items that arrive mid-turn (they can stall the response).
 8. Fully local engine "local": LFM2.5-Audio-1.5B (Liquid; ASR + TTS in one model, llama.cpp runners for macOS and
    Android) for speech in/out, Silero/energy VAD + smart-turn, a fast local SLM (Gemma 4 E4B on Studio) for the reply,
