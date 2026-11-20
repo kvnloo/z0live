@@ -44,6 +44,10 @@ Guest-floor is the only branch whose bugs a caller hears today, and two of its s
 in a production trace. Fix it first. Fast-delegation fixes three items from the S-tier review well, but it cannot
 merge as-is, and it drops an answer at session renewal.
 
+Update: `feat/lane-status` moved to `d69bd0f` during the review, and that head now merges fast-delegation with
+guest-floor. Every repro still fails there. Before `d69bd0f` deploys, 7 items must be fixed: G1 through G6 and F2.
+See section 7.
+
 ---
 
 ## 1. fix/guest-floor, `a70a58a` (base `296d018`), grade D
@@ -360,7 +364,39 @@ whenever it starts 20 s or more after the first.
 
 ---
 
-## 7. Method and limits
+## 7. Addendum: feat/lane-status moved to `d69bd0f` during this review
+
+While I worked, someone else merged into `feat/lane-status`, and the production checkout now sits at `d69bd0f`.
+I never wrote to that checkout, and its tree is clean. The new head includes these merges:
+
+- `27d6cb1`, "Merge fast delegation with the call-local guest floor".
+- feat/seamless-restart, feat/plugin-s-tier, feat/truth-context-evals, bench/oracle-inject and
+  bench/local-voice-replay. I did not review those five.
+
+Rerun at `d69bd0f`, measured:
+
+| Repro file | Result at `d69bd0f` |
+|---|---|
+| `repro_guest_floor.py` | 10 FAIL, 3 controls ok. G1 through G6 and both verified advisor items survive |
+| `repro_tamil.py` | 2 of 4 subtests FAIL. T1 survives |
+| `repro_fast_delegation.py` | 1 FAIL, 1 control ok. F2 survives |
+
+`d69bd0f`'s own suite passes: 106 tests OK, 1 skipped.
+
+What the merge changed for this gate:
+
+- F1, the conflict, is resolved by `27d6cb1`. I did not review that merge line by line.
+- The first merge risk under F1 is fixed. `replace_subscription` now resends `primary_note` when a guest is present
+  (`d69bd0f:mobile_live.py:1659-1660`). It also renews the guest leg.
+- The second merge risk is open. Nothing in `replace_subscription` (`:1630` onward) resets `GPTGuest.replies`. A
+  primary reply still open at the swap would block the primary queue. Inferred.
+- F2 is open. `protocol.seen.clear()` is still there (`:1669`).
+
+So the must-fix list for deploying `d69bd0f` is G1 through G6 plus F2: 7 items.
+
+---
+
+## 8. Method and limits
 
 - Diffs are each head against its merge base: guest-floor, tamil, gemma-lane and fast-delegation against `296d018`,
   and trace-v2 against `3d4363a`. I read every hunk in `mobile_live.py`, `guest_floor.py`, `primary_host.py`,
