@@ -336,3 +336,45 @@ the 34 Dessa two-track files (when Dessa and the humans took the floor, backchan
 traces, and synthetic dialogs. Offline eval first: replay the Dessa human tracks through the policy alone and score
 the chosen floor-take times with dessa_timing; it touches a call only after it beats the hand rules offline.
 The Fable advisor's plan (~/.local/share/z0live/advisor/plan-20261119.json) refines this.
+
+DONE 11-20 (C1, branch `research/orchestrator`, offline only, nothing deployed): hand rules vs learned floor policies.
+Tools in `voice-adapter/bench/`: `floor_data.py` (causal 20 ms human-audio features and Dessa's action per frame: 20
+calls, 71.7 min, 616 takes, 186 backchannels), `floor_asr.py` (LFM2.5-Audio on the Studio CPU transcribes the 983 human
+talkspurts, 98 % non-empty, ~3 min), `floor_eval.py` (closed-loop replay: a take plays Dessa's own reply at the
+policy's onset, a backchannel plays a 0.4 s clip, both scored by dessa_score; leave-one-call-out, parameters picked on
+the other 19 calls by J = D + false cut-in %/100; delay 0.25 s = A5 uplink + A10 adapter->recorder, ready reply),
+`floor_traces.py` (decision points from real call traces, timings only). Every run asserts the identity check: Dessa's
+own timing through the simulator gives back dessa_timing's numbers exactly. Private outputs: `~/.local/share/z0live/orch/`.
+
+| measured, 20 calls, LOCO | J | D | false cut-in | missed take | takes only (`--no-bc`): J, false cut-in, missed |
+|---|---:|---:|---:|---:|---|
+| Dessa itself | 0.228 | 0.228 | 0 % | 0 % | 0.137, 0 %, 0 % |
+| deployed rules (0.3 s Level quiet + A10 clips) | 0.340 | 0.110 | 23.0 % | 14.6 % | 0.222, 21.2 %, 14.9 % |
+| rules tuned per fold | 0.262 | 0.041 | 22.1 % | 17.7 % | 0.243, 22.3 %, 14.6 % |
+| gate: pause classifier + timeout fallback | 0.212 | 0.016 | 19.5 % | 20.3 % | 0.189, 15.9 %, 21.6 % |
+| gate+text | 0.226 | 0.024 | 20.2 % | 16.2 % | 0.151, 15.1 %, 20.8 % |
+| hazard logistic / gbm (audio) | 0.231 / 0.369 | | | | 0.249 / 0.203 |
+| hazard logistic / gbm (+text) | 0.219 / 0.210 | | | | 0.194 / 0.195 |
+
+Verdict. With backchannels in play, no learned policy beats the tuned rules past noise (gate dJ [-0.147, +0.012]).
+Every policy, the tuned rules included, beats the deployed constants (gate dJ [-0.213, -0.064]). On the take decision
+alone the learned gate wins. gate+text vs the deployed rules: dJ [-0.150, -0.022], false cut-ins 21.2 -> 15.1 %
+([-9.0, -3.2] points). vs the tuned rules: dJ [-0.114, -0.038]. It pays about 6 points more missed takes
+(14.9 -> 20.8 %), which J does not charge. Six learned variants were tried, so the nominal 95 % CIs are slightly
+optimistic. Why (all measured):
+(1) D is gameable. A tuned timeout parks its takes at 0.2 s of quiet + 0.25 s = 0.45 s and scores D 0.04, better than
+Dessa's 0.23, with 22 % false cut-ins.
+(2) dessa_timing counts any AI talkspurt inside a human one as a backchannel, so replies the human talks over earn D's
+backchannel term: the deployed rule scores 2.8 "backchannels"/min with no clips at all. Take-only runs drop that term.
+(3) Pause-triggered clips land after the human stopped (A10 again): 14-52 % of each policy's false cut-ins are clips.
+(4) At 0.2 s of quiet the audio barely separates turn ends from holds: the hazard models reach pause AUC 0.59 and the
+best feature (end-of-run pitch) 0.64. Words help: the pause classifier rises from 0.60 to 0.70, and an open last word
+("and", "the", "um") ends 32 % of holds but 16 % of turn ends. Frame hazards learn when to fire, not whether; the gate
+uses the signal.
+(5) The oracle (true turn ends, ready reply) has median gap 0.26 s, so with a ready reply the floor is turn-end
+certainty, not endpoint speed. Its 6.6 % false cut-ins are the canned human's floor.
+Real calls (`floor_traces.py`, 11 GPT-Live calls, 160 min, Level spans on the adapter clock): GPT-Live's gap median is
+1.51 s with 65 % over 1 s. Kevin pauses longer than the Dessa humans on the same Level rule: hold-pause median 0.81 s
+vs 0.48 s, and a 1.0 s timeout cuts 40 % of his holds vs 4.5 % of theirs. A Dessa-trained gate would cut into him far
+more than offline (inferred). Next: label Kevin's own pauses (trace shifts/holds plus local transcripts) and refit the
+gate on them before any live arm. Backchannels need the in-speech trigger (4b), not a pause trigger.
