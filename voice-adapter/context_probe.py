@@ -40,14 +40,21 @@ LISTEN_S = float(os.environ.get("PROBE_LISTEN", str(max(14, HERMES_DELAY + 10)))
 
 
 def speech(text: str, path: Path) -> bytes:
-    if not path.exists():
-        subprocess.run(["edge-tts", "--text", text, "--write-media", str(path)], check=True, capture_output=True)
-    resampler, parts = av.AudioResampler(format="s16", layout="mono", rate=48000), []
-    with av.open(str(path)) as container:
-        for frame in container.decode(audio=0):
-            for out in resampler.resample(frame):
-                parts.append(bytes(out.planes[0])[: out.samples * 2])
-    return bytes(int(48000 * 2 * SILENCE_S)) + b"".join(parts) + bytes(48000 * 2 * 20)
+    """The ask as 48 kHz PCM after SILENCE_S of silence. "A || B" asks A, waits PROBE_GAP seconds, then asks B."""
+    import hashlib
+    gap = bytes(int(48000 * 2 * float(os.environ.get("PROBE_GAP", "12"))))
+    parts = []
+    for ask in [a.strip() for a in text.split("||") if a.strip()]:
+        mp3 = path.with_name(f"probe-{hashlib.sha1(ask.encode()).hexdigest()[:8]}.mp3")
+        if not mp3.exists():
+            subprocess.run(["edge-tts", "--text", ask, "--write-media", str(mp3)], check=True, capture_output=True)
+        resampler, pcm = av.AudioResampler(format="s16", layout="mono", rate=48000), []
+        with av.open(str(mp3)) as container:
+            for frame in container.decode(audio=0):
+                for out in resampler.resample(frame):
+                    pcm.append(bytes(out.planes[0])[: out.samples * 2])
+        parts.append(b"".join(pcm))
+    return bytes(int(48000 * 2 * SILENCE_S)) + gap.join(parts) + bytes(48000 * 2 * 20)
 
 
 class Prompt(AudioStreamTrack):
@@ -148,11 +155,22 @@ def spoken(said):
 
 
 async def drain(track):
+    """Consume what the phone would play; PROBE_SAVE=path.wav keeps it (16-bit mono 48 kHz) to listen or measure."""
+    save, pcm = os.environ.get("PROBE_SAVE"), []
     try:
         while True:
-            await track.recv()
+            frame = await track.recv()
+            if save:
+                mono = frame.to_ndarray().reshape(-1, len(frame.layout.channels))[:, 0] if frame.format.is_packed \
+                    else frame.to_ndarray()[0]
+                pcm.append(mono.astype("int16").tobytes())
     except Exception:  # noqa: BLE001
         pass
+    finally:
+        if save and pcm:
+            import wave
+            with wave.open(save, "wb") as w:
+                w.setnchannels(1), w.setsampwidth(2), w.setframerate(48000), w.writeframes(b"".join(pcm))
 
 
 if __name__ == "__main__":

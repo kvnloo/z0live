@@ -80,6 +80,21 @@ Check one request end to end (real GPT-Live, synthetic speech, real lanes, Herme
 `PROBE_HERMES_DELAY=20 PROBE_ASK="Can you find out how deep the Mariana Trench is?" Z0LIVE_TIERS=on ... context_probe.py`;
 the receipt's `spoken` lists when each part was said, and the trace has `lanes.tier` / `lanes.spoken` rows.
 
+## Two voices on one call
+
+With GPT-Live as the engine, Grok can join as a second voice. Say its name ("Grok, …") and Grok answers that
+turn; everything else (and all Hermes work) stays with GPT-Live. Each voice is told what the other said.
+
+```sh
+echo '{"guest": "grok"}' > ~/.config/z0live/voices.json   # on, from the next call
+echo '{"guest": ""}'     > ~/.config/z0live/voices.json   # off
+```
+
+One speaker at a time: the phone hears Grok's audio while Grok holds the floor, and GPT-Live's audio otherwise
+(`voice-adapter/guest_voice.py`). Traces show `guest.claimed`, `guest.asked`, `guest.said`, `guest.played` and
+`guest.muted_primary`. Grok needs the xAI login (`hermes auth add xai-oauth`); if it fails the call goes on with
+GPT-Live alone (`guest.failed`).
+
 ## Pick the voice model
 
 ```sh

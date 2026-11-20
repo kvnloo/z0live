@@ -17,6 +17,7 @@ import base64
 import json
 import logging
 import os
+import shutil
 import subprocess
 import time
 from fractions import Fraction
@@ -31,7 +32,7 @@ URL = os.environ.get("GROK_VOICE_URL", "wss://api.x.ai/v1/realtime?model=grok-vo
 VOICE = os.environ.get("GROK_VOICE", "eve")
 RATE_IN, RATE_OUT, FRAME = 24000, 48000, 960  # Grok PCM rate; phone rate; 20 ms at 48 kHz
 SECRET_SCRIPT = Path(__file__).with_name("xai_secret.py")
-HERMES_BIN = os.environ.get("HERMES_BIN", str(Path.home() / ".hermes/hermes-agent/venv/bin/hermes"))
+HERMES_BIN = os.environ.get("HERMES_BIN") or shutil.which("hermes") or str(Path.home() / ".hermes/hermes-agent/.hermes/bin/hermes")
 TOOL = {"type": "function", "name": "ask_hermes",
         "description": "Hand real work to Hermes, Kevin's agent: anything about his data, files, sessions, phone "
                        "or screen, or anything you can't answer from the conversation. Say a few words first.",

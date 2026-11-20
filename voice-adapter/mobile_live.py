@@ -35,6 +35,8 @@ import chat_continuity  # noqa: E402 - sibling module (voice turns land in the o
 import call_brief  # noqa: E402 - sibling module (context packet in the session instructions)
 import grok_leg  # noqa: E402 - sibling module (Grok Voice as the voice model)
 import tiers  # noqa: E402 - sibling module (fast/medium/slow model lanes)
+import guest_voice  # noqa: E402 - sibling module (a second voice, Grok, answering by name)
+from aiortc.contrib.media import MediaRelay  # noqa: E402
 
 # Z0LIVE_TIERS=on: a delegated request runs the tiers.py lanes (via lane_server.py) beside Hermes, instead of
 # the warm-Haiku/Groq instant lane, the Fable lanes and the core lanes relay.
@@ -585,22 +587,29 @@ class Call:
             self.trace("engine.unavailable", wanted=self.engine, using="gpt-live")
             self.engine = "gpt-live"
         self.leg = grok_leg.GrokLeg(self, PERSONA) if self.engine == "grok" else None
+        # A guest voice beside GPT-Live (guest_voice.py): ~/.config/z0live/voices.json {"guest": "grok"}, per call.
+        self.guest = guest_voice.GuestVoice(self) if self.engine == "gpt-live" and guest_voice.wanted() == "grok" else None
         self.trace("call.created", profile=profile, engine=self.engine,
                    model=grok_leg.URL.rsplit("=", 1)[-1] if self.leg else MODEL, rev=ADAPTER_REV, pid=os.getpid(),
-                   host_delegation=HOST_DELEGATION, lanes=bool(self.relay))
+                   host_delegation=HOST_DELEGATION, lanes=bool(self.relay), guest="grok" if self.guest else "")
 
         @self.mobile.on("track")
         def mobile_track(track):
             if track.kind == "audio":
                 if self.leg:
                     self.leg.attach(AudioBridge(track, self, "input"))
+                elif self.guest:  # both voices hear Kevin
+                    split = MediaRelay()
+                    self.provider.addTrack(AudioBridge(split.subscribe(track), self, "input"))
+                    self.guest.attach(split.subscribe(track))
                 else:
                     self.provider.addTrack(AudioBridge(track, self, "input"))
 
         @self.provider.on("track")
         def provider_track(track):
             if track.kind == "audio":
-                self.mobile.addTrack(AudioBridge(track, self, "output"))
+                out = AudioBridge(track, self, "output")
+                self.mobile.addTrack(guest_voice.FloorSwitch(out, self.guest) if self.guest else out)
 
         @self.mobile.on("datachannel")
         def mobile_channel(channel):
@@ -682,6 +691,8 @@ class Call:
                 self.spawn(self.relay.transcript(self.protocol.turn_text["user"], False))
             elif kind == "turn.done" and (event.get("turn") or {}).get("role") == "user" and self.protocol.last_user:
                 self.spawn(self.lane_final(self.protocol.last_user))
+        if self.guest and from_provider:
+            self.guest.observe(event, self.protocol.turn_text["user"])
         while self.protocol.pending_host:
             did, request = self.protocol.pending_host.pop(0)
             self.spawn(self.host_delegate(did, request))
@@ -754,7 +765,11 @@ class Call:
             # The subscription endpoint ignores session instructions (11-16 canary: "I'm ChatGPT"), so the
             # persona and the call brief go in as context, framed as background so they are not answered.
             channel = os.environ.get("HERMES_VOICE_BRIEF_CHANNEL", "developer")
-            for part in chunks(PERSONA + "\n" + call_brief.build(history, self.chat), int(os.environ.get("HERMES_VOICE_BRIEF_CHUNK", "1800"))):
+            brief = call_brief.build(history, self.chat)
+            persona = PERSONA + ("\n" + guest_voice.PRIMARY_NOTE if self.guest else "")
+            if self.guest:
+                self.spawn(self.start_guest(brief))
+            for part in chunks(persona + "\n" + brief, int(os.environ.get("HERMES_VOICE_BRIEF_CHUNK", "1800"))):
                 self.send({"type": "session.context.append", "channel": channel,
                            "content": [{"type": "input_text", "text": part}]}, True)
             self.spawn(self.watchdog())
@@ -769,6 +784,22 @@ class Call:
             self.trace("call.setup_failed", error=type(exc).__name__, detail=str(exc)[:300])
             await self.close("setup_failed")
             raise
+
+    async def start_guest(self, brief):
+        guest = self.guest
+        if guest is None:
+            return
+        try:
+            await guest.start()
+            for _ in range(100):  # session.updated arrives within ~1 s
+                if guest.ready or self.closed:
+                    break
+                await asyncio.sleep(0.05)
+            if brief:
+                await guest.note("Background on Kevin's chat (do not read aloud):\n" + brief[:6000])
+        except Exception as exc:  # noqa: BLE001 - the call goes on with one voice
+            self.trace("guest.failed", error=type(exc).__name__, detail=str(exc)[:300])
+            self.guest = None
 
     async def relay_start(self):
         try:
@@ -1130,7 +1161,7 @@ class Call:
             if task is not current:
                 task.cancel()
         await asyncio.gather(self.mobile.close(), self.provider.close(), *([self.leg.close()] if self.leg else []),
-                             return_exceptions=True)
+                             *([self.guest.close()] if self.guest else []), return_exceptions=True)
         if self.relay:
             await self.relay.close()
             self.counts.update({"relay_" + k: v for k, v in self.relay.counts.items()})
