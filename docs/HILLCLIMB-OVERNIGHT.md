@@ -229,6 +229,30 @@ Hypothesis backlog:
 Gate: slm-v1 usable score must not drop more than 1/30 for a model/quant change (run slm_bench.py on the Studio with the
 same GGUF); phones must stay cool (thermal status < 3) and on adb.
 
+## Track D: answer truthfulness (hallucination rate)  -- job z0live-climb-D-quality, alternates with Track E
+
+Harness to build first (iteration 1): `voice-adapter/bench/truth_eval.py`. Cases: (a) recorded call turns that were
+delegated, with Hermes's final answer as reference (call traces may go to the providers that saw them, see
+REQUIREMENTS.md); (b) slm-v1 must-SKIP cases (personal, live, action). Metric: hallucination rate = spoken lane answers
+that contradict the reference or invent personal/live facts or claim actions, graded by a fixed grader model; also
+SKIP-correctness. Gate: lane latency (tiers race median) must not rise > 15%.
+Backlog: 1. disagreement rule: fast vs slow lanes contradict on a fact -> voice defers ("let me check") instead of
+picking; 2. personal facts must cite the brief/blackboard entry; unsourced personal claims are dropped; 3. pre-speak
+gate for kinds math/hard/gather on in tiers mode (it may not run there today); 4. per-model blocklist from slm-v1
+harmful answers; 5. confidence phrasing ("I think") when only one fast lane answered.
+
+## Track E: context relevance and compression (planted-fact recall)  -- same job, alternating
+
+Harness to build first: `voice-adapter/bench/context_eval.py`. Build long synthetic contexts (no private data:
+synthetic chat, or call traces only) with planted facts and planted corrections ("flight moved to Thursday"); feed the
+compressed context a lane would get; ask about each planted fact. Metrics: planted-fact recall, superseded-fact error
+rate (answers with the old value), invented-fact rate, context tokens (smaller is better), phone lane TTFT from Track B's
+measured slope (tab: ~0.34 s + 1.7 ms per cached token).
+Backlog: 1. budgeted three-part context (stable brief / last N turns verbatim / blackboard); 2. rolling summary of older
+turns by a LOCAL model; 3. fact extraction to blackboard entries with source + time, corrections overwrite; 4. per-turn
+retrieval with local embeddings instead of stuffing; 5. stable prefix + append-only for prefix caching.
+Private history (Telegram, chat, owner-msgs) never goes to hosted models in this track: local models only.
+
 ## Track C: the tiny orchestrator (research, inside Track A's loop once A's first rules land)
 
 Advisor scope cut: realistic as FLOOR CONTROL only (hold / backchannel / take floor / release speculative / flush), not
