@@ -1,7 +1,10 @@
 """Deterministic protocol/auth tests and real localhost WebRTC fixture tests."""
 import asyncio
+import hashlib
 import json
 import os
+from pathlib import Path
+import tempfile
 import unittest
 
 # Unit tests never spawn a real lane or driver: tests patch live.run_hermes and use fake relays.
@@ -329,6 +332,9 @@ class IntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     @patch.object(live, 'HOST_DELEGATION', False)
     async def test_real_webrtc_audio_and_bidirectional_protocol_translation(self):
+        trace_dir = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.enterContext(patch.object(live, 'TRACE_DIR', trace_dir))
+        self.enterContext(patch.dict(os.environ, {'HERMES_MOBILE_VOICE_TRACE': '1'}))
         client = RTCPeerConnection(RTCConfiguration(iceServers=[]))
         self.peers.append(client)
         client.addTrack(AudioStreamTrack())
@@ -378,6 +384,15 @@ class IntegrationTests(unittest.IsolatedAsyncioTestCase):
             while self.app['manager'].calls:
                 await asyncio.sleep(.05)
         self.assertEqual(self.app['manager'].recent[-1]['reason'], 'client_closed')
+        trace, = trace_dir.glob('*/*.jsonl')
+        context = [row for row in map(json.loads, trace.read_text().splitlines()) if row['ev'] == 'context.sent']
+        setup, = [row for row in context if row['type'] == 'signaling.session']
+        self.assertEqual(setup['turn_id'], 0)
+        self.assertEqual(setup['instructions_sha256'], hashlib.sha256(live.PERSONA.encode()).hexdigest())
+        self.assertTrue(any(row['type'] == 'session.context.append' and row['turn_id'] == 0 for row in context))
+        reply, = [row for row in context if row.get('did') == 'd1']
+        self.assertEqual(reply['turn_id'], 1)
+        self.assertEqual(reply['texts'], [event['content'][0]['text']])
 
 
 

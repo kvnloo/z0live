@@ -59,6 +59,8 @@ def wanted() -> str:
 
 
 class GuestVoice(grok_leg.GrokLeg):
+    trace_leg = "guest"
+
     def __init__(self, call):
         super().__init__(call, PERSONA)
         self.addressed = False   # Kevin named Grok this turn: its reply may play
@@ -84,7 +86,7 @@ class GuestVoice(grok_leg.GrokLeg):
         self.tasks.append(asyncio.create_task(self.reader()))
 
     # --- what the primary hears (called from Call.message for provider events) -------------------------------
-    def observe(self, event: dict, user_text: str):
+    def observe(self, event: dict, user_text: str, turn_id=0):
         kind = event.get("type")
         if kind == "input_transcript.added":
             if len(user_text) < self.seen:  # the protocol started a fresh transcript
@@ -105,7 +107,8 @@ class GuestVoice(grok_leg.GrokLeg):
                 if was_muted:
                     self.call.trace("guest.muted_primary", text=(turn.get("transcript") or "")[:200])
                 elif (turn.get("transcript") or "").strip():
-                    self.tasks.append(asyncio.create_task(self.note("Hermes said: " + turn["transcript"].strip()[:1500])))
+                    text = "Hermes said: " + turn["transcript"].strip()[:1500]
+                    self.tasks.append(asyncio.create_task(self.note(text, turn_id)))
                 self.flush_notes()
 
     def claim(self):

@@ -59,12 +59,12 @@ spoken = []
 _send = live.Call.send
 
 
-def send(self, event, to_provider=False):
+def send(self, event, to_provider=False, **kwargs):
     if to_provider and event.get('type') == 'delegation.context.append' and event.get('channel') == 'speakable':
         txt = ''.join(c.get('text', '') for c in event.get('content', []))
         spoken.append((round(time.monotonic() - T.get('speech_end', time.monotonic()), 2), txt[:400]))
         mark('first_speakable_injected')
-    return _send(self, event, to_provider)
+    return _send(self, event, to_provider, **kwargs)
 
 
 live.Call.send = send
