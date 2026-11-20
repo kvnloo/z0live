@@ -125,6 +125,35 @@ class HostDelegationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(live.profile_name('default'), '')
 
 
+class SpeakFirstGateTests(unittest.IsolatedAsyncioTestCase):
+    async def test_voice_is_silent_until_the_phone_sends_sound(self):
+        import av
+
+        class Source:
+            def __init__(self, level):
+                self.level = level
+
+            async def recv(self):
+                frame = av.AudioFrame.from_ndarray(__import__("numpy").full((1, 960), self.level, "int16"),
+                                                   format="s16", layout="mono")
+                frame.sample_rate = 48000
+                return frame
+
+        def peak(frame):
+            return int(abs(frame.to_ndarray()).max())
+
+        call = live.Call(live.Manager(None), profile='')
+        try:
+            voice = live.AudioBridge(Source(5000), call, "output")
+            self.assertEqual(peak(await voice.recv()), 0)  # the voice tried to speak first: silenced
+            await live.AudioBridge(Source(0), call, "input").recv()
+            self.assertEqual(peak(await voice.recv()), 0)  # phone silence does not open it
+            await live.AudioBridge(Source(5000), call, "input").recv()
+            self.assertGreater(peak(await voice.recv()), 0)  # Kevin spoke: the voice is heard from now on
+        finally:
+            await call.close("test")
+
+
 class VoiceSessionContinuityTests(unittest.TestCase):
     """Each voice turn must continue the profile's Hermes session, not start a new one."""
     def setUp(self):

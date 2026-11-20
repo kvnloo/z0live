@@ -552,7 +552,15 @@ class AudioBridge(MediaStreamTrack):
         frame = await self.source.recv()
         self.call.counts[self.direction + "_frames"] += 1
         self.level.frame(frame)
-        if self.direction == "input" and self.call.muted:
+        call = self.call
+        if self.direction == "input" and not call.heard_user and self.level.on is not None and not call.muted:
+            call.heard_user = True
+            call.trace("output.gate_open", gated_frames=call.counts["output_gated"])
+        # The voice must not speak before Kevin does: GPT-Live sometimes starts a turn (a lone "Mm-h", a sniff,
+        # "He Hey") ~0.4 s into the session while the persona context lands. Silence its audio until he speaks.
+        if (self.direction == "input" and call.muted) or (self.direction == "output" and not call.heard_user):
+            if self.direction == "output":
+                call.counts["output_gated"] += 1
             for plane in frame.planes:
                 plane.update(bytes(plane.buffer_size))
         return frame
@@ -570,6 +578,7 @@ class Call:
         self.created = time.monotonic()
         self.closed = False
         self.muted = False
+        self.heard_user = False  # output audio stays silent until the phone sends sound (AudioBridge)
         self.provider_ready = False
         self.mobile_dc = None
         self.provider_dc = self.provider.createDataChannel("oai-events")
@@ -682,6 +691,10 @@ class Call:
         if from_provider and kind == "session.started":
             self.provider_ready = True
             self.flush(self.provider_dc, self.to_provider)
+        if (from_provider and kind == "input_transcript.added" and not self.heard_user  # speech too quiet for Level
+                and str((event.get("item") or {}).get("text") or "").strip()):
+            self.heard_user = True
+            self.trace("output.gate_open", gated_frames=self.counts["output_gated"], by="transcript")
         if not from_provider and kind in ("session.input_audio.mute", "session.input_audio.unmute"):
             self.muted = kind.endswith(".mute")
             return
