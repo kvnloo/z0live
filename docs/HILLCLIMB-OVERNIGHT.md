@@ -153,6 +153,10 @@ Hypothesis backlog:
    cold brief 37.1 / 34.7 -> 30.9 s (-14 %), no-cache 41.2 / 45.8 -> 36.9 s. Args only, no model change (slm gate
    n/a), thermal 0. The second control's first two turns hit swap (6.7, 4.4 s; SwapFree 415 MB after). Tab lanes run
    `-t 6`; the probe default stays -t 4 so earlier rows compare. Next: `-t 8` (all cores, competes with hre-slm).
+   REVERTED 11-20 (B8): `-t 8` vs `-t 6` on the tab (A-B-A): warm median 2.39 / 2.42 -> 2.24 s (-7 %), but the turns
+   overlap (Mann-Whitney U 36/50, p ~0.18 normal approx.; arm [2.99, 2.24, 2.09, 2.09, 2.29], controls 2.17..2.48), cold brief
+   30.2 / 32.6 -> 28.7 s, no-cache 35.4 / 35.8 -> 37.7 s. Within noise, and all 8 cores would starve hre-slm's embed
+   server in real use. Threads are closed on the tab at `-t 6`.
 4. Quantization: Q4_0 (ARM repack) vs Q4_K_M vs IQ4_NL; KV cache q8_0; flash attention on/off.
    REVERTED 11-20 (B4): `-ctk q8_0 -ctv q8_0` on the tab (qwen3-1.7b CPU, A-B-A): warm median 2.84 / 1.83 / 2.68 s
    (-33 %, no overlap) and 24-token turns 9.0 -> 5.4 s, but cold brief 36 -> 46 s and no-cache 42 -> 63 s. Failed the
