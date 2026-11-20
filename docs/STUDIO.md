@@ -74,6 +74,9 @@ Read a call: `voice-adapter/trace_report.py <trace.jsonl>`.
 
 ## Roll out an adapter release without dropping open calls
 
+One command: `deploy/macos/release.sh [commit]` builds `~/.local/share/z0live/releases/<sha>` (detached worktree and
+venv) and runs the rolling restart below. Safe while a call is open. `deploy-when-idle.sh` is only for `--install`.
+
 After the idle-window install, prepare each adapter release in its own checkout or extracted directory. Build `voice-adapter/.venv` there with the Studio Python and install that release's `voice-adapter/requirements.lock`. Keep the source and venv unchanged while a slot points to that directory. Use a release that includes managed adapter startup and `/_z0live/ready`.
 
 From the installed control checkout, run:
