@@ -1,22 +1,11 @@
-"""A second voice on the call: Grok Voice beside the primary engine (GPT-Live), answering when Kevin says its name.
-
-Simplest working version (11-19):
-- Both voices hear Kevin: the phone's microphone track is split (MediaRelay) to the primary and to this guest.
-- One speaker at a time. Grok's server VAD never starts a reply by itself; z0live starts one (response.create)
-  when Kevin's turn names Grok, and cancels any reply Grok starts unaddressed. While Grok holds the floor, the
-  phone hears Grok's frames instead of the primary's (FloorSwitch), so no mixing is needed.
-- They know about each other: each voice's spoken reply is passed to the other as silent context, and the
-  primary's persona says Grok is on the call.
-- Hermes stays with the primary: the guest has no tools.
-
-Turn on per call with ~/.config/z0live/voices.json {"guest": "grok"} (read at call start), or Z0LIVE_GUEST=grok.
-"""
+"""Per-call guest configuration, the Grok guest leg and the shared phone output switch."""
 import asyncio
 import base64
 import json
 import os
 import re
 import time
+from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 
@@ -48,14 +37,49 @@ def shaped(mono: bytes, like):
     return frame
 
 
-def wanted() -> str:
+@dataclass(frozen=True)
+class GuestConfig:
+    engine: str
+    name: str
+    voice: str
+    profile: str = ""
+
+    @property
+    def names(self):
+        aliases = (self.name, "tek", "teknium") if self.profile == "tek" else (self.name,)
+        return re.compile(r"\b(?:" + "|".join(map(re.escape, aliases)) + r")\b", re.I)
+
+    @property
+    def primary_note(self):
+        return (f"A second voice, {self.name}, is on this call. When Kevin addresses {self.name} by name"
+                f"{' (including tek or teknium)' if self.profile == 'tek' else ''}, say nothing and do not "
+                f"delegate; let the guest answer. Notes beginning '{self.name} said' are silent context.")
+
+
+def configured() -> GuestConfig | None:
     forced = os.environ.get("Z0LIVE_GUEST", "").strip().lower()
-    if forced:
-        return "" if forced in ("off", "none", "0") else forced
     try:
-        return str(json.loads(FILE.read_text()).get("guest") or "").lower()
+        path = Path(os.environ.get("Z0LIVE_VOICES_FILE", str(FILE)))
+        raw = json.loads(path.read_text()).get("guest")
     except (OSError, ValueError, AttributeError):
-        return ""
+        raw = None
+    if forced == "grok" or (not forced and raw == "grok"):
+        return GuestConfig("grok", "Grok", os.environ.get("Z0LIVE_GUEST_VOICE", "rex"))
+    if forced not in ("", "gpt-live") or not isinstance(raw, dict) or raw.get("engine") != "gpt-live":
+        return None
+    profile, name, voice = raw.get("profile"), raw.get("name"), raw.get("voice", "ember")
+    if not isinstance(profile, str) or not re.fullmatch(r"[a-zA-Z0-9_-]+", profile) or profile == "default":
+        return None
+    if not isinstance(name, str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,32}", name):
+        return None
+    if voice not in ("arbor", "breeze", "cove", "ember", "juniper", "maple", "spruce", "vale"):
+        return None
+    return GuestConfig("gpt-live", name, voice, profile)
+
+
+def wanted() -> str:
+    config = configured()
+    return config.engine if config else ""
 
 
 class GuestVoice(grok_leg.GrokLeg):
@@ -194,10 +218,15 @@ class FloorSwitch(grok_leg.MediaStreamTrack):
     def __init__(self, source, guest):
         super().__init__()
         self.source, self.guest = source, guest
+        self.last_guest = False
 
     async def recv(self):
         frame = await self.source.recv()  # the primary's clock paces the phone
-        if not self.guest.floor():
+        selected = self.guest.floor()
+        if selected != self.last_guest:
+            self.last_guest = selected
+            self.guest.call.trace("guest.floor", speaker="guest" if selected else "primary")
+        if not selected:
             return frame
         out = self.guest.take(frame)
         if out is not None:

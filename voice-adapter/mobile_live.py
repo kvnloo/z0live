@@ -35,7 +35,8 @@ import chat_continuity  # noqa: E402 - sibling module (voice turns land in the o
 import call_brief  # noqa: E402 - sibling module (context packet in the session instructions)
 import grok_leg  # noqa: E402 - sibling module (Grok Voice as the voice model)
 import tiers  # noqa: E402 - sibling module (fast/medium/slow model lanes)
-import guest_voice  # noqa: E402 - sibling module (a second voice, Grok, answering by name)
+import guest_voice  # noqa: E402
+import av  # noqa: E402
 from aiortc.contrib.media import MediaRelay  # noqa: E402
 
 # Z0LIVE_TIERS=on: a delegated request runs the tiers.py lanes (via lane_server.py) beside Hermes, instead of
@@ -502,8 +503,9 @@ def slim(event, limit=1500):
 
 class Level:
     """Sound on/off spans of one audio direction, from frame peaks (energy, not speech recognition)."""
-    def __init__(self, call, direction):
+    def __init__(self, call, direction, off_seconds=LEVEL_OFF_SECONDS):
         self.call, self.direction, self.on, self.quiet, self.peak = call, direction, None, 0.0, 0
+        self.off_seconds = off_seconds
 
     def frame(self, frame):
         try:
@@ -520,7 +522,7 @@ class Level:
                 self.call.trace("audio.on", dir=self.direction, peak=peak, muted=self.call.muted)
         elif self.on is not None:
             self.quiet = self.quiet or now
-            if now - self.quiet >= LEVEL_OFF_SECONDS:
+            if now - self.quiet >= self.off_seconds:
                 self.call.trace("audio.off", dir=self.direction, at=round(self.quiet - self.call.trace.t0, 3),
                                 span=round(self.quiet - self.on, 3), peak=self.peak)
                 self.on, self.quiet, self.peak = None, 0.0, 0
@@ -533,7 +535,8 @@ class AudioBridge(MediaStreamTrack):
     def __init__(self, source, call, direction):
         super().__init__()
         self.source, self.call, self.direction = source, call, direction
-        self.level = Level(call, direction)
+        self.level = Level(call, direction, 0.65 if direction == "input" and isinstance(call.guest, GPTGuest)
+                           else LEVEL_OFF_SECONDS)
 
     async def recv(self):
         frame = await self.source.recv()
@@ -544,6 +547,8 @@ class AudioBridge(MediaStreamTrack):
             self.level.frame(frame)
             if prior_on is None and self.level.on is not None:
                 call.trace.begin_turn(self.level.on - call.output_loud_at <= OUTPUT_FRAME_GRACE)
+                if isinstance(call.guest, GPTGuest):
+                    call.guest.begin_turn()
         if self.direction == "input" and not call.heard_user and self.level.on is not None and not call.muted:
             call.heard_user = True
             call.trace("output.gate_open", gated_frames=call.counts["output_gated"])
@@ -562,6 +567,196 @@ class AudioBridge(MediaStreamTrack):
                 self.level.frame(frame)  # let the input span end during mute
             call.trace.record_audio(frame)
         return frame
+
+
+async def start_subscription(http, peer, persona, voice, trace):
+    await peer.setLocalDescription(await peer.createOffer())
+    payload = {"sdp": peer.localDescription.sdp,
+               "session": {"model": MODEL, "instructions": persona,
+                           "audio": {"output": {"voice": voice}}, "delegation": {"type": "client"}}}
+    headers = await asyncio.to_thread(codex_headers)
+    trace("signaling.request", voice=voice)
+    async with http.post(SIGNALING, json=payload, headers=headers, timeout=ClientTimeout(total=35)) as resp:
+        trace("signaling.answer", status=resp.status, voice=voice)
+        if resp.status not in (200, 201):
+            # Vendor bodies can contain account details. Keep them out of logs/responses.
+            LOG.warning("subscription signaling rejected status=%s voice=%s", resp.status, voice)
+            if resp.status in (401, 403):
+                raise RuntimeError("Codex subscription authorization was rejected; refresh the host Codex login")
+            if resp.status == 429:
+                raise RuntimeError("The ChatGPT subscription voice quota is exhausted")
+            raise RuntimeError(f"Subscription voice signaling failed (HTTP {resp.status})")
+        context_sent(trace, {"type": "signaling.session", "session": payload["session"]}, 0, leg="primary" if persona == PERSONA else "guest")
+        answer = await resp.text()
+        if not answer.startswith("v=0"):
+            raise RuntimeError("Subscription voice returned an invalid SDP answer")
+    await peer.setRemoteDescription(RTCSessionDescription(sdp=answer, type="answer"))
+
+
+class GPTGuest:
+    def __init__(self, call, config):
+        self.call, self.config = call, config
+        self.names = config.names
+        identity = "tek, teknium's agent" if config.profile == "tek" else config.name
+        self.persona = (f"You are {identity}, a guest on Kevin's call. Only answer when Kevin names you in "
+                        "his current turn. Stay silent otherwise. "
+                        "Answer briefly. For questions about your work, history or what you shipped, always "
+                        "delegate to your own Hermes profile, then speak its answer. Never invent work. "
+                        "Notes about what Hermes said are background, not requests.")
+        self.peer = RTCPeerConnection(RTCConfiguration(iceServers=[]))
+        self.dc = self.peer.createDataChannel("oai-events")
+        self.dc.on("message", self.message)
+        self.peer.on("track", self.on_track)
+        self.protocol = Protocol(host_delegation=True)
+        self.ready = asyncio.Event()
+        self.closed = False
+        self.addressed = False
+        self.epoch = 0
+        self.heard = {"primary": "", "guest": ""}
+        self.spoken_turns = {}
+        self.audio = bytearray()
+        self.output_level = Level(call, "guest_output")
+        self.session = "z0live-guest-" + call.id
+
+    def attach(self, track):
+        self.peer.addTrack(AudioBridge(track, self.call, "guest_input"))
+
+    async def start(self):
+        await start_subscription(self.call.manager.http, self.peer, self.persona, self.config.voice,
+                                 lambda event, **data: self.call.trace("guest." + event, **data))
+        await asyncio.wait_for(self.ready.wait(), 10)
+
+    def send(self, event):
+        if not self.closed and self.dc.readyState == "open":
+            self.dc.send(json.dumps(event))
+
+    async def note(self, text):
+        for part in chunks(text):
+            self.send({"type": "session.context.append", "channel": "developer",
+                       "content": [{"type": "input_text", "text": part}]})
+
+    def begin_turn(self):
+        self.epoch += 1
+        self.addressed = False
+        self.audio.clear()
+        self.heard = {"primary": "", "guest": ""}
+
+    def route(self, source, event):
+        # A final provider transcript can span multiple mic turns if the model stayed silent.
+        # Only deltas received since the current mic turn started can claim the floor.
+        if event.get("type") != "input_transcript.added" or not self.epoch:
+            return
+        text = (event.get("item") or {}).get("text")
+        if not isinstance(text, str):
+            return
+        self.heard[source] = (self.heard[source] + text)[-2000:]
+        if self.ready.is_set() and not self.closed and not self.addressed and self.names.search(self.heard[source]):
+            self.addressed = True
+            self.call.trace("guest.claimed", source=source, turn=self.epoch)
+
+    def spoken(self, source, event):
+        turn = event.get("turn") or {}
+        if turn.get("role") != "assistant":
+            return ""
+        selected = self.floor() == (source == "guest")
+        if event.get("type") == "turn.created":
+            self.spoken_turns[source] = (turn.get("id"), selected and bool(self.epoch))
+        elif event.get("type") == "turn.done":
+            if self.spoken_turns.pop(source, None) == (turn.get("id"), True):
+                return (turn.get("transcript") or "").strip()
+        return ""
+
+    def observe(self, event, _user_text, _turn_id=0):
+        self.route("primary", event)
+        if text := self.spoken("primary", event):
+            self.call.spawn(self.note("Hermes said (already spoken; do not reply to this note): " + text[:1500]))
+
+    def message(self, raw):
+        event = json.loads(raw)
+        kind = event.get("type")
+        self.call.trace("guest.rx", type=kind, event=slim(event))
+        if kind == "session.started":
+            self.ready.set()
+            self.call.trace("guest.ready", voice=self.config.voice, profile=self.config.profile)
+        elif kind == "session.closed":
+            self.call.spawn(self.close())
+        self.route("guest", event)
+        for message in self.protocol.from_provider(event):
+            if self.floor() and message.get("type") == "session.output_transcript.delta":
+                self.call.send(message)
+        for did, request in self.protocol.pending_host:
+            if self.floor():
+                self.call.spawn(self.delegate(did, request, self.epoch))
+        self.protocol.pending_host.clear()
+        if text := self.spoken("guest", event):
+            self.call.trace("guest.said", text=text[:500])
+            self.call.guest_note(f"{self.config.name} said (already spoken; do not reply to this note): {text[:1500]}")
+
+    async def delegate(self, did, request, epoch):
+        profile = self.config.profile
+        self.call.trace("guest.delegation.start", profile=profile, did=did, session=self.session)
+        try:
+            answer = await ask_guest_host(self.call.manager.http, profile, self.session, request)
+            self.call.trace("guest.delegation.done", profile=profile, did=did, session=self.session)
+        except Exception as exc:  # noqa: BLE001 - explain failure on the guest, never fall back to the primary
+            self.call.trace("guest.delegation.failed", profile=profile, did=did, detail=str(exc)[:300])
+            answer = f"I couldn't reach the {profile} Hermes profile for that answer."
+        if self.floor() and self.epoch == epoch:
+            for message in self.protocol.from_mobile({"type": "session.commentary.append", "delegation_id": did,
+                                                      "content": answer}):
+                self.send(message)
+
+    def on_track(self, track):
+        if track.kind == "audio":
+            self.call.spawn(self.drain(track))
+
+    async def drain(self, track):
+        resampler = av.AudioResampler(format="s16", layout="mono", rate=48000)
+        try:
+            while not self.closed:
+                frame = await track.recv()
+                if self.floor():
+                    for out in resampler.resample(frame):
+                        pcm = bytes(out.planes[0])[:out.samples * 2]
+                        self.audio.extend(pcm)
+                    del self.audio[:-5760]  # at most 60 ms of queued PCM across the two RTP clocks
+        except MediaStreamError:
+            pass
+
+    def floor(self):
+        return self.addressed and not self.closed
+
+    def take(self, like):
+        n = like.samples * 2
+        pcm = bytes(self.audio[:n]).ljust(n, b"\0")
+        del self.audio[:n]
+        frame = guest_voice.shaped(pcm, like)
+        self.output_level.frame(frame)
+        return frame
+
+    async def close(self):
+        self.closed = True
+        await self.peer.close()
+
+
+async def ask_guest_host(http, profile, session, request):
+    key = (Path.home() / ".config/z0live/guest-hosts" / (profile + ".key")).read_text().strip()
+    port = int(os.environ.get("Z0LIVE_GUEST_HOST_PORT", "18644"))
+    headers = {"Authorization": "Bearer " + key, "X-Hermes-Session-Id": session}
+    messages = [{"role": "system", "content": "You are answering as a guest on a voice call. Give a brief spoken "
+                 "answer. Never message, post, deploy, or change settings from this call. Do not quote secrets."},
+                {"role": "user", "content": request}]
+    async with http.post(f"http://127.0.0.1:{port}/v1/chat/completions", json={"messages": messages},
+                         headers=headers, allow_redirects=False,
+                         timeout=ClientTimeout(total=DELEGATION_TIMEOUT_SECONDS)) as response:
+        if response.status != 200:
+            raise RuntimeError(f"Guest Hermes host returned HTTP {response.status}")
+        if response.headers.get("X-Hermes-Session-Id") != session:
+            raise RuntimeError("Guest Hermes host did not confirm the voice session")
+        answer = (await response.json())["choices"][0]["message"]["content"]
+        if not isinstance(answer, str) or not answer.strip():
+            raise RuntimeError("Guest Hermes host returned no answer")
+        return answer
 
 
 class Call:
@@ -597,11 +792,15 @@ class Call:
             self.trace("engine.unavailable", wanted=self.engine, using="gpt-live")
             self.engine = "gpt-live"
         self.leg = grok_leg.GrokLeg(self, PERSONA) if self.engine == "grok" else None
-        # A guest voice beside GPT-Live (guest_voice.py): ~/.config/z0live/voices.json {"guest": "grok"}, per call.
-        self.guest = guest_voice.GuestVoice(self) if self.engine == "gpt-live" and guest_voice.wanted() == "grok" else None
+        self.guest_config = guest_voice.configured() if self.engine == "gpt-live" else None
+        self.guest = None
+        if self.guest_config:
+            self.guest = (GPTGuest(self, self.guest_config) if self.guest_config.engine == "gpt-live"
+                          else guest_voice.GuestVoice(self))
         self.trace("call.created", profile=profile, engine=self.engine,
                    model=grok_leg.URL.rsplit("=", 1)[-1] if self.leg else MODEL, rev=ADAPTER_REV, pid=os.getpid(),
-                   host_delegation=HOST_DELEGATION, lanes=bool(self.relay), guest="grok" if self.guest else "")
+                   host_delegation=HOST_DELEGATION, lanes=bool(self.relay),
+                   guest=self.guest_config.engine if self.guest_config else "")
 
         @self.mobile.on("track")
         def mobile_track(track):
@@ -725,7 +924,12 @@ class Call:
             did = (event.get("item") or {}).get("id")
             if isinstance(did, str) and did in self.protocol.seen and did not in self.trace.delegations:
                 self.trace.bind_delegation(did)
+        if self.guest and from_provider:
+            self.guest.observe(event, self.protocol.turn_text["user"], self.trace.turn_id)
+        guest_turn = isinstance(self.guest, GPTGuest) and self.guest.floor()
         for msg in translated:
+            if from_provider and guest_turn and msg.get("type") == "session.output_transcript.delta":
+                continue
             if from_provider and not self.heard_user and str(msg.get("type", "")).startswith("session.output_transcript"):
                 self.counts["output_gated_text"] += 1  # its audio is silenced (AudioBridge): keep its words off the app
                 continue
@@ -735,11 +939,10 @@ class Call:
                 self.spawn(self.relay.transcript(self.protocol.turn_text["user"], False))
             elif kind == "turn.done" and (event.get("turn") or {}).get("role") == "user" and self.protocol.last_user:
                 self.spawn(self.lane_final(self.protocol.last_user, self.trace.turn_id))
-        if self.guest and from_provider:
-            self.guest.observe(event, self.protocol.turn_text["user"], self.trace.turn_id)
         while self.protocol.pending_host:
             did, request = self.protocol.pending_host.pop(0)
-            self.spawn(self.host_delegate(did, request))
+            if not guest_turn:
+                self.spawn(self.host_delegate(did, request))
         if kind in ("session.close", "session.closed"):
             self.spawn(self.close("client_closed" if not from_provider else "provider_closed"))
 
@@ -759,30 +962,7 @@ class Call:
             else:
                 if not any(t.kind == "audio" for t in self.provider.getTransceivers()):
                     raise ValueError("An audio track is required")
-                offer = await self.provider.createOffer()
-                await self.provider.setLocalDescription(offer)
-                payload = {"sdp": self.provider.localDescription.sdp,
-                           "session": {"model": MODEL, "instructions": PERSONA,
-                                       "audio": {"output": {"voice": "sol"}},
-                                       "delegation": {"type": "client"}}}
-                headers = await asyncio.to_thread(codex_headers)
-                self.trace("signaling.request")
-                async with self.manager.http.post(SIGNALING, json=payload, headers=headers,
-                                                 timeout=ClientTimeout(total=35)) as resp:
-                    if resp.status not in (200, 201):
-                        # Vendor bodies can contain account details. Keep them out of logs/responses.
-                        LOG.warning("subscription signaling rejected status=%s", resp.status)
-                        if resp.status in (401, 403):
-                            raise RuntimeError("Codex subscription authorization was rejected; refresh the host Codex login")
-                        if resp.status == 429:
-                            raise RuntimeError("The ChatGPT subscription voice quota is exhausted")
-                        raise RuntimeError("Subscription voice signaling failed (HTTP %s)" % resp.status)
-                    answer = await resp.text()
-                    self.trace("signaling.answer", status=resp.status)
-                    context_sent(self.trace, {"type": "signaling.session", "session": payload["session"]}, 0)
-                    if not answer.startswith("v=0"):
-                        raise RuntimeError("Subscription voice returned an invalid SDP answer")
-                await self.provider.setRemoteDescription(RTCSessionDescription(sdp=answer, type="answer"))
+                await start_subscription(self.manager.http, self.provider, PERSONA, "sol", self.trace)
             answer = await self.mobile.createAnswer()
             await self.mobile.setLocalDescription(answer)
             context = []
@@ -811,9 +991,9 @@ class Call:
             # persona and the call brief go in as context, framed as background so they are not answered.
             channel = os.environ.get("HERMES_VOICE_BRIEF_CHANNEL", "developer")
             brief = call_brief.build(history, self.chat)
-            persona = PERSONA + ("\n" + guest_voice.PRIMARY_NOTE if self.guest else "")
             if self.guest:
                 self.spawn(self.start_guest(brief))
+            persona = PERSONA + ("\n" + guest_voice.PRIMARY_NOTE if isinstance(self.guest, guest_voice.GuestVoice) else "")
             for part in chunks(persona + "\n" + brief, int(os.environ.get("HERMES_VOICE_BRIEF_CHUNK", "1800"))):
                 self.send({"type": "session.context.append", "channel": channel,
                            "content": [{"type": "input_text", "text": part}]}, True, turn_id=0)
@@ -836,15 +1016,25 @@ class Call:
             return
         try:
             await guest.start()
-            for _ in range(100):  # session.updated arrives within ~1 s
-                if guest.ready or self.closed:
-                    break
-                await asyncio.sleep(0.05)
-            if brief:
-                await guest.note("Background on Kevin's chat (do not read aloud):\n" + brief[:6000])
+            if isinstance(guest, GPTGuest):
+                await guest.note(guest.persona)
+                self.guest_note(guest.config.primary_note)
+            else:
+                for _ in range(100):  # session.updated arrives within ~1 s
+                    if guest.ready or self.closed:
+                        break
+                    await asyncio.sleep(0.05)
+                if brief:
+                    await guest.note("Background on Kevin's chat (do not read aloud):\n" + brief[:6000])
         except Exception as exc:  # noqa: BLE001 - the call goes on with one voice
             self.trace("guest.failed", error=type(exc).__name__, detail=str(exc)[:300])
             self.guest = None
+            await guest.close()
+
+    def guest_note(self, text):
+        for part in chunks(text):
+            self.send({"type": "session.context.append", "channel": "developer",
+                       "content": [{"type": "input_text", "text": part}]}, True)
 
     async def relay_start(self):
         try:
