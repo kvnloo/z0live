@@ -26,6 +26,7 @@ from pathlib import Path
 import aiohttp
 import av
 from aiortc import MediaStreamTrack
+from call_trace import context_sent
 
 LOG = logging.getLogger("hermes.mobile.grok")
 URL = os.environ.get("GROK_VOICE_URL", "wss://api.x.ai/v1/realtime?model=grok-voice-latest")
@@ -87,6 +88,8 @@ class GrokOutput(MediaStreamTrack):
 
 
 class GrokLeg:
+    trace_leg = "primary"
+
     def __init__(self, call, persona: str):
         self.call, self.persona = call, persona
         self.ws = None
@@ -115,9 +118,11 @@ class GrokLeg:
         """The phone's microphone track: resample and stream to Grok."""
         self.tasks.append(asyncio.create_task(self.pump(track)))
 
-    async def raw(self, event: dict):
+    async def raw(self, event: dict, *, turn_id=0, did=None):
         if self.ws is not None and not self.ws.closed:
             await self.ws.send_str(json.dumps(event))
+            if event.get("type") in ("session.update", "conversation.item.create"):
+                context_sent(self.call.trace, event, turn_id, self.trace_leg, did)
 
     async def pump(self, track):
         resampler = av.AudioResampler(format="s16", layout="mono", rate=RATE_IN)
@@ -184,36 +189,38 @@ class GrokLeg:
             err = ev.get("error") if isinstance(ev.get("error"), dict) else {"message": str(ev.get("message"))}
             self.emit({"type": "error", "error": {"message": str(err.get("message", "Grok Voice error"))[:500]}})
 
-    def outbound(self, event: dict):
+    def outbound(self, event: dict, turn_id=0):
         """Subscription-dialect events from the Call, as Grok conversation items."""
         ty = event.get("type")
         text = "".join(c.get("text", "") for c in event.get("content") or [] if isinstance(c, dict))
         if ty == "session.close":
             self.tasks.append(asyncio.create_task(self.close()))
         elif ty == "session.context.append" and text:
-            self.tasks.append(asyncio.create_task(self.note(text)))
+            self.tasks.append(asyncio.create_task(self.note(text, turn_id)))
         elif ty == "delegation.context.append" and text:
             did = event.get("delegation_item_id") or ""
             if event.get("channel") == "speakable":
                 if did not in self.pending:  # chunks of one answer arrive in the same tick
                     self.pending[did] = []
-                    asyncio.get_running_loop().call_soon(lambda: self.tasks.append(asyncio.create_task(self.answer(did))))
+                    asyncio.get_running_loop().call_soon(
+                        lambda: self.tasks.append(asyncio.create_task(self.answer(did, turn_id))))
                 self.pending[did].append(text)
             else:
-                self.tasks.append(asyncio.create_task(self.note(text)))
+                self.tasks.append(asyncio.create_task(self.note(text, turn_id, did)))
 
-    async def note(self, text: str):
+    async def note(self, text: str, turn_id=0, did=None):
         await self.raw({"type": "conversation.item.create", "item": {
-            "type": "message", "role": "system", "content": [{"type": "input_text", "text": text}]}})
+            "type": "message", "role": "system", "content": [{"type": "input_text", "text": text}]}},
+            turn_id=turn_id, did=did)
 
-    async def answer(self, did: str):
+    async def answer(self, did: str, turn_id=0):
         text = "".join(self.pending.pop(did, [])).replace('"Agent Final Message":\n\n', "", 1)
         if did and did not in self.answered:
             self.answered.add(did)
             await self.raw({"type": "conversation.item.create", "item": {
-                "type": "function_call_output", "call_id": did, "output": text}})
+                "type": "function_call_output", "call_id": did, "output": text}}, turn_id=turn_id)
         else:  # a second answer for the same request (lane first, Hermes later): speak it as an update
-            await self.note("Update from Hermes on Kevin's earlier request; say it briefly: " + text)
+            await self.note("Update from Hermes on Kevin's earlier request; say it briefly: " + text, turn_id, did)
         await self.raw({"type": "response.create"})
 
     async def close(self):

@@ -44,8 +44,8 @@ class GuestTest(unittest.IsolatedAsyncioTestCase):
         self.guest = guest_voice.GuestVoice(self.call)
         self.raws = []
 
-        async def raw(ev):
-            self.raws.append(ev["type"])
+        async def raw(event, **_):
+            self.raws.append(event["type"])
         self.guest.raw = raw
 
     async def settle(self):

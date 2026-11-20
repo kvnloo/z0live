@@ -59,6 +59,30 @@ gui/$(id -u)/com.kvn.hermes-dashboard`; not during a call), then run `deploy/mac
 listen on 127.0.0.1 only.
 Read a call: `voice-adapter/trace_report.py <trace.jsonl>`.
 
+### Call trace events
+
+- `context.sent` records what the adapter sent to the voice, not what the model read.
+  `turn_id` is a call-local caller turn number. `0` is call setup. Delayed delegation
+  answers keep the requesting turn's ID. `leg` identifies the primary or guest voice.
+  The row includes the wire `type`: `session.update` for Grok instructions,
+  `signaling.session` for GPT-Live setup instructions, `conversation.item.create`
+  for Grok text and tool results, or the GPT-Live context append types.
+  Instruction rows contain `instructions_sha256` and `instructions_bytes` over UTF-8.
+  Other rows contain the exact `texts` plus `channel` and delegation `did` when applicable.
+- `user.reaction` records four booleans per finalized caller turn. `barge_in` uses
+  caller audio onset and recent non-silent audio sent to the phone. It estimates
+  overlap at the adapter, not at the phone speaker. `repeat` compares token sets
+  against the previous three caller turns at Jaccard similarity ≥ 0.6.
+  `correction` matches “no,”, “I meant”, “wait”, and “that's not”. `frustration`
+  matches “bro”, “I already told you”, and “what?”. These labels are heuristics,
+  not judgments about intent.
+
+`Z0LIVE_TRACE_AUDIO=1` writes a 16 kHz mono PCM WAV beside the JSONL when caller
+frames arrive. It records only caller audio and writes silence for adapter-muted
+frames. It is off by default. `HERMES_MOBILE_VOICE_TRACE=0` disables both files.
+These files stay local by default. Share call trace data only with providers that
+already saw it. Keep Telegram, chat history, and owner messages local.
+
 ## Model lanes (fast, medium, slow)
 
 When the voice hands a request to Hermes, three lane tiers start at once beside Hermes's own agent turn:
