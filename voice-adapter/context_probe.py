@@ -117,20 +117,22 @@ async def probe(history):
     client.addTrack(Prompt(pcm))
     async with ClientSession() as http:
         manager = live.Manager(http)
-        call = live.Call(manager)
+        call = live.Call(manager, profile=os.environ.get("PROBE_PROFILE", "poteto"))
         manager.calls[call.id] = call
+        delegate = call.host_delegate
 
-        async def fixture(did, request):  # no Hermes run: record what the voice asked for
+        async def record(did, request):
             delegated.append(request)
+            if os.environ.get("PROBE_HERMES_FIXTURE") != "1":
+                await delegate(did, request)
 
-        async def slow_hermes(did, request):  # real lanes, fake Hermes: the agent turn answers after the delay
-            delegated.append(request)
+        async def slow_hermes(did, request):
             await asyncio.sleep(HERMES_DELAY)
             return HERMES_ANSWER
+
+        call.host_delegate = record
         if HERMES_DELAY:
             call.ask_hermes = slow_hermes
-        else:
-            call.host_delegate = fixture
         try:
             await client.setLocalDescription(await client.createOffer())
             answer = await call.start(client.localDescription.sdp, history)
@@ -138,7 +140,7 @@ async def probe(history):
             t0 = time.monotonic()
             await asyncio.sleep(SILENCE_S + LISTEN_S)
         finally:
-            for closer in (manager.close(), client.close()):
+            for closer in (call.close("probe_finished"), client.close()):
                 try:
                     await asyncio.wait_for(closer, 5)
                 except Exception:  # noqa: BLE001 - teardown must not hide the result

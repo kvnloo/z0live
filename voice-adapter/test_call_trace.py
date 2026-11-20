@@ -79,7 +79,7 @@ class CallTraceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_gpt_context_is_logged_on_send_and_preserves_delayed_delegation_id(self):
         call = await self.make_call()
-        call.provider_dc = channel = Channel()
+        call.subscription.channel = channel = Channel()
         brief = "Brief: " + "é" * 1600
         call.send({"type": "session.context.append", "channel": "developer", "content": [{"text": brief}]}, True)
         self.assertEqual(self.rows("context.sent"), [])

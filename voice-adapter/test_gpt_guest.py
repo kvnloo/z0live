@@ -152,6 +152,31 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(isinstance(msg, dict) and msg.get("delegation_item_id") == "guest-id"
                             and "A release" in str(msg) for msg in self.call.sent))
 
+    async def test_renewal_keeps_floor_requeues_delivery_and_rebases_new_addresses(self):
+        g = self.guest
+        g.observe("guest", turn("done", "Tek, what shipped?", 50_000, 51_000))
+        self.call.protocol.seen.append("old-primary")
+        live.Call.speak_for(self.call, "old-primary", "Primary answer.")
+        g.transport_replaced("primary", 60_000)
+        self.assertEqual(g.floor.owner, "guest")
+        self.assertFalse(any("Primary answer" in str(msg) for msg in self.call.sent))
+
+        g.protocol.seen.append("old-guest")
+        g.floor.enqueue(Answer("guest", "old-guest", "Tek's answer."), g.config.name)
+        g.flush_answers()
+        self.assertEqual(self.call.sent[-1]["delegation_item_id"], "old-guest")
+        g.protocol.seen.clear()
+        g.transport_replaced("guest", 61_000)
+        self.assertEqual(self.call.sent[-1]["type"], "session.context.append")
+        self.assertIn("Tek's answer.", self.call.sent[-1]["content"][0]["text"])
+
+        self.call.protocol.seen.clear()
+        g.observe("primary", turn("done", "Hermes, back to you", 2_000, 3_000))
+        g.flush_answers()
+        self.assertEqual(g.floor.owner, "primary")
+        self.assertEqual(self.call.sent[-1]["type"], "session.context.append")
+        self.assertIn("Primary answer.", str(self.call.sent[-1]))
+
     async def test_guest_failure_announced_once_and_answer_preserved(self):
         g = self.guest
         g.observe("guest", turn("created", "Tek, what shipped?"))
