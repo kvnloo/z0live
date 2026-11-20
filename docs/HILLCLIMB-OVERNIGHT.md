@@ -101,6 +101,18 @@ Hypothesis backlog (cheapest first; each names its mechanism):
    the human resumes (reversible playback). Mechanism: hides generation latency inside the pause.
 4. Backchannels: during human turns > 3 s, at 150-400 ms micro-pauses with an incomplete clause, play a short
    pre-rendered "mm-hm"/"yeah" in the engine's own voice (cached clips), never over speech.
+   REVERTED 11-20 (A10): GPT-Live's own "Mm-h" (cut from a8g1 by `bench/bc_clips.py`) played by the output
+   AudioBridge after >= 3 s of caller talk, at 40 ms of caller quiet, voice silent, 6 s cooldown (tuned offline with
+   `bench/bc_sim.py`). 3 runs (a10bc1-3) D 0.905 / 1.162 / 0.868, mean 0.978 vs A8 1.029 (-0.05, noise; sd 0.20);
+   bc 2.21 -> 2.35/min, median gap 0.98 -> 0.96 s, false cut-in 18.0 -> 18.8 %, spoke_first 0/12; tests 68 ok.
+   Clips play clean (`bench/bc_check.py`: correlation 0.98 with the asset, none doubled), but of 18 found in the WAVs
+   only 6 landed as backchannels and 12 as floor-takes: by the time a pause-triggered clip reaches the ear (uplink
+   ~0.12 s + 40 ms + adapter -> recorder ~0.13 s) the 180 ms pause bridge has closed, so the "mm-hm" lands after the
+   human stopped. Those count as fast floor-takes (overlap starts 26.5 % in two runs): exactly the D gaming the advisor
+   warned about. The first sim had no pipeline delay and overstated the gain ~3x; bc_sim's `--delay 0.29` now
+   reproduces the live mix. Lesson: a clip triggered by a pause it must land inside cannot work over a ~0.3 s path.
+   Next variant (4b): launch the clip during speech, predicted ~0.3 s ahead (energy/pitch fall, clause-final ASR
+   partial), and score it in bc_sim with the delay before any live run.
 5. Brevity: cap spoken replies at 1-2 sentences in the persona (hosted voices over-talk); measure ai_talk_s too.
    REVERTED 11-20 (A9): GPT-Live persona "one or two short sentences per reply unless the user asks for more". 3 runs
    (a9b1-3) D 1.212 / 1.134 / 1.138, mean 1.161 vs A8's 1.029 (+0.13, inside the 0.3 resolution, wrong direction);
