@@ -191,3 +191,76 @@ word-by-word partial transcript (`input_transcript.added`, ~0.1-0.4 s behind spe
 about 1.1-1.4 s before the voice hands off. That is Branch C on partials, and the oracle-injection experiment above
 bounds how much of that saving the voice can actually use.
 
+## Paired end-of-speech oracle probe (2026-11-20)
+
+`voice-adapter/bench/oracle_inject.py` reuses `context_probe.py` to run ten public-fact questions through
+GPT-Live. Each question explicitly asks the voice to verify the fact via the Hermes chat. The probe plays the
+same PCM in both arms, opens a fresh in-process WebRTC call for each turn, and reverses arm order every pair.
+The baseline uses the real delegation and tier race with a correct canned Hermes result after 12 s. The oracle
+adds that same answer as a did-less `session.context.append` on the `speakable` channel at the end of the synthetic
+speech. If GPT-Live still delegates, the baseline path remains available. This tests the append at the caller's
+audio boundary, not at the later provider `turn.done` or after a delegation ID exists.
+
+The clock starts at the first 20 ms input frame after the last frame that crosses the adapter's audio threshold.
+First audio comes from the adapter's output level trace. Negative gaps mark speech that began before the caller
+finished, not a speedup. The first correct answer in the transcript is a timing proxy, not an audio word timestamp.
+The decision uses the paired median gain on that metric, checks whether stall openers persist, and treats missing
+or wrong answers and early speech separately. The threshold is 1 s.
+
+Run from `voice-adapter` with the adapter venv on `PATH` and the local tier endpoint available:
+
+```sh
+Z0LIVE_DESKTOP="$PWD/../desktop" PROBE_HERMES_DELAY=12 \
+  env -u PYTHONPATH python bench/oracle_inject.py > oracle.jsonl
+```
+
+The probe passes empty history and uses a new, empty call-brief location. It disables the chat lookup, guest,
+legacy lane relay, and handoff. It does not use the phone or restart a service.
+
+### Results and decision
+
+**No-go for speculative branching through this GPT-Live append path.** Measured on ten pairs, the median gain to
+first correct answer text was **12.38 s** among the nine pairs that answered in both arms. That clears the 1 s
+speed threshold, but the oracle arm still had two stall openers and one missing answer. In two turns, GPT-Live
+spoke before both caller end and injection. It put the answer in the first sentence on only one turn. Do not build a branch
+selector to feed this path until the voice can reliably speak a ready answer without these failures.
+
+| Measured metric | Baseline | Oracle |
+| --- | ---: | ---: |
+| First audio, median (range), s | 3.14 (2.79 to 3.79) | 0.76 (-1.42 to 0.96) |
+| First audio onset at or after caller end, median (range), s | 3.14 (2.79 to 3.79) | 0.81 (0.71 to 1.05) |
+| First correct answer in transcript, median (range), s | 15.89 (15.16 to 17.54), 10/10 | 2.79 (0.98 to 15.60), 9/10 |
+| Stall opener, excluding bare acknowledgments such as "Mm-hm" | 10/10 | 2/10 |
+| Correct answer in the first transcript sentence, including acknowledgment sentences | 0/10 | 1/10 |
+| Audio before caller end | 0/10 | 2/10 |
+
+Per-turn measurements follow. Each cell lists baseline then oracle. The dash means no correct answer before
+probe teardown. Both timing columns are in seconds.
+
+| Question | First audio | First correct answer text | Stall opener | Answer in first sentence |
+| --- | ---: | ---: | --- | --- |
+| Australian capital | 3.785 / -1.187 | 16.042 / 1.598 | yes / no | no / no |
+| Larger Mars moon | 3.391 / 0.853 | 15.799 / 12.231 | yes / no | no / no |
+| Element W | 3.770 / -1.416 | 15.986 / 15.596 | yes / yes | no / no |
+| Budapest river | 3.094 / 0.878 | 15.528 / 2.525 | yes / no | no / no |
+| *The Left Hand of Darkness* author | 2.792 / 0.960 | 15.593 / 3.474 | yes / no | no / no |
+| First woman Nobel laureate | 3.636 / 0.742 | 16.135 / — | yes / no | no / no |
+| Largest Jupiter moon | 2.862 / 0.880 | 16.735 / 1.145 | yes / no | no / no |
+| *Guernica* painter | 3.054 / 0.726 | 15.156 / 6.888 | yes / yes | no / no |
+| Capacitance unit | 3.015 / 0.763 | 17.542 / 0.975 | yes / no | no / yes |
+| Largest Mediterranean island | 3.184 / 0.750 | 15.169 / 2.785 | yes / no | no / no |
+
+**Measured checks.** `gpt-live-1-codex` acknowledged all ten oracle appends. The adapter sent them within 1 ms
+of the caller marker. The adapter's own last input span ended 80 to 102 ms later, so the append can arrive before
+the provider finishes processing the speech. Four oracle final transcripts omitted a key word at the end of the
+ask, and the Nobel turn had no final transcript. Its entire reply was "Mm. Okay". No oracle turn delegated.
+All ten baseline turns delegated and waited 12.000 to 12.002 s for the Hermes fixture. No tier supplied a spoken
+answer: 45 recorded lane outcomes were `SKIP`, and five slow-lane requests had connection errors. Neither arm
+logged a provider error. One preliminary pair without the explicit verification request answered directly in
+both arms and is not part of this cohort.
+
+**Inferred limit.** The large speed gain is mostly the 12 s wait removed from a baseline with no usable tier
+answer. It is not a prediction for a live call where a fast tier answers. Even here the paired gain on completed
+answers ranged from 0.39 to 16.57 s. The result does not rule out a voice path that waits for the last audio to
+arrive and gives z0live explicit control of when the answer is spoken.
+

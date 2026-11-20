@@ -92,11 +92,11 @@ class Prompt(AudioStreamTrack):
         return frame
 
 
-async def probe(history):
-    import hashlib
-    pcm = speech(ASK, Path(os.environ.get("TMPDIR", "/tmp")) / f"probe-{hashlib.sha1(ASK.encode()).hexdigest()[:8]}.mp3")
+async def probe(history, *, prompt=None, prepare=None, hermes_answer=HERMES_ANSWER):
+    if prompt is None:
+        prompt = Prompt(speech(ASK, Path(os.environ.get("TMPDIR", "/tmp")) / "probe.mp3"))
     if save_in := os.environ.get("PROBE_SAVE_IN"):
-        save_wave(save_in, pcm)
+        save_wave(save_in, prompt.pcm)
     client = RTCPeerConnection(RTCConfiguration(iceServers=[]))
     dc = client.createDataChannel("oai-events")
     events, said, heard, delegated = Counter(), [], [], []
@@ -114,7 +114,7 @@ async def probe(history):
             heard.append((at, e.get("delta", "")))
 
     client.on("track", lambda track: asyncio.ensure_future(drain(track)))
-    client.addTrack(Prompt(pcm))
+    client.addTrack(prompt)
     async with ClientSession() as http:
         manager = live.Manager(http)
         call = live.Call(manager, profile=os.environ.get("PROBE_PROFILE", "poteto"))
@@ -128,12 +128,14 @@ async def probe(history):
 
         async def slow_hermes(did, request):
             await asyncio.sleep(HERMES_DELAY)
-            return HERMES_ANSWER
+            return hermes_answer
 
         call.host_delegate = record
         if HERMES_DELAY:
             call.ask_hermes = slow_hermes
         try:
+            if prepare is not None:
+                prepare(call)
             await client.setLocalDescription(await client.createOffer())
             answer = await call.start(client.localDescription.sdp, history)
             await client.setRemoteDescription(RTCSessionDescription(sdp=answer["transport"]["sdp"], type="answer"))
