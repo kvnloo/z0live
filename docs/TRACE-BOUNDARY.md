@@ -50,7 +50,7 @@ Owner question: should the event trace move into Hermes core (opt-in trace for p
 **Must NOT go in core:**
 - **Audio or PCM.**
 - **Transcript text.** Core already hands `pre_llm_call` plugins `user_message` and `conversation_history`, and Hermes chat history is private (`REQUIREMENTS.md:29`).
-- **`user.reaction`.** It is English-only regex (`call_trace.py:14-15`).
+- **`user.reaction`.** Its phrase-matching heuristics belong in the local adapter (`call_trace.py`).
 - **z0live lane names.**
 - **A new table.**
 

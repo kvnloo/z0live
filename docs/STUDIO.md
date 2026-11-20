@@ -73,9 +73,19 @@ Read a call: `voice-adapter/trace_report.py <trace.jsonl>`.
   caller audio onset and recent non-silent audio sent to the phone. It estimates
   overlap at the adapter, not at the phone speaker. `repeat` compares token sets
   against the previous three caller turns at Jaccard similarity ≥ 0.6.
-  `correction` matches “no,”, “I meant”, “wait”, and “that's not”. `frustration`
-  matches “bro”, “I already told you”, and “what?”. These labels are heuristics,
+  `correction` matches English cues such as "no,", "I meant", and "wait", plus
+  Tamil cues such as `இல்ல` or `illa`, `நான் சொன்னது` or `naan sonnadhu`, and
+  `காத்திரு` or `kaathiru`. `frustration` matches cues such as "bro", "already told",
+  and "what?", plus `டேய்` or `dei` and `ஏற்கனவே சொன்னேன்` or `erkanave sonnen`.
+  The phrase table matches Tamil script and case-insensitive romanized forms in the
+  same turn. It does not transliterate arbitrary text. These labels are heuristics,
   not judgments about intent.
+
+`chunks()` budgets context appends in UTF-8 bytes, not characters or model tokens.
+The byte cap is 500. Tamil-script code points take three bytes each, so the cap
+fits at most 166 of them in a chunk with no other characters. The local test
+measures encoded bytes and checks that joining chunks recovers the input. The token
+bound is inferred from the byte cap, not measured with the provider's tokenizer.
 
 `Z0LIVE_TRACE_AUDIO=1` writes a 16 kHz mono PCM WAV beside the JSONL when caller
 frames arrive. It records only caller audio and writes silence for adapter-muted
