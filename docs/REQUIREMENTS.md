@@ -21,6 +21,15 @@ Sources: owner messages in Hermes `clean`, `ayo`, `poteto` state.db, mined 11-19
 | N5 | Runs on the Mac Studio, durable and documented in the home repo; k3s control plane on the Studio | 11-19 |
 | N6 | Claude voice: Claude as the brain behind STT/TTS (Anthropic has no voice API); Claude-app connector path is a separate decision | 11-19 |
 
+## Data privacy rule (owner, 11-20)
+
+- **Voice-call traces** (what Kevin said on z0live calls) already went to the providers on that call: OpenAI via
+  GPT-Live, and Anthropic and OpenAI via the lanes. Sending that content to those same providers again (evals, lane
+  tests, graders) is OK.
+- **Private data** (Telegram, Hermes chat history, owner-msgs, anything never sent on a call) stays local: local
+  models only, for inference, grading and training. The personal intent model is trained locally.
+- When unsure which kind a piece of data is, treat it as private.
+
 ## Call experience (11-15 .. 11-16)
 
 | # | Requirement | Source |
