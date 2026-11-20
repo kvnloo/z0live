@@ -34,6 +34,8 @@ boat ci --repo kvnloo/z0live --all
 boat ci job <job-id>
 ```
 
+The [first GitHub run](https://github.com/kvnloo/z0live/actions/runs/44789301948) failed in runner setup before checkout. The runner reported that CI needs a $20/month plan or higher. The personal CLI reported a $20 plan but no linked CI installation. Verify that the CI installation is linked to the intended eligible wallet before buying or changing a plan.
+
 The workflow uses one `runs-on: boat` job, serializes its runs, and sets a 10-minute GitHub job timeout. Boat does not expose a `--ttl` flag for native CI runners. Boat documents cleanup when the job ends. Do not add `/debug` or a snapshot label. The workflow uses read-only checkout and does not request any GitHub Actions secrets.
 
 ## Run a manual sandbox
