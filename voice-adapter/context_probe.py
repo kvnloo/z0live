@@ -80,10 +80,8 @@ class Prompt(AudioStreamTrack):
 async def probe(history):
     import hashlib
     pcm = speech(ASK, Path(os.environ.get("TMPDIR", "/tmp")) / f"probe-{hashlib.sha1(ASK.encode()).hexdigest()[:8]}.mp3")
-    if os.environ.get("PROBE_SAVE_IN"):  # the caller's side, same clock as PROBE_SAVE (both start at the first frame)
-        import wave
-        with wave.open(os.environ["PROBE_SAVE_IN"], "wb") as w:
-            w.setnchannels(1), w.setsampwidth(2), w.setframerate(48000), w.writeframes(pcm)
+    if save_in := os.environ.get("PROBE_SAVE_IN"):
+        save_wave(save_in, pcm)
     client = RTCPeerConnection(RTCConfiguration(iceServers=[]))
     dc = client.createDataChannel("oai-events")
     events, said, heard, delegated = Counter(), [], [], []
@@ -158,6 +156,15 @@ def spoken(said):
     return [(at, text.strip()) for at, text in runs if text.strip()]
 
 
+def save_wave(path, pcm):
+    import wave
+    with wave.open(path, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(48000)
+        w.writeframes(pcm)
+
+
 async def drain(track):
     """Consume what the phone would play; PROBE_SAVE=path.wav keeps it (16-bit mono 48 kHz) to listen or measure."""
     save, pcm = os.environ.get("PROBE_SAVE"), []
@@ -172,9 +179,7 @@ async def drain(track):
         pass
     finally:
         if save and pcm:
-            import wave
-            with wave.open(save, "wb") as w:
-                w.setnchannels(1), w.setsampwidth(2), w.setframerate(48000), w.writeframes(b"".join(pcm))
+            save_wave(save, b"".join(pcm))
 
 
 if __name__ == "__main__":

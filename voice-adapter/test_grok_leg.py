@@ -24,7 +24,7 @@ class Leg(grok_leg.GrokLeg):
         super().__init__(FakeCall(), "persona")
         self.sent = []
 
-    async def raw(self, event):
+    async def raw(self, event, **_):
         self.sent.append(event)
 
 
