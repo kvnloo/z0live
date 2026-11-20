@@ -115,6 +115,10 @@ Hypothesis backlog:
 2. Smaller lane prompt: compress persona + brief for phone lanes (a 300-token brief).
 3. Threads and core pinning: -t 2..6, --cpu-mask big cores (S22: 1 X2 + 3 A710; tab: 2 A76).
 4. Quantization: Q4_0 (ARM repack) vs Q4_K_M vs IQ4_NL; KV cache q8_0; flash attention on/off.
+   REVERTED 11-20 (B4): `-ctk q8_0 -ctv q8_0` on the tab (qwen3-1.7b CPU, A-B-A): warm median 2.84 / 1.83 / 2.68 s
+   (-33 %, no overlap) and 24-token turns 9.0 -> 5.4 s, but cold brief 36 -> 46 s and no-cache 42 -> 63 s. Failed the
+   slm gate: usable 22/30 -> 20/30 (q8 says "30" for 15 % of 80, SKIPs Ottawa and a C->F conversion). Next: V-only
+   q8_0 (`-ctv q8_0`), since K is usually the quantization-sensitive half (guess).
 5. Smaller models for the slow phones: Qwen3-0.6B, Gemma 4 E2B where it runs.
 6. Speculative decoding on the S25 (0.6B draft for 1.7B).
 7. Tab GPU, later: debug build + tombstone for the Vulkan crash, or a Mali-native runtime (MLC-LLM / MNN OpenCL).
