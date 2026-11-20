@@ -177,6 +177,12 @@ Hypothesis backlog:
    error comes from V, not K. Every call pays a fresh brief, so +30 s cold outweighs -0.3 s per warm turn. KV quant
    is closed on the tab; the cold brief is the cost to attack (hyp 2, smaller brief; hyp 5, smaller model).
 5. Smaller models for the slow phones: Qwen3-0.6B, Gemma 4 E2B where it runs.
+   REVERTED 11-20 (B9, slm gate): Qwen3-0.6B Q4_K_M on the tab (`-t 6`, vs a fresh 1.7B `-t 6` control): warm
+   median 2.41 -> 1.84 s (-24 %, no overlap: arm 1.83..2.09, control 2.28..2.44), cold brief 35.8 -> 16.6 s (-54 %),
+   no-cache 35.6 -> 16.6 s. Fails the gate on the same GGUF: slm-v1 usable 22 -> 18/30, and the losses are the
+   dangerous kind: it answers 5 of 8 must-SKIP asks, 3 with invented personal facts ("Your downloads folder is currently
+   96 percent full", "cloudy with light rain", "Nothing new in my email"). Not a speaking lane. Halving the cold brief
+   by model size costs too much; attack the brief itself (hyp 2) or prefill it before the first ask (hyp 8).
 6. Speculative decoding on the S25 (0.6B draft for 1.7B).
 7. Tab GPU, later: debug build + tombstone for the Vulkan crash, or a Mali-native runtime (MLC-LLM / MNN OpenCL).
 8. Role split: S22/tab as background workers (summaries, prefetch, embeddings), S25 as the live fast lane.
