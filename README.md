@@ -2,6 +2,25 @@
 
 Portable realtime conversational voice runtime and fixtures for Zer0.
 
+## Hermes plugin
+
+This repo is a Hermes plugin (`plugin.yaml` and `__init__.py` at the root):
+
+```sh
+hermes plugins install https://github.com/kvnloo/z0live
+hermes plugins enable z0live
+```
+
+| Surface | What it does |
+|---|---|
+| `z0live_status` | Voice engine for the next call, the second voice, lane models, lane server health, and the latest call's trace summary. Read only. |
+| `z0live_configure` | Engine (`gpt-live` \| `grok`, from the next call), second voice (`grok` \| `off`), lane models per tier (`{fast\|medium\|slow: [{provider, model}]}`, `null` = defaults). |
+| `z0live_lanes`, `/z0live-lanes` | The helper-lane board in plain words: "gimme 2 fast lanes, 2 small, 2 large, one council". |
+
+The tools steer the z0live services; installing those is a separate step (`deploy/macos/install.sh`, see
+[docs/STUDIO.md](docs/STUDIO.md)). Phone calls reach z0live through its own front door until Hermes core has a
+voice-live provider seam ([RFC #77111](https://github.com/NousResearch/hermes-agent/issues/77111)).
+
 ## Existing portable runtime work
 
 The architecture in [RFC #1](https://github.com/kvnloo/z0live/issues/1) remains the project boundary:
