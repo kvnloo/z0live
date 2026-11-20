@@ -318,8 +318,22 @@ async def spoken_suite(models, args):
             break
         name = case['id']
         source = args.out / f'{name}-say.aiff'
-        subprocess.run(['say', '-v', 'Samantha' if i % 2 else 'Alex', '-o', str(source), case['ask']], check=True)
-        voice = dt.pcm(source)
+        voice_name = 'Samantha' if i % 2 else 'Alex'
+        try:
+            subprocess.run(['say', '-v', voice_name, '-o', str(source), '--', case['ask']], check=True, timeout=8)
+        except subprocess.TimeoutExpired:
+            # macOS say can finish writing its AIFF but hang while exiting.
+            pass
+        except subprocess.CalledProcessError:
+            source.unlink(missing_ok=True)
+        try:
+            voice = dt.pcm(source)
+            if not np.any(voice):
+                raise ValueError('No speech in fixture')
+        except (subprocess.CalledProcessError, ValueError):
+            rows.append(dict(case=name, kind=case['kind'], turns=[], heard='', error='No usable say audio',
+                             text_correct=False, spoken_correct=False))
+            continue
         tail = max(1.0, args.silence_ms / 1000 + 0.3)
         pcm = bytes(PLAY_RATE * 2 // 2) + np.repeat((voice * 32768).astype('<i2'), 3).tobytes() \
             + bytes(round(tail * PLAY_RATE) * 2)

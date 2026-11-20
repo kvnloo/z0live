@@ -155,6 +155,60 @@ Expected ceilings (advisor, inferred): GPT-Live exposes no endpointer control, s
 (backchannel clips only); Grok and the local engine are where Dessa timing is reachable. Only speculative replies held
 in a buffer (hyp. 3) can produce Dessa's overlap starts.
 
+### Fully local Dessa replay
+
+`bench/local_voice_replay.py` reuses the four frozen 60 s human clips, the 2 s lead-in, the 8 s tail,
+and the existing WAV scorer. It paces 20 ms input frames on the same clock as recorded output. The energy
+VAD uses a −43 dBFS threshold and a 440 ms silence window. A confirmed human onset cancels the reply and
+cuts any PCM that has not played. Liquid LFM2.5-Audio Q4_0 runs ASR and TTS in separate processes. Gemma 4
+E4B generates one short reply before Liquid streams PCM. The benchmark starts only offline loopback servers.
+It does not add a production engine or use WebRTC, device playout, smart-turn, or an explicit backchannel policy.
+
+| Measured on the Studio | Median gap | Overlap starts | Waits > 1 s | Backchannels/min | D |
+|---|---:|---:|---:|---:|---:|
+| Dessa target, same clips | 0.43 s | 23.7% | 13.2% | 3.50 | 0.000 |
+| GPT-Live A6 baseline, mean of 3 runs | 1.123 s | 23.8% | 58.8% | 1.28 | 1.371 |
+| Local, 1 run | 1.065 s | 0.0% | 64.7% | 0.21 | 1.479 |
+
+The local run completed all four clips with no model errors or early speech. It scored 34 floor-takes,
+with a gap IQR of 0.992 to 1.090 s, 11.8% false cut-ins, and 21.1% missed takes. It played 17 complete
+replies, canceled 28 on human onset, and cut one at clip end. The within-run block bootstrap put D at
+1.251 to 1.657 (95% interval). GPT-Live's historical run range was 1.153 to 1.535. The local arm omits
+WebRTC buffering and is not a matched phone path. One local run does not establish a speed win or a D regression.
+It did not reach the Dessa gate and seldom backchanneled.
+
+Measured stage medians for the 17 complete local replies: 442 ms from last voiced input to ASR submission,
+116 ms for final ASR, 240 ms for the full Gemma reply, 44 ms to first TTS PCM, and 253 ms from first PCM
+to the first sample above −50 dBFS. The endpoint wait was the largest measured stage. The first PCM was not
+yet voiced audio. The earlier Liquid-only 77 ms ASR and 25 ms first-PCM numbers measure isolated requests on
+synthetic clips (`docs/VOICE-LOCAL-BASELINE-20261120.md` on `origin/feat/voicebase`, `baf1c50`).
+
+The private replay receipt is `~/.local/share/z0live/bench/dessa/localvoice-final-1795198489-r1-local.json`.
+The same-named directory holds WAVs and per-turn timings. `bench/dessa_score.py` reads those WAVs for the
+bootstrap and the cut-in and missed-take rates. The GPT-Live row uses saved `a5fix`, `a6rb1`, and `a6rb2`
+receipts. No hosted rerun was made.
+
+Run from `voice-adapter/` on the Studio with `ffmpeg`, `say`, and the installed GGUFs. Use a fresh label and directory.
+
+```sh
+export DESSA_PYTHON=../../z0live/voice-adapter/.venv/bin/python
+bash bench/dessa_run.sh my-local-run local
+umask 077
+env -u PYTHONPATH "$DESSA_PYTHON" bench/local_voice_replay.py --slm \
+  --out "$HOME/.local/share/z0live/bench/my-local-slm-run"
+```
+
+`--slm` speaks the 30 unchanged slm-v1 questions with macOS `say`, then runs the same VAD, ASR, Gemma, and TTS
+path. It supplies the frozen brief and any prior turns as text. It scores the output WAV by transcribing it with
+Liquid ASR and applying the suite regexes. A model `SKIP` becomes a spoken deferral. Both text and spoken scores
+are recorded. The spoken score is a same-model ASR proxy, not a listening test or a natural-speech accuracy estimate.
+The private reference tracks, output WAVs, and transcripts stay outside Git.
+
+Measured on one full spoken run: 27/30 correct from the output WAV, versus 28/30 on Gemma's text.
+The spoken breakdown was facts 4/6, reasoning 5/6, brief context 6/6, follow-ups 4/4, and deferrals 8/8.
+All 30 cases played an answer, with no execution errors. Private receipts are at
+`~/.local/share/z0live/bench/localvoice-final-1795198489-spoken/`.
+
 ## Track B: phone lanes (S22, Lenovo tab, S25; via groot adb)
 
 Harness: `voice-adapter/bench/phone_bench.sh` (llama-bench, 1k-token prompt, 64-token reply) for raw speed, plus a
