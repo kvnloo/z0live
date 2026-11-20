@@ -10,9 +10,17 @@ export PATH=$PWD/.venv/bin:$HOME/.hermes/tools/ffmpeg-9.0.1-darwin-arm64:$HOME/.
 export HERMES_BIN=${HERMES_BIN:-$HOME/.hermes/hermes-agent/.hermes/bin/hermes} Z0LIVE_GUEST=${Z0LIVE_GUEST:-off}
 export Z0LIVE_TIERS=${Z0LIVE_TIERS:-on} HERMES_VOICE_BRIEF_DIR=${TMPDIR:-/tmp}/vb Z0LIVE_DESKTOP=$PWD/../desktop
 for e in $ENGINES; do
-  HERMES_VOICE_ENGINE=$e HERMES_MOBILE_VOICE_TRACE_DIR=$OUT/$LABEL-$e/traces env -u PYTHONPATH timeout 900 \
-    .venv/bin/python bench/dessa_replay.py --clip 60 --out "$OUT/$LABEL-$e" > "$OUT/$LABEL-$e.json" 2> "$OUT/$LABEL-$e.err" &
+  if [ "$e" = local ]; then
+    (umask 077; env -u PYTHONPATH timeout 900 "${DESSA_PYTHON:-.venv/bin/python}" \
+      bench/local_voice_replay.py --clip 60 --out "$OUT/$LABEL-$e" > "$OUT/$LABEL-$e.json" 2> "$OUT/$LABEL-$e.err") &
+    local_pid=$!
+  else
+    HERMES_VOICE_ENGINE=$e HERMES_MOBILE_VOICE_TRACE_DIR=$OUT/$LABEL-$e/traces env -u PYTHONPATH timeout 900 \
+      "${DESSA_PYTHON:-.venv/bin/python}" bench/dessa_replay.py --clip 60 --out "$OUT/$LABEL-$e" > "$OUT/$LABEL-$e.json" 2> "$OUT/$LABEL-$e.err" &
+  fi
 done
+status=0
+if [ -n "${local_pid:-}" ]; then wait "$local_pid" || status=$?; fi
 wait
 for e in $ENGINES; do
   /usr/bin/python3 - "$OUT/$LABEL-$e.json" "$e" <<'EOF'
@@ -30,3 +38,4 @@ print(f'{sys.argv[2]:9} D={D if D is None else round(D, 3)} calls={d["calls_done
       f'>1s%={a.get("over_1s_pct")} bc/min={a.get("backchannels_per_min")} spoke_first={first}')
 EOF
 done
+exit "$status"
