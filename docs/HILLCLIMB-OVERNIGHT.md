@@ -192,7 +192,18 @@ Hypothesis backlog:
    24-token turn costs ~0.34 s + ~1.7 ms per cached token (304 -> 1.10 s, 1,144 -> 2.67 s, 1,784 -> 3.59 s), so the
    cache saves the prefill but every turn still pays attention over the whole cached context. A phone lane at today's
    context size is not a live lane on the tab. It needs its own context budget (about 300 tokens for ~1 s warm), so
-   the planted-fact check of a compressed lane context is the gate before wiring any slow-phone lane. Run the probe
+   the planted-fact check of a compressed lane context is the gate before wiring any slow-phone lane.
+   KEPT 11-20 (B12, planted-fact check; S22 offline 10 h, S25 off adb, Studio only): `bench/slm-v2.json` = slm-v1's
+   30 cases with its facts planted in a 5,545-char synthetic chat tail (real lane size, general-knowledge filler; no
+   owner data). `bench/lane_compress.py` derives a short-brief suite: `tail` (newest 1,100 chars) or `model` (a local
+   GGUF rewrites the tail as Kevin's facts). qwen3-1.7b (the tab's GGUF), usable / context asks: v1 brief 22/30, 6/6
+   (reproduces B9's control); v2 full tail 21/30, 6/6; v2 tail-1100 16/30, 1/6 (truncation drops 5 of 6 facts);
+   v2 qwen3.5-9b compressed (579 chars, ~150 tokens inferred, 3.75 s on the Studio, all 11 facts kept verbatim)
+   20/30, 6/6, skip 8/8, no invented facts. Passes the 1/30 gate at the limit, but general facts fell 4/6 -> 1/6:
+   behind a bare fact list the 1.7B SKIPs "capital of Canada" and "symbol for gold" (lookup-only framing, inferred).
+   So model compression, not truncation, is the way to a ~300-token phone lane context. Next: render the compressed
+   facts as chat-style sentences (or say in the lane header that general knowledge is still answered) and re-score
+   v2-model; then the tab warm TTFT at that size (B10 fit predicts ~0.9 s, inferred). Run the probe
    from a file on groot (`scp`, then `bash /tmp/probe.sh ... < /dev/null`). Piped over `ssh bash -s` it does nothing,
    because `adb shell` eats the rest of the script from stdin. The first B11 attempt dropped the tab's wireless adb at
    78 s cold. That killed hre-slm's :8081 embed supervisor, which was restored with `hre_slm_server.sh` and the args
