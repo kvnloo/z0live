@@ -5,7 +5,16 @@ from __future__ import annotations
 
 import asyncio
 import os
-from aiohttp import ClientSession, ClientTimeout, WSMsgType, WSServerHandshakeError, web
+from aiohttp import ClientConnectionError, ClientSession, ClientTimeout, WSMsgType, WSServerHandshakeError, web
+
+from voice_slots import Slots
+
+VOICE_PATHS = {
+    "/api/audio/voice-live/status",
+    "/api/audio/voice-live/session",
+    "/api/audio/voice-live/diagnostics",
+}
+VOICE_SLOTS = web.AppKey("voice_slots", Slots)
 
 # HERMES_DASHBOARD_UPSTREAM: where the real dashboard listens. groot binds it to loopback; the Studio
 # binds it to its tailnet address (100.100.77.46:9119), so this proxy sits on another port there.
@@ -102,17 +111,26 @@ async def http_proxy(request: web.Request) -> web.StreamResponse:
 
     body = await request.read()
     session: ClientSession = request.app["client"]
-    voice_upstream = os.environ.get("HERMES_MOBILE_VOICE_UPSTREAM", "").rstrip("/")
-    voice_paths = {
-        "/api/audio/voice-live/status",
-        "/api/audio/voice-live/session",
-        "/api/audio/voice-live/diagnostics",
-    }
-    upstream_base = voice_upstream if voice_upstream and request.path in voice_paths else UPSTREAM_HTTP
-    upstream_url = f"{upstream_base}{request.rel_url}"
+    if request.path in VOICE_PATHS:
+        slots = request.app.get(VOICE_SLOTS)
+        if slots is not None:
+            try:
+                async with slots.admit() as upstream:
+                    response = await forward_http(request, body, session, upstream)
+                    response.headers["X-Z0Live-Voice-Port"] = upstream.rsplit(":", 1)[1]
+                    return response
+            except (OSError, ValueError, TypeError, ClientConnectionError, TimeoutError):
+                raise web.HTTPServiceUnavailable(text="Voice adapter unavailable") from None
+        upstream = os.environ.get("HERMES_MOBILE_VOICE_UPSTREAM", "").rstrip("/")
+        if upstream:
+            return await forward_http(request, body, session, upstream)
+    return await forward_http(request, body, session, UPSTREAM_HTTP)
+
+
+async def forward_http(request, body, session, upstream):
     async with session.request(
         request.method,
-        upstream_url,
+        f"{upstream}{request.rel_url}",
         headers=upstream_headers(request),
         data=body or None,
         allow_redirects=False,
@@ -133,10 +151,18 @@ async def client_context(app: web.Application):
     await app["client"].close()
 
 
-def main() -> None:
+def make_app(slots=None):
     app = web.Application(client_max_size=64 * 1024 * 1024)
+    if slots is not None:
+        app[VOICE_SLOTS] = slots
     app.cleanup_ctx.append(client_context)
     app.router.add_route("*", "/{tail:.*}", http_proxy)
+    return app
+
+
+def main() -> None:
+    directory = os.environ.get("Z0LIVE_VOICE_SLOTS")
+    app = make_app(Slots(directory) if directory else None)
     # HERMES_PROXY_HOSTS: comma list of bind addresses; add the k3s cni0 gateway (10.42.0.1) so the
     # Tailscale operator's ingress pod on groot can reach this proxy. Default stays loopback-only.
     hosts = [h for h in os.environ.get("HERMES_PROXY_HOSTS", "127.0.0.1").split(",") if h]

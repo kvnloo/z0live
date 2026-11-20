@@ -9,12 +9,13 @@ copy keeps working from its own tree; nothing here depends on groot.
 |---|---|---|---|
 | `com.zer0.z0live.core` | `bin/z0live serve` | 127.0.0.1:8791 | Broker and lanes config: presets, spoken layouts, mid-call edits |
 | `com.zer0.z0live.hermes` | `desktop/hermes_host.py` | 127.0.0.1:8644 | API-only Hermes host the core's lanes call |
-| `com.zer0.z0live.voice` | `voice-adapter/mobile_live.py` | 127.0.0.1:9168 | Hermes app Live Voice over the ChatGPT subscription (codex login) |
-| `com.zer0.z0live.proxy` | `voice-adapter/dashboard_proxy.py` | 100.100.77.46:9165 | Phone entry: voice-live paths to :9168, all else to the dashboard on :9119 |
+| `com.zer0.z0live.voice` | `voice-adapter/mobile_live.py` | 127.0.0.1:9168 | Voice slot A |
+| `com.zer0.z0live.voice-next` | `voice-adapter/mobile_live.py` | 127.0.0.1:9169 | Voice slot B |
+| `com.zer0.z0live.proxy` | `voice-adapter/dashboard_proxy.py` | 127.0.0.1:9165 | Voice-live HTTP requests go to the active slot. Other traffic goes to the dashboard on :9119. |
 
-All four start at login, restart on exit (`KeepAlive`, 10 s throttle) and log to `~/Library/Logs/z0live/<label>.log`.
+LaunchAgents load at login and log to `~/Library/Logs/z0live/<label>.log`. The active voice slot restarts after a crash. The inactive slot stays stopped between rollouts.
 
-Call path: Hermes app → `http://100.100.77.46:9165` → proxy → adapter → GPT-Live (`gpt-live-1-codex`) over
+Call path: Hermes app → Tailscale HTTPS → proxy → adapter → GPT-Live (`gpt-live-1-codex`) over
 the codex ChatGPT login. Delegated work runs `hermes -p <app profile> chat` on the Studio. Lane turns go
 adapter → core `/v1/lanes/turn` with the relay token.
 
@@ -24,8 +25,7 @@ adapter → core `/v1/lanes/turn` with the relay token.
 ~/workspace/repos/z0live/deploy/macos/install.sh
 ```
 
-Idempotent. It builds `voice-adapter/.venv` from `requirements.lock` on Hermes's bundled Python 3.14, writes
-the four plists, pairs the relay token once and re-registers each job.
+Run `install.sh` only in an idle maintenance window. It builds `voice-adapter/.venv`, pairs the relay token once, and re-registers the LaunchAgents, including the proxy. The first install of rolling restart switches the proxy to managed routing and starts with slot A. Do not rerun `install.sh` for routine adapter releases.
 
 ## State and secrets
 
@@ -45,7 +45,7 @@ the default layout file is `$Z0INT_HOME/config/z0live-lanes.json` (`z0live.lanes
 
 The Hermes app uses `https://studio.taila30dc.ts.net:9119` (tailnet only). Tailscale serve holds the
 certificate and forwards to the z0live proxy on `127.0.0.1:9165`, which sends the voice-live paths to the
-adapter (`:9168`, which writes `~/.local/share/z0live/voice-traces/<day>/*.jsonl`) and everything else to
+active voice slot (`:9168` or `:9169`). The adapter writes `~/.local/share/z0live/voice-traces/<day>/*.jsonl`. The proxy sends everything else to
 the dashboard on `127.0.0.1:9119`. This is groot's layout (`https://0.taila30dc.ts.net:9119`). The proxy tells
 the dashboard the app is on https (`HERMES_PROXY_FORWARDED_PROTO`), so session cookies are Secure; behind a
 plain-http front door they are never sent back and every ws-ticket fails with `no_cookie`. Without it the app talks to
@@ -59,7 +59,46 @@ gui/$(id -u)/com.kvn.hermes-dashboard`; not during a call), then run `deploy/mac
 listen on 127.0.0.1 only.
 Read a call: `voice-adapter/trace_report.py <trace.jsonl>`.
 
-### Call trace events
+## Roll out an adapter release without dropping open calls
+
+After the idle-window install, prepare each adapter release in its own checkout or extracted directory. Build `voice-adapter/.venv` there with the Studio Python and install that release's `voice-adapter/requirements.lock`. Keep the source and venv unchanged while a slot points to that directory. Use a release that includes managed adapter startup and `/_z0live/ready`.
+
+From the installed control checkout, run:
+
+```sh
+./deploy/macos/rolling-restart.sh /absolute/path/to/prepared-release
+```
+
+The script starts the inactive slot and verifies that its loopback HTTP readiness response comes from the expected LaunchAgent PID. This check does not open a model session. It then updates `~/.local/share/z0live/voice-slots/route.json` atomically. The proxy stays up and sends new session offers to the new slot. Status and diagnostics also follow the active slot, so proxy diagnostics no longer show calls that are draining on the old slot.
+
+Requests already forwarded to the old slot finish signaling before it receives `SIGTERM`. Open calls stay on their original WebRTC peers. The old adapter exits when those calls end or when `DRAIN_SECONDS` expires. A drain timeout can still end a call. The script never uses `kickstart -k` or sends `SIGKILL`.
+
+- If startup fails, new calls stay on the active slot. Check the candidate's log in `~/Library/Logs/z0live/`. Fix the staged release and rerun with the same directory.
+- If the script reports that the old slot is still draining, the cutover has already happened. Run `./deploy/macos/rolling-restart.sh` without arguments to finish. A new rollout cannot start until the previous slot exits.
+- To roll back a completed cutover, run another rollout with the previous release directory. Keep both directories until the rollback window ends. Do not edit `route.json` by hand or run `install.sh` while a call is open.
+- Voice configuration applies to the next call. It does not need a restart.
+
+### Isolated verification
+
+From `voice-adapter/` in a prepared checkout, run:
+
+```sh
+Z0LIVE_DESKTOP=$PWD/../desktop env -u PYTHONPATH .venv/bin/python -m unittest -v test_rolling_restart
+```
+
+The probe runs the deployer, proxy, and both adapters on temporary loopback ports. Two synthetic WebRTC calls use a local fixture for authentication and provider signaling. It checks that the first call still carries media while draining, the second call goes to the new slot, and the old adapter exits after the first call hangs up. It does not exercise launchd or hosted model readiness.
+
+### Level 2 design: keep media stable and reload the brain
+
+Level 1 keeps the old release running for existing calls. Level 2 would let an open call adopt new conversation logic without renegotiating WebRTC.
+
+- A long-lived media holder owns the phone and provider transports, data channels, audio routing, and call lifecycle. It keeps a bounded local event buffer and remains responsible for mute and hangup while a worker changes. Restarting this holder still ends its calls.
+- A reloadable brain worker owns conversation policy, lane dispatch, and delegation. The holder and worker exchange versioned messages over a private Unix socket. Tag messages with call and turn IDs, sequence numbers, and a worker generation. Keep private chat and Telegram data local, and replay only the state the new worker needs.
+- Warm a candidate worker and check schema compatibility before switching. At a turn boundary, checkpoint the old worker, replay events after that checkpoint, then switch command ownership to the new generation. Discard stale commands and deduplicate side effects by action ID. If the candidate fails before the switch, keep the old worker. If the new worker fails afterward, keep audio and hangup working and reattach a compatible worker from the latest checkpoint.
+
+Prove the design by swapping workers mid-call on isolated ports. Check continuous audio, unchanged peer connections, ordered turns, and no repeated delegation. Repeat with a rejected checkpoint and a worker crash before and after the switch. Use Level 1 to roll out changes to the media holder itself.
+
+## Call trace events
 
 - `context.sent` records what the adapter sent to the voice, not what the model read.
   `turn_id` is a call-local caller turn number. `0` is call setup. Delayed delegation

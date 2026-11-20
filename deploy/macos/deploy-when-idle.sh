@@ -6,6 +6,16 @@ set -uo pipefail
 TRACES=${HERMES_MOBILE_VOICE_TRACE_DIR:-$HOME/.local/share/z0live/voice-traces}
 VOICES=${Z0LIVE_VOICES_FILE:-$HOME/.config/z0live/voices.json}
 LOG=$HOME/.local/share/z0live/deploy.log
+if [ -f "$HOME/.local/share/z0live/voice-slots/route.json" ]; then
+  if [ -n "${1:-}" ]; then
+    [ ! -f "$VOICES" ] || cp "$VOICES" "$VOICES.bak-$(date +%Y%m%d-%H%M%S)" || exit 1
+    printf '%s\n' "$1" > "$VOICES" || exit 1
+    echo "Voices saved for the next call. No restart needed."
+    exit 0
+  fi
+  echo "Use deploy/macos/rolling-restart.sh for managed voice slots." >&2
+  exit 1
+fi
 open_call() {
   local t; t=$(ls -t "$TRACES"/*/*.jsonl 2>/dev/null | head -1)
   [ -n "$t" ] || return 1
