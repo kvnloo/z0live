@@ -33,7 +33,8 @@ Receipts: ~/.local/share/z0live/bench/dessa/. Decision log: ~/.local/share/z0liv
 Score per engine: D = |median - 0.43| + max(0, waits>1s - 13.2)/100 + |backchannels/min - 3.5|/10
 (lower is better; seconds-equivalent; every component is reported too). Keep a change when D drops by more than the
 noise band (first iteration: re-run the baseline once to measure it) and no engine's D rises past noise, `spoke_first`
-stays 0, the 65 adapter tests pass, and the replay WAVs show no garbled or doubled speech (listen to one per change:
+stays 0, the 65 adapter tests pass (`cd voice-adapter && Z0LIVE_DESKTOP=$PWD/../desktop env -u PYTHONPATH
+.venv/bin/python -m unittest test_*` module names; without Z0LIVE_DESKTOP two lane tests fail on the groot default), and the replay WAVs show no garbled or doubled speech (listen to one per change:
 spectrogram or ASR check).
 
 Stop predicate: an engine is "Dessa-level" when D <= 0.15, median within 0.43 +- 0.15 s, waits > 1 s <= 20 %,
@@ -52,6 +53,14 @@ Hypothesis backlog (cheapest first; each names its mechanism):
    whether the 1.17 s is a server timer or our own path: 100 ms uplink batching, bridge, recorder). Rank on D AND false
    cut-in rate from then on. Also count delegation.created in the replay traces: near zero -> lane hypotheses do not
    move this bench.
+   DONE 11-20 (A1): (a)-(c) and the delegation count are `bench/dessa_score.py RUN_DIR...` (CIs, false cut-in %,
+   missed-take %, spurts < 0.5 s, delegations) and `--diff A B` (paired block-bootstrap dD). A/A repeat (`aa1`):
+   Grok D 1.672 -> 1.654, dD -0.02 [-0.13, +0.14]: noise band ~0.15, single runs are enough. GPT-Live D 1.585 ->
+   0.939 with no change, dD -0.65 [-1.23, -0.16]: run-to-run engine variance exceeds the within-run bootstrap, so a
+   GPT-Live verdict needs >= 3 runs per arm compared by mean D; its A/A also spoke first once (anniversary), so
+   `spoke_first` is a 1-in-4 noise event there, not a hard gate. Dessa scored on itself: D CI [0.05, 0.49], so D <= 0.15
+   on 4 clips is at the bench's resolution limit. False cut-ins: GPT-Live 13.8 % both runs, Grok 20 % both; missed
+   takes 34 % / 47 %. Delegations: 0 in all four runs -> lane hypotheses do not move this bench. (d) is next.
 1. Grok: turn detection owned by z0live. Server VAD with `create_response: false`; z0live calls `response.create`
    after a short silence (start 200 ms) instead of Grok's fixed ~1 s timer. Mechanism: the tight 1.05..1.29 IQR is a timer.
 2. Grok: sweep the silence threshold (300/200/120 ms) with a semantic veto (transcript ends mid-clause -> wait).
