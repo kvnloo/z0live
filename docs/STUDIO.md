@@ -43,16 +43,20 @@ the default layout file is `$Z0INT_HOME/config/z0live-lanes.json` (`z0live.lanes
 
 ## Front door (one app URL, every call traced)
 
-The Hermes app keeps using `http://100.100.77.46:9119`. The z0live proxy owns that address; it sends the
-voice-live paths to the adapter (`:9168`, which writes `~/.local/share/z0live/voice-traces/<day>/*.jsonl`)
-and everything else to the dashboard on `127.0.0.1:9119`. This is groot's layout. Without it the app talks to
+The Hermes app uses `https://studio.taila30dc.ts.net:9119` (tailnet only). Tailscale serve holds the
+certificate and forwards to the z0live proxy on `127.0.0.1:9165`, which sends the voice-live paths to the
+adapter (`:9168`, which writes `~/.local/share/z0live/voice-traces/<day>/*.jsonl`) and everything else to
+the dashboard on `127.0.0.1:9119`. This is groot's layout (`https://0.taila30dc.ts.net:9119`). The proxy tells
+the dashboard the app is on https (`HERMES_PROXY_FORWARDED_PROTO`), so session cookies are Secure; behind a
+plain-http front door they are never sent back and every ws-ticket fails with `no_cookie`. Without it the app talks to
 the dashboard directly, calls run on stock Hermes voice (no lanes, no brief, no trace), and the only sign of
 a call is `ws_ticket_minted` lines in `~/.hermes/logs/dashboard-auth.log` (what happened on 11-19).
 
 The dashboard therefore binds loopback: in `~/Library/LaunchAgents/com.kvn.hermes-dashboard.plist` use
 `hermes dashboard --host 127.0.0.1 --port 9119`, restart it (`launchctl kickstart -k
 gui/$(id -u)/com.kvn.hermes-dashboard`; not during a call), then run `deploy/macos/install.sh`. Check:
-`lsof -nP -iTCP:9119 -sTCP:LISTEN` shows the dashboard on 127.0.0.1 and the proxy on the tailnet IP.
+`tailscale serve status` lists `:9119 -> http://127.0.0.1:9165`, and every z0live port and the dashboard
+listen on 127.0.0.1 only.
 Read a call: `voice-adapter/trace_report.py <trace.jsonl>`.
 
 ## Model lanes (fast, medium, slow)

@@ -12,6 +12,10 @@ from aiohttp import ClientSession, ClientTimeout, WSMsgType, WSServerHandshakeEr
 UPSTREAM_HOST = os.environ.get("HERMES_DASHBOARD_UPSTREAM", "127.0.0.1:9119")
 UPSTREAM_HTTP = f"http://{UPSTREAM_HOST}"
 UPSTREAM_WS = f"ws://{UPSTREAM_HOST}"
+# HERMES_PROXY_FORWARDED_PROTO: the scheme the app really uses. The dashboard trusts loopback proxies and
+# marks session cookies Secure when this says https; an http:// client (the Studio front door) then never
+# returns them and every /api/auth/ws-ticket fails with no_cookie. groot sits behind tailscale serve TLS.
+FORWARDED_PROTO = os.environ.get("HERMES_PROXY_FORWARDED_PROTO", "https")
 HOP_HEADERS = {
     "connection",
     "keep-alive",
@@ -34,7 +38,7 @@ def upstream_headers(request: web.Request) -> dict[str, str]:
     headers["Host"] = UPSTREAM_HOST
     headers["Origin"] = UPSTREAM_HTTP
     headers["X-Forwarded-Host"] = request.host
-    headers["X-Forwarded-Proto"] = "https"
+    headers["X-Forwarded-Proto"] = FORWARDED_PROTO
     return headers
 
 
