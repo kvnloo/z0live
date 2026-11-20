@@ -72,6 +72,9 @@ Hypothesis backlog (cheapest first; each names its mechanism):
    jitter/packetization vs the bench recorder) before trusting it as real-call latency.
 1. Grok: turn detection owned by z0live. Server VAD with `create_response: false`; z0live calls `response.create`
    after a short silence (start 200 ms) instead of Grok's fixed ~1 s timer. Mechanism: the tight 1.05..1.29 IQR is a timer.
+   REVERTED 11-20 (A3): xAI ignores `create_response: false` (pydantic-ai docs), so z0live cannot own the reply;
+   the lever left is `silence_duration_ms`. 200 ms made it worse: human end -> speech_stopped 0.47 -> 0.72 s, D 1.587 ->
+   1.971, dD +0.39 [+0.17, +0.63]. Grok's unset default is already shorter than 200 ms; hyp 2 sweeps downward (100/50).
 2. Grok: sweep the silence threshold (300/200/120 ms) with a semantic veto (transcript ends mid-clause -> wait).
 3. Speculative reply: request the reply at the first short pause, hold its audio until silence is confirmed, cancel if
    the human resumes (reversible playback). Mechanism: hides generation latency inside the pause.
