@@ -82,18 +82,42 @@ the receipt's `spoken` lists when each part was said, and the trace has `lanes.t
 
 ## Two voices on one call
 
-With GPT-Live as the engine, Grok can join as a second voice. Say its name ("Grok, …") and Grok answers that
-turn; everything else (and all Hermes work) stays with GPT-Live. Each voice is told what the other said.
+When the primary is GPT-Live, choose a guest in `~/.config/z0live/voices.json`. The adapter reads it at the start
+of each call. Changing it does not restart or affect an open call.
 
-```sh
-echo '{"guest": "grok"}' > ~/.config/z0live/voices.json   # on, from the next call
-echo '{"guest": ""}'     > ~/.config/z0live/voices.json   # off
+```json
+{"guest": {"engine": "gpt-live", "profile": "tek", "name": "tek", "voice": "ember"}}
 ```
 
-One speaker at a time: the phone hears Grok's audio while Grok holds the floor, and GPT-Live's audio otherwise
-(`voice-adapter/guest_voice.py`). Traces show `guest.claimed`, `guest.asked`, `guest.said`, `guest.played` and
-`guest.muted_primary`. Grok needs the xAI login (`hermes auth add xai-oauth`); if it fails the call goes on with
-GPT-Live alone (`guest.failed`).
+Say “tek” or “teknium” in the turn you want tek to answer. An unnamed turn goes back to the primary. Both
+GPT-Live sessions use the host's Codex ChatGPT login, with separate WebRTC sessions and distinct voices.
+The phone plays one voice at a time. Each voice receives the other's spoken words as background, not a new
+request. Tek does not get the primary's chat history or its helper lanes.
+
+Run the guest's API-only Hermes host separately from the primary host on `:8644`. From the repo root:
+
+```sh
+Z0LIVE_HERMES_SOURCE="$HOME/.hermes/hermes-agent" \
+Z0LIVE_HERMES_BIN="$HOME/.hermes/hermes-agent/.hermes/bin/hermes" \
+python3 desktop/hermes_host.py --profile tek
+```
+
+This binds `127.0.0.1:18644` and `HERMES_HOME=~/.hermes/profiles/tek` without starting messaging or
+schedulers. The host creates a private profile-specific API key. The guest uses a fresh Hermes voice session
+per call. It never falls back to the primary's chat if its host is unavailable. If you change the host's
+`--port`, match it with `Z0LIVE_GUEST_HOST_PORT` in the voice adapter.
+
+`{"guest": "grok"}` still selects Grok (requires `hermes auth add xai-oauth`; no guest Hermes tools).
+`{"guest": ""}` disables the guest. `Z0LIVE_VOICES_FILE` selects an alternate file for a probe without touching
+live config. `Z0LIVE_GUEST=off` disables the guest for that adapter process.
+
+To test without the phone, run `voice-adapter/context_probe.py` in-process with the guest host running and an
+alternate voices file. Set `HERMES_VOICE_ENGINE=gpt-live`, `PROBE_GAP=15`, `PROBE_LISTEN=55`, and
+`PROBE_ASK="Hey, can you hear me? || Tek, what's one thing you shipped this week? || Thanks. What's 12 times 12?"`.
+Use `PROBE_SAVE` and `PROBE_SAVE_IN` for the local phone and caller WAVs. Check both signaling answers and
+`session.started` events, `guest.floor`, and `guest.delegation.done` with the same session ID in the tek host
+log. `guest.failed` records guest setup errors; the primary continues alone. The probe's default delegation
+fixture covers only the primary, so guest delegations in this test use the real guest host.
 
 ## Pick the voice model
 
