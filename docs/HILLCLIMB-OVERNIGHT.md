@@ -123,6 +123,11 @@ Hypothesis backlog:
    (-33 %, no overlap) and 24-token turns 9.0 -> 5.4 s, but cold brief 36 -> 46 s and no-cache 42 -> 63 s. Failed the
    slm gate: usable 22/30 -> 20/30 (q8 says "30" for 15 % of 80, SKIPs Ottawa and a C->F conversion). Next: V-only
    q8_0 (`-ctv q8_0`), since K is usually the quantization-sensitive half (guess).
+   REVERTED 11-20 (B5): `-ctv q8_0` alone on the tab (A-B-A): warm median 2.76 / 2.70 -> 2.43 s (-11 %), but cold
+   brief 35.8 -> 65.7 s and no-cache 43 -> 85 s (V-quant prefill is ~2x slower on this CPU, inferred from the cold and
+   no-cache rows). slm gate 22 -> 21/30 (passes), and the one flip is the same "30" for 15 % of 80: the percent
+   error comes from V, not K. Every call pays a fresh brief, so +30 s cold outweighs -0.3 s per warm turn. KV quant
+   is closed on the tab; the cold brief is the cost to attack (hyp 2, smaller brief; hyp 5, smaller model).
 5. Smaller models for the slow phones: Qwen3-0.6B, Gemma 4 E2B where it runs.
 6. Speculative decoding on the S25 (0.6B draft for 1.7B).
 7. Tab GPU, later: debug build + tombstone for the Vulkan crash, or a Mali-native runtime (MLC-LLM / MNN OpenCL).
