@@ -10,10 +10,13 @@ import grok_leg
 
 class FakeCall:
     def __init__(self):
-        self.got, self.muted, self.closed = [], False, False
+        self.got, self.muted, self.closed, self.traced = [], False, False, []
 
     def message(self, raw, from_provider):
         self.got.append(json.loads(raw))
+
+    def trace(self, ev, **data):
+        self.traced.append((ev, data))
 
 
 class Leg(grok_leg.GrokLeg):
@@ -71,6 +74,17 @@ class GrokLegTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(leg.output.buf)
         leg.on_event({"type": "input_audio_buffer.speech_started"})
         self.assertFalse(leg.output.buf)
+
+    def test_turn_timing_is_traced_once_per_response(self):
+        leg = Leg()
+        for ev in [{"type": "input_audio_buffer.speech_stopped", "audio_end_ms": 4200},
+                   {"type": "response.created", "response": {"id": "r1"}},
+                   {"type": "response.output_audio.delta", "response_id": "r1", "delta": "AAAA" * 160},
+                   {"type": "response.output_audio.delta", "response_id": "r1", "delta": "AAAA" * 160}]:
+            leg.on_event(ev)
+        self.assertEqual([(d["type"], d["response_id"], d["audio_end_ms"]) for _, d in leg.call.traced],
+                         [("input_audio_buffer.speech_stopped", None, 4200), ("response.created", "r1", None),
+                          ("response.output_audio.delta", "r1", None)])
 
 
 if __name__ == "__main__":

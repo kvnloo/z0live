@@ -37,6 +37,8 @@ TOOL = {"type": "function", "name": "ask_hermes",
         "description": "Hand real work to Hermes, Kevin's agent: anything about his data, files, sessions, phone "
                        "or screen, or anything you can't answer from the conversation. Say a few words first.",
         "parameters": {"type": "object", "properties": {"request": {"type": "string"}}, "required": ["request"]}}
+TIMED = {"input_audio_buffer.speech_started", "input_audio_buffer.speech_stopped", "input_audio_buffer.committed",
+         "response.created", "response.done"}
 
 
 def mint_secret() -> str:
@@ -93,6 +95,7 @@ class GrokLeg:
         self.answered: set[str] = set()  # call_ids that already got their function_call_output
         self.pending: dict[str, list[str]] = {}  # delegation id -> speakable chunks of one answer
         self.ready = False
+        self.voiced: set[str | None] = set()  # response ids whose first audio delta is already traced
 
     def emit(self, event: dict):
         """Hand a subscription-dialect event to the Call as if the provider sent it."""
@@ -146,6 +149,13 @@ class GrokLeg:
 
     def on_event(self, ev: dict):
         ty = ev.get("type", "")
+        if ty in TIMED or (ty == "response.output_audio.delta" and ev.get("response_id") not in self.voiced):
+            # Turn-timing marks for bench/dessa_latency.py: Grok's VAD positions and each response's first audio.
+            rid = ev.get("response_id") or (ev.get("response") or {}).get("id")
+            if ty == "response.output_audio.delta":
+                self.voiced.add(rid)
+            self.call.trace("grok.timing", type=ty, response_id=rid, audio_start_ms=ev.get("audio_start_ms"),
+                            audio_end_ms=ev.get("audio_end_ms"))
         if ty == "session.updated" and not self.ready:
             self.ready = True
             self.emit({"type": "session.started"})

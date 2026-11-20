@@ -60,7 +60,16 @@ Hypothesis backlog (cheapest first; each names its mechanism):
    GPT-Live verdict needs >= 3 runs per arm compared by mean D; its A/A also spoke first once (anniversary), so
    `spoke_first` is a 1-in-4 noise event there, not a hard gate. Dessa scored on itself: D CI [0.05, 0.49], so D <= 0.15
    on 4 clips is at the bench's resolution limit. False cut-ins: GPT-Live 13.8 % both runs, Grok 20 % both; missed
-   takes 34 % / 47 %. Delegations: 0 in all four runs -> lane hypotheses do not move this bench. (d) is next.
+   takes 34 % / 47 %. Delegations: 0 in all four runs -> lane hypotheses do not move this bench.
+   DONE 11-20 (A2): (d) is `bench/dessa_latency.py RUN_DIR` over grok.timing trace marks (grok_leg.py). Run `a2-grok`
+   (D 1.587, gap median 1.115 s), 19 of 26 takes fully matched, stage medians [IQR]: human end -> speech_stopped
+   0.47 s [0.43, 0.50] (uplink + 100 ms batching + Grok's VAD silence window); speech_stopped -> response.created
+   0.40 s [0.34, 0.44] (Grok commits the buffer ~0.34 s after speech_stopped, then responds); created -> first audio
+   0.02 s; first audio -> voiced adapter frame 0.05 s; adapter frame -> recorder 0.20 s [0.196, 0.206] (WebRTC
+   downlink + recorder; constant, so likely a fixed buffer, inferred). ~0.87 s of the 1.12 s is Grok's server turn
+   timers: hypothesis 1 targets exactly that. The other 7 takes are later spurts of a response already playing (a pause
+   inside one answer that dessa_timing scores as a new take). New: 1b. find the 0.20 s downlink constant (aiortc
+   jitter/packetization vs the bench recorder) before trusting it as real-call latency.
 1. Grok: turn detection owned by z0live. Server VAD with `create_response: false`; z0live calls `response.create`
    after a short silence (start 200 ms) instead of Grok's fixed ~1 s timer. Mechanism: the tight 1.05..1.29 IQR is a timer.
 2. Grok: sweep the silence threshold (300/200/120 ms) with a semantic veto (transcript ends mid-clause -> wait).
