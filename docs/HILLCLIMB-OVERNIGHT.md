@@ -133,6 +133,10 @@ Hypothesis backlog:
    Warm turns are bimodal 2.5 / 5.2 s and decode is 3.8 tok/s vs 9.5 in llama-bench: the 4 GB tab was swapping (1.6 of
    2.1 GB swap used, hre-slm's embed server also resident; inferred). Run the S22 when it is back on adb. The probe's
    server must stay in its own session (setsid): a wireless-adb drop kills adbd's children, hre-slm's server included.
+   KEPT 11-20 (B7, measurement): S22 still off, S25 back on groot adb, so hyp 1 ran on the S25 (qwen3-1.7b, android
+   build, `-dev GPUOpenCL -ngl 99`, KEEP_MODEL=0): no-cache control 2.92 s (1,437 tok) -> warm median 0.18 s
+   [0.166..0.181], cold brief 2.33 s / 1,144 tok, thermal 0. The cache makes the S25 a sub-200 ms lane once the brief
+   is warm, so the brief should be prefilled at call start, before the first question (next: wire it, hyp 8 role split).
 2. Smaller lane prompt: compress persona + brief for phone lanes (a 300-token brief).
 3. Threads and core pinning: -t 2..6, --cpu-mask big cores (S22: 1 X2 + 3 A710; tab: 2 A76).
    KEPT 11-20 (B6): `-t 6` on the tab (qwen3-1.7b CPU, A-B-A vs -t 4): warm median 2.72 / 2.78 -> 2.39 s (-13 %),
