@@ -1,0 +1,13 @@
+diff --git a/tools/approval_gateway_wait.py b/tools/approval_gateway_wait.py
+--- a/tools/approval_gateway_wait.py
++++ b/tools/approval_gateway_wait.py
+@@ -265,6 +265,9 @@ def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict, *, s
++    # Only actual queued prompts get an ID. Coalesced and smart-only observations
++    # don't represent independently answerable requests.
++    payload["request_id"] = entry.data["request_id"]
+     from tools.human_input_hooks import human_input_request
+     with human_input_request("approval", prompt=payload["command"], session_key=session_key) as human:
+         # Plugins hear about the request before the gateway does (real-time observers).
+         _ctx._fire_approval_hook("pre_approval_request", **payload)
+         # Bridges sync agent thread → async gateway.
+         try:
