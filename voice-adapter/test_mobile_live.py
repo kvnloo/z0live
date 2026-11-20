@@ -19,6 +19,12 @@ os.environ.setdefault("HERMES_VOICE_ENGINE", "gpt-live")  # never the owner's la
 import mobile_live as live  # noqa: E402
 
 
+def setUpModule():
+    config = patch.object(live.guest_voice, "configured", return_value=None)
+    config.start()
+    unittest.addModuleCleanup(config.stop)
+
+
 class ChunkTests(unittest.TestCase):
     def test_dense_brief_never_exceeds_the_500_token_append_limit(self):
         # 11-20: a 1800-byte brief chunk of IDs/paths/numbers went over 500 tokens and the endpoint dropped it.

@@ -113,10 +113,26 @@ of each call. Changing it does not restart or affect an open call.
 {"guest": {"engine": "gpt-live", "profile": "tek", "name": "tek", "voice": "ember"}}
 ```
 
-Say “tek” or “teknium” in the turn you want tek to answer. An unnamed turn goes back to the primary. Both
-GPT-Live sessions use the host's Codex ChatGPT login, with separate WebRTC sessions and distinct voices.
-The phone plays one voice at a time. Each voice receives the other's spoken words as background, not a new
-request. Tek does not get the primary's chat history or its helper lanes.
+Address Tek as `tek`, `teknium`, `டெக்`, or `டெக்னியம்`. Both GPT-Live sessions use the host's Codex ChatGPT
+login but have separate WebRTC sessions and distinct voices. Tek does not get the primary's chat history or
+helper lanes.
+
+| Failure | Decision for two GPT-Live sessions |
+| --- | --- |
+| Tek loses the floor on a breath, pause, or `mm` | One call-local floor tracks the owner, reason, and start time. Provider turn boundaries and word timestamps drive the exchange. Mic onsets do not. An unnamed substantive turn after the reply returns to the primary. An explicit redirect can transfer the floor earlier. After 20 seconds idle, the floor returns to the primary unless Tek still has an answer in progress. |
+| A name is mentioned but not addressed | Accept a direct address at the start or within an utterance, such as `One thing, Tek, what shipped?`. `Tell Tek later` does not claim the floor. `Hermes, take this` or `back to Maya` redirects it. |
+| Late guest or primary delegation | Queue each answer on its own leg. Send it when that leg has the floor and the caller is quiet. Requeue a dispatched answer if the floor changes or the caller cuts it off before the reply finishes. The queue lives until the call closes. |
+| Both voices answer or a muted reply leaks into the app | One output track selects one leg, never mixes PCM, and keeps a suppressed reply muted through its end. The same decision filters assistant transcript events before they reach the app or call history. |
+| Echo and barge-in | Keep the phone's acoustic echo cancellation. Do not mute the mic during playback. Reject recent matching playback text and short backchannels as interruption evidence. Confirmed caller speech cuts the selected leg's audio and transcript and clears buffered guest PCM. Detection is limited by the subscription provider's transcript delay; the in-process probe does not test room acoustics. |
+| Guest transport dies | Keep the primary connected and queue one spoken disconnect notice. Transfer stranded guest answers to the primary with attribution. The guest Hermes host is still separate from the primary's chat. |
+| The sessions lose conversational context | Send accepted spoken lines to the other leg as silent developer notes, up to 1,500 characters per reply and 12,000 per destination per call. |
+| Two legs cost more CPU | Inspect and meter the mic once before fanning it out. Keep only the latest mic frame per leg. Skip guest resampling off-floor, use a view for peak detection, and reuse silence buffers. A Studio probe sample showed Opus encode/decode and resampling on the media path; it was not a production CPU comparison. |
+| A floor change is hard to explain | Read `floor.changed` for the speaker and reason, `floor.barge_in` for interruptions, and `floor.answer_queued` / `floor.answer_sent` for delivery. |
+
+In the 11:35 call, Tek claimed `Hey Tek` at 84.736 s. A 35 ms mic burst revoked it before the 87.029 s guest
+delegation. The primary speech at 105 s was the result of an older delegation. A silent leg can also keep one
+provider turn ID open across multiple exchanges. The adapter separates new speech by provider word timestamps
+so an old cumulative final cannot claim the floor again.
 
 Run the guest's API-only Hermes host separately from the primary host on `:8644`. From the repo root:
 
@@ -138,10 +154,11 @@ live config. `Z0LIVE_GUEST=off` disables the guest for that adapter process.
 To test without the phone, run `voice-adapter/context_probe.py` in-process with the guest host running and an
 alternate voices file. Set `HERMES_VOICE_ENGINE=gpt-live`, `PROBE_GAP=15`, `PROBE_LISTEN=55`, and
 `PROBE_ASK="Hey, can you hear me? || Tek, what's one thing you shipped this week? || Thanks. What's 12 times 12?"`.
-Use `PROBE_SAVE` and `PROBE_SAVE_IN` for the local phone and caller WAVs. Check both signaling answers and
-`session.started` events, `guest.floor`, and `guest.delegation.done` with the same session ID in the tek host
-log. `guest.failed` records guest setup errors; the primary continues alone. The probe's default delegation
-fixture covers only the primary, so guest delegations in this test use the real guest host.
+Use `PROBE_PAUSE=0.55` and put `~` inside a turn to insert a 550 ms pause. Use `PROBE_SAVE` and
+`PROBE_SAVE_IN` for local phone and caller WAVs. Check both signaling answers and `session.started` events.
+Match `guest.delegation.done` against the Tek host session, then check `floor.answer_sent`, the transcript,
+and the output audio. The probe's default fixture covers only the primary delegation. The guest uses the real
+Tek host.
 
 ## Pick the voice model
 

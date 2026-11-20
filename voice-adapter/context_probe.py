@@ -40,11 +40,12 @@ LISTEN_S = float(os.environ.get("PROBE_LISTEN", str(max(14, HERMES_DELAY + 10)))
 
 
 def speech(text: str, path: Path) -> bytes:
-    """The ask as 48 kHz PCM after SILENCE_S of silence. "A || B" asks A, waits PROBE_GAP seconds, then asks B."""
+    """Synthesize turns separated by || and optional within-turn pauses marked by ~."""
     import hashlib
+    pause = float(os.environ.get("PROBE_PAUSE", "0"))
     gap = bytes(int(48000 * 2 * float(os.environ.get("PROBE_GAP", "12"))))
-    parts = []
-    for ask in [a.strip() for a in text.split("||") if a.strip()]:
+
+    def render(ask):
         mp3 = path.with_name(f"probe-{hashlib.sha1(ask.encode()).hexdigest()[:8]}.mp3")
         if not mp3.exists():
             subprocess.run(["edge-tts", "--text", ask, "--write-media", str(mp3)], check=True, capture_output=True)
@@ -53,8 +54,22 @@ def speech(text: str, path: Path) -> bytes:
             for frame in container.decode(audio=0):
                 for out in resampler.resample(frame):
                     pcm.append(bytes(out.planes[0])[: out.samples * 2])
-        parts.append(b"".join(pcm))
-    return bytes(int(48000 * 2 * SILENCE_S)) + gap.join(parts) + bytes(48000 * 2 * 20)
+        return b"".join(pcm)
+
+    turns = []
+    for ask in (a.strip() for a in text.split("||") if a.strip()):
+        if pause and "~" in ask:
+            # TTS pads each clip. Trim before inserting the known gap.
+            import numpy as np
+            clips = []
+            for part in ask.split("~"):
+                samples = np.frombuffer(render(part.strip()), dtype=np.int16)
+                active = np.flatnonzero(np.abs(samples.astype(np.int32)) >= 120)
+                clips.append(samples[active[0]:active[-1] + 1].tobytes() if active.size else b"")
+            turns.append(bytes(int(48000 * 2 * pause)).join(clips))
+        else:
+            turns.append(render(ask))
+    return bytes(int(48000 * 2 * SILENCE_S)) + gap.join(turns) + bytes(48000 * 2 * 20)
 
 
 class Prompt(AudioStreamTrack):

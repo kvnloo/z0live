@@ -45,11 +45,6 @@ class GuestConfig:
     profile: str = ""
 
     @property
-    def names(self):
-        aliases = (self.name, "tek", "teknium") if self.profile == "tek" else (self.name,)
-        return re.compile(r"\b(?:" + "|".join(map(re.escape, aliases)) + r")\b", re.I)
-
-    @property
     def primary_note(self):
         return (f"A second voice, {self.name}, is on this call. When Kevin addresses {self.name} by name"
                 f"{' (including tek or teknium)' if self.profile == 'tek' else ''}, say nothing and do not "
