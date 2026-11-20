@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Full render in 5 s GPU pieces (exact frame count each, retried), joined, encoded to H.264 with the real call audio (out/mix.wav).
+# Run on groot from the crate dir. Usage: bash render.sh NAME   ->  out/NAME.mp4
+# (After glide-hackathon-v3/src/tools/render-pieces.sh.)
+set -e
+cd "$(dirname "$0")"
+export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
+B=${B:-/mnt/zer0models/workspace/zer0/data/operations/hermes-tern-showcase/target/release/z0live-live-demo-v2}
+NAME=${1:?Usage: bash render.sh NAME}; D=out/p-$NAME
+[ -e out/$NAME.mp4 ] && { echo "refusing: out/$NAME.mp4 exists"; exit 1; }
+mkdir -p "$D" out/tmp; : > "$D/list.txt"
+TOTAL=$(python3 -c "import json;print(int(json.load(open('demo.json'))['duration']*60))")
+for ((s=0; s*60<TOTAL; s+=5)); do
+  left=$((TOTAL - s * 60)); want=$(( left < 300 ? left : 300 ))
+  e=$(awk "BEGIN{print $s + $want/60 + 0.004}")
+  f=$D/p$s.mkv
+  for try in 1 2 3; do rm -f $f
+    systemd-run --user --quiet --collect --wait --pipe --slice=agent.slice -p MemoryMax=6G --working-directory=$PWD \
+      -E TMPDIR=$PWD/out/tmp $B render ${s}s..${e}s -o $f --renderer gpu > $D/p$s.log 2>&1 || true
+    n=$(ffprobe -v error -count_frames -select_streams v -show_entries stream=nb_read_frames -of csv=p=0 $f 2>/dev/null || echo 0)
+    [ "$n" -ge "$want" ] 2>/dev/null && break; echo "p$s try $try got '$n' want $want"; done
+  [ "$n" -ge "$want" ] || { echo FAIL p$s; exit 1; }
+  echo "file '$PWD/$f'" >> $D/list.txt
+done
+ffmpeg -v error -y -f concat -safe 0 -i $D/list.txt -map 0:v -c copy $D/pic.mkv
+# setpts + passthrough: -r 60 dropped 2 of 2040 frames on concat timestamp jitter (v1).
+ffmpeg -v error -y -i $D/pic.mkv -vf setpts=N/60/TB -fps_mode cfr -r 60 -c:v h264_nvenc -preset p5 -cq 18 -pix_fmt yuv420p -color_primaries bt709 \
+  -color_trc bt709 -colorspace bt709 -color_range tv -frames:v $TOTAL -movflags +faststart out/$NAME-pic.mp4
+ffmpeg -v error -y -i out/$NAME-pic.mp4 -i out/mix.wav -map 0:v -map 1:a -c:v copy -c:a aac -b:a 192k -shortest -movflags +faststart out/$NAME.mp4
+echo "frames $(ffprobe -v error -count_frames -select_streams v -show_entries stream=nb_read_frames -of csv=p=0 out/$NAME.mp4) want $TOTAL"
