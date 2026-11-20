@@ -31,9 +31,16 @@ setup() {  # $1 serial, $2 set -> echoes the device dir holding llama-bench and 
   adb -s "$s" shell chmod 755 "$D/llama-bench"
   echo "$D"
 }
+cleanup_device() {
+  adb -s "$1" shell 'cd /data/local/tmp/z0bench 2>/dev/null || exit 0
+    rm -f models/*.gguf
+    for set in all nohex gpu generic; do rm -f "$set/llama-bench" "$set/"*.so; done
+    rmdir models all nohex gpu generic 2>/dev/null || true
+    cd .. && (rmdir z0bench 2>/dev/null || true)'
+}
 run_device() {
   local s=$1 model prev=""; model=$(adb -s "$s" shell getprop ro.product.model | tr -d '\r')
-  adb -s "$s" shell rm -rf /data/local/tmp/z0bench  # v1 leftovers
+  cleanup_device "$s"
   declare -A ready=()
   for run in ${RUNS[$model]:-}; do
     local g=${run%%:*} set=${run##*:} D
@@ -58,7 +65,7 @@ except Exception:
 print(f"{sys.argv[2]:10} {sys.argv[3]:12} {sys.argv[4]:7} prefill {pp:7.1f} tok/s  decode {tg:6.1f} tok/s  ttft~{1024/pp:5.2f}s  {rows[0].get('backends','')}")
 EOF
   done
-  adb -s "$s" shell rm -rf /data/local/tmp/z0bench
+  cleanup_device "$s"
 }
 for s in $(adb devices | awk 'NR>1 && $2=="device"{print $1}'); do run_device "$s" & done
 wait

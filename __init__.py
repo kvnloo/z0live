@@ -1,29 +1,23 @@
-"""z0live as a Hermes plugin: see and steer the z0live voice stack from any Hermes chat.
+"""Hermes tools for a separately installed z0live voice stack.
 
-This repo is the plugin. `hermes plugins install https://github.com/kvnloo/z0live` copies the whole tree, so the
-voice adapter, lane server and `bin/z0live` ship with it; the services themselves are installed by
-`deploy/macos/install.sh` (launchd) and keep their own logins. Registered here:
-
-  z0live_status     voice engine, guest voice, lane models, lane server health, latest call's trace summary (read only)
-  z0live_configure  engine for the next call (gpt-live | grok), second voice (grok | off), lane models per tier
-  z0live_lanes      the helper-lane board in plain words ("gimme 2 fast lanes, 2 small, 2 large, one council")
-  /z0live-lanes     the same, as a chat command
-
-Nothing leaves the machine: the tools read z0live's local files, make one loopback GET to the lane server and may
-run this repo's own `bin/z0live`. No credentials are read.
+Status and configuration use local files and a lane-server health probe. The
+opt-in progress tool sends text to the local adapter, which passes it to the
+call's voice provider. See the README for the stack's privacy disclosure.
 """
 from __future__ import annotations
 
+import importlib
+import importlib.util
 import json
 import logging
 import os
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
+from http.client import HTTPConnection, HTTPException
 from pathlib import Path
 from typing import Any, Dict
+from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent
@@ -43,7 +37,7 @@ DEFAULTS = {
 }
 
 
-def _path(value: str) -> Path:
+def _path(value: str | Path) -> Path:
     return Path(os.path.expanduser(str(value)))
 
 
@@ -64,12 +58,21 @@ def _engine(lanes_file: Path) -> str:
 
 def _lane_server(url: str) -> str:
     try:
-        with urllib.request.urlopen(url.rstrip("/") + "/v1/ask", timeout=2):
-            return "up"
-    except urllib.error.HTTPError as exc:  # it answers GET with 404/405: listening
-        return "up" if exc.code in (404, 405, 501) else f"error {exc.code}"
-    except Exception as exc:  # noqa: BLE001
+        base = urlsplit(url)
+        if base.scheme != "http" or base.hostname not in ("127.0.0.1", "::1"):
+            return "unknown (lane_url must use loopback HTTP)"
+        conn = HTTPConnection(base.hostname, base.port, timeout=2)
+        try:
+            conn.request("GET", base.path.rstrip("/") + "/health")
+            with conn.getresponse() as response:
+                status = response.status
+        finally:
+            conn.close()
+    except (OSError, HTTPException, ValueError) as exc:
         return f"down ({type(exc).__name__})"
+    if status in (404, 405, 501):
+        return "unknown (/health not supported)"
+    return "up" if status == 200 else f"error {status}"
 
 
 def latest_call(traces: Path) -> Dict[str, Any]:
@@ -115,8 +118,10 @@ def make_status(cfg):
 
 def valid_tiers(tiers: Any) -> bool:
     return isinstance(tiers, dict) and bool(tiers) and all(
-        t in TIERS and isinstance(v, list) and v and all(isinstance(b, dict) and b.get("provider") and b.get("model")
-                                                          for b in v) for t, v in tiers.items())
+        t in TIERS and isinstance(v, list) and v and all(
+            isinstance(b, dict) and b.keys() == {"provider", "model"}
+            and all(isinstance(s, str) and s.strip() for s in b.values()) for b in v
+        ) for t, v in tiers.items())
 
 
 def _write_json(path: Path, value: Any) -> None:
@@ -130,33 +135,34 @@ def make_configure(cfg):
     def handle(args: Dict[str, Any], **_kw: Any) -> str:
         args, done = args or {}, {}
         try:
-            engine, guest = args.get("engine"), args.get("guest")
-            if engine and engine not in ENGINES:
+            engine, guest, reset = args.get("engine"), args.get("guest"), args.get("reset_tiers", False)
+            if "engine" in args and (not isinstance(engine, str) or engine not in ENGINES):
                 return json.dumps({"error": f"engine must be one of {sorted(ENGINES)}"})
-            if guest and guest not in GUESTS:
+            if "guest" in args and guest not in GUESTS:
                 return json.dumps({"error": f"guest must be one of {list(GUESTS)}"})
-            if "tiers" in args and args["tiers"] is not None and not valid_tiers(args["tiers"]):
+            if not isinstance(reset, bool) or (reset and "tiers" in args):
+                return json.dumps({"error": "pass reset_tiers=true to reset; do not also pass tiers"})
+            if "tiers" in args and not valid_tiers(args["tiers"]):
                 return json.dumps({"error": "tiers must map fast/medium/slow to [{provider, model}, ...]"})
             if engine:
                 cli = _path(cfg("z0live_repo") or ROOT) / "bin" / "z0live"
+                env = {**os.environ, "Z0LIVE_LANES": str(_path(cfg("lanes_file")).absolute())}
                 out = subprocess.run([sys.executable, str(cli), "engine", engine], capture_output=True, text=True,
-                                     timeout=30)
+                                     timeout=30, env=env)
                 if out.returncode != 0:
                     return json.dumps({"error": "z0live engine failed", "detail": out.stderr.strip()[-300:]})
                 done["engine"] = engine
             if guest:
                 _write_json(_path(cfg("voices_file")), {"guest": "" if guest == "off" else guest})
                 done["guest"] = guest
-            if "tiers" in args:
-                tiers_file = _path(cfg("tiers_file"))
-                if args["tiers"] is None:
-                    tiers_file.unlink(missing_ok=True)
-                    done["tiers"] = "defaults"
-                else:
-                    _write_json(tiers_file, args["tiers"])
-                    done["tiers"] = args["tiers"]
+            if reset:
+                _path(cfg("tiers_file")).unlink(missing_ok=True)
+                done["tiers"] = "defaults"
+            elif "tiers" in args:
+                _write_json(_path(cfg("tiers_file")), args["tiers"])
+                done["tiers"] = args["tiers"]
             if not done:
-                return json.dumps({"error": "nothing to change: pass engine, guest and/or tiers"})
+                return json.dumps({"error": "nothing to change: pass engine, guest, tiers or reset_tiers"})
             return json.dumps({"ok": True, "applied": done,
                                "note": "engine and guest apply from the next call; tiers from the next request"})
         except Exception as exc:  # a tool handler never raises
@@ -165,32 +171,64 @@ def make_configure(cfg):
     return handle
 
 
-def lanes(request: str = "") -> Dict[str, Any]:
-    """The helper-lane board, in words. Same parser as the voice intent (desktop/z0live_desktop/lanes_intent.py)."""
-    desktop = str(ROOT / "desktop")
-    if desktop not in sys.path:
-        sys.path.insert(0, desktop)
-    from z0live_desktop import lanes as board, lanes_intent
-    request = (request or "").strip()
-    if not request or request == "status":
-        live = board.Lanes()
-        return {"ok": True, **live.status(), "say": lanes_intent.describe(live.get())}
-    try:
-        return lanes_intent.apply(request[:500])
-    except ValueError as exc:
-        return {"ok": False, "error": str(exc)}
+def _desktop_module(name):
+    package = "_z0live_plugin_desktop"
+    if package not in sys.modules:
+        spec = importlib.util.spec_from_file_location(package, ROOT / "desktop/z0live_desktop/__init__.py")
+        if spec is None or spec.loader is None:
+            raise ImportError("z0live desktop package is missing")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        sys.modules[package] = module
+    return importlib.import_module(f"{package}.{name}")
 
 
-def lanes_tool(args: Dict[str, Any], **_kw: Any) -> str:
-    try:
-        return json.dumps(lanes((args or {}).get("request", "")))
-    except Exception as exc:  # a tool handler never raises
-        return json.dumps({"ok": False, "error": f"z0live_lanes failed: {type(exc).__name__}"})
+def make_lanes(cfg, installed):
+    def handle(args: Dict[str, Any], **_kw: Any) -> str:
+        try:
+            if not installed():
+                return json.dumps({"ok": False, "error": "z0live stack not configured"})
+            request = (args.get("request") or "").strip()
+            path = _path(cfg("lanes_file"))
+            intent = _desktop_module("lanes_intent")
+            if not request or request == "status":
+                live = intent.lanes.Lanes(path)
+                return json.dumps({"ok": True, **live.status(), "say": intent.describe(live.get())})
+            return json.dumps(intent.apply(request[:500], path=path))
+        except ValueError as exc:
+            return json.dumps({"ok": False, "error": str(exc)})
+        except Exception as exc:  # a tool handler never raises
+            return json.dumps({"ok": False, "error": f"z0live_lanes failed: {type(exc).__name__}"})
+    return handle
 
 
-def lanes_command(raw_args: str = "", invocation: Any = None) -> str:
-    result = json.loads(lanes_tool({"request": raw_args}))
-    return result.get("say") or result.get("error") or json.dumps(result)
+PROGRESS_TOKEN_ENV = "Z0LIVE_PROGRESS_TOKEN"
+PROGRESS_PORT = 9168
+
+
+def make_say(lines):
+    def handle(args: Dict[str, Any], *, session_id: str = "", **_kw: Any) -> str:
+        text = (args or {}).get("text")
+        if not isinstance(text, str) or text not in lines:
+            return json.dumps({"error": "Choose one of the stock progress lines"})
+        token = os.environ.get(PROGRESS_TOKEN_ENV)
+        if not token or not session_id:
+            return json.dumps({"error": "Voice progress is not configured for this Hermes session"})
+        conn = HTTPConnection("127.0.0.1", PROGRESS_PORT, timeout=2)
+        try:
+            conn.request("POST", "/_z0live/progress", json.dumps({"session_id": session_id, "text": text}),
+                         {"Content-Type": "application/json", "Authorization": f"Bearer {token}"})
+            with conn.getresponse() as response:
+                if response.status == 204:
+                    return json.dumps({"ok": True})
+                if response.status == 409:
+                    return json.dumps({"error": "No unique, ready live call for this Hermes session"})
+                return json.dumps({"error": f"Voice adapter rejected progress (HTTP {response.status})"})
+        except (OSError, HTTPException, ValueError):
+            return json.dumps({"error": "Voice progress adapter unavailable"})
+        finally:
+            conn.close()
+    return handle
 
 
 STATUS_SCHEMA = {
@@ -204,34 +242,62 @@ STATUS_SCHEMA = {
 CONFIGURE_SCHEMA = {
     "name": "z0live_configure",
     "description": ("Change z0live: the voice engine for the next call (gpt-live or grok), the second voice that "
-                    "answers when called by name (grok, or off), and/or the lane models per tier. tiers maps "
-                    "fast/medium/slow to lists of {provider, model} that race within the tier; tiers=null restores "
-                    "the defaults."),
-    "parameters": {"type": "object", "properties": {
+                    "answers when called by name (grok or off), and/or the adapter's fast/medium/slow model tiers. "
+                    "Models within each tier race. Set reset_tiers=true instead of tiers to restore defaults."),
+    "parameters": {"type": "object", "additionalProperties": False, "properties": {
         "engine": {"type": "string", "enum": sorted(ENGINES)},
         "guest": {"type": "string", "enum": list(GUESTS)},
-        "tiers": {"type": ["object", "null"], "description": "{fast|medium|slow: [{provider, model}, ...]}"},
+        "reset_tiers": {"type": "boolean"},
+        "tiers": {"type": "object", "additionalProperties": False, "properties": {
+            tier: {"type": "array", "minItems": 1, "items": {
+                "type": "object", "additionalProperties": False, "required": ["provider", "model"],
+                "properties": {key: {"type": "string", "minLength": 1} for key in ("provider", "model")},
+            }} for tier in TIERS
+        }},
     }},
 }
 LANES_SCHEMA = {
     "name": "z0live_lanes",
-    "description": ("Show or change z0live's helper-lane board in plain words. request: the owner's words, e.g. "
-                    "'gimme 2 fast lanes, 2 small, 2 large, one council' or 'make the large lanes Opus and Sonnet'; "
-                    "empty = show the active lanes."),
+    "description": ("Show or change the desktop broker's helper-lane board, separate from the adapter's model tiers. "
+                    "Pass the owner's words, e.g. 'gimme 2 fast lanes, 2 small, 2 large, one council'. "
+                    "Leave request empty for board status."),
     "parameters": {"type": "object", "properties": {"request": {"type": "string"}}, "additionalProperties": False},
 }
 
 
-def register(ctx) -> None:  # noqa: D401 - entry point required by Hermes
+def register(ctx) -> None:
+    """Register tools and the helper-board command with Hermes."""
     def cfg(key: str) -> str:
         return ctx.get_config(key, default=DEFAULTS[key])
 
+    def installed() -> bool:
+        return _path(cfg("lanes_file")).is_file() or _path(cfg("traces_dir")).is_dir()
+
+    def can_configure() -> bool:
+        return installed() and (_path(cfg("z0live_repo") or ROOT) / "bin/z0live").is_file()
+
+    lanes_tool = make_lanes(cfg, installed)
+
+    def lanes_command(raw_args: str = "", invocation: Any = None) -> str:
+        result = json.loads(lanes_tool({"request": raw_args}))
+        return result.get("say") or result.get("error") or json.dumps(result)
+
     ctx.register_tool(name="z0live_status", toolset=TOOLSET, schema=STATUS_SCHEMA, handler=make_status(cfg),
-                      description="z0live voice stack status (read only)", emoji="🎙️")
+                      check_fn=installed, description="z0live voice stack status (read only)", emoji="🎙️")
     ctx.register_tool(name="z0live_configure", toolset=TOOLSET, schema=CONFIGURE_SCHEMA, handler=make_configure(cfg),
-                      description="Pick the z0live voice engine, second voice and lane models", emoji="🎛️")
+                      check_fn=can_configure, description="Pick the z0live engine, second voice and model tiers",
+                      emoji="🎛️")
     ctx.register_tool(name="z0live_lanes", toolset=TOOLSET, schema=LANES_SCHEMA, handler=lanes_tool,
-                      description="Show or set z0live helper lanes in plain words", emoji="🎚️")
+                      check_fn=installed, description="Show or set the desktop helper-lane board", emoji="🎚️")
+    lines = _read_json(ROOT / "voice-adapter/progress_lines.json") or []
+    ctx.register_tool(name="z0live_say", toolset=TOOLSET, handler=make_say(lines),
+                      check_fn=lambda: bool(lines and os.environ.get(PROGRESS_TOKEN_ENV)),
+                      schema={"name": "z0live_say",
+                              "description": "Send a stock progress line to the live call for this Hermes session. "
+                                             "Use during work, not for the final answer.",
+                              "parameters": {"type": "object", "additionalProperties": False, "required": ["text"],
+                                             "properties": {"text": {"type": "string", "enum": lines}}}},
+                      description="Speak a progress line in the linked live call", emoji="🎙️")
     ctx.register_command("z0live-lanes", handler=lanes_command,
-                         description="Show or set z0live voice lanes (fast/small/large/council)",
+                         description="Show or set the desktop helper-lane board (fast/small/large/council)",
                          args_hint="[gimme 2 fast lanes, 2 small, 2 large, one council]")
