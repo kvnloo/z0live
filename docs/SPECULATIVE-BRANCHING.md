@@ -22,7 +22,9 @@ flowchart LR
     fork --> b1["Branch A<br/>fast lane guesses ending<br/>+ drafts answer"]
     fork --> b2["Branch B<br/>another fast lane,<br/>different guess"]
     fork --> b3["Branch C<br/>no-guess: answer<br/>the words so far"]
+    fork --> rs["Research lane (gather)<br/>read-only tools: search,<br/>files, screen. Prefetch facts"]
   end
+  rs --> ctx
 
   subgraph pick["The moment Kevin stops"]
     eot["End of turn<br/>(VAD + semantic check)"] --> judge{"Coalesce:<br/>which branch matches<br/>what he actually said?"}
@@ -66,6 +68,18 @@ sequenceDiagram
   V->>K: "About eleven kilometres, at Challenger Deep." (no filler)
   Z->>Z: tier race + Hermes continue; speak only if they add something
 ```
+
+## The research lane (gather)
+
+The tier lanes answer from model memory; the gather lane is the one helper with tools. In branching it is the
+fact-fetching branch: it starts a read-only lookup as soon as the topic is clear mid-sentence, writes what it finds
+to the shared context (blackboard) rather than to the voice, and serves as the check for risky kinds (math, live data,
+gather), using the existing pre-speak gate (`lanes.py`: gate_kinds math/hard/gather, gate_ms 800). On a guess it
+only reads: nothing that acts runs until the turn has ended and Hermes confirms. Lookups take seconds, so its result
+usually lands after Kevin stops and is spoken only if it adds something.
+
+Current state (inferred from code): with `Z0LIVE_TIERS=on` (the Studio install) the tier race replaces the older
+instant/Fable/core-relay lanes, so the gather lane is likely not running on live calls today.
 
 ## Measured numbers this rests on (2026-11-19/20)
 
