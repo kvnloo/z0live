@@ -12,10 +12,12 @@ import wave
 import av
 
 LOG = logging.getLogger(__name__)
+_TAMIL_NO = "(?:இல்லை|இல்ல|illai|illa)"
 _REACTION_MARKERS = {
     "correction": (
+        # "No" corrects only turn-initially or before a comma; inside a sentence it is plain negation.
         r"no(?= *,)", "i meant", "wait", "that's not",
-        "இல்ல", "இல்லை", "illa", "illai", "நான் சொன்னது", "naan sonnadhu", "naan sonnathu",
+        rf"^{_TAMIL_NO}", rf"{_TAMIL_NO}(?= *,)", "நான் சொன்னது", "naan sonnadhu", "naan sonnathu",
         "காத்திரு", "kaathiru", "kathiru",
     ),
     "frustration": (

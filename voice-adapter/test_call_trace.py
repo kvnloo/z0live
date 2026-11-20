@@ -161,6 +161,9 @@ class CallTraceTests(unittest.IsolatedAsyncioTestCase):
             ("இல்லை, use blue DEI.", True, True),
             ("விருப்பம் இல்லாமல் காத்திருந்து சொல்லுங்கள்", False, False),
             ("illustration and deities", False, False),
+            # "No" inside a sentence is plain negation, as in English ("I have no time").
+            ("எனக்கு நேரம் இல்லை", False, False),
+            ("enakku neram illa", False, False),
         )
         for text, _, _ in cases:
             self.user(call, text)
