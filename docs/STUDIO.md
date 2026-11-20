@@ -11,8 +11,11 @@ copy keeps working from its own tree; nothing here depends on groot.
 | `com.zer0.z0live.hermes` | `desktop/hermes_host.py` | 127.0.0.1:8644 | API-only Hermes host the core's lanes call |
 | `com.zer0.z0live.voice` | `voice-adapter/mobile_live.py` | 127.0.0.1:9168 | Hermes app Live Voice over the ChatGPT subscription (codex login) |
 | `com.zer0.z0live.proxy` | `voice-adapter/dashboard_proxy.py` | 100.100.77.46:9165 | Phone entry: voice-live paths to :9168, all else to the dashboard on :9119 |
+| `com.zer0.z0live.lanes` | `voice-adapter/lane_server.py` | 127.0.0.1:8646 | Plain model calls for the adapter's model lanes |
+| `com.zer0.z0live.gemma` (optional) | `llama-server` | 127.0.0.1:8650 | Local Gemma 4 E4B inference |
 
-All four start at login, restart on exit (`KeepAlive`, 10 s throttle) and log to `~/Library/Logs/z0live/<label>.log`.
+LaunchAgents start at login, restart on exit (`KeepAlive`, 10 s throttle), and log to
+`~/Library/Logs/z0live/<label>.log`.
 
 Call path: Hermes app → `http://100.100.77.46:9165` → proxy → adapter → GPT-Live (`gpt-live-1-codex`) over
 the codex ChatGPT login. Delegated work runs `hermes -p <app profile> chat` on the Studio. Lane turns go
@@ -24,8 +27,8 @@ adapter → core `/v1/lanes/turn` with the relay token.
 ~/workspace/repos/z0live/deploy/macos/install.sh
 ```
 
-Idempotent. It builds `voice-adapter/.venv` from `requirements.lock` on Hermes's bundled Python 3.14, writes
-the four plists, pairs the relay token once and re-registers each job.
+Do not run the installer during a call. It builds `voice-adapter/.venv` from `requirements.lock`, pairs the
+relay token once, and re-registers each job.
 
 ## State and secrets
 
@@ -103,6 +106,37 @@ restores the older instant/Fable/relay lanes.
 Check one request end to end (real GPT-Live, synthetic speech, real lanes, Hermes faked after 20 s):
 `PROBE_HERMES_DELAY=20 PROBE_ASK="Can you find out how deep the Mariana Trench is?" Z0LIVE_TIERS=on ... context_probe.py`;
 the receipt's `spoken` lists when each part was said, and the trace has `lanes.tier` / `lanes.spoken` rows.
+
+### Opt in to the Gemma fast lane
+
+`install.sh` registers `com.zer0.z0live.gemma` when both prerequisites exist:
+
+- Executable `~/.local/opt/llama.cpp/b12527/llama-b12527/llama-server` with Metal support.
+- Readable `~/.local/share/z0live/models/gemma4-e4b.gguf` (Gemma 4 E4B Q4_0).
+
+The LaunchAgent uses Metal for all layers, two slots, and an in-memory prompt cache. Verify startup with
+`curl -fsS http://127.0.0.1:8650/health`. Expect `{"status":"ok"}`.
+
+The `local` provider in `lane_server.py` reads `Z0LIVE_LOCAL_BASE_URL` at startup. It defaults to
+`http://127.0.0.1:8650/v1`. Set a different loopback HTTP API base URL in the lane server's environment only
+if needed. `first_s` measures the first visible streamed text; `/v1/ask` returns after generation completes.
+
+After the coordinator deploys the new lane server, use [the proposed tiers file](examples/tiers-gemma.json)
+to opt in. It races Gemma against three Haiku 5.5 calls and leaves medium and slow at their repo defaults.
+Back up any existing `~/.config/z0live/tiers.json` before replacing it. Restore the previous file to roll
+back, or remove the override if you were using the repo defaults. The installer does not edit this file.
+
+To check the text lane without touching the live adapter, start a separate `lane_server.py` under the
+Hermes runtime with `Z0LIVE_LANE_PORT=18646`. From `voice-adapter/`, run both checks against that port:
+
+```sh
+export Z0LIVE_LANE_URL=http://127.0.0.1:18646/v1/ask
+.venv/bin/python slm_bench.py --hosted local:gemma4-e4b
+.venv/bin/python bench/gemma_race.py
+```
+
+The race check compares the proposed fast tier to the same three Haiku lanes without Gemma. It sends only
+fictional context and measures time to the first usable text reply, not time to speech.
 
 ## Two voices on one call
 
