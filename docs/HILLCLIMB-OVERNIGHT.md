@@ -80,6 +80,13 @@ Hypothesis backlog (cheapest first; each names its mechanism):
    -0.003 s [-0.011, +0.007], no drift. Pre-A5 D values are not comparable; first fixed-bench GPT-Live run `a5fix` D
    1.423 (median 1.14 s, waits > 1 s 64.5 %, bc 1.5/min, spoke_first 1). Re-baseline both engines (>= 3 GPT-Live runs)
    before the next engine change. Grok's xAI client_secrets returned HTTP 403 at 03:35 (worked at 02:53).
+   DONE 11-20 (A6, GPT-Live re-baseline on the fixed bench): 3 runs (a5fix, a6rb1, a6rb2) D 1.423 / 1.535 / 1.153,
+   mean 1.370, sd 0.20; median gap mean 1.12 s (1.14 / 1.215 / 1.015), waits > 1 s 58.8 %, bc 1.29/min, false
+   cut-in 18.6 % (16.1 / 14.7 / 25.0), missed take 30.7 %, spoke_first 0 in both new runs, delegations 0-1. With sd
+   0.20 a 3-vs-3 comparison resolves only a mean-D drop of about 0.3 (2 x SE of the difference, 0.16): GPT-Live
+   changes worth less than that need 5+ runs per arm. The GPT-Live baseline for later rows is mean D 1.370. Grok
+   still gets xAI client_secrets HTTP 403 at 04:30 (all 4 calls), so it has no fixed-bench baseline and every Grok
+   hypothesis is blocked until Kevin restores the xAI login (Hermes `xai` auth; not a bench fault).
 1. Grok: turn detection owned by z0live. Server VAD with `create_response: false`; z0live calls `response.create`
    after a short silence (start 200 ms) instead of Grok's fixed ~1 s timer. Mechanism: the tight 1.05..1.29 IQR is a timer.
    REVERTED 11-20 (A3): xAI ignores `create_response: false` (pydantic-ai docs), so z0live cannot own the reply;
