@@ -76,6 +76,10 @@ Hypothesis backlog (cheapest first; each names its mechanism):
    the lever left is `silence_duration_ms`. 200 ms made it worse: human end -> speech_stopped 0.47 -> 0.72 s, D 1.587 ->
    1.971, dD +0.39 [+0.17, +0.63]. Grok's unset default is already shorter than 200 ms; hyp 2 sweeps downward (100/50).
 2. Grok: sweep the silence threshold (300/200/120 ms) with a semantic veto (transcript ends mid-clause -> wait).
+   REVERTED 11-20 (A4): 50 ms gave D 1.587 -> 1.743, dD +0.16 [-0.04, +0.39]; human end -> speech_stopped 0.58 s
+   vs 0.47 unset and 0.72 at 200 ms. Any explicit value is slower than leaving it unset, and speech_stopped ->
+   response.created stays ~0.39 s whatever the window. Closed: the silence window is not a lever. Grok's ~0.87 s of
+   server timers can only be hidden (hyp 3, speculative reply) or filled (hyp 4, backchannels), not tuned.
 3. Speculative reply: request the reply at the first short pause, hold its audio until silence is confirmed, cancel if
    the human resumes (reversible playback). Mechanism: hides generation latency inside the pause.
 4. Backchannels: during human turns > 3 s, at 150-400 ms micro-pauses with an incomplete clause, play a short
