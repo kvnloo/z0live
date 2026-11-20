@@ -94,6 +94,12 @@ tab CPU 26.7-32.8 s; tab Vulkan (custom NDK build of b12527) segfaults right aft
 
 Hypothesis backlog:
 1. Prefix cache: keep the brief in the KV cache (llama-server cache_prompt + a fixed slot). Expected S22 ~16 s -> < 1 s.
+   PROBE 11-20 (B2): `bench/phone_lane_probe.sh SERIAL MODEL` (run on groot) is the lane-latency harness. S22 was off
+   adb (wireless debugging off), so it ran on the tab, Qwen3-1.7B CPU: no-cache control 42.3 s -> warm median 2.80 s
+   (5 turns, 23-25 new tokens each; cold brief 37.8 s / 1,168 tokens). TTFT == server prompt_ms, so adb adds ~0.
+   Warm turns are bimodal 2.5 / 5.2 s and decode is 3.8 tok/s vs 9.5 in llama-bench: the 4 GB tab was swapping (1.6 of
+   2.1 GB swap used, hre-slm's embed server also resident; inferred). Run the S22 when it is back on adb. The probe's
+   server must stay in its own session (setsid): a wireless-adb drop kills adbd's children, hre-slm's server included.
 2. Smaller lane prompt: compress persona + brief for phone lanes (a 300-token brief).
 3. Threads and core pinning: -t 2..6, --cpu-mask big cores (S22: 1 X2 + 3 A710; tab: 2 A76).
 4. Quantization: Q4_0 (ARM repack) vs Q4_K_M vs IQ4_NL; KV cache q8_0; flash attention on/off.
