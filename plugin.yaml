@@ -2,8 +2,9 @@ name: z0live
 version: "0.2.0"
 manifest_version: 1
 kind: standalone
-description: "z0live is a self-hosted realtime voice stack beside Hermes: GPT-Live or Grok Voice, a second voice that answers by name, and fast/medium/slow model lanes that answer while Hermes works. This repo is the plugin: tools to see and steer the stack (z0live_status, z0live_configure, z0live_lanes) and /z0live-lanes. Nothing leaves the machine."
+description: "Hermes tools for a separately installed z0live voice stack: inspect status, change the engine and model tiers, edit the desktop helper-lane board, or send stock progress lines to a live call. The stack can send audio and context to hosted providers and retain transcripts locally. See the README privacy disclosure."
 author: "Kevin Rajan"
+# TODO(Kevin): Reconcile this field with LICENSE (GNU GPL v3).
 license: MIT
 homepage: "https://github.com/kvnloo/z0live"
 tags: ["voice", "realtime", "gpt-live", "grok", "lanes", "z0live"]
@@ -15,6 +16,6 @@ config_schema:
   tiers_file: {type: str, default: "~/.config/z0live/tiers.json", label: "Lane tiers override", description: "fast/medium/slow model lists; absent = z0live defaults"}
   voices_file: {type: str, default: "~/.config/z0live/voices.json", label: "Second voice", description: "{\"guest\": \"grok\"} adds Grok to GPT-Live calls"}
   traces_dir: {type: str, default: "~/.local/share/z0live/voice-traces", label: "Call traces", description: "Per-call JSONL event traces written by the voice adapter"}
-  lane_url: {type: str, default: "http://127.0.0.1:8646", label: "Lane server", description: "Loopback URL of z0live's lane_server.py"}
-provides_tools: ["z0live_status", "z0live_configure", "z0live_lanes"]
+  lane_url: {type: str, default: "http://127.0.0.1:8646", label: "Lane server", description: "HTTP URL on 127.0.0.1 or [::1] for the lane server's /health probe"}
+provides_tools: ["z0live_status", "z0live_configure", "z0live_lanes", "z0live_say"]
 provides_hooks: []

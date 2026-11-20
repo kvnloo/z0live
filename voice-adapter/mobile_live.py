@@ -1,7 +1,8 @@
 """Subscription voice compatibility adapter for the official Hermes mobile client.
 
-The dashboard remains the authentication authority. Call traces stay local.
-Codex signaling contract: z0live/OMP Frameless Bidi (client delegation only).
+The dashboard authenticates mobile calls. The adapter sends audio and context to
+voice providers and writes local traces that may include transcripts.
+Codex signaling uses the z0live/OMP Frameless Bidi contract.
 """
 from __future__ import annotations
 
@@ -1709,8 +1710,11 @@ async def resources(app):
 
 
 def make_app():
+    from live_progress import PATH, progress
+
     app = web.Application(client_max_size=512 * 1024)
     app.cleanup_ctx.append(resources)
+    app.router.add_post(PATH, progress)
     app.router.add_get("/api/audio/voice-live/status", status)
     app.router.add_post("/api/audio/voice-live/session", session)
     app.router.add_get("/api/audio/voice-live/diagnostics", diagnostics)
