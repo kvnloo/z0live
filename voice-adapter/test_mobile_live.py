@@ -40,6 +40,14 @@ class ChunkTests(unittest.TestCase):
         self.assertEqual("".join(parts), s)
         self.assertTrue(all(len(p.encode("utf-8")) <= 500 for p in parts))
 
+    def test_tamil_chunks_use_utf8_bytes_not_code_points(self):
+        text = "தமிழ்" * 40
+        self.assertEqual((len(text), len(text.encode("utf-8"))), (200, 600))
+
+        parts = live.chunks(text)
+        self.assertEqual("".join(parts), text)
+        self.assertEqual([len(part.encode("utf-8")) for part in parts], [498, 102])
+
 
 class ProtocolTests(unittest.TestCase):
     def test_delegation_is_mapped_once_after_user_transcript(self):

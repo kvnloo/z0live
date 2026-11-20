@@ -6,13 +6,29 @@ import logging
 import os
 import re
 import time
+import unicodedata
 import wave
 
 import av
 
 LOG = logging.getLogger(__name__)
-CORRECTION = re.compile(r"\b(?:no\s*,|i meant\b|wait\b|that's not\b)")
-FRUSTRATION = re.compile(r"\bbro\b|\bi already told you\b|\bwhat\s*\?")
+_REACTION_MARKERS = {
+    "correction": (
+        r"no(?= *,)", "i meant", "wait", "that's not",
+        "இல்ல", "இல்லை", "illa", "illai", "நான் சொன்னது", "naan sonnadhu", "naan sonnathu",
+        "காத்திரு", "kaathiru", "kathiru",
+    ),
+    "frustration": (
+        "bro", "already told", r"what(?= *\?)",
+        "டேய்", "dei", "daei", "ஏற்கனவே சொன்னேன்", "erkanave sonnen", "yerkanave sonnen",
+    ),
+}
+# Python's \w excludes Tamil combining marks, including vowel signs and the pulli.
+_REACTION_WORD_CHAR = r"[\w\u0b82\u0bbe-\u0bcd\u0bd7]"
+_REACTION_PATTERNS = {
+    label: re.compile(rf"(?<!{_REACTION_WORD_CHAR})(?:{'|'.join(markers)})(?!{_REACTION_WORD_CHAR})")
+    for label, markers in _REACTION_MARKERS.items()
+}
 TOKENS = re.compile(r"\b\w+(?:'\w+)*\b")
 RATE = 16000
 
@@ -83,8 +99,9 @@ class Trace:
         tokens = set(TOKENS.findall(normalized))
         repeat = any(len(tokens & old) / len(tokens | old) >= 0.6 for old in self.previous if tokens or old)
         self.previous.append(tokens)
+        reaction_text = unicodedata.normalize("NFC", normalized)
         self("user.reaction", turn_id=self.turn_id, barge_in=self.barge_in, repeat=repeat,
-             correction=bool(CORRECTION.search(normalized)), frustration=bool(FRUSTRATION.search(normalized)))
+             **{label: bool(pattern.search(reaction_text)) for label, pattern in _REACTION_PATTERNS.items()})
         self.turn_open = self.barge_in = False
 
     def bind_delegation(self, did):

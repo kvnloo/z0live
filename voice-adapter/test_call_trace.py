@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import struct
 import tempfile
+import unicodedata
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 import wave
@@ -140,6 +141,34 @@ class CallTraceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.rows("user.reaction")[-1]["repeat"])
         self.assertTrue(rows[5]["correction"] and rows[5]["frustration"])
         self.assertFalse(rows[-1]["correction"] or rows[-1]["frustration"])
+
+    async def test_reaction_markers_in_tamil_and_mixed_turns(self):
+        call = await self.make_call()
+        cases = (
+            ("இல்ல, use blue", True, False),
+            ("இல்லை.", True, False),
+            ("ILLA, use blue", True, False),
+            ("நான் சொன்னது blue", True, False),
+            ("NAAN  SONNADHU blue", True, False),
+            ("காத்திரு!", True, False),
+            ("KAATHIRU!", True, False),
+            ("Wait, ஒரு நிமிடம்", True, False),
+            ("டேய்!", False, True),
+            ("ஏற்கனவே சொன்னேன்.", False, True),
+            (unicodedata.normalize("NFD", "ஏற்கனவே சொன்னேன்."), False, True),
+            ("ERKANAVE SONNEN.", False, True),
+            ("already told him, நண்பா", False, True),
+            ("இல்லை, use blue DEI.", True, True),
+            ("விருப்பம் இல்லாமல் காத்திருந்து சொல்லுங்கள்", False, False),
+            ("illustration and deities", False, False),
+        )
+        for text, _, _ in cases:
+            self.user(call, text)
+        rows = self.rows("user.reaction")
+        self.assertEqual(len(rows), len(cases))
+        for (text, correction, frustration), row in zip(cases, rows):
+            with self.subTest(text=text):
+                self.assertEqual((row["correction"], row["frustration"]), (correction, frustration))
 
     async def test_barge_in_uses_audible_output_at_input_onset(self):
         call = await self.make_call()
