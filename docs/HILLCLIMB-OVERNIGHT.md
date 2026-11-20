@@ -113,6 +113,15 @@ Hypothesis backlog (cheapest first; each names its mechanism):
    too (pre-existing; new item 11). context_probe on the deployed persona: all_pass (delegates "look at my screen").
 11. GPT-Live speaks a lone "Mm-hm" (or a noise token) ~1.6 s into 1 in 5 replay calls, before the human says anything.
     Find the trigger (context append, lead-in silence, or the recorder's first frames) before it reaches a real call.
+    KEPT 11-20 (A8, 879f816 + 66ad1f1, deployed ~07:10): the provider itself opens an assistant turn at its own
+    t = 400 ms while the persona context lands (context.appended 200..1200 ms), in 8 of 36 pre-A8 replay calls
+    (3/4 in a7p2; transcripts " Mm-h", " [sn", " He Hey"); the energy check flagged only some. It already reached a real
+    call (11-19 21:05, "He Hey" before Kevin spoke). Not a recorder artifact. Fix: AudioBridge zeroes output audio and
+    the adapter drops output transcripts until the phone sends sound (Level onset) or the provider transcribes caller
+    speech. 3 runs (a8g1-3): 3 early provider turns in 12 calls, all silenced, spoke_first 0/12; D 0.869 / 1.057 /
+    1.162, mean 1.029 vs 0.997 (+0.03, noise; sd 0.20); false cut-in 18.0 %, missed take 28.1 %. context_probe 6/6
+    all_pass (the first probe, before the transcript half, failed on a gated "Yeah," still sent as text). Open: the
+    gated turn still lands in the call's exchange log; a greeting-first design would need a different gate.
 7. GPT-Live: drop or delay the z0live context items that arrive mid-turn (they can stall the response).
 8. Fully local engine "local": LFM2.5-Audio-1.5B (Liquid; ASR + TTS in one model, llama.cpp runners for macOS and
    Android) for speech in/out, Silero/energy VAD + smart-turn, a fast local SLM (Gemma 4 E4B on Studio) for the reply,
