@@ -22,6 +22,7 @@ for s in $(seq 0 5 $((LEN - 1))); do
   echo "file '$PWD/$f'" >> $D/list.txt
 done
 ffmpeg -v error -y -f concat -safe 0 -i $D/list.txt -map 0:v -c copy $D/pic.mkv
-ffmpeg -v error -y -i $D/pic.mkv -r 60 -c:v h264_nvenc -preset p5 -cq 18 -pix_fmt yuv420p -color_primaries bt709 \
+# setpts + passthrough: -r 60 dropped 2 of 2040 frames on concat timestamp jitter (v1).
+ffmpeg -v error -y -i $D/pic.mkv -vf setpts=N/60/TB -fps_mode cfr -r 60 -c:v h264_nvenc -preset p5 -cq 18 -pix_fmt yuv420p -color_primaries bt709 \
   -color_trc bt709 -colorspace bt709 -color_range tv -frames:v $TOTAL -movflags +faststart out/$NAME.mp4
 echo "frames $(ffprobe -v error -count_frames -select_streams v -show_entries stream=nb_read_frames -of csv=p=0 out/$NAME.mp4) want $TOTAL"
