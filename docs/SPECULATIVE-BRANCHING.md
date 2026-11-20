@@ -119,6 +119,75 @@ and filler rate drop and correctness (slm-v1-style grading of the spoken answer)
 Cheapest experiment first (offline, no live call): item 2's cut-at-last-pause replay on recorded turns, reporting
 the hit rate for Branch C alone versus with guessed endings.
 
-## Advisor critique
+## Advisor critique (Fable advisor, 2 consults, 2026-11-20)
 
-(Fable advisor review pending; added below when it lands.)
+I checked the code, the overnight doc and one real-call trace (`2026-11-19/211722`). The advisor reviewed it twice. Not checked: the gap from user `turn.done` to `delegation.created`, and whether filler is the provider's own habit. I didn't open a trace with a lane answer.
+
+**Holes, most likely to sink the idea first**
+
+1. **There is no way to speak a draft at end of turn.**
+   - The only speak path is `speak_for`, which sends `delegation.context.append`. It needs a `did` already in `seen` (`mobile_live.py:460,467`).
+   - That `did` exists only after the voice itself emits `delegation.created` (`:429-443`).
+   - Hand-off is ~1.5 s after Kevin stops, and lanes land 1.3-2.2 s after that in the cited take. That wait is the most speculation can save; the 1.5 s stays.
+   - `from_mobile` could build a did-less item (`:462-471`), but nothing calls it that way, so that route is unproven. The `commentary` channel is "silent context" per the persona (`:172-173`).
+   - **Falsifier:** a did-less append at user `turn.done` that the voice speaks cleanly.
+2. **The voice may re-voice the draft, or stall anyway.**
+   - The persona says "Present an Agent Final Message as your own" (`:173-174`), so the draft is rephrased, not injected verbatim.
+   - Filler may come with the hand-off itself. The persona has no "I'll check" line in what I read. `:172` ("do not claim work happened until the client returns") could prompt it. The cause is unknown.
+   - **Falsifier:** the oracle experiment below. Filler persists even with a ready answer.
+3. **Mid-turn injection is untried, and the nearest evidence is a warning.**
+   - Overnight A8 saw GPT-Live open its own turn while context landed (8 of 36 calls). That was at call start, not mid-turn.
+   - Hypothesis 7 (mid-turn items) is marked untested, and the comment at `:782` says live items got answered.
+   - Pre-hand-off injection is the only way to beat the hand-off wait, and it is the unmeasured risk.
+   - **Falsifier:** 10 calls with a mid-turn commentary item and no early speech.
+4. **Few turns can use a draft, and most forks are wasted.**
+   - Forks would fire on every pause. Only delegated, non-SKIP turns benefit.
+   - `tiers.SYSTEM` makes lanes SKIP tools, live data, actions and personal facts (`tiers.py:37-43`).
+   - The persona sends facts, lookups and actions to delegation (`:169`), so speculation is aimed at the right turns.
+   - The usable rate is unmeasured.
+   - **Falsifier:** fewer than ~30% of real delegations get a non-SKIP fast answer.
+5. **The proposal's measurement plan can't see the effect.**
+   - The doc says "lane hypotheses do not move this bench". Dessa replays had 0-1 delegations per run.
+   - GPT-Live's D has sd 0.20, so it needs 3+ runs per arm to resolve about 0.3.
+   - Filler rate and hit rate don't exist yet.
+   - I infer, without checking `dessa_timing.py`, that D scores filler as a fast floor-take. That would reward the filler the idea removes.
+6. **Matching guessed endings is the weakest link.**
+   - The words that decide the answer come last.
+   - `request` is the voice's paraphrase (`:443`), not Kevin's transcript. Matching a guess against it is fuzzy.
+   - A false match speaks a confident wrong answer with no filler.
+   - Partials do arrive word by word during speech (the trace shows ~0.1-0.4 s lag), so there is something to fork on.
+   - **Falsifier:** an offline hit rate on logged delegations. Under ~50% means forks rarely win.
+
+**Cheapest experiment: oracle injection**
+- Script about 10 delegating questions. The Dessa clips have none.
+- Env-gate a canned correct answer in `host_delegate` and call `say_first(did, canned)` at t=0.
+- Run a control arm of the same questions through today's path.
+- Measure filler present, and time from user end to first answer word.
+- Kill line: filler persists, or the gain is under ~1 s. That is the upper bound for any speculation.
+- Optional arm: the same text as a did-less append at `turn.done`.
+
+**Simpler alternative: eager launch**
+- Start the fast tier at the user's final transcript, not at `delegation.created`.
+- Today `lane_final` already runs at user `turn.done` (`:710-711`), but `tier_lanes` starts only inside `host_delegate` (`:880`).
+- A 1.0-1.4 s lane then lands about when the voice hands off. There are no guesses and no judge.
+- It dominates if the final transcript lands ≥1 s before hand-off. Read the `turn.done` → `delegation.created` gap in the traces to decide.
+- If the voice's filler is persona-driven, a persona edit may do more still. A7 shows persona edits move GPT-Live.
+
+**Keep**
+- Branch C (no guess, answer the words so far). It is eager launch.
+- The fallback to the tier race plus Hermes.
+- The two new metrics: filler rate and hit rate.
+- Timing speculation (overnight hypothesis 3, hold audio and cancel on resume) for the local engine, where z0live owns the endpointer.
+
+I dropped the claim that Grok has no delegation path. `grok_leg.py:7,181` routes `ask_hermes` and `delegation.created`, so the engines share the hand-off structure.
+
+## Checked after the critique (measured, 2026-11-20)
+
+The advisor's "eager launch at the user's final transcript" depends on the final transcript (user `turn.done`)
+arriving at least 1 s before the hand-off. Across 40 hand-offs in the Studio traces and demo take 2, the user's
+`turn.done` arrives a median **0.42 s after** `delegation.start` (37 of 40 after; range -8.75..+2.44 s). So launching
+at `turn.done` is later than today, not earlier: that variant is falsified. What remains is launching on the
+word-by-word partial transcript (`input_transcript.added`, ~0.1-0.4 s behind speech) when the caller's audio stops,
+about 1.1-1.4 s before the voice hands off. That is Branch C on partials, and the oracle-injection experiment above
+bounds how much of that saving the voice can actually use.
+
