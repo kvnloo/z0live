@@ -367,13 +367,27 @@ def codex_headers() -> dict[str, str]:
     }
 
 
-def chunks(text: str, limit: int = 500) -> list[str]:
+# The subscription endpoint rejects a context append over 500 tokens ("Context append text must not exceed 500
+# tokens") and drops that piece. A token is at least one UTF-8 byte, so <= 500 bytes can never exceed it, whatever
+# the text (dense IDs, paths and numbers run ~2 bytes/token, so a 1800-byte brief chunk failed on 11-20).
+MAX_APPEND_BYTES = 500
+
+
+def chunks(text: str, limit: int = MAX_APPEND_BYTES) -> list[str]:
+    """Split text into pieces of at most min(limit, MAX_APPEND_BYTES) UTF-8 bytes, preferring line/word breaks."""
+    limit = max(1, min(limit, MAX_APPEND_BYTES))
     result, current, size = [], "", 0
     for char in text:
         n = len(char.encode("utf-8"))
         if size + n > limit:
-            result.append(current)
-            current, size = "", 0
+            cut = max(current.rfind("\n"), current.rfind(" "))
+            if cut > len(current) // 2:  # break at a line/word boundary when one is reasonably close
+                result.append(current[: cut + 1])
+                current = current[cut + 1:]
+            else:
+                result.append(current)
+                current = ""
+            size = len(current.encode("utf-8"))
         current += char
         size += n
     if current:

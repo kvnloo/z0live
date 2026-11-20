@@ -16,6 +16,22 @@ os.environ.setdefault("HERMES_VOICE_ENGINE", "gpt-live")  # never the owner's la
 import mobile_live as live  # noqa: E402
 
 
+class ChunkTests(unittest.TestCase):
+    def test_dense_brief_never_exceeds_the_500_token_append_limit(self):
+        # 11-20: a 1800-byte brief chunk of IDs/paths/numbers went over 500 tokens and the endpoint dropped it.
+        dense = "\n".join(f"- commit 3d4363a{i:04d} ~/.local/share/z0live/bench/x{i}.json p=0.{i:03d} ✓ é" for i in range(300))
+        parts = live.chunks(dense, 1800)
+        self.assertEqual("".join(parts), dense)  # lossless
+        self.assertTrue(all(len(p.encode("utf-8")) <= live.MAX_APPEND_BYTES for p in parts))
+        self.assertTrue(all(p.endswith(("\n", " ")) for p in parts[:-1]))  # breaks on boundaries when possible
+
+    def test_unbroken_text_still_splits_losslessly(self):
+        s = "x" * 1234 + "é" * 300
+        parts = live.chunks(s)
+        self.assertEqual("".join(parts), s)
+        self.assertTrue(all(len(p.encode("utf-8")) <= 500 for p in parts))
+
+
 class ProtocolTests(unittest.TestCase):
     def test_delegation_is_mapped_once_after_user_transcript(self):
         p = live.Protocol()
