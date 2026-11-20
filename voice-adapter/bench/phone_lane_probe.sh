@@ -4,7 +4,11 @@
 # new tokens (previous reply + a new user line). Metric: median time to first token of the 5 warm turns, which is
 # the real lane cost when the brief stays in the KV cache. A final turn with cache_prompt=false is the no-cache
 # control in the same harness.
-# Usage: phone_lane_probe.sh SERIAL MODEL [set=generic|android] [extra llama-server args...]
+# Usage: phone_lane_probe.sh SERIAL MODEL [set=generic|android|vulkan] [extra llama-server args...]
+#   set=vulkan pushes the static Vulkan llama-server built with bench/ggml-vulkan-mali-vk11.patch (B14).
+#   BRIEF_FILE=path (on groot): lane mode. The file is the exact lane system text (tiers.SYSTEM + tiers.snapshot(brief, []),
+#   written by the caller); each turn is a stateless lane request [system + "This call so far", ask] rendered by
+#   the model's own chat template (/apply-template), as tiers.race sends it. Unset: the frozen ChatML brief.
 set -u
 S=$1 G=$2 SET=${3:-generic}; shift 3 2>/dev/null || shift $#
 M=/mnt/zer0models/models/phone-slm-20261118
@@ -13,14 +17,18 @@ D=/data/local/tmp/z0lane PORT=18080
 mkdir -p "$OUT"
 a() { adb -s "$S" "$@"; }
 a shell "mkdir -p $D" >/dev/null
-if [ "$SET" = generic ]; then src=$M/android-generic/llama-b12527; a push "$src"/*.so "$src/llama-server" "$D/" >/dev/null
-else src=$M/android/llama-b12527; a push "$src"/lib/*.so "$src/bin/llama-server" "$D/" >/dev/null; fi
+case $SET in
+  generic) src=$M/android-generic/llama-b12527; a push "$src"/*.so "$src/llama-server" "$D/" >/dev/null ;;
+  vulkan) a push "$M/android-vulkan-bda/llama-server" "$D/llama-server" >/dev/null ;;
+  *) src=$M/android/llama-b12527; a push "$src"/lib/*.so "$src/bin/llama-server" "$D/" >/dev/null ;;
+esac
 want=$(stat -c %s "$M/$G.gguf"); have=$(a shell "stat -c %s $D/$G.gguf 2>/dev/null" | tr -d '\r')
 [ "$want" = "$have" ] || { a shell "rm -f $D/*.gguf"; a push "$M/$G.gguf" "$D/$G.gguf" >/dev/null || { echo "push failed"; exit 1; }; }
 a shell chmod 755 "$D/llama-server"
+JINJA=; [ -n "${BRIEF_FILE:-}" ] && JINJA=--jinja
 # setsid: an adbd restart (the tab's wireless adb drops under load) kills every process left in its session.
 a shell "cd $D && (LD_LIBRARY_PATH=$D ADSP_LIBRARY_PATH=$D setsid ./llama-server -m $G.gguf --host 127.0.0.1 \
-  --port 8080 -c 4096 -np 1 -t 4 $* > $D/server.log 2>&1 < /dev/null & echo \$! > $D/server.pid)"
+  --port 8080 -c 4096 -np 1 -t 4 $JINJA $* > $D/server.log 2>&1 < /dev/null & echo \$! > $D/server.pid)"
 # The tab's wireless adb drops for a few seconds under load: retry the forward until the server answers.
 for i in $(seq 120); do
   curl -sf localhost:$PORT/health >/dev/null && break
@@ -60,13 +68,29 @@ def turn(prompt, cache=True):
     return {"ttft_s": round(first or (time.monotonic() - t0), 3), "total_s": round(time.monotonic() - t0, 3),
             "prompt_n": timings.get("prompt_n"), "cache_n": timings.get("cache_n"),
             "prompt_ms": timings.get("prompt_ms"), "text": text}
-n_brief = len(json.load(post("/tokenize", {"content": brief}))["tokens"])
-conv = brief; rows = []
-for k, u in enumerate(users):
-    conv += f"<|im_start|>user\n{u}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
-    r = turn(conv); r["turn"] = k; rows.append(r); conv += r["text"] + "<|im_end|>\n"
-    print(f"turn {k} ttft {r['ttft_s']:6.2f}s prompt_n {r['prompt_n']} cache_n {r['cache_n']}", flush=True)
-ctl = turn(conv + "<|im_start|>user\nThanks.<|im_end|>\n<|im_start|>assistant\n", cache=False)
+def ntok(text):
+    return len(json.load(post("/tokenize", {"content": text}))["tokens"])
+rows = []
+if os.environ.get("BRIEF_FILE"):
+    system = open(os.environ["BRIEF_FILE"]).read()
+    def lane(exchanges, ask):  # tiers.snapshot's call-so-far block, then the ask as the user message
+        calls = "This call so far:\n" + "\n".join(f"{w}: {t}" for w, t in exchanges) if exchanges else ""
+        msgs = [{"role": "system", "content": system + calls}, {"role": "user", "content": ask}]
+        return json.load(post("/apply-template", {"messages": msgs,
+                                                  "chat_template_kwargs": {"enable_thinking": False}}))["prompt"]
+    n_brief, exchanges = ntok(lane([], "")), []
+    for k, u in enumerate(users):
+        r = turn(lane(exchanges, u)); r["turn"] = k; rows.append(r); exchanges += [("Kevin", u), ("You", r["text"].strip())]
+        print(f"turn {k} ttft {r['ttft_s']:6.2f}s prompt_n {r['prompt_n']} cache_n {r['cache_n']}", flush=True)
+    ctl = turn(lane(exchanges, "Thanks."), cache=False)
+else:
+    n_brief = ntok(brief)
+    conv = brief
+    for k, u in enumerate(users):
+        conv += f"<|im_start|>user\n{u}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+        r = turn(conv); r["turn"] = k; rows.append(r); conv += r["text"] + "<|im_end|>\n"
+        print(f"turn {k} ttft {r['ttft_s']:6.2f}s prompt_n {r['prompt_n']} cache_n {r['cache_n']}", flush=True)
+    ctl = turn(conv + "<|im_start|>user\nThanks.<|im_end|>\n<|im_start|>assistant\n", cache=False)
 warm = [r["ttft_s"] for r in rows[1:]]
 res = {"brief_tokens": n_brief, "cold_ttft_s": rows[0]["ttft_s"], "warm_ttft_s": warm,
        "warm_median_s": statistics.median(warm), "nocache_control_ttft_s": ctl["ttft_s"],

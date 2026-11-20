@@ -26,3 +26,7 @@ What it means (inferred): the S25 can host a fast lane at about 1 s to first wor
 lanes (Haiku 5.5 warm about 0.87 s on the Studio), with Gemma 4 E2B on the GPU or Qwen3 on the NPU. Gemma 4 E2B
 scored 25/30 on slm-v1 (Qwen3-1.7B 22/30), so it is the first on-phone candidate. The tablet is too slow for a
 call lane.
+
+Update 11-20 (Track B, docs/HILLCLIMB-OVERNIGHT.md B10-B15): with a ~300-token brief held in the prompt cache and
+prefilled at call start, the tab's Qwen3-1.7B CPU lane answers in ~1.1 s warm. Its Mali GPU runs once patched
+(`voice-adapter/bench/ggml-vulkan-mali-vk11.patch`) but is 9.6x slower than its CPU at prefill.
