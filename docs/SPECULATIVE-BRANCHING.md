@@ -95,6 +95,30 @@ Dessa replay (`voice-adapter/bench/dessa_run.sh`) for timing, plus two new numbe
 with "I'll check"-type stalls) and branch hit rate (how often a speculative draft matched). Keep only if the turn gap
 and filler rate drop and correctness (slm-v1-style grading of the spoken answer) does not.
 
+## First-principles attack (poteto, 2026-11-20)
+
+1. **Branching removes lane time, not the voice's own wait.** In take 2 the question ended at 18.5 s, GPT-Live handed
+   off at 20.1 s (1.55 s: its end-of-turn decision plus the hand-off) and the lanes answered 1.3-2.2 s after that.
+   Branching can only delete the second part. On GPT-Live, which owns its end-of-turn and exposes no control, the
+   floor stays around 1.5 s: better than today, nowhere near Dessa's 0.43 s. The full win needs an engine where z0live
+   decides when to speak (Grok if xAI honours it, or the local stack).
+2. **The guessing may be unnecessary.** The lane config already starts lanes while Kevin talks. Most questions are
+   answerable from the words before the last pause, so one branch ("answer what's been said so far", Branch C) may get
+   nearly all the gain. Guessed endings only pay when the decisive word comes last ("…the Mariana *Trench*" vs
+   "…*islands*"). Test before building: replay recorded turns cut at their last pause and count how often the
+   answer to the cut version matches the answer to the full one.
+3. **A wrong branch is worse than filler.** Answering a question Kevin didn't ask breaks trust more than "I'll
+   check". The judge needs a confidence threshold and must default to the fallback.
+4. **The judge must be nearly free.** It runs at end of turn, on the critical path: local string and embedding
+   similarity in under 50 ms, never another model call.
+5. **Injection timing is the known hazard.** Overnight run A8 measured GPT-Live starting to talk when context
+   arrived at the wrong moment. Drafts must be injected only after end of turn, and the early-speech gate must stay.
+6. **Cost and rate limits.** 2-3 branches at every pause is many calls per turn against subscription quotas. Fork
+   only at pauses longer than ~250 ms with enough new words, and cancel branches as soon as they're contradicted.
+
+Cheapest experiment first (offline, no live call): item 2's cut-at-last-pause replay on recorded turns, reporting
+the hit rate for Branch C alone versus with guessed endings.
+
 ## Advisor critique
 
 (Fable advisor review pending; added below when it lands.)
