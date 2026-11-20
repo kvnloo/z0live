@@ -15,6 +15,8 @@ Rules for every iteration:
 - Never restart a Studio voice service during a call: `lsof -nP -iTCP:9168 -sTCP:ESTABLISHED` must print nothing and the
   newest trace in ~/.local/share/z0live/voice-traces must be older than 2 min. Kept changes deploy only then.
 - Never force-push, never touch another profile's files, never delete user data on a phone.
+- Data privacy (docs/REQUIREMENTS.md, owner rule 11-20): call traces may go to the providers that already saw them;
+  Telegram, chat history and owner-msgs stay local (local models only for inference, grading and training).
 - Commit kept changes on z0live `feat/lane-status`, staging only the changed files.
 - Write a one-line entry to ~/.local/share/z0live/overnight.log at the end of every run (track, id, verdict, numbers).
 
