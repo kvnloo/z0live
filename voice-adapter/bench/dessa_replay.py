@@ -54,19 +54,37 @@ def human_track(name: str):
 
 
 class Recorder:
-    """The phone's ear: every output frame as 48 kHz mono, with the monotonic time of the first frame."""
+    """The phone's ear: every output frame as 48 kHz mono, with the monotonic time of the first frame, and the
+    monotonic arrival time of each sound onset by the adapter's own rule (live.Level: peak >= LEVEL_ON after
+    LEVEL_OFF_SECONDS of quiet), so the downlink can be timed against the trace's output audio.on directly.
+    Frames are placed like a playout buffer: back to back, but never earlier than their arrival time (an underrun is
+    written as silence). Plain concatenation lost ~0.2-0.3 s per minute of call, sliding AI speech earlier in the WAV
+    and shortening every scored gap (A5, measured against the trace clock)."""
     def __init__(self):
-        self.pcm, self.first = [], None
+        self.pcm, self.first, self.onsets, self.quiet, self.samples, self.pad = [], None, [], 0.0, 0, 0
 
     async def drain(self, track):
         try:
             while True:
                 frame = await track.recv()
+                now = time.monotonic()
                 if self.first is None:
-                    self.first = time.monotonic()
+                    self.first = now
                 a = frame.to_ndarray()
                 mono = a.reshape(-1, len(frame.layout.channels))[:, 0] if frame.format.is_packed else a[0]
+                due = int((now - self.first) * 48000)
+                if due > self.samples + 960:  # more than one frame behind arrival: underrun, fill with silence
+                    self.pcm.append(bytes(2 * (due - self.samples)))
+                    self.pad += due - self.samples
+                    self.samples = due
                 self.pcm.append(mono.astype(np.int16).tobytes())
+                self.samples += len(mono)
+                if int(np.abs(mono.astype(np.int32)).max(initial=0)) >= live.LEVEL_ON:
+                    if self.quiet is not None and now - self.quiet >= live.LEVEL_OFF_SECONDS:
+                        self.onsets.append(now)
+                    self.quiet = None
+                elif self.quiet is None:
+                    self.quiet = now
         except Exception:  # noqa: BLE001 - track ended
             pass
 
@@ -112,6 +130,10 @@ async def replay(name: str, clip_s: float, out: Path):
     ai = b"".join(rec.pcm)
     ai = bytes(shift * 2) + ai if shift > 0 else ai[-shift * 2:]
     n = min(len(ai), len(pcm))
+    wall = time.time() - time.monotonic()  # in-process: trace "wall" = monotonic + this offset
+    (out / f"{name}-clock.json").write_text(json.dumps({  # WAV sample 0 = sender_wall; same clock as trace "wall"
+        "sender_wall": round(sender.started + wall, 4), "rec_first_wall": round(rec.first + wall, 4),
+        "heard_on_wall": [round(t + wall, 4) for t in rec.onsets], "underrun_pad_s": round(rec.pad / 48000, 3)}))
     save(out / f"{name}-human.wav", pcm[:n])
     save(out / f"{name}-ai.wav", ai[:n])
     to16 = lambda b: np.frombuffer(b[:n], np.int16)[::3].astype(np.float32) / 32768.0

@@ -70,6 +70,16 @@ Hypothesis backlog (cheapest first; each names its mechanism):
    timers: hypothesis 1 targets exactly that. The other 7 takes are later spurts of a response already playing (a pause
    inside one answer that dessa_timing scores as a new take). New: 1b. find the 0.20 s downlink constant (aiortc
    jitter/packetization vs the bench recorder) before trusting it as real-call latency.
+   DONE 11-20 (A5, 1b): the replay now writes NAME-clock.json (sender, recorder onsets on the trace's clock) and
+   dessa_latency reports the one-way legs for any engine. The 0.20 s was a round trip: the alignment fit on input
+   onsets absorbs the uplink, so out_frame->heard = uplink 0.12 s [0.09, 0.19] + downlink 0.09 s [0.08, 0.10] (both
+   in-process aiortc loopback, not network; a phone's stack will differ). Bigger find: the recorder concatenated
+   frames and lost 0.14-0.39 s of underruns per 70 s call, so the AI WAV drifted early (0 at the start, -0.2..-0.3 s
+   by 60 s; median -0.135 s). Every gap scored before A5 is biased short and overlap/false cut-in biased high, worst
+   late in a clip. Fixed (playout-buffer placement: never before arrival, underruns written as silence): placement
+   -0.003 s [-0.011, +0.007], no drift. Pre-A5 D values are not comparable; first fixed-bench GPT-Live run `a5fix` D
+   1.423 (median 1.14 s, waits > 1 s 64.5 %, bc 1.5/min, spoke_first 1). Re-baseline both engines (>= 3 GPT-Live runs)
+   before the next engine change. Grok's xAI client_secrets returned HTTP 403 at 03:35 (worked at 02:53).
 1. Grok: turn detection owned by z0live. Server VAD with `create_response: false`; z0live calls `response.create`
    after a short silence (start 200 ms) instead of Grok's fixed ~1 s timer. Mechanism: the tight 1.05..1.29 IQR is a timer.
    REVERTED 11-20 (A3): xAI ignores `create_response: false` (pydantic-ai docs), so z0live cannot own the reply;

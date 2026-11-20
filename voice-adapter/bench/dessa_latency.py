@@ -26,6 +26,11 @@ import dessa_timing as dt  # noqa: E402
 
 STAGES = ("human_end->speech_stopped", "speech_stopped->created", "created->first_delta",
           "first_delta->out_frame", "out_frame->heard")
+# With LABEL/NAME-clock.json (dessa_replay, 11-20 on) the replay's sender and recorder share the trace's clock, so the
+# one-way legs are measured, not inferred: out_frame->heard above equals uplink + downlink, because the alignment
+# constant c is fitted on input onsets and so already contains the uplink.
+CLOCK_STAGES = ("downlink(out_frame->recorder arrival)", "wav_placement(wav onset - recorder arrival)")
+UPLINK = "uplink(human onset->adapter input)"  # per human spurt, not per take
 
 
 def load_trace(path: Path):
@@ -33,7 +38,18 @@ def load_trace(path: Path):
     inputs = [e["t"] for e in evs if e.get("ev") == "audio.on" and e.get("dir") == "input"]
     outputs = [e["t"] for e in evs if e.get("ev") == "audio.on" and e.get("dir") == "output"]
     timing = [e for e in evs if e.get("ev") == "grok.timing"]
-    return inputs, outputs, timing
+    wall0 = float(np.median([e["wall"] - e["t"] for e in evs if "wall" in e])) if evs else None
+    return inputs, outputs, timing, wall0
+
+
+def first_in(xs, lo, hi):
+    return next((x for x in sorted(xs) if lo <= x <= hi), None)
+
+
+def lags(starts, xs, lo, hi):
+    """For each start a, (first x in [a+lo, a+hi]) - a; starts with no match are dropped."""
+    hits = ((a, first_in(xs, a + lo, a + hi)) for a in starts)
+    return [b - a for a, b in hits if b is not None]
 
 
 def align(trace_on, wav_starts):
@@ -58,15 +74,25 @@ def decompose(run: Path):
     names = [n for n in ds.CALLS if (run / f"{n}-ai.wav").exists()]
     if len(traces) != len(names):
         raise SystemExit(f"{run}: {len(traces)} traces for {len(names)} replayed calls; cannot pair them")
-    rows, per_call = [], {}
+    rows, per_call, legs = [], {}, {k: [] for k in (*CLOCK_STAGES, UPLINK)}
     for name, tpath in zip(names, traces):
         xa, xh = ds.wav16(run / f"{name}-ai.wav"), ds.wav16(run / f"{name}-human.wav")
         sa, sh = dt.spurts(xa), dt.spurts(xh)
         takes, _ = ds.events(sa, sh)
-        inputs, outputs, timing = load_trace(tpath)
+        inputs, outputs, timing, wall0 = load_trace(tpath)
         c, mad = align(inputs, [s for s, _ in sh])
         per_call[name] = {"trace": tpath.name, "align_s": None if c is None else round(c, 3),
                           "align_mad_s": None if mad is None else round(mad, 3), "takes": len(takes)}
+        clock_path = run / f"{name}-clock.json"
+        clock = json.loads(clock_path.read_text()) if clock_path.exists() and wall0 is not None else None
+        if clock:  # trace t of WAV sample 0; c - c_clock is the uplink the input-onset fit absorbed
+            c_clock = clock["sender_wall"] - wall0
+            heard_t = [w - wall0 for w in clock["heard_on_wall"]]
+            legs[UPLINK] += lags([s + c_clock for s, _ in sh], inputs, -0.05, 1.0)
+            legs[CLOCK_STAGES[0]] += lags(outputs, heard_t, -0.05, 1.0)
+            # > 0: the WAV places AI speech later than the recorder received it
+            legs[CLOCK_STAGES[1]] += [-d for d in lags([s + c_clock for s, _ in sa], heard_t, -0.3, 0.3)]
+            per_call[name] |= {"align_clock_s": round(c_clock, 3)}
         if c is None:
             continue
         stopped = [e["t"] for e in timing if e["type"] == "input_audio_buffer.speech_stopped"]
@@ -91,6 +117,10 @@ def decompose(run: Path):
         stats[stage] = {"n": int(len(v))} | ({"median_s": round(float(np.median(v)), 3),
                                                "iqr_s": [round(float(np.percentile(v, 25)), 3),
                                                          round(float(np.percentile(v, 75)), 3)]} if len(v) else {})
+    for stage, v in legs.items():  # per onset, every engine (no grok.timing needed)
+        if v:
+            stats[stage] = {"n": int(len(v)), "median_s": round(float(np.median(v)), 3),
+                            "iqr_s": [round(float(np.percentile(v, 25)), 3), round(float(np.percentile(v, 75)), 3)]}
     full = [r for r in rows if all(r[st] is not None for st in STAGES)]
     return {"run": run.name, "takes": len(rows), "fully_matched": len(full),
             "gap_median_s": round(float(np.median([r["gap_s"] for r in rows])), 3) if rows else None,
