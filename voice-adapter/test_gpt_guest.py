@@ -3,8 +3,12 @@ import asyncio
 import json
 from pathlib import Path
 import tempfile
+import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
+
+from aiohttp import ClientSession, web
 
 import guest_voice
 from guest_floor import Address, Addressing, Answer, Floor
@@ -29,7 +33,11 @@ class FloorTest(unittest.TestCase):
             ("One thing, Tek, what shipped?", Address.GUEST), ("டெக், என்ன?", Address.GUEST),
             ("டெக்னியம், என்ன?", Address.GUEST), ("tell tek later", None),
             ("Tek worked on it", None), ("Hey Hermes, a question", Address.OTHER),
-            ("Back to Julia", Address.OTHER), ("Tek, wait. Hermes, you take this.", Address.OTHER),
+            ("Tek, wait. Hermes, you take this.", Address.OTHER), ("Back to Hermes", Address.OTHER),
+            ("Hermes, over to Tek", Address.GUEST),
+            # A handoff moves the floor only to a known voice, never past a direct address to Tek in the same turn.
+            ("Tek, back to you", Address.GUEST), ("Tek, go back to the first point", Address.GUEST),
+            ("can we go back to the budget", None), ("Back to Julia", None),
         ]:
             with self.subTest(text=text):
                 self.assertIs(parse(text, final=True), expected)
@@ -200,3 +208,214 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(guest_voice.configured(), self.guest.config)
                 path.write_text('{"guest":{"engine":"gpt-live","profile":"../poteto","name":"tek","voice":"ember"}}')
                 self.assertIsNone(guest_voice.configured())
+
+    async def test_tek_back_to_you_keeps_tek_on_the_floor(self):
+        g = self.guest
+        g.observe("primary", turn("created", "Tek, back to you", 5000, 5800, tid="u1"))
+        g.observe("primary", turn("done", "Tek, back to you", 5000, 5800, tid="u1"))
+        self.assertEqual((g.floor.owner, g.floor.reason), ("guest", "guest_addressed"))
+
+    async def test_caller_no_cuts_a_reply_that_contains_know(self):
+        g = self.guest
+        self.assertTrue(g.observe("primary", output("I know the answer now, here it is")))
+        self.call.output_loud_at = live.time.monotonic()
+        g.observe("primary", turn("created", "No", 1000, 1600, tid="b1"))
+        self.assertFalse(g.observe("primary", output(" and more words")), "barge-in ignored")
+
+    async def test_reply_open_at_renewal_does_not_mute_the_new_session(self):
+        g = self.guest
+        g.observe("guest", turn("done", "Tek, what shipped?", 1000, 2000))
+        self.assertFalse(g.observe("primary", output("Muted, Tek has the floor.")))
+        g.observe("primary", turn("done", "Hermes, your turn", 3000, 4000, tid="redirect"))
+        g.transport_replaced("primary", 0)  # the retired session never sends turn.done for its open reply
+        self.assertTrue(g.observe("primary", output("New session reply.")))
+
+    async def test_guest_delegation_runs_on_tek_profile_only_while_tek_has_the_floor(self):
+        received = []
+
+        async def completion(request):
+            session = request.headers["X-Hermes-Session-Id"]
+            received.append((request.headers["Authorization"], session, (await request.json())["messages"][-1]["content"]))
+            return web.json_response({"choices": [{"message": {"content": "A release."}}]},
+                                     headers={"X-Hermes-Session-Id": session})
+
+        app = web.Application()
+        app.router.add_post("/v1/chat/completions", completion)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        self.addAsyncCleanup(runner.cleanup)
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        with tempfile.TemporaryDirectory() as home:
+            keys = Path(home) / ".config/z0live/guest-hosts"
+            keys.mkdir(parents=True)
+            (keys / "tek.key").write_text("tek-key")
+            (keys / "poteto.key").write_text("primary-key")
+            with patch.object(Path, "home", return_value=Path(home)), patch.dict(
+                    live.os.environ, {"Z0LIVE_GUEST_HOST_PORT": str(runner.addresses[0][1])}):
+                async with ClientSession() as http:
+                    self.call.manager = SimpleNamespace(http=http)
+                    for did, text in (("unaddressed", "What is this?"), ("addressed", "Tek, what shipped?")):
+                        self.guest.message(json.dumps(turn("created", "", tid=did)))
+                        self.guest.message(json.dumps(turn("done", text, tid=did)))
+                        self.guest.message(json.dumps({"type": "delegation.created", "item": {
+                            "id": did, "target": "client", "content": [{"text": text}]}}))
+                        await asyncio.gather(*self.call.tasks)
+        self.assertEqual(received, [("Bearer tek-key", "z0live-guest-test-call", "Tek, what shipped?")])
+        [answer] = [msg for msg in self.call.sent if isinstance(msg, dict) and msg.get("delegation_item_id")]
+        self.assertEqual(answer["delegation_item_id"], "addressed")
+        self.assertIn("A release.", answer["content"][0]["text"])
+
+
+class Clock:
+    """mobile_live's view of time only; the asyncio loop keeps the real clock."""
+
+    def __init__(self, now=100.0):
+        self.now = now
+
+    def monotonic(self):
+        return self.now
+
+    def __getattr__(self, name):
+        return getattr(time, name)
+
+
+class TimedGuestTest(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.clock = Clock()
+        self.enterContext(patch.object(live, "time", self.clock))
+        self.call = PrimaryCall()
+        self.guest = live.GPTGuest(self.call, guest_voice.GuestConfig("gpt-live", "tek", "ember", "tek"))
+        self.addAsyncCleanup(self.guest.close)
+        self.guest.message(json.dumps({"type": "session.started"}))
+        self.guest.send = self.call.sent.append
+        self.call.guest = self.guest
+
+    def at(self, now):
+        self.clock.now = now
+
+    def speakable(self, text):
+        """How many times the voice was handed this text to speak (developer notes are silent)."""
+        return sum(text in str(msg) for msg in self.call.sent if isinstance(msg, dict) and msg.get("channel") == "speakable")
+
+    def speak(self, did, text, **kw):
+        self.call.protocol.seen.append(did)
+        live.Call.speak_for(self.call, did, text, **kw)
+
+
+class AnswerDeliveryTest(TimedGuestTest):
+    async def test_answer_spoken_for_longer_than_15s_is_sent_once(self):
+        # 12:10 call: an answer still being spoken 15 s after its send was sent again, and the caller heard it twice.
+        g, answer = self.guest, "Primary answer about the deploy."
+        self.speak("p1", answer)
+        self.at(101)
+        g.observe("primary", turn("created", "", role="assistant", tid="r1"))
+        g.observe("primary", output(answer))
+        self.at(115.5)
+        g.flush_answers()
+        self.at(121)
+        g.observe("primary", turn("done", answer, role="assistant", tid="r1"))
+        self.at(140)
+        g.flush_answers()
+        self.assertEqual(self.speakable(answer), 1)
+
+    async def test_answer_the_voice_never_speaks_is_sent_twice_then_dropped(self):
+        self.speak("p1", "Primary answer about the deploy.")
+        for second in range(115, 221, 15):
+            self.at(second + 0.01)
+            self.guest.flush_answers()
+        self.assertEqual(self.speakable("Primary answer about the deploy."), 2)
+        self.assertIn("floor.answer_dropped", self.call.traces)
+
+    async def test_answer_on_the_floor_goes_out_while_a_reply_plays_and_only_once(self):
+        # 12:10 call: Hermes answers waited 12 to 25 s behind replies already playing on the same floor.
+        g = self.guest
+        self.speak("p1", "Lane guess.")
+        self.at(101)
+        g.observe("primary", turn("created", "", role="assistant", tid="r1"))
+        g.observe("primary", output("Lane guess."))
+        self.at(102)
+        self.speak("p1", "Hermes answer.")
+        self.assertEqual(self.speakable("Hermes answer."), 1, "queued behind the reply")
+        self.at(120)  # the lane reply is still playing: the Hermes answer waits for the voice, not the clock
+        g.flush_answers()
+        self.at(125)
+        g.observe("primary", turn("done", "Lane guess.", role="assistant", tid="r1"))
+        self.at(125.5)
+        g.observe("primary", turn("created", "", role="assistant", tid="r2"))
+        self.at(145)
+        g.flush_answers()
+        self.assertEqual(self.speakable("Hermes answer."), 1)
+
+    async def test_lane_guesses_waiting_for_the_floor_are_dropped_once_stale(self):
+        g = self.guest
+        g.observe("guest", turn("done", "Tek, what shipped?", 1000, 2000))
+        self.call.latest_did = "p1"
+        self.speak("p0", "Guess for an older question.", lane=True)
+        self.speak("p1", "Guess for this question.", lane=True)
+        self.speak("p1", "Hermes answer for this question.")
+        self.assertEqual(self.call.sent, [], "fixture: Tek has the floor")
+        g.observe("primary", turn("done", "Hermes, your turn", 3000, 4000, tid="u2"))
+        g.flush_answers()  # Call.message flushes after every provider event while primary answers wait
+        self.assertEqual(self.speakable("Hermes answer for this question."), 1)
+        self.assertEqual(self.speakable("Guess for"), 0)
+
+
+class FloorTimingTest(TimedGuestTest):
+    async def test_readdressing_tek_after_20s_keeps_tek_audible(self):
+        g = self.guest
+        g.observe("primary", turn("done", "Tek, what shipped?", 1000, 2000, tid="u1"))
+        self.at(101)
+        g.observe("guest", turn("created", "", role="assistant", tid="r1"))
+        g.observe("guest", output("A release."))
+        self.at(118)
+        g.observe("guest", turn("done", "A release.", role="assistant", tid="r1"))
+        self.at(122)  # 22 s after Tek first got the floor
+        g.observe("primary", turn("created", "Tek, and what about tomorrow?", 22000, 23500, tid="u2"))
+        g.observe("primary", turn("done", "Tek, and what about tomorrow?", 22000, 23500, tid="u2"))
+        g.flush_answers()
+        self.at(123)
+        self.assertTrue(g.observe("guest", output("Tomorrow is the review.")), f"muted: floor {g.floor.reason}")
+
+    async def test_reply_audio_plays_after_turn_done_until_the_output_goes_quiet(self):
+        g = self.guest
+        g.observe("primary", turn("created", "", role="assistant", tid="r1"))
+        g.observe("primary", output("The answer is forty two."))
+        self.assertTrue((g.output(frame()).to_ndarray() == 7).all(), "fixture: reply audio passes while open")
+        g.observe("primary", turn("done", "The answer is forty two.", role="assistant", tid="r1"))
+        self.assertTrue((g.output(frame()).to_ndarray() == 7).all(), "tail muted at turn.done")
+        self.call.output_loud_at = 100.2  # the phone still hears the sentence end
+        self.at(100.45)
+        self.assertTrue((g.output(frame()).to_ndarray() == 7).all(), "tail muted while still loud")
+        self.at(100.55)  # quiet for longer than LEVEL_OFF_SECONDS: anything after is not this reply
+        self.assertFalse(g.output(frame()).to_ndarray().any())
+
+
+class PrimaryDelegationTest(unittest.IsolatedAsyncioTestCase):
+    async def delegate(self, said):
+        config = guest_voice.GuestConfig("gpt-live", "tek", "ember", "tek")
+        with patch.dict(live.os.environ, {"HERMES_VOICE_ENGINE": "gpt-live"}), \
+                patch.object(live.guest_voice, "configured", return_value=config):
+            call = live.Call(live.Manager(None), profile="")
+        self.addAsyncCleanup(call.close, "test")
+        ran = []
+
+        async def host_delegate(did, request):
+            ran.append(request)
+
+        call.host_delegate, call.relay = host_delegate, None  # no lanes: nothing leaves the process
+        call.heard_user = True
+        call.guest.floor.available = True  # guest session.started
+        call.message(json.dumps(turn("done", said)), True)
+        call.message(json.dumps({"type": "delegation.created", "item": {
+            "id": "d1", "target": "client", "content": [{"type": "input_text", "text": said}]}}), True)
+        await asyncio.sleep(0)
+        return ran
+
+    @patch.object(live, "HOST_DELEGATION", True)
+    async def test_kevins_hermes_never_runs_a_request_addressed_to_tek(self):
+        self.assertEqual(await self.delegate("Tek, delete the old release branch"), [])
+
+    @patch.object(live, "HOST_DELEGATION", True)
+    async def test_kevins_hermes_runs_a_request_addressed_to_it(self):
+        self.assertEqual(await self.delegate("Delete the old release branch"), ["Delete the old release branch"])

@@ -18,8 +18,10 @@ class Address(Enum):
 
 class Addressing:
     def __init__(self, guest_names: tuple[str, ...]):
-        names = "|".join(map(re.escape, (*guest_names, "hermes", "primary", "assistant", "gpt", "grok")))
+        others = ("hermes", "primary", "assistant", "gpt", "grok")
+        names = "|".join(map(re.escape, (*guest_names, *others)))
         self.guest_names = frozenset(name.casefold() for name in guest_names)
+        self.known = self.guest_names | frozenset(others)
         self.vocative = re.compile(
             rf"(?:^\s*|(?:[.!?;,]|[—–])\s*|(?<!{_WORD})(?:hey|hi|hello|ok|okay)\s*,?\s+)"
             rf"(?P<name>{names})(?!{_WORD})(?=\s*[,!:?—–.]|\s+(?:what|why|how|can|could|would|do|did|tell|please)\b|\s*$)",
@@ -30,8 +32,10 @@ class Addressing:
     def __call__(self, text: str, *, final: bool) -> Address | None:
         matches = [match for match in self.vocative.finditer(text)
                    if final or text[match.end():].strip()]
-        if final:
-            matches.extend(self.handoff.finditer(text))
+        # "Back to X" names a voice only when X is a known name ("back to you" and "back to the budget" do not),
+        # and it never overrides a direct address to the guest in the same turn ("Tek, back to you").
+        if final and not any(match.group(1).casefold() in self.guest_names for match in matches):
+            matches.extend(match for match in self.handoff.finditer(text) if match.group(1).casefold() in self.known)
         if matches:
             name = max(matches, key=lambda match: match.start()).group(1).casefold()
             return Address.GUEST if name in self.guest_names else Address.OTHER
@@ -48,6 +52,8 @@ class Answer:
     leg: Leg
     delegation_id: str | None
     text: str
+    lane: bool = False  # a fast lane's guess; Hermes's own answer to the same delegation supersedes it
+    sends: int = 0  # times handed to a voice; an answer is sent at most twice
 
 
 @dataclass
@@ -73,7 +79,7 @@ class Floor:
                   interrupted: bool = False) -> None:
         if address is Address.GUEST and self.available:
             self.change("guest", "guest_addressed", now)
-            self.replied_at = self.reply_began_at = None
+            self.since, self.replied_at, self.reply_began_at = now, None, None  # a new question restarts the idle clock
         elif address is Address.OTHER:
             self.change("primary", "redirected", now)
         elif (final and substantive(text) and (interrupted or (
@@ -100,5 +106,10 @@ class Floor:
     def enqueue(self, answer: Answer, name: str) -> None:
         if answer.leg == "guest" and not self.available:
             answer = Answer("primary", None, f"{name}'s Hermes returned this answer: {answer.text}")
-        self.answers[answer.leg].append(answer)
+        queue = self.answers[answer.leg]
+        if not answer.lane:
+            for guess in [a for a in queue if a.lane and a.delegation_id == answer.delegation_id]:
+                queue.remove(guess)
+                self.trace("floor.answer_dropped", speaker=guess.leg, did=guess.delegation_id, reason="superseded")
+        queue.append(answer)
         self.trace("floor.answer_queued", speaker=answer.leg, did=answer.delegation_id, owner=self.owner)

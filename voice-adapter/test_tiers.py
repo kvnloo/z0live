@@ -61,7 +61,7 @@ class Call:
         self.manager = type("M", (), {"http": None})()
         self.latest_did = "d1"
 
-    def speak_for(self, did, text):
+    def speak_for(self, did, text, lane=False):
         self.spoke.append(text)
 
     def trace(self, ev, **kw):

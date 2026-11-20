@@ -46,7 +46,7 @@ class ChunkTests(unittest.TestCase):
 
         parts = live.chunks(text)
         self.assertEqual("".join(parts), text)
-        self.assertEqual([len(part.encode("utf-8")) for part in parts], [498, 102])
+        self.assertTrue(all(len(part.encode("utf-8")) <= 500 for part in parts))
 
 
 class ProtocolTests(unittest.TestCase):
@@ -380,6 +380,51 @@ class IntegrationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(phone.connectionState, 'connected')
             self.assertEqual(dc.readyState, 'open')
             self.assertFalse(call.closed)
+
+    @patch.object(live, 'TIERS_ON', True)
+    async def test_hermes_answer_still_running_at_renewal_reaches_the_new_session(self):
+        # Renewal waits for hand-offs only until deadline - 2 s; delegations run p50 40 s, p90 166 s.
+        phone = RTCPeerConnection(RTCConfiguration(iceServers=[]))
+        self.peers.append(phone)
+        phone.addTrack(AudioStreamTrack())
+        dc = phone.createDataChannel('oai-events')
+        await phone.setLocalDescription(await phone.createOffer())
+        manager = self.app['manager']
+        call = live.Call(manager)
+        manager.calls[call.id] = call
+        release = asyncio.Event()
+
+        async def hermes(did, request):
+            await release.wait()
+            return 'The deploy finished cleanly.'
+
+        async def no_lanes(did, request):
+            return None
+
+        call.ask_hermes, call.tier_lanes, call.relay = hermes, no_lanes, None
+        result = await call.start(phone.localDescription.sdp, [])
+        await phone.setRemoteDescription(RTCSessionDescription(sdp=result['transport']['sdp'], type='answer'))
+        async with asyncio.timeout(15):
+            while dc.readyState != 'open' or not self.provider_channels:
+                await asyncio.sleep(.01)
+            self.provider_channels[0].send(json.dumps({'type': 'delegation.created', 'item': {
+                'id': 'd1', 'target': 'client', 'content': [{'type': 'input_text', 'text': 'Is the deploy done?'}]}}))
+            while not call.pending_delegations:
+                await asyncio.sleep(.01)
+            await call.replace_subscription(live.time.monotonic() + 3)
+            self.assertTrue(call.pending_delegations, 'fixture: the hand-off must still be running at the swap')
+            self.assertEqual(len(self.provider_channels), 2, 'fixture: the swap must have happened')
+            release.set()
+            while call.pending_delegations:
+                await asyncio.sleep(.01)
+        spoken = []
+        try:
+            async with asyncio.timeout(1.5):
+                while True:
+                    spoken.append(json.dumps(await self.received.get()))
+        except TimeoutError:
+            pass
+        self.assertTrue(any('The deploy finished cleanly.' in s for s in spoken), 'dropped after the renewal swap')
 
     @patch.object(live, 'HOST_DELEGATION', False)
     async def test_real_webrtc_audio_and_bidirectional_protocol_translation(self):

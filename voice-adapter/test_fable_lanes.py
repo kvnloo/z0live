@@ -31,7 +31,7 @@ class FableLanes(unittest.IsolatedAsyncioTestCase):
                 return "Broker is up."
             call = SimpleNamespace(closed=False, profile="clean", counts=Counter(), trace=lambda *a, **k: None,
                                    lane_n={"d1": 2}, merge_lanes=merge,
-                                   speak_for=lambda did, text: said.append((did, text)))
+                                   speak_for=lambda did, text, lane=False: said.append((did, text)))
             with mock.patch.object(Path, "home", return_value=Path(home)), \
                     mock.patch.object(mobile_live, "LANE_POLL", 0.05):
                 task = asyncio.ensure_future(mobile_live.Call.fable_lanes(call, "d1", time.time() - 1, "is it up"))
@@ -53,7 +53,7 @@ class FableLanes(unittest.IsolatedAsyncioTestCase):
             root.mkdir(parents=True)
             said = []
             call = SimpleNamespace(closed=False, profile="clean", counts=Counter(), trace=lambda *a, **k: None,
-                                   latest_did="d1", speak_for=lambda did, text: said.append(text))
+                                   latest_did="d1", speak_for=lambda did, text, lane=False: said.append(text))
             with mock.patch.object(Path, "home", return_value=Path(home)):
                 task = asyncio.ensure_future(mobile_live.Call.fable_lanes(call, "d1", time.time() - 1))
                 await asyncio.sleep(0.1)
@@ -66,7 +66,7 @@ class FableLanes(unittest.IsolatedAsyncioTestCase):
 class OneVoice(unittest.IsolatedAsyncioTestCase):
     async def test_only_one_instant_answer_is_spoken_per_question(self):
         said = []
-        call = SimpleNamespace(closed=False, latest_did="d1", speak_for=lambda did, text: said.append(text))
+        call = SimpleNamespace(closed=False, latest_did="d1", speak_for=lambda did, text, lane=False: said.append(text))
         say = lambda did, text: mobile_live.Call.say_first(call, did, text)
         self.assertFalse(say("d1", "SKIP"))
         self.assertFalse(say("d1", "**Model guard:** The hook flagged the active model"))
