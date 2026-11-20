@@ -183,6 +183,18 @@ Hypothesis backlog:
    turn, not only once; the tab's swap pressure likely adds to the 1,144-token arm (inferred). The tab becomes a
    ~1 s warm lane with a short brief. Open: a 300-token brief carries fewer facts; before wiring it, run a
    planted-fact check (does the compressed brief still answer the chat-context asks in slm-v1?). S22 still offline.
+   KEPT 11-20 (B11, measurement): what a lane really gets is `tiers.snapshot(context_text)`, the raw chat tail capped
+   at 6,000 chars (mobile_live.py), plus tiers.SYSTEM, not the call brief. At that size (`BRIEF_CHARS=6800`, 1,784
+   tokens) the tab (qwen3-1.7b CPU `-t 6`) runs cold 66.2 s, warm median 3.59 s [3.49..3.75], no-cache 67.0 s, vs a
+   fresh 1,144-token control: cold 36.1 s, warm 2.67 s [2.47..2.84], no-cache 49.2 s. Across B10/B11 a warm
+   24-token turn costs ~0.34 s + ~1.7 ms per cached token (304 -> 1.10 s, 1,144 -> 2.67 s, 1,784 -> 3.59 s), so the
+   cache saves the prefill but every turn still pays attention over the whole cached context. A phone lane at today's
+   context size is not a live lane on the tab. It needs its own context budget (about 300 tokens for ~1 s warm), so
+   the planted-fact check of a compressed lane context is the gate before wiring any slow-phone lane. Run the probe
+   from a file on groot (`scp`, then `bash /tmp/probe.sh ... < /dev/null`). Piped over `ssh bash -s` it does nothing,
+   because `adb shell` eats the rest of the script from stdin. The first B11 attempt dropped the tab's wireless adb at
+   78 s cold. That killed hre-slm's :8081 embed supervisor, which was restored with `hre_slm_server.sh` and the args
+   in `docs/fleet/hre-phone-sweep.md` (k3s-hre-phone-sweep worktree).
 3. Threads and core pinning: -t 2..6, --cpu-mask big cores (S22: 1 X2 + 3 A710; tab: 2 A76).
    KEPT 11-20 (B6): `-t 6` on the tab (qwen3-1.7b CPU, A-B-A vs -t 4): warm median 2.72 / 2.78 -> 2.39 s (-13 %),
    cold brief 37.1 / 34.7 -> 30.9 s (-14 %), no-cache 41.2 / 45.8 -> 36.9 s. Args only, no model change (slm gate
