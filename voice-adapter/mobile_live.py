@@ -700,6 +700,9 @@ class Call:
             return
         translated = self.protocol.from_provider(event) if from_provider else self.protocol.from_mobile(event)
         for msg in translated:
+            if from_provider and not self.heard_user and str(msg.get("type", "")).startswith("session.output_transcript"):
+                self.counts["output_gated_text"] += 1  # its audio is silenced (AudioBridge): keep its words off the app
+                continue
             self.send(msg, to_provider=not from_provider)
         if self.relay and from_provider:
             if kind == "input_transcript.added" and self.protocol.turn_text["user"]:

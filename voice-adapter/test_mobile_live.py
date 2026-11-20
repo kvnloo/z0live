@@ -144,12 +144,17 @@ class SpeakFirstGateTests(unittest.IsolatedAsyncioTestCase):
 
         call = live.Call(live.Manager(None), profile='')
         try:
+            said = json.dumps({"type": "output_transcript.added", "item": {"text": " Mm-h"}})
+            call.message(said, True)
+            self.assertFalse(any("output_transcript" in str(m.get("type")) for m in call.to_mobile))
             voice = live.AudioBridge(Source(5000), call, "output")
             self.assertEqual(peak(await voice.recv()), 0)  # the voice tried to speak first: silenced
             await live.AudioBridge(Source(0), call, "input").recv()
             self.assertEqual(peak(await voice.recv()), 0)  # phone silence does not open it
             await live.AudioBridge(Source(5000), call, "input").recv()
             self.assertGreater(peak(await voice.recv()), 0)  # Kevin spoke: the voice is heard from now on
+            call.message(said, True)
+            self.assertTrue(any("output_transcript" in str(m.get("type")) for m in call.to_mobile))
         finally:
             await call.close("test")
 
