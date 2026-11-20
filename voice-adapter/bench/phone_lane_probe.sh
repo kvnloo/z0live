@@ -27,7 +27,7 @@ for i in $(seq 120); do
   a forward tcp:$PORT tcp:8080 >/dev/null 2>&1; sleep 1
 done
 python3 - "$OUT/$G.json" "$PORT" <<'EOF'
-import json, statistics, sys, time, urllib.request
+import json, os, statistics, sys, time, urllib.request
 out, port = sys.argv[1], sys.argv[2]
 U = f"http://127.0.0.1:{port}"
 facts = ["Kevin is building z0live, a voice layer over Hermes with fast and slow model lanes.",
@@ -38,7 +38,7 @@ facts = ["Kevin is building z0live, a voice layer over Hermes with fast and slow
          "A lane answers in one or two short spoken sentences, or says SKIP when it cannot help."]
 brief = "<|im_start|>system\nYou are a fast voice lane for Kevin. Call brief follows.\n"
 i = 0
-while len(brief) < 4300:
+while len(brief) < int(os.environ.get("BRIEF_CHARS", "4300")):
     brief += f"- ({i}) " + facts[i % len(facts)] + "\n"; i += 1
 brief += "<|im_end|>\n"
 users = ["What did the phone bench say about the S25?", "And the tablet, is it usable at all?",

@@ -164,6 +164,13 @@ Hypothesis backlog:
    [0.166..0.181], cold brief 2.33 s / 1,144 tok, thermal 0. The cache makes the S25 a sub-200 ms lane once the brief
    is warm, so the brief should be prefilled at call start, before the first question (next: wire it, hyp 8 role split).
 2. Smaller lane prompt: compress persona + brief for phone lanes (a 300-token brief).
+   KEPT 11-20 (B10, measurement + probe knob `BRIEF_CHARS`, default 4300 = the frozen 1,144-token brief): tab,
+   qwen3-1.7b CPU `-t 6`, A-B (arm then fresh control). 304-token brief: cold 36.3 -> 7.5 s (-79 %), warm median
+   2.44 -> 1.10 s (-55 %, no overlap: arm 1.03..1.30, control 2.16..4.80), no-cache 37.7 -> 13.5 s. Warm turns grow
+   with the cached context (1.03 s at 351 cached tokens -> 1.29 s at 540), so every token of brief is paid on every
+   turn, not only once; the tab's swap pressure likely adds to the 1,144-token arm (inferred). The tab becomes a
+   ~1 s warm lane with a short brief. Open: a 300-token brief carries fewer facts; before wiring it, run a
+   planted-fact check (does the compressed brief still answer the chat-context asks in slm-v1?). S22 still offline.
 3. Threads and core pinning: -t 2..6, --cpu-mask big cores (S22: 1 X2 + 3 A710; tab: 2 A76).
    KEPT 11-20 (B6): `-t 6` on the tab (qwen3-1.7b CPU, A-B-A vs -t 4): warm median 2.72 / 2.78 -> 2.39 s (-13 %),
    cold brief 37.1 / 34.7 -> 30.9 s (-14 %), no-cache 41.2 / 45.8 -> 36.9 s. Args only, no model change (slm gate
