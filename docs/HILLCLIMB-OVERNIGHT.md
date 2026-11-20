@@ -128,6 +128,10 @@ Hypothesis backlog:
    server must stay in its own session (setsid): a wireless-adb drop kills adbd's children, hre-slm's server included.
 2. Smaller lane prompt: compress persona + brief for phone lanes (a 300-token brief).
 3. Threads and core pinning: -t 2..6, --cpu-mask big cores (S22: 1 X2 + 3 A710; tab: 2 A76).
+   KEPT 11-20 (B6): `-t 6` on the tab (qwen3-1.7b CPU, A-B-A vs -t 4): warm median 2.72 / 2.78 -> 2.39 s (-13 %),
+   cold brief 37.1 / 34.7 -> 30.9 s (-14 %), no-cache 41.2 / 45.8 -> 36.9 s. Args only, no model change (slm gate
+   n/a), thermal 0. The second control's first two turns hit swap (6.7, 4.4 s; SwapFree 415 MB after). Tab lanes run
+   `-t 6`; the probe default stays -t 4 so earlier rows compare. Next: `-t 8` (all cores, competes with hre-slm).
 4. Quantization: Q4_0 (ARM repack) vs Q4_K_M vs IQ4_NL; KV cache q8_0; flash attention on/off.
    REVERTED 11-20 (B4): `-ctk q8_0 -ctv q8_0` on the tab (qwen3-1.7b CPU, A-B-A): warm median 2.84 / 1.83 / 2.68 s
    (-33 %, no overlap) and 24-token turns 9.0 -> 5.4 s, but cold brief 36 -> 46 s and no-cache 42 -> 63 s. Failed the
