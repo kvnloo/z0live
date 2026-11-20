@@ -80,6 +80,10 @@ class Prompt(AudioStreamTrack):
 async def probe(history):
     import hashlib
     pcm = speech(ASK, Path(os.environ.get("TMPDIR", "/tmp")) / f"probe-{hashlib.sha1(ASK.encode()).hexdigest()[:8]}.mp3")
+    if os.environ.get("PROBE_SAVE_IN"):  # the caller's side, same clock as PROBE_SAVE (both start at the first frame)
+        import wave
+        with wave.open(os.environ["PROBE_SAVE_IN"], "wb") as w:
+            w.setnchannels(1), w.setsampwidth(2), w.setframerate(48000), w.writeframes(pcm)
     client = RTCPeerConnection(RTCConfiguration(iceServers=[]))
     dc = client.createDataChannel("oai-events")
     events, said, heard, delegated = Counter(), [], [], []
