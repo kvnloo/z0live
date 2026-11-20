@@ -36,6 +36,8 @@ import call_brief  # noqa: E402 - sibling module (context packet in the session 
 import grok_leg  # noqa: E402 - sibling module (Grok Voice as the voice model)
 import tiers  # noqa: E402 - sibling module (fast/medium/slow model lanes)
 import guest_voice  # noqa: E402
+import primary_host  # noqa: E402
+from subscription_leg import Speaker, SubscriptionLeg  # noqa: E402
 import av  # noqa: E402
 from aiortc.contrib.media import MediaRelay  # noqa: E402
 
@@ -155,7 +157,8 @@ UPSTREAM_HOST = os.environ.get("HERMES_DASHBOARD_UPSTREAM", "127.0.0.1:9119")
 UPSTREAM = f"http://{UPSTREAM_HOST}"
 SIGNALING = "https://chatgpt.com/backend-api/codex/realtime/calls?intent=quicksilver&architecture=avas"
 MODEL = "gpt-live-1-codex"
-MAX_CALL_SECONDS = 1800
+MAX_CALL_SECONDS = max(1, int(os.environ.get("HERMES_VOICE_MAX_CALL_SECONDS", "14400")))
+PROVIDER_CAP_SECONDS = max(10, int(os.environ.get("HERMES_VOICE_PROVIDER_CAP_SECONDS", "7200")))
 MAX_CALLS = 2
 # A stop/restart drains: open calls keep running until they end (bounded), new ones are refused.
 # Agents restarted this adapter mid-call twice on 2026-11-06 ("GPT-Live ended: service_shutdown").
@@ -269,13 +272,7 @@ def run_hermes(request: str, profile: str, own_lane: bool = False) -> str:
     with VOICE_LOCKS[profile]:
         sid, last = VOICE_SESSIONS.get(profile, ("", 0.0))
         resume = sid if sid and time.monotonic() - last < VOICE_SESSION_IDLE_SECONDS else ""
-        try:
-            text, new_sid = _hermes_once(request, profile, resume, own_lane)
-        except RuntimeError:
-            if not resume:
-                raise
-            LOG.warning("voice session resume failed; starting a fresh session")
-            text, new_sid = _hermes_once(request, profile, "", own_lane)
+        text, new_sid = _hermes_once(request, profile, resume, own_lane)
         VOICE_SESSIONS[profile] = (new_sid or resume, time.monotonic())
         return text
 
@@ -765,7 +762,12 @@ class Call:
         self.profile = profile
         self.id = "hermes-subscription-" + uuid.uuid4().hex
         self.mobile = RTCPeerConnection(RTCConfiguration(iceServers=[]))
-        self.provider = RTCPeerConnection(RTCConfiguration(iceServers=[]))
+        self.subscription = SubscriptionLeg(self, active=True)
+        self.provider = self.subscription.peer
+        self.primary_audio: Speaker | None = None
+        self.microphone: tuple[MediaRelay, AudioBridge] | None = None
+        self.opening_context = []
+        self.pending_delegations = set()
         self.protocol = Protocol(host_delegation=HOST_DELEGATION)
         self.counts = Counter()
         self.created = time.monotonic()
@@ -774,7 +776,7 @@ class Call:
         self.heard_user = False  # output audio stays silent until the phone sends sound (AudioBridge)
         self.provider_ready = False
         self.mobile_dc = None
-        self.provider_dc = self.provider.createDataChannel("oai-events")
+        self.provider_dc = self.subscription.channel
         self.to_mobile = deque(maxlen=256)
         self.to_provider = deque(maxlen=256)
         self.tasks = set()
@@ -782,6 +784,8 @@ class Call:
         self.lane_said = {}  # delegation id -> (lane answer, entry id)
         self.token = ""  # the app's own bearer, for submitting voice turns into its open chat
         self.chat_lookup = None
+        self.stream_spoken = {}
+        self.primary_host = primary_host.PrimaryHost(self.id) if primary_host.api_mode(profile) else None
         self.context_text = ""  # recent chat history text, for the ttft lane
         self.haiku = None  # WarmHaiku, started once chat context is known
         self.chat = ""   # stored id of the chat Live Voice was started from ('' = hidden voice session)
@@ -807,18 +811,13 @@ class Call:
             if track.kind == "audio":
                 if self.leg:
                     self.leg.attach(AudioBridge(track, self, "input"))
-                elif self.guest:  # both voices hear Kevin
-                    split = MediaRelay()
-                    self.provider.addTrack(AudioBridge(split.subscribe(track), self, "input"))
-                    self.guest.attach(split.subscribe(track))
                 else:
-                    self.provider.addTrack(AudioBridge(track, self, "input"))
-
-        @self.provider.on("track")
-        def provider_track(track):
-            if track.kind == "audio":
-                source = guest_voice.FloorSwitch(track, self.guest) if self.guest else track
-                self.mobile.addTrack(AudioBridge(source, self, "output"))
+                    split = MediaRelay()
+                    self.microphone = MediaRelay(), AudioBridge(split.subscribe(track), self, "input")
+                    relay, mic = self.microphone
+                    self.subscription.attach(relay.subscribe(mic, buffered=False))
+                    if self.guest:
+                        self.guest.attach(split.subscribe(track))
 
         @self.mobile.on("datachannel")
         def mobile_channel(channel):
@@ -832,27 +831,22 @@ class Call:
             if channel.readyState == "open":
                 opened()
 
-        @self.provider_dc.on("open")
-        def provider_open():
-            if self.provider_ready:
-                self.flush(self.provider_dc, self.to_provider)
+        @self.mobile.on("connectionstatechange")
+        async def changed():
+            self.trace("peer.state", peer="mobile", state=self.mobile.connectionState)
+            if self.mobile.connectionState in ("failed", "closed"):
+                self.spawn(self.close("transport_closed"))
 
-        @self.provider_dc.on("message")
-        def provider_message(raw):
-            self.message(raw, True)
-
-        for peer in (self.mobile, self.provider):
-            @peer.on("connectionstatechange")
-            async def changed(peer=peer):
-                self.trace("peer.state", peer="mobile" if peer is self.mobile else "provider",
-                           state=peer.connectionState)
-                if peer.connectionState in ("failed", "closed"):
-                    self.spawn(self.close("transport_closed"))
+    def attach_primary_output(self, track):
+        self.primary_audio = Speaker(track)
+        source = guest_voice.FloorSwitch(self.primary_audio, self.guest) if self.guest else self.primary_audio
+        self.mobile.addTrack(AudioBridge(source, self, "output"))
 
     def spawn(self, coro):
         task = asyncio.create_task(coro)
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
+        return task
 
     def flush(self, channel, pending):
         while pending and channel.readyState == "open":
@@ -991,12 +985,16 @@ class Call:
             # persona and the call brief go in as context, framed as background so they are not answered.
             channel = os.environ.get("HERMES_VOICE_BRIEF_CHANNEL", "developer")
             brief = call_brief.build(history, self.chat)
+            if self.primary_host:
+                self.primary_host.brief = brief
             if self.guest:
                 self.spawn(self.start_guest(brief))
             persona = PERSONA + ("\n" + guest_voice.PRIMARY_NOTE if isinstance(self.guest, guest_voice.GuestVoice) else "")
-            for part in chunks(persona + "\n" + brief, int(os.environ.get("HERMES_VOICE_BRIEF_CHUNK", "1800"))):
-                self.send({"type": "session.context.append", "channel": channel,
-                           "content": [{"type": "input_text", "text": part}]}, True, turn_id=0)
+            self.opening_context = self.brief_events(persona + "\n" + brief, channel)
+            for event in self.opening_context:
+                self.send(event, True, turn_id=0)
+            if not self.leg:
+                self.spawn(self.renew_subscription())
             self.spawn(self.watchdog())
             self.spawn(self.audio_health())
             if self.relay:
@@ -1091,7 +1089,9 @@ class Call:
             if not request:
                 raise RuntimeError("The delegated request was empty")
             # FAST_LANE_OFF: the lanes are this turn's fast lane; the profile plugin must not start another.
-            job = asyncio.ensure_future(self.ask_hermes(did, request))
+            job = self.spawn(self.ask_hermes(did, request))
+            self.pending_delegations.add(job)
+            job.add_done_callback(self.pending_delegations.discard)
             self.latest_did = did  # an older question's lanes go quiet once this one starts
             if TIERS_ON:
                 self.spawn(self.tier_lanes(did, request))
@@ -1134,6 +1134,11 @@ class Call:
             self.counts["host_delegation_ok"] += 1
             self.trace("delegation.done", did=did, s=round(time.monotonic() - began, 3), answer=answer[:4000],
                        closed=self.closed)
+            first = self.stream_spoken.get(did)
+            if first and answer.startswith(first):
+                answer = answer[len(first):].strip()
+                if not answer:
+                    return
             # Tier lanes: Hermes is skipped when everything it says was already spoken (answer within said).
             if lane and covered and (covered(answer, lane, request) if TIERS_ON else covered(lane, answer, request)):
                 self.counts["host_delegation_covered"] += 1  # the lane already said it
@@ -1143,7 +1148,7 @@ class Call:
             self.counts["host_delegation_failed"] += 1
             self.trace("delegation.failed", did=did, s=round(time.monotonic() - began, 3), error=type(exc).__name__,
                        detail=str(exc)[:300])
-            answer = "I couldn't finish that in Hermes: " + str(exc)[:200]
+            answer = "I couldn't finish that in Hermes. It may still be running; check the chat before trying again."
         if self.closed:
             self.trace("delegation.dropped_after_close", did=did)
             return
@@ -1319,7 +1324,16 @@ class Call:
         return text or answers[0][1][:280]
 
     async def ask_hermes(self, did, request):
-        """The open chat when known (visible in the app afterwards), else the hidden voice session."""
+        if self.primary_host:
+            began = time.monotonic()
+            self.trace("delegation.api", did=did, session=self.primary_host.session)
+
+            def first(text):
+                if self.say_first(did, text):
+                    self.stream_spoken[did] = text
+                    self.trace("delegation.first_sentence", did=did, s=round(time.monotonic() - began, 3))
+
+            return await self.primary_host.ask(self.manager.http, request, DELEGATION_TIMEOUT_SECONDS, first)
         if self.chat_lookup and not self.chat:
             try:
                 self.chat = await asyncio.wait_for(asyncio.shield(self.chat_lookup), 5)
@@ -1327,18 +1341,13 @@ class Call:
                 self.chat = ""
             self.trace("chat.resolved", chat=self.chat)
         if self.chat:
-            try:
-                answer = await asyncio.wait_for(chat_continuity.ask_chat(
-                    self.manager.http, self.token, self.profile, self.chat, request, DELEGATION_TIMEOUT_SECONDS),
-                    DELEGATION_TIMEOUT_SECONDS)
-                self.counts["chat_turns"] += 1
-                self.trace("delegation.chat", did=did, chat=self.chat)
-                return answer
-            except Exception as exc:  # noqa: BLE001 - fall back to the voice session, never lose the turn
-                self.counts["chat_failed"] += 1
-                self.trace("delegation.chat_failed", did=did, chat=self.chat, error=type(exc).__name__,
-                           detail=str(exc)[:300])
-                LOG.warning("chat continuity failed id=%s: %s", self.id, str(exc)[:200])
+            # No fallback: a lost acknowledgement or final reply does not mean the turn didn't run.
+            answer = await asyncio.wait_for(chat_continuity.ask_chat(
+                self.manager.http, self.token, self.profile, self.chat, request, DELEGATION_TIMEOUT_SECONDS),
+                DELEGATION_TIMEOUT_SECONDS)
+            self.counts["chat_turns"] += 1
+            self.trace("delegation.chat", did=did, chat=self.chat)
+            return answer
         return await asyncio.to_thread(run_hermes, request, self.profile, True)
 
     async def audio_health(self):
@@ -1354,13 +1363,80 @@ class Call:
             if self.closed:
                 return
 
+    @staticmethod
+    def brief_events(text, channel="developer"):
+        return [{"type": "session.context.append", "channel": channel,
+                 "content": [{"type": "input_text", "text": part}]}
+                for part in chunks(text, int(os.environ.get("HERMES_VOICE_BRIEF_CHUNK", "1800")))]
+
+    async def renew_subscription(self):
+        await self.subscription.ready.wait()
+        lead = min(45, PROVIDER_CAP_SECONDS / 3)
+        while not self.closed:
+            deadline = self.subscription.deadline(PROVIDER_CAP_SECONDS)
+            renew_at = deadline - lead
+            if self.created + MAX_CALL_SECONDS <= renew_at:
+                return
+            await asyncio.sleep(max(0, renew_at - time.monotonic()))
+            try:
+                async with asyncio.timeout_at(deadline):
+                    await self.replace_subscription(deadline)
+            except Exception as exc:
+                self.trace("call.renewal_failed", error=type(exc).__name__)
+                if time.monotonic() >= deadline:
+                    return  # The old transport owns closure. Never cut a still-working phone call here.
+                await asyncio.sleep(min(2, max(0, deadline - time.monotonic())))
+                if time.monotonic() >= deadline:
+                    return
+
+    async def replace_subscription(self, deadline):
+        old = self.subscription
+        if not self.microphone or not self.primary_audio:
+            raise RuntimeError("Call audio is not connected")
+        candidate = SubscriptionLeg(self)
+        try:
+            relay, mic = self.microphone
+            candidate.attach(relay.subscribe(mic, buffered=False))
+            await start_subscription(self.manager.http, candidate.peer, PERSONA, "sol", self.trace)
+            await candidate.ready.wait()
+            if not candidate.output or candidate.channel.readyState != "open":
+                raise RuntimeError("Replacement voice transport is incomplete")
+            # Keep the old transport live while a turn or its hand-off is in flight, if there's time.
+            while time.monotonic() < deadline - 2 and (
+                mic.level.on is not None or time.monotonic() - self.output_loud_at < 0.75
+                or self.pending_delegations
+            ):
+                await asyncio.sleep(0.15)
+            if self.closed or candidate.peer.connectionState != "connected" or candidate.channel.readyState != "open":
+                raise RuntimeError("Replacement voice transport disconnected")
+            recent = "\n".join(f"{role}: {' '.join(text.split())[:400]}"
+                               for role, text in self.protocol.exchanges)
+            summary = ("Continuing the same call. This is a recap, not a new request. Stay silent until Kevin "
+                       "speaks again; do not repeat prior actions or answers.\n" + recent)
+            for event in self.opening_context + self.brief_events(summary):
+                candidate.channel.send(json.dumps(event))
+            # No awaits during the swap. Only the active leg receives microphone audio or routes events.
+            old.active = False
+            self.primary_audio.source = candidate.output
+            self.subscription, self.provider, self.provider_dc = candidate, candidate.peer, candidate.channel
+            self.provider_ready = True
+            self.protocol.seen.clear()  # delegation IDs are scoped to the old provider session
+            self.protocol.turn_text.update(user="", assistant="")
+            self.protocol.last_user = self.protocol.last_delegation = ""
+            self.to_provider.clear()
+            candidate.activate()
+            self.trace("call.renewed", seconds=round(time.monotonic() - self.created, 3),
+                       recap_turns=len(self.protocol.exchanges), mobile=self.mobile.connectionState)
+        finally:
+            await asyncio.shield((old if candidate is self.subscription else candidate).close())
+
     async def watchdog(self):
-        await asyncio.sleep(35)
+        await asyncio.sleep(min(35, MAX_CALL_SECONDS))
         voice_up = self.leg.ready if self.leg else self.provider.connectionState == "connected"
-        if self.mobile.connectionState != "connected" or not voice_up:
+        if MAX_CALL_SECONDS > 35 and (self.mobile.connectionState != "connected" or not voice_up):
             await self.close("connection_timeout")
             return
-        await asyncio.sleep(MAX_CALL_SECONDS - 35)
+        await asyncio.sleep(max(0, self.created + MAX_CALL_SECONDS - time.monotonic()))
         await self.close("duration_limit")
 
     async def maybe_handoff(self, reason):
@@ -1389,13 +1465,11 @@ class Call:
             self.haiku.close()
         self.send({"type": "session.closed", "reason": reason,
                    "usage": {"seconds": int(time.monotonic() - self.created)}})
-        if self.provider_dc.readyState == "open":
-            self.provider_dc.send(json.dumps({"type": "session.close"}))
         current = asyncio.current_task()
         for task in list(self.tasks):
             if task is not current:
                 task.cancel()
-        await asyncio.gather(self.mobile.close(), self.provider.close(), *([self.leg.close()] if self.leg else []),
+        await asyncio.gather(self.mobile.close(), self.subscription.close(), *([self.leg.close()] if self.leg else []),
                              *([self.guest.close()] if self.guest else []), return_exceptions=True)
         if self.relay:
             await self.relay.close()

@@ -211,14 +211,13 @@ class VoiceSessionContinuityTests(unittest.TestCase):
         self.assertNotIn('--resume', calls[0])
         self.assertEqual(live.VOICE_SESSIONS['clean'][0], 's2')
 
-    def test_failed_resume_falls_back_to_fresh_session(self):
-        live.VOICE_SESSIONS['clean'] = ('gone', live.time.monotonic())
-        calls, run = self.fake([(1, ''), (0, 'fine\nsession_id: s3')])
-        with patch.object(live.subprocess, 'run', side_effect=run):
-            self.assertEqual(live.run_hermes('hello', 'clean'), 'fine')
-        self.assertIn('--resume', calls[0])
-        self.assertNotIn('--resume', calls[1])
-        self.assertEqual(live.VOICE_SESSIONS['clean'][0], 's3')
+    def test_failed_resume_does_not_repeat_a_possibly_executed_request(self):
+        live.VOICE_SESSIONS['clean'] = ('old', live.time.monotonic())
+        calls, run = self.fake([(1, '')])
+        with patch.object(live.subprocess, 'run', side_effect=run), self.assertRaises(RuntimeError):
+            live.run_hermes('run this once', 'clean')
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][-2:], ['--resume', 'old'])
 
 
 class IntegrationTests(unittest.IsolatedAsyncioTestCase):
@@ -329,6 +328,44 @@ class IntegrationTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(call.provider_ready)
         finally:
             await manager.close()
+
+    async def test_renewal_replays_brief_and_recap_without_renegotiating_phone(self):
+        phone = RTCPeerConnection(RTCConfiguration(iceServers=[]))
+        self.peers.append(phone)
+        phone.addTrack(AudioStreamTrack())
+        dc = phone.createDataChannel('oai-events')
+        incoming = asyncio.Queue()
+        dc.on('message', lambda raw: incoming.put_nowait(json.loads(raw)))
+        await phone.setLocalDescription(await phone.createOffer())
+        manager = self.app['manager']
+        call = live.Call(manager)
+        manager.calls[call.id] = call
+        result = await call.start(phone.localDescription.sdp, [
+            {'role': 'user', 'content': [{'text': 'The call brief fixture is purple'}]}])
+        await phone.setRemoteDescription(RTCSessionDescription(sdp=result['transport']['sdp'], type='answer'))
+        async with asyncio.timeout(10):
+            while dc.readyState != 'open' or not self.provider_channels:
+                await asyncio.sleep(.01)
+            old = self.provider_channels[0]
+            old.send(json.dumps({'type': 'turn.done', 'turn': {'role': 'user', 'transcript': 'Remember violet'}}))
+            while (await incoming.get()).get('delta') != 'Remember violet':
+                pass
+            while not self.received.empty():
+                self.received.get_nowait()
+            await call.replace_subscription(live.time.monotonic() + 5)
+            new = self.provider_channels[1]
+            dc.send(json.dumps({'type': 'session.instructions.append', 'content': 'Phone is still connected'}))
+            context = ""
+            while 'Phone is still connected' not in context:
+                event = await self.received.get()
+                context += ' '.join(c.get('text', '') for c in event.get('content', []))
+            self.assertEqual(new.readyState, 'open')
+            self.assertIn('Remember violet', context)
+            self.assertIn('The call brief fixture is purple', context)
+            self.assertIn('Continuing the same call', context)
+            self.assertEqual(phone.connectionState, 'connected')
+            self.assertEqual(dc.readyState, 'open')
+            self.assertFalse(call.closed)
 
     @patch.object(live, 'HOST_DELEGATION', False)
     async def test_real_webrtc_audio_and_bidirectional_protocol_translation(self):

@@ -140,8 +140,23 @@ alternate voices file. Set `HERMES_VOICE_ENGINE=gpt-live`, `PROBE_GAP=15`, `PROB
 `PROBE_ASK="Hey, can you hear me? || Tek, what's one thing you shipped this week? || Thanks. What's 12 times 12?"`.
 Use `PROBE_SAVE` and `PROBE_SAVE_IN` for the local phone and caller WAVs. Check both signaling answers and
 `session.started` events, `guest.floor`, and `guest.delegation.done` with the same session ID in the tek host
-log. `guest.failed` records guest setup errors; the primary continues alone. The probe's default delegation
-fixture covers only the primary, so guest delegations in this test use the real guest host.
+log. `guest.failed` records guest setup errors; the primary continues alone. Set `PROBE_HERMES_FIXTURE=1`
+to record primary requests without running them. Guest delegations still use the real guest host.
+
+## Primary hand-offs and call limits
+
+The primary profile defaults to `poteto`. `Z0LIVE_PRIMARY_HOST_PROFILE` selects the profile for
+both the API-only host and the voice adapter. The adapter uses the profile-qualified Responses API
+on loopback port 8644. Calls for other profiles keep their legacy routing. Each primary call has its
+own stored `z0live-primary-` conversation. The call brief seeds it. The adapter does not resubmit a
+failed turn because Hermes may already have acted. Set `HERMES_VOICE_PRIMARY_DELEGATION=legacy`
+to use the old chat or CLI path on new calls.
+
+`HERMES_VOICE_MAX_CALL_SECONDS` defaults to 14400. GPT-Live advertises its session expiry separately.
+The adapter opens a replacement before expiry, then sends the original brief and a bounded recap.
+The phone's WebRTC connection stays open. `HERMES_VOICE_PROVIDER_CAP_SECONDS` can force a shorter
+provider deadline for a probe. At a 90-second cap, allow at least 60 seconds before the follow-up ask.
+Look for `call.renewed` and a spoken reply to the follow-up on the same call.
 
 ## Pick the voice model
 

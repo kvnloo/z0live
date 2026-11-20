@@ -61,6 +61,8 @@ plist com.zer0.z0live.voice mobile_live.py "    <key>HERMES_BIN</key><string>$HO
     <key>HERMES_VOICE_BRIEF_DIR</key><string>$DATA/call-briefs</string>
     <key>Z0LIVE_HANDOFF_FILE</key><string>$DATA/handoff.json</string>
     <key>Z0LIVE_DESKTOP</key><string>$REPO/desktop</string>
+    <key>Z0LIVE_DATA</key><string>$DATA/core</string>
+    <key>Z0LIVE_PRIMARY_HOST_PROFILE</key><string>${Z0LIVE_PRIMARY_HOST_PROFILE:-poteto}</string>
     <key>Z0LIVE_TIERS</key><string>on</string>"
 
 plist com.zer0.z0live.lanes lane_server.py "    <key>Z0LIVE_PY</key><string>$PY</string>
@@ -87,7 +89,8 @@ if [ ! -s "$RELAY_TOKEN" ]; then
       | sed -n 's/^Device token: //p' > "$RELAY_TOKEN" )
 fi
 plist com.zer0.z0live.core "../bin/z0live serve" "$CORE_ENV"
-plist com.zer0.z0live.hermes "../desktop/hermes_host.py" "$CORE_ENV"
+plist com.zer0.z0live.hermes "../desktop/hermes_host.py" "$CORE_ENV
+    <key>HERMES_HOME</key><string>$HOME/.hermes/profiles/${Z0LIVE_PRIMARY_HOST_PROFILE:-poteto}</string>"
 
 for label in com.zer0.z0live.core com.zer0.z0live.hermes com.zer0.z0live.lanes com.zer0.z0live.voice com.zer0.z0live.proxy; do
   launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true

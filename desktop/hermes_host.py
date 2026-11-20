@@ -109,7 +109,7 @@ async def main():
     sys.path.insert(0, str(ROOT / "desktop"))
     from liaison_host import serve_liaison
 
-    liaison = None if args.profile else await serve_liaison(KEY.read_text().strip())
+    liaison = await serve_liaison(KEY.read_text().strip()) if not args.profile and PORT == 8644 else None
     try:
         await stop.wait()
     finally:
