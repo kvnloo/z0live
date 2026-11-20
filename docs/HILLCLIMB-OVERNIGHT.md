@@ -102,6 +102,11 @@ Hypothesis backlog (cheapest first; each names its mechanism):
 4. Backchannels: during human turns > 3 s, at 150-400 ms micro-pauses with an incomplete clause, play a short
    pre-rendered "mm-hm"/"yeah" in the engine's own voice (cached clips), never over speech.
 5. Brevity: cap spoken replies at 1-2 sentences in the persona (hosted voices over-talk); measure ai_talk_s too.
+   REVERTED 11-20 (A9): GPT-Live persona "one or two short sentences per reply unless the user asks for more". 3 runs
+   (a9b1-3) D 1.212 / 1.134 / 1.138, mean 1.161 vs A8's 1.029 (+0.13, inside the 0.3 resolution, wrong direction);
+   ai_talk_s 64.8 vs 59.9 (the cap did not shorten talk), bc 2.21 -> 1.36/min (the main D loss), median gap 0.98 ->
+   0.99 s, waits > 1 s 48.3 -> 51.5 %, false cut-in 18.0 -> 18.5 %, missed take 28.1 -> 30.7 %, spoke_first 0/12.
+   A length rule competes with the backchannel sentence and wins. Closed for GPT-Live.
 6. GPT-Live: persona backchannel policy "frequent" + "start answering as soon as the user is clearly done".
    KEPT 11-20 (A7, 952dca6, deployed ~05:39): three persona sentences (acknowledge longer stories with "mm-hm"/"yeah",
    answer as soon as the user is clearly done). 3 runs (a7p1-3) D 0.881 / 1.129 / 0.980, mean 0.997 vs 1.370
@@ -123,6 +128,8 @@ Hypothesis backlog (cheapest first; each names its mechanism):
     all_pass (the first probe, before the transcript half, failed on a gated "Yeah," still sent as text). Open: the
     gated turn still lands in the call's exchange log; a greeting-first design would need a different gate.
 7. GPT-Live: drop or delay the z0live context items that arrive mid-turn (they can stall the response).
+   NOT ON THIS BENCH (A9 check): a8g1's provider tx are only the start-of-call context appends (t 0.48..0.69 s),
+   no mid-turn items, delegations 0-1 per run. Only real calls with lanes/delegation can test it.
 8. Fully local engine "local": LFM2.5-Audio-1.5B (Liquid; ASR + TTS in one model, llama.cpp runners for macOS and
    Android) for speech in/out, Silero/energy VAD + smart-turn, a fast local SLM (Gemma 4 E4B on Studio) for the reply,
    streaming TTS. First measure ASR and TTS latency alone; then wire it as an engine and run the harness.
