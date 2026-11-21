@@ -41,6 +41,20 @@ class Addressing:
             return Address.GUEST if name in self.guest_names else Address.OTHER
         return None
 
+    def own_words(self, text: str, *, guest: bool, lead: bool) -> str:
+        """The words of one caller turn that were spoken to this voice. A voice that stays silent keeps one turn
+        open across exchanges ("Tek, what did you work on today ... Thanks, Tek. Hermes, back to you"), so each
+        named voice owns the words from its name to the next name; `lead` says whether the words before any name
+        are this voice's (it held the floor when the turn began)."""
+        marks = [(m.start("name"), m.group("name").casefold() in self.guest_names)
+                 for m in self.vocative.finditer(text)]
+        marks += [(m.start(1), m.group(1).casefold() in self.guest_names) for m in self.handoff.finditer(text)
+                  if m.group(1).casefold() in self.known]
+        marks.sort()
+        bounds = [(0, lead)] + [(at, to_guest == guest) for at, to_guest in marks]
+        ends = [at for at, _ in bounds[1:]] + [len(text)]
+        return "".join(text[at:end] for (at, mine), end in zip(bounds, ends) if mine).strip()
+
 
 def substantive(text: str) -> bool:
     text = text.strip(" \t,.!?…—-\"'")

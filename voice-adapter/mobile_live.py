@@ -406,8 +406,8 @@ class Protocol:
         # The caller's words since the voice last answered or delegated: a request is all of them. The provider's
         # delegation carries only its last speech segment ("Lane", "requirements, and how far we got").
         self.asked: list[str] = []
-        # With two voices, only the caller's turns to this voice: words to Tek never join a request to Hermes.
-        self.addressed: Callable[[], bool] = lambda: True
+        # With two voices, only the caller's words to this voice: words to Tek never join a request to Hermes.
+        self.own: Callable[[str], str] = lambda said: said
         self.user_open = False  # a user turn has started and its turn.done has not arrived
         self.deferred: list[tuple[str, str]] = []  # (did, segment): delegations that beat the user's turn.done
         self.last_request = ""  # the request most recently queued for a host run
@@ -462,8 +462,8 @@ class Protocol:
             if role == "user":
                 self.last_user = text
                 self.user_open = False
-                if said and self.addressed():
-                    self.asked.append(said)
+                if said and (mine := self.own(said)):
+                    self.asked.append(mine)
                 while self.deferred:
                     self.release(*self.deferred.pop(0))
             elif substantive(said) and not self.deferred:
@@ -504,15 +504,19 @@ class Protocol:
         def vocab(text):
             return set(re.findall(r"\w+", text.casefold()))
 
-        words = " ".join(self.asked)
+        words, segment = " ".join(self.asked), self.own(segment) if segment else segment
         if not words and segment and vocab(segment) <= vocab(self.last_request):
             self.pending_host.append((did, None))
             return
         if segment and not vocab(segment) <= vocab(words):
             words = f"{words} {segment}".strip()
         self.asked.clear()
-        self.last_request = words or self.last_user
-        self.pending_host.append((did, self.last_request))
+        request = words or self.own(self.last_user)
+        if not request and self.last_user.strip():  # every word was to the other voice: nothing for this one to run
+            self.pending_host.append((did, None))
+            return
+        self.last_request = request
+        self.pending_host.append((did, request))
 
     def from_mobile(self, event: dict) -> list[dict]:
         kind = event.get("type")
@@ -659,6 +663,7 @@ class UserTurn:
     committed: bool = False
     continuation: bool = False
     interrupted: bool = False
+    opened_on: Leg = "primary"  # the floor when the provider opened this turn (one turn can span exchanges)
 
 
 @dataclass
@@ -771,20 +776,22 @@ class GPTGuest:
         role = turn.get("role")
         user = self.users.get(source)
         if role == "user" and kind == "turn.created":
-            self.users[source] = user = UserTurn(turn["id"], now, turn.get("start_ms", 0),
-                                                  turn.get("end_ms", 0), turn.get("transcript") or "")
+            self.users[source] = user = UserTurn(turn["id"], now, turn.get("start_ms", 0), turn.get("end_ms", 0),
+                                                  turn.get("transcript") or "", opened_on=self.floor.owner)
         elif kind == "turn.delta" and user and event.get("turn_id") == user.id:
             end_ms = event.get("end_ms", user.end_ms)
             start_ms = event.get("start_ms", end_ms - 200)
             # A silent leg can keep one user ID open across several exchanges. Only split at a
             # gap in the provider's word timestamps, never at a mic onset or a delayed packet.
             if start_ms - user.end_ms >= 1500:
-                self.users[source] = user = UserTurn(user.id, now, start_ms, end_ms, continuation=True)
+                self.users[source] = user = UserTurn(user.id, now, start_ms, end_ms, continuation=True,
+                                                      opened_on=user.opened_on)
             user.end_ms = end_ms
             user.text = (user.text + event.get("delta", ""))[-2000:]
         elif role == "user" and kind == "turn.done":
             if not user:
-                self.users[source] = user = UserTurn(turn["id"], now, turn.get("start_ms", 0), turn.get("end_ms", 0))
+                self.users[source] = user = UserTurn(turn["id"], now, turn.get("start_ms", 0), turn.get("end_ms", 0),
+                                                      opened_on=self.floor.owner)
             if user.id != turn["id"]:
                 return False
             if not user.committed and not user.continuation:
@@ -820,7 +827,8 @@ class GPTGuest:
                         if length:
                             self.note_budget[target] -= min(length, len(reply.spoken))
                             name = self.config.name if source == "guest" else "Hermes"
-                            note = f"{name} said (already spoken; silent context): {reply.spoken[:length]}"
+                            note = (f"{name} said (Kevin heard it; silent context, never repeat or summarize it): "
+                                    f"{reply.spoken[:length]}")
                             (self.note if target == "guest" else self.call.guest_note)(note)
                     if allowed:
                         self.floor.reply_finished(source, now, reply.began)
@@ -852,6 +860,12 @@ class GPTGuest:
     def delivered(self, leg: Leg, entries):
         for entry in entries:
             self.call.trace("floor.answer_spoken", speaker=leg, did=entry.did, sends=entry.sends)
+
+    def own_words(self, leg: Leg, said: str) -> str:
+        """The part of a finished caller turn on this leg that was spoken to this leg's voice (its request)."""
+        user = self.users.get(leg)
+        lead = (user.opened_on if user else self.floor.owner) == leg
+        return self.addressing.own_words(said, guest=leg == "guest", lead=lead)
 
     def echoes(self, words: str) -> bool:
         """Whether the caller's words are the voice's own recent words (whole words: "no" is not in "know")."""
@@ -1089,9 +1103,9 @@ class Call:
         if self.guest_config:
             self.guest = (GPTGuest(self, self.guest_config) if self.guest_config.engine == "gpt-live"
                           else guest_voice.GuestVoice(self))
-        if isinstance(self.guest, GPTGuest):  # each voice's request is the caller's words while it held the floor
-            self.protocol.addressed = lambda: self.guest.floor.owner == "primary"
-            self.guest.protocol.addressed = lambda: self.guest.floor.owner == "guest"
+        if isinstance(self.guest, GPTGuest):  # each voice's request is only the caller's words to that voice
+            self.protocol.own = lambda said: self.guest.own_words("primary", said)
+            self.guest.protocol.own = lambda said: self.guest.own_words("guest", said)
         self.trace("call.created", profile=profile, engine=self.engine,
                    model=grok_leg.URL.rsplit("=", 1)[-1] if self.leg else MODEL, rev=ADAPTER_REV, pid=os.getpid(),
                    host_delegation=HOST_DELEGATION, lanes=bool(self.relay),

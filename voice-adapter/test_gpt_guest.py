@@ -43,6 +43,21 @@ class FloorTest(unittest.TestCase):
                 self.assertIs(parse(text, final=True), expected)
         self.assertIsNone(parse("Hey Tek", final=False))
 
+    def test_each_voice_keeps_only_the_words_addressed_to_it(self):
+        # A silent leg keeps one user turn open across both exchanges (11-21 two-voice probes).
+        parse = Addressing(("tek", "teknium"))
+        merged = "Tek, what did you work on today Thanks, Tek—Hermes, back to you. That's all for now, thanks"
+        self.assertEqual(parse.own_words(merged, guest=False, lead=True),
+                         "Hermes, back to you. That's all for now, thanks")
+        self.assertEqual(parse.own_words("Hey, can you check the garden? Tek, what did you work on today?",
+                                         guest=True, lead=False), "Tek, what did you work on today?")
+        self.assertEqual(parse.own_words("Tek, what did you work on today?", guest=False, lead=True), "")
+        self.assertEqual(parse.own_words("When is the boat inspection?", guest=False, lead=True),
+                         "When is the boat inspection?")
+        self.assertEqual(parse.own_words("one more detail", guest=True, lead=True), "one more detail")
+        self.assertEqual(parse.own_words("Can you check the garden? Over to Tek", guest=False, lead=True),
+                         "Can you check the garden? Over to")
+
     def test_exchange_transitions(self):
         for scenario, text, began, finished, interrupted, now, expected in [
             ("mid-sentence pause", "what shipped today", 1, 3, False, 4, "guest"),
@@ -499,23 +514,36 @@ class PrimaryDelegationTest(unittest.IsolatedAsyncioTestCase):
         call.guest.floor.available = True
         guest_ran = []
         call.guest.delegate = lambda did, request: guest_ran.append(request) or asyncio.sleep(0)
-        both = [(lambda raw: call.message(raw, True)), call.guest.message]
-        for leg in both:
-            leg(json.dumps(turn("created", "", 1000, 1200, tid="u1")))
-            leg(json.dumps(turn("done", "Tek, what did you work on today?", 1000, 2500, tid="u1")))
-        call.guest.message(json.dumps({"type": "delegation.created", "item": {
-            "id": "g1", "target": "client", "content": [{"type": "input_text", "text": "what did you work on"}]}}))
-        for leg in both:
-            leg(json.dumps(turn("created", "", 9000, 9200, tid="u2")))
-            leg(json.dumps(turn("done", "Hermes, back to you. When is the boat inspection?", 9000, 11000, tid="u2")))
-        call.message(json.dumps({"type": "delegation.created", "item": {
-            "id": "d1", "target": "client", "content": [{"type": "input_text", "text": "boat inspection"}]}}), True)
+        primary = lambda event: call.message(json.dumps(event), True)  # noqa: E731
+        guest = lambda event: call.guest.message(json.dumps(event))  # noqa: E731
+
+        def delta(text, start, end):
+            return {"type": "turn.delta", "turn_id": "p1", "delta": text, "start_ms": start, "end_ms": end}
+
+        # Tek's leg hears the caller's earlier question to Hermes in the same turn as the address to Tek.
+        guest(turn("created", "", 1000, 1200, tid="g1"))
+        guest(turn("done", "Hey, can you check the garden project? Tek, what did you work on today?", 1000, 6000,
+                   tid="g1"))
+        guest({"type": "delegation.created", "item": {"id": "gd1", "target": "client", "content": [
+            {"type": "input_text", "text": "what did you work on today"}]}})
+        # The primary stays silent while Tek talks, so its leg keeps ONE user turn open across both exchanges.
+        primary(turn("created", "", 1000, 1200, tid="p1"))
+        primary(delta("Tek, what did you work on today?", 3500, 6000))
+        guest(turn("created", "", 60000, 60200, tid="g2"))
+        guest(turn("done", "Thanks, Tek. Hermes, back to you. When is the boat inspection?", 60000, 64000, tid="g2"))
+        primary(delta(" Thanks, Tek. Hermes, back to you. When is the boat inspection?", 60000, 64000))
+        primary(turn("done", "Tek, what did you work on today? Thanks, Tek. Hermes, back to you. When is the boat "
+                             "inspection?", 3500, 64000, tid="p1"))
+        primary({"type": "delegation.created", "item": {"id": "d1", "target": "client", "content": [
+            {"type": "input_text", "text": "Thanks, Tek. Hermes, back to you. When is the boat inspection"}]}})
         await asyncio.sleep(0)
         self.assertEqual(len(ran), 1, f"floor {call.guest.floor.owner}")
         self.assertNotIn("work on today", ran[0])
+        self.assertNotIn("Tek", ran[0], "the provider's delegation segment carries the words to Tek too")
         self.assertIn("boat inspection", ran[0])
         self.assertEqual(len(guest_ran), 1)
-        self.assertNotIn("boat", guest_ran[0])
+        self.assertNotIn("garden", guest_ran[0])
+        self.assertIn("work on today", guest_ran[0])
 
     @patch.object(live, "HOST_DELEGATION", True)
     async def test_kevins_hermes_runs_a_request_addressed_to_it(self):
