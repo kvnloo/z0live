@@ -8,7 +8,7 @@ from typing import Callable, Literal
 Leg = Literal["primary", "guest"]
 IDLE_SECONDS = 20.0
 _WORD = r"[\w\u0b80-\u0bff]"
-_BACKCHANNEL = re.compile(r"(?:m+|h?m+|mm[ -]mm|uh|um|uh[ -]huh|m[m-]*[ -]?hmm|yeah|yep|right|okay|ok|thanks|thank you|got it|sure)(?:[.!?, ]*)$", re.I)
+_BACKCHANNEL = re.compile(r"(?:m+|h?m+|mm[ -]mm|uh|um|uh[ -]huh|m+[ -]?h+m+|yeah|yep|right|okay|ok|thanks|thank you|got it|sure)(?:[.!?, ]*)$", re.I)
 
 
 class Address(Enum):

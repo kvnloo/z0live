@@ -76,7 +76,6 @@ VOICE_ENV="    <key>HERMES_BIN</key><string>$HOME/.hermes/hermes-agent/.hermes/b
     <key>Z0LIVE_HANDOFF_FILE</key><string>$DATA/handoff.json</string>
     <key>Z0LIVE_DESKTOP</key><string>$REPO/desktop</string>
     <key>Z0LIVE_DATA</key><string>$DATA/core</string>
-    <key>Z0LIVE_PRIMARY_HOST_PROFILE</key><string>$PRIMARY_PROFILE</string>
     <key>Z0LIVE_TIERS</key><string>on</string>"
 VOICE_KEEPALIVE='<dict><key>SuccessfulExit</key><false/></dict>'
 plist com.zer0.z0live.voice 'voice-slot 9168' "$VOICE_ENV" "$VOICE_KEEPALIVE"

@@ -40,7 +40,6 @@ import call_brief  # noqa: E402 - sibling module (context packet in the session 
 import grok_leg  # noqa: E402 - sibling module (Grok Voice as the voice model)
 import tiers  # noqa: E402 - sibling module (fast/medium/slow model lanes)
 import guest_voice  # noqa: E402
-import primary_host  # noqa: E402
 from subscription_leg import Speaker, SubscriptionLeg  # noqa: E402
 import av  # noqa: E402
 from aiortc.contrib.media import MediaRelay  # noqa: E402
@@ -402,6 +401,11 @@ class Protocol:
     def __init__(self, host_delegation: bool = False):
         self.host_delegation = host_delegation
         self.pending_host = []  # (delegation_id, request) awaiting a host run
+        # The caller's words since the voice last answered or delegated: a request is all of them. The provider's
+        # delegation carries only its last speech segment ("Lane", "requirements, and how far we got").
+        self.asked: list[str] = []
+        self.user_open = False  # a user turn has started and its turn.done has not arrived
+        self.deferred: list[tuple[str, str]] = []  # (did, segment): delegations that beat the user's turn.done
         self.turn_text = {"user": "", "assistant": ""}
         self.last_user = ""
         self.last_delegation = ""
@@ -434,6 +438,14 @@ class Protocol:
             if role == "user":
                 self.last_user = self.turn_text[role]
             return [self.transcript(role, text)]
+        if kind == "turn.created":
+            if (event.get("turn") or {}).get("role") == "user":
+                self.user_open = True
+            else:  # the voice is replying, so the caller's turn is over even without its turn.done
+                self.user_open = False
+                while self.deferred:
+                    self.release(*self.deferred.pop(0))
+            return []
         if kind == "turn.done":
             turn = event.get("turn") or {}
             role, text = turn.get("role"), turn.get("transcript", "")
@@ -441,10 +453,18 @@ class Protocol:
                 return []
             prior = self.turn_text[role]
             self.turn_text[role] = ""
+            said = (text or prior).strip()
             if role == "user":
                 self.last_user = text
-            if (text or prior).strip():
-                self.exchanges.append((role, (text or prior).strip()))
+                self.user_open = False
+                if said:
+                    self.asked.append(said)
+                while self.deferred:
+                    self.release(*self.deferred.pop(0))
+            elif substantive(said) and not self.deferred:
+                self.asked.clear()  # the voice answered these words itself; a backchannel ("Mm-hm.") keeps them
+            if said:
+                self.exchanges.append((role, said))
             remainder = text[len(prior):] if text.startswith(prior) else (text if not prior else "")
             return [self.transcript(role, remainder)] if remainder else []
         if kind == "delegation.created":
@@ -461,12 +481,23 @@ class Protocol:
                 result.append(self.transcript("user", request))
                 self.last_user = request
             if self.host_delegation:
-                self.pending_host.append((did, request or self.last_user))
+                if self.user_open:  # the caller's turn.done (0.2-0.4 s behind) carries the whole utterance
+                    self.deferred.append((did, request))
+                else:
+                    self.release(did, request)
                 return result
             result.append({"type": "session.delegation.created", "delegation": {
                 "id": did, "type": "delegation", "target": "client"}})
             return result
         return []
+
+    def release(self, did: str, segment: str):
+        """Queue one host run whose request is the caller's words since the voice last answered or delegated."""
+        words = " ".join(self.asked)
+        if segment and not set(re.findall(r"\w+", segment.casefold())) <= set(re.findall(r"\w+", words.casefold())):
+            words = f"{words} {segment}".strip()
+        self.asked.clear()
+        self.pending_host.append((did, words or self.last_user))
 
     def from_mobile(self, event: dict) -> list[dict]:
         kind = event.get("type")
@@ -1010,8 +1041,6 @@ class Call:
         self.lane_said = {}  # delegation id -> (lane answer, entry id)
         self.token = ""  # the app's own bearer, for submitting voice turns into its open chat
         self.chat_lookup = None
-        self.stream_spoken = {}
-        self.primary_host = primary_host.PrimaryHost(self.id) if primary_host.api_mode(profile) else None
         self.context_text = ""  # recent chat history text, for the ttft lane
         self.haiku = None  # WarmHaiku, started once chat context is known
         self.chat = ""   # stored id of the chat Live Voice was started from ('' = hidden voice session)
@@ -1240,8 +1269,6 @@ class Call:
             # persona and the call brief go in as context, framed as background so they are not answered.
             channel = os.environ.get("HERMES_VOICE_BRIEF_CHANNEL", "developer")
             brief = call_brief.build(history, self.chat)
-            if self.primary_host:
-                self.primary_host.brief = brief
             if self.guest:
                 self.spawn(self.start_guest(brief))
             persona = PERSONA + ("\n" + guest_voice.PRIMARY_NOTE if isinstance(self.guest, guest_voice.GuestVoice) else "")
@@ -1395,17 +1422,17 @@ class Call:
                     self.counts["lane_answer_spoken"] += 1
                     self.lane_said[did] = (lane, ((turn or {}).get("receipt") or {}).get("entry"))
             answer = await job
-            self.__dict__.setdefault("hermes_done", set()).add(did)  # tier lanes go quiet: Hermes has the answer
+            if answer is None:  # joined the chat's running turn: that turn's one final answers this request too
+                self.counts["host_delegation_folded"] += 1
+                self.trace("delegation.folded", did=did, s=round(time.monotonic() - began, 3))
+                return
+            # Tier lanes go quiet: Hermes has answered this request and every request that joined its turn.
+            self.__dict__.setdefault("hermes_done", set()).update(self.protocol.seen)
             if TIERS_ON:
                 lane = " ".join(self.__dict__.get("tier_said", {}).get(did, [])) or None
             self.counts["host_delegation_ok"] += 1
             self.trace("delegation.done", did=did, s=round(time.monotonic() - began, 3), answer=answer[:4000],
                        closed=self.closed)
-            first = self.stream_spoken.get(did)
-            if first and answer.startswith(first):
-                answer = answer[len(first):].strip()
-                if not answer:
-                    return
             # Tier lanes: Hermes is skipped when everything it says was already spoken (answer within said).
             if lane and covered and (covered(answer, lane, request) if TIERS_ON else covered(lane, answer, request)):
                 self.counts["host_delegation_covered"] += 1  # the lane already said it
@@ -1423,8 +1450,9 @@ class Call:
 
     async def tier_lanes(self, did, request):
         """Fast, medium and slow lanes race within each tier; tiers run at once. The first answer from any tier
-        is spoken; a later tier speaks only if it adds to what was said (tiers.MAX_SPOKEN per request). Lanes go
-        quiet once a newer request starts or Hermes answers."""
+        is the one lane answer spoken for this request; Hermes's answer follows only if it adds to it. Later
+        tiers are traced, not spoken: on 11-20 three tier answers and Hermes landed within 4.4 s and the voice
+        spoke a garbled merge. Lanes go quiet once a newer request starts or Hermes answers."""
         began, cfg = time.monotonic(), tiers.load()
         context = tiers.snapshot(self.context_text, list(self.protocol.exchanges))
         said = self.__dict__.setdefault("tier_said", {}).setdefault(did, [])
@@ -1438,18 +1466,10 @@ class Call:
                        s=round(time.monotonic() - began, 3))
             quiet = (self.closed or getattr(self, "latest_did", did) != did
                      or did in self.__dict__.get("hermes_done", set()))
-            if not text or quiet or len(said) >= tiers.MAX_SPOKEN:
-                continue
-            if not said:
-                if self.say_first(did, text):
-                    said.append(text)
-                    self.counts["tier_first_spoken"] += 1
-                    self.trace("lanes.spoken", did=did, tier=name, model=model, first=True)
-            elif covered and not covered(text, " ".join(said), request):  # no check: no updates
+            if text and not quiet and not said and self.say_first(did, text):
                 said.append(text)
-                self.counts["tier_update_spoken"] += 1
-                self.trace("lanes.spoken", did=did, tier=name, model=model, first=False)
-                self.speak_for(did, text, lane=True)
+                self.counts["tier_first_spoken"] += 1
+                self.trace("lanes.spoken", did=did, tier=name, model=model, first=True)
 
     async def start_haiku(self):
         began, haiku = time.monotonic(), self.haiku
@@ -1589,16 +1609,6 @@ class Call:
         return text or answers[0][1][:280]
 
     async def ask_hermes(self, did, request):
-        if self.primary_host:
-            began = time.monotonic()
-            self.trace("delegation.api", did=did, session=self.primary_host.session)
-
-            def first(text):  # Hermes's own first sentence: the rest of its answer is sent without it
-                if self.say_first(did, text, lane=False):
-                    self.stream_spoken[did] = text
-                    self.trace("delegation.first_sentence", did=did, s=round(time.monotonic() - began, 3))
-
-            return await self.primary_host.ask(self.manager.http, request, DELEGATION_TIMEOUT_SECONDS, first)
         if self.chat_lookup and not self.chat:
             try:
                 self.chat = await asyncio.wait_for(asyncio.shield(self.chat_lookup), 5)
@@ -1699,6 +1709,9 @@ class Call:
             protocol.seen.clear()
             protocol.turn_text.update(user="", assistant="")
             protocol.last_user = protocol.last_delegation = ""
+            protocol.user_open = False  # the retired session never sends turn.done for a turn it had open
+            while protocol.deferred:
+                protocol.release(*protocol.deferred.pop(0))
             candidate.activate()
             if guest:
                 guest.audio.clear()

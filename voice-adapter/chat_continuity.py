@@ -62,8 +62,13 @@ def find_chat(history, profile: str, db_path: Path | None = None) -> str:
         return ""
 
 
-async def ask_chat(http, token: str, profile: str, sid: str, request: str, timeout: float) -> str:
-    """Submit one voice request into the chat and return its final assistant text."""
+JOINED = frozenset({"steered", "redirected"})  # prompt.submit receipts for a prompt folded into the running turn
+
+
+async def ask_chat(http, token: str, profile: str, sid: str, request: str, timeout: float) -> str | None:
+    """Submit one voice request into the chat and return the final text of the turn it started, or None when the
+    chat was busy and the request joined the running turn: that turn's one final answers both, and it already
+    belongs to the request that started it. A queued request waits for its own turn, after the running one."""
     ids = itertools.count(1)
     headers = {"X-Hermes-Profile": profile} if profile else {}
     params = {"token": token, **({"profile": profile} if profile else {})}
@@ -82,11 +87,18 @@ async def ask_chat(http, token: str, profile: str, sid: str, request: str, timeo
         scope = {"profile": profile} if profile else {}  # the dashboard picks the store per RPC, not per socket
         live = (await rpc("session.resume", {"session_id": sid, "omit_messages": True, "inline_images": False,
                                              "lazy": True, **scope})).get("session_id") or sid
-        await rpc("prompt.submit", {"session_id": live, "text": request, **scope})
+        status = (await rpc("prompt.submit", {"session_id": live, "text": request, **scope})).get("status")
+        if status in JOINED:
+            return None
+        started = status != "queued"  # a queued prompt's turn begins after the running turn's message.complete
         async for msg in ws:
             frame = json.loads(msg.data)
             p = frame.get("params") or {}
-            if frame.get("method") == "event" and p.get("type") == "message.complete" and p.get("session_id") == live:
+            if frame.get("method") != "event" or p.get("session_id") != live:
+                continue
+            if p.get("type") == "message.start":
+                started = True
+            elif p.get("type") == "message.complete" and started:
                 text = (p.get("payload") or {}).get("text")
                 text = text if isinstance(text, str) else json.dumps(text)
                 if not text.strip():

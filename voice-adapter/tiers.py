@@ -2,8 +2,8 @@
 
 Context: every lane gets the same snapshot, the chat brief plus the call's recent turns plus the request. Lanes
 keep no state of their own, so none can drift from the call. Within a tier the models race; the first real
-answer (not SKIP) wins. Speaking is decided in mobile_live.Call.tier_lanes: first answer from any tier is
-spoken, a later tier only if it adds something, at most MAX_SPOKEN per request.
+answer (not SKIP) wins. Speaking is decided in mobile_live.Call.tier_lanes: the first answer from any tier is
+the one lane answer spoken per request; Hermes's answer follows only if it adds to it.
 
 Models go through lane_server.py (plain model calls). A {"provider": "local", "model": "gemma4-e4b"}
 binding uses its loopback endpoint (Z0LIVE_LOCAL_BASE_URL). See docs/examples/tiers-gemma.json for an
@@ -28,7 +28,6 @@ TIERS = {
     "slow": [{"provider": CLAUDE, "model": "claude-opus-5-5"}, {"provider": CODEX, "model": "gpt-6.2-sol"}],
 }
 DEADLINE = {"fast": 4, "medium": 15, "slow": 45}  # seconds; a tier past its deadline is no answer
-MAX_SPOKEN = 3  # first answer + two updates per request (a 22 s lane monologue on 11-16 was too much)
 FILE = Path(os.environ.get("Z0LIVE_TIERS_FILE", str(Path.home() / ".config/z0live/tiers.json")))
 URL = os.environ.get("Z0LIVE_LANE_URL", "http://127.0.0.1:8646/v1/ask")
 # SKIP anywhere is a skip: "I can't send that right now. SKIP" was spoken whole (slm-v1, 11-19).
