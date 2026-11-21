@@ -40,7 +40,8 @@ class FindChat(unittest.TestCase):
 
 
 class AskChat(unittest.IsolatedAsyncioTestCase):
-    async def test_resume_submit_and_final_text_with_the_apps_token(self):
+    async def ask(self, status, events):
+        """ask_chat against a dashboard socket whose prompt.submit answers `status`, then sends `events`."""
         seen = []
 
         async def ws_handler(request):
@@ -53,11 +54,10 @@ class AskChat(unittest.IsolatedAsyncioTestCase):
                 if f["method"] == "session.resume":
                     await ws.send_str(json.dumps({"jsonrpc": "2.0", "id": f["id"], "result": {"session_id": "live1"}}))
                 else:
-                    await ws.send_str(json.dumps({"jsonrpc": "2.0", "id": f["id"], "result": {"status": "streaming"}}))
-                    await ws.send_str(json.dumps({"jsonrpc": "2.0", "method": "event", "params": {
-                        "type": "message.complete", "session_id": "other", "payload": {"text": "wrong"}}}))
-                    await ws.send_str(json.dumps({"jsonrpc": "2.0", "method": "event", "params": {
-                        "type": "message.complete", "session_id": "live1", "payload": {"text": " done "}}}))
+                    await ws.send_str(json.dumps({"jsonrpc": "2.0", "id": f["id"], "result": {"status": status}}))
+                    for kind, session, text in events:
+                        await ws.send_str(json.dumps({"jsonrpc": "2.0", "method": "event", "params": {
+                            "type": kind, "session_id": session, "payload": {"text": text}}}))
             return ws
 
         app = web.Application()
@@ -73,10 +73,27 @@ class AskChat(unittest.IsolatedAsyncioTestCase):
                 text = await asyncio.wait_for(cc.ask_chat(http, "tok", "clean", "gui1c", "is it up?", 10), 10)
         finally:
             await runner.cleanup()
+        return text, seen
+
+    async def test_resume_submit_and_final_text_with_the_apps_token(self):
+        text, seen = await self.ask("streaming", [("message.complete", "other", "wrong"),
+                                                 ("message.complete", "live1", " done ")])
         self.assertEqual(text, "done")
         self.assertEqual(seen[0], ("token", "tok"))
         self.assertEqual((seen[1][1]["session_id"], seen[1][1]["profile"]), ("gui1c", "clean"))
         self.assertEqual(seen[2], ("prompt.submit", {"session_id": "live1", "text": "is it up?", "profile": "clean"}))
+
+    async def test_a_request_that_joins_the_running_turn_has_no_answer_of_its_own(self):
+        # The running turn's message.complete belongs to the request that started it (11-20: one final x 11).
+        for status in ("steered", "redirected"):
+            text, _ = await self.ask(status, [("message.complete", "live1", "the running turn's answer")])
+            self.assertIsNone(text, status)
+
+    async def test_a_queued_request_waits_for_its_own_turn(self):
+        text, _ = await self.ask("queued", [("message.complete", "live1", "the running turn's answer"),
+                                            ("message.start", "live1", ""),
+                                            ("message.complete", "live1", "my answer")])
+        self.assertEqual(text, "my answer")
 
 
 if __name__ == "__main__":

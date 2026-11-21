@@ -1390,7 +1390,12 @@ class Call:
                     self.counts["lane_answer_spoken"] += 1
                     self.lane_said[did] = (lane, ((turn or {}).get("receipt") or {}).get("entry"))
             answer = await job
-            self.__dict__.setdefault("hermes_done", set()).add(did)  # tier lanes go quiet: Hermes has the answer
+            if answer is None:  # joined the chat's running turn: that turn's one final answers this request too
+                self.counts["host_delegation_folded"] += 1
+                self.trace("delegation.folded", did=did, s=round(time.monotonic() - began, 3))
+                return
+            # Tier lanes go quiet: Hermes has answered this request and every request that joined its turn.
+            self.__dict__.setdefault("hermes_done", set()).update(self.protocol.seen)
             if TIERS_ON:
                 lane = " ".join(self.__dict__.get("tier_said", {}).get(did, [])) or None
             self.counts["host_delegation_ok"] += 1
