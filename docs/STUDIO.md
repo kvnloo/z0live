@@ -202,6 +202,12 @@ export Z0LIVE_LANE_URL=http://127.0.0.1:18646/v1/ask
 The race check compares the proposed fast tier to the same three Haiku lanes without Gemma. It sends only
 fictional context and measures time to the first usable text reply, not time to speech.
 
+To switch it on in one step, run `deploy/macos/apply-when-idle.sh`. It waits until no call is open, checks that
+the rolling-restart slots are installed (it runs `install.sh` only if they are not), starts
+`com.zer0.z0live.gemma`, restarts `com.zer0.z0live.lanes`, writes the tiers file above (backing up the old one)
+and checks one local answer through the lane server. If that check fails, it restores the old tiers file.
+`deploy/macos/apply-when-idle.sh --check` only reports open calls: exit 0 when idle, 3 when a call is open.
+
 ## Two voices on one call
 
 When the primary is GPT-Live, choose a guest in `~/.config/z0live/voices.json`. The adapter reads it at the start
