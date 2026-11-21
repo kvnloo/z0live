@@ -92,6 +92,34 @@ class ReplayContract(unittest.TestCase):
         report = run(rows)
         self.assertEqual(report["max_finals_per_delegation"], 2)  # the first lane answer, then Hermes (it adds)
 
+    def test_a_long_hermes_turn_does_not_hold_a_later_request(self):
+        # 11-20 10:42 call: a usage check ran 95 s in the chat. Requests made meanwhile joined that turn
+        # (receipt "redirected") and heard nothing until it ended; the redirect also turned the long work aside.
+        rows = (turn(5, 10, "user", "Check how much of my usage I have left across every account", "u1")
+                + delegation(9.8, "d1", "usage left") + turn(10, 11, "assistant", "On it.", "a1")
+                + hermes("d1", 95, "You have about forty percent left on the main account.")
+                + turn(30, 34, "user", "Meanwhile, what time is the dentist tomorrow?", "u2")
+                + delegation(33.8, "d2", "dentist tomorrow") + turn(34, 35, "assistant", "Checking.", "a2")
+                + hermes("d2", 6, "The dentist is at nine thirty tomorrow morning."))
+        report = run(rows)
+        self.assertEqual(report["held"], [])
+        self.assertLess(report["own_answer_s"]["d2"], 10)  # its own work (6 s), not the long turn's 95 s
+        self.assertLess(report["own_answer_s"]["d1"], 100)  # the long work still lands, spoken when it does
+
+    def test_a_long_hermes_request_gets_a_spoken_receipt_within_seconds(self):
+        # A0190: "On it", then minutes of silence (8 of 23 delegations ran over 60 s on 11-20).
+        rows = (turn(5, 10, "user", "Check how much of my usage I have left across every account", "u1")
+                + delegation(9.8, "d1", "usage left") + turn(10, 11, "assistant", "On it.", "a1")
+                + hermes("d1", 95, "You have about forty percent left on the main account."))
+        report = run(rows)
+        self.assertLessEqual(report["receipt_s"].get("d1", 999), 12)
+        self.assertEqual(report["duplicate_finals"], {})
+
+    def test_a_quick_hermes_answer_gets_no_receipt(self):
+        rows = (turn(5, 10, "user", "What is on my calendar today?", "u1") + delegation(9.8, "d1", "calendar")
+                + turn(10, 11, "assistant", "One sec.", "a1") + hermes("d1", 4, "Just the dentist at nine thirty."))
+        self.assertEqual(run(rows)["receipt_s"], {})
+
     def last_submitted(self, rows):
         import asyncio
         r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows)
