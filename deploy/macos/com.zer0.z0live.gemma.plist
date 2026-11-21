@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.zer0.z0live.gemma</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>exec "$HOME/.local/opt/llama.cpp/b12527/llama-b12527/llama-server" --model "$HOME/.local/share/z0live/models/gemma4-e4b.gguf" --alias gemma4-e4b --host 127.0.0.1 --port 8650 --device MTL0 --gpu-layers all --ctx-size 16384 --parallel 2 --cache-prompt --cache-ram 512 --jinja --no-ui --cors-origins localhost</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+</dict>
+</plist>

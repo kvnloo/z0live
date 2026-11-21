@@ -5,8 +5,9 @@ keep no state of their own, so none can drift from the call. Within a tier the m
 answer (not SKIP) wins. Speaking is decided in mobile_live.Call.tier_lanes: first answer from any tier is
 spoken, a later tier only if it adds something, at most MAX_SPOKEN per request.
 
-Models go through lane_server.py (Hermes's logins, plain model calls). Override the tiers per call without a
-restart by writing ~/.config/z0live/tiers.json, same shape as TIERS.
+Models go through lane_server.py (plain model calls). A {"provider": "local", "model": "gemma4-e4b"}
+binding uses its loopback endpoint (Z0LIVE_LOCAL_BASE_URL). See docs/examples/tiers-gemma.json for an
+opt-in layout. Override the tiers per call without a restart using ~/.config/z0live/tiers.json.
 """
 import asyncio
 import json

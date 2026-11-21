@@ -1,4 +1,4 @@
-"""Model lanes for the call: one plain model call per request through Hermes's own logins, no agent turn.
+"""Model lanes for the call: plain calls through Hermes's logins or a loopback model server.
 
 Runs under the Hermes runtime (it imports hermes-agent), loopback only. The adapter POSTs
   /v1/ask {"provider", "model", "system", "user", "max_tokens", "timeout"} -> {"text", "first_s", "total_s"}
@@ -10,7 +10,9 @@ import logging
 import os
 import sys
 import time
+from http.client import HTTPConnection
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
 
 sys.path.insert(0, os.environ.get("Z0LIVE_HERMES_SOURCE", os.path.expanduser("~/.hermes/hermes-agent")))
 import hermes_bootstrap  # noqa: E402,F401 - puts the installed Hermes environment on sys.path (as xai_secret.py)
@@ -19,22 +21,60 @@ from agent.auxiliary_client import call_llm  # noqa: E402
 LOG = logging.getLogger("z0live.lanes")
 PORT = int(os.environ.get("Z0LIVE_LANE_PORT", "8646"))
 WARM = os.environ.get("Z0LIVE_LANE_WARM", "claude-subscription-directsdk-experimental:claude-haiku-5-5")
+LOCAL_BASE_URL = os.environ.get("Z0LIVE_LOCAL_BASE_URL", "http://127.0.0.1:8650/v1")
+
+
+def local_chunks(model, messages, max_tokens, timeout):
+    url = urlsplit(LOCAL_BASE_URL)
+    if (url.scheme != "http" or url.hostname not in ("127.0.0.1", "::1", "localhost")
+            or url.username is not None or url.query or url.fragment):
+        raise ValueError("Z0LIVE_LOCAL_BASE_URL must be a loopback HTTP API base URL")
+    body = {"model": model, "messages": messages, "max_tokens": max_tokens, "stream": True, "temperature": 0,
+            "chat_template_kwargs": {"enable_thinking": False}, "cache_prompt": True}
+    conn = HTTPConnection(url.hostname, url.port, timeout=timeout)
+    try:
+        conn.request("POST", url.path.rstrip("/") + "/chat/completions", json.dumps(body),
+                     {"Content-Type": "application/json", "Accept": "text/event-stream"})
+        with conn.getresponse() as response:
+            if response.status != 200:
+                raise RuntimeError(f"local model server returned HTTP {response.status}")
+            for raw in response:
+                if not raw.startswith(b"data:"):
+                    continue
+                data = raw[5:].strip()
+                if data == b"[DONE]":
+                    return
+                chunk = json.loads(data)
+                if chunk.get("error"):
+                    raise RuntimeError("local model server reported a stream error")
+                choices = chunk.get("choices")
+                if choices:
+                    yield choices[0]["delta"].get("content") or ""
+            raise RuntimeError("local model stream ended before [DONE]")
+    finally:
+        conn.close()
 
 
 def ask(provider, model, system, user, max_tokens=300, timeout=60.0):
     t0, first, text = time.monotonic(), None, ""
     messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": user}]
-    out = call_llm(provider=provider, model=model, messages=messages, max_tokens=max_tokens, stream=True,
-                   timeout=timeout)
-    if hasattr(out, "choices"):  # the Codex route answers whole even when asked to stream (11-19)
-        text, first = out.choices[0].message.content or "", time.monotonic() - t0
-    else:
-        for chunk in out:
-            choices = getattr(chunk, "choices", None)
-            piece = (choices[0].delta.content if choices else None) or ""
-            if piece and first is None:
+    if provider == "local":
+        for piece in local_chunks(model, messages, max_tokens, timeout):
+            if piece.strip() and first is None:
                 first = time.monotonic() - t0
             text += piece
+    else:
+        out = call_llm(provider=provider, model=model, messages=messages, max_tokens=max_tokens, stream=True,
+                       timeout=timeout)
+        if hasattr(out, "choices"):  # the Codex route answers whole even when asked to stream (11-19)
+            text, first = out.choices[0].message.content or "", time.monotonic() - t0
+        else:
+            for chunk in out:
+                choices = getattr(chunk, "choices", None)
+                piece = (choices[0].delta.content if choices else None) or ""
+                if piece and first is None:
+                    first = time.monotonic() - t0
+                text += piece
     return {"text": " ".join(text.split()), "first_s": round(first or 0, 3), "total_s": round(time.monotonic() - t0, 3)}
 
 

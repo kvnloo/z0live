@@ -11,6 +11,7 @@
 # goes through the adapter (and its event trace). The dashboard must bind loopback (docs/STUDIO.md "Front door").
 #   com.zer0.z0live.lanes  voice-adapter/lane_server.py on 127.0.0.1:8646 under the Hermes runtime: fast/medium/
 #                          slow model lanes (tiers.py) as plain model calls through the poteto profile's logins
+#   com.zer0.z0live.gemma  optional loopback model server on 127.0.0.1:8650 for the local lane
 #
 # Secrets never live in this repo or the plists. Optional ~/.config/z0live/voice.env (mode 600, bws-synced)
 # is sourced by run.sh, e.g. GROQ_API_KEY for the Groq instant lane.
@@ -108,7 +109,18 @@ plist com.zer0.z0live.core "../bin/z0live serve" "$CORE_ENV"
 plist com.zer0.z0live.hermes "../desktop/hermes_host.py" "$CORE_ENV
     <key>HERMES_HOME</key><string>$PRIMARY_HOME</string>"
 
-for label in com.zer0.z0live.core com.zer0.z0live.hermes com.zer0.z0live.lanes com.zer0.z0live.voice com.zer0.z0live.voice-next com.zer0.z0live.proxy; do
+labels=(com.zer0.z0live.core com.zer0.z0live.hermes com.zer0.z0live.lanes com.zer0.z0live.voice com.zer0.z0live.voice-next com.zer0.z0live.proxy)
+if [ -x "$HOME/.local/opt/llama.cpp/b12527/llama-b12527/llama-server" ] && [ -r "$DATA/models/gemma4-e4b.gguf" ]; then
+  label=com.zer0.z0live.gemma
+  cp "$REPO/deploy/macos/$label.plist" "$AGENTS/$label.plist"
+  plutil -insert StandardOutPath -string "$LOGS/$label.log" "$AGENTS/$label.plist"
+  plutil -insert StandardErrorPath -string "$LOGS/$label.log" "$AGENTS/$label.plist"
+  labels=("$label" "${labels[@]}")
+else
+  printf '%s\n' 'Gemma not installed: llama-server b12527 or gemma4-e4b.gguf is missing.' >&2
+fi
+
+for label in "${labels[@]}"; do
   launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
   # bootout returns before the old job is gone; bootstrapping then fails with "5: Input/output error".
   for _ in $(seq 40); do launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1 || break; sleep 0.5; done
