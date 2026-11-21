@@ -482,5 +482,41 @@ class PrimaryDelegationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.delegate("Tek, delete the old release branch"), [])
 
     @patch.object(live, "HOST_DELEGATION", True)
+    async def test_words_said_to_tek_never_join_the_next_request_to_hermes(self):
+        # 11-21 two-voice probe: after "Tek, what did you work on today?" and Tek's answer, "Hermes, back to you"
+        # delegated "Tek, what did you work on today Thanks, Tek. Hermes, back to you" to Kevin's Hermes.
+        config = guest_voice.GuestConfig("gpt-live", "tek", "ember", "tek")
+        with patch.dict(live.os.environ, {"HERMES_VOICE_ENGINE": "gpt-live"}), \
+                patch.object(live.guest_voice, "configured", return_value=config):
+            call = live.Call(live.Manager(None), profile="")
+        self.addAsyncCleanup(call.close, "test")
+        ran = []
+
+        async def host_delegate(did, request):
+            ran.append(request)
+
+        call.host_delegate, call.relay, call.heard_user = host_delegate, None, True
+        call.guest.floor.available = True
+        guest_ran = []
+        call.guest.delegate = lambda did, request: guest_ran.append(request) or asyncio.sleep(0)
+        both = [(lambda raw: call.message(raw, True)), call.guest.message]
+        for leg in both:
+            leg(json.dumps(turn("created", "", 1000, 1200, tid="u1")))
+            leg(json.dumps(turn("done", "Tek, what did you work on today?", 1000, 2500, tid="u1")))
+        call.guest.message(json.dumps({"type": "delegation.created", "item": {
+            "id": "g1", "target": "client", "content": [{"type": "input_text", "text": "what did you work on"}]}}))
+        for leg in both:
+            leg(json.dumps(turn("created", "", 9000, 9200, tid="u2")))
+            leg(json.dumps(turn("done", "Hermes, back to you. When is the boat inspection?", 9000, 11000, tid="u2")))
+        call.message(json.dumps({"type": "delegation.created", "item": {
+            "id": "d1", "target": "client", "content": [{"type": "input_text", "text": "boat inspection"}]}}), True)
+        await asyncio.sleep(0)
+        self.assertEqual(len(ran), 1, f"floor {call.guest.floor.owner}")
+        self.assertNotIn("work on today", ran[0])
+        self.assertIn("boat inspection", ran[0])
+        self.assertEqual(len(guest_ran), 1)
+        self.assertNotIn("boat", guest_ran[0])
+
+    @patch.object(live, "HOST_DELEGATION", True)
     async def test_kevins_hermes_runs_a_request_addressed_to_it(self):
         self.assertEqual(await self.delegate("Delete the old release branch"), ["Delete the old release branch"])

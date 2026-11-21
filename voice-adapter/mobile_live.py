@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 from collections import Counter, defaultdict, deque
+from collections.abc import Callable
 from dataclasses import dataclass
 import hashlib
 import json
@@ -405,6 +406,8 @@ class Protocol:
         # The caller's words since the voice last answered or delegated: a request is all of them. The provider's
         # delegation carries only its last speech segment ("Lane", "requirements, and how far we got").
         self.asked: list[str] = []
+        # With two voices, only the caller's turns to this voice: words to Tek never join a request to Hermes.
+        self.addressed: Callable[[], bool] = lambda: True
         self.user_open = False  # a user turn has started and its turn.done has not arrived
         self.deferred: list[tuple[str, str]] = []  # (did, segment): delegations that beat the user's turn.done
         self.last_request = ""  # the request most recently queued for a host run
@@ -459,7 +462,7 @@ class Protocol:
             if role == "user":
                 self.last_user = text
                 self.user_open = False
-                if said:
+                if said and self.addressed():
                     self.asked.append(said)
                 while self.deferred:
                     self.release(*self.deferred.pop(0))
@@ -1086,6 +1089,9 @@ class Call:
         if self.guest_config:
             self.guest = (GPTGuest(self, self.guest_config) if self.guest_config.engine == "gpt-live"
                           else guest_voice.GuestVoice(self))
+        if isinstance(self.guest, GPTGuest):  # each voice's request is the caller's words while it held the floor
+            self.protocol.addressed = lambda: self.guest.floor.owner == "primary"
+            self.guest.protocol.addressed = lambda: self.guest.floor.owner == "guest"
         self.trace("call.created", profile=profile, engine=self.engine,
                    model=grok_leg.URL.rsplit("=", 1)[-1] if self.leg else MODEL, rev=ADAPTER_REV, pid=os.getpid(),
                    host_delegation=HOST_DELEGATION, lanes=bool(self.relay),
