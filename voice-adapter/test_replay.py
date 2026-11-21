@@ -34,19 +34,31 @@ def run(rows):
 
 
 class ReplayContract(unittest.TestCase):
-    def test_requests_that_join_a_running_chat_turn_get_one_answer_not_one_each(self):
+    def test_requests_made_while_a_chat_turn_runs_get_one_answer_each(self):
         # 11-20 09:43 call: 11 requests landed while one chat turn ran. Each socket took that turn's one
-        # message.complete as its own answer, so one final went to the voice 11 times.
+        # message.complete as its own answer, so one final went to the voice 11 times. Now each runs beside the
+        # turn as a background agent and is answered once, by its own answer.
         rows = (turn(5, 10, "user", "What is in the call traces we keep?", "u1") + delegation(9.8, "d1", "call traces")
                 + turn(10, 11, "assistant", "On it.", "a1") + hermes("d1", 60, "Each call writes one trace file.")
                 + turn(15, 20, "user", "And do we keep the audio too?", "u2") + delegation(19.8, "d2", "audio too")
-                + turn(20, 21, "assistant", "Checking.", "a2") + hermes("d2", 30, "Each call writes one trace file.")
+                + turn(20, 21, "assistant", "Checking.", "a2") + hermes("d2", 30, "The audio is not kept.")
                 + turn(28, 30, "user", "Hello, are you there?", "u3") + delegation(29.8, "d3", "Hello")
-                + turn(30, 31, "assistant", "Still on it.", "a3") + hermes("d3", 5, "Each call writes one trace file."))
+                + turn(30, 31, "assistant", "Still on it.", "a3") + hermes("d3", 5, "Yes, still here."))
         report = run(rows)
         self.assertEqual(report["duplicate_finals"], {})
-        self.assertEqual(report["finals"], 1)
+        self.assertEqual(report["finals"], 3)
+        self.assertEqual(report["backgrounded"], 2)
+        self.assertEqual(report["held"], [])
         self.assertEqual(report["unanswered"], [])
+
+    def test_side_by_side_requests_with_the_same_answer_are_spoken_once(self):
+        rows = (turn(5, 10, "user", "How much disk is free on the studio?", "u1") + delegation(9.8, "d1", "disk")
+                + turn(10, 11, "assistant", "On it.", "a1") + hermes("d1", 20, "The Studio has 23 gigabytes free.")
+                + turn(15, 20, "user", "Sorry, I mean free space on the studio", "u2") + delegation(19.8, "d2", "free")
+                + turn(20, 21, "assistant", "Checking.", "a2") + hermes("d2", 15, "The Studio has 23 gigabytes free."))
+        report = run(rows)
+        self.assertEqual(report["finals"], 1)
+        self.assertEqual(report["duplicate_finals"], {})
 
     def test_the_request_is_the_callers_whole_utterance_not_the_last_speech_segment(self):
         # 11-20 20:55 call: the provider's delegation carries only its last segment ("Lane", "requirements, and
@@ -114,6 +126,18 @@ class ReplayContract(unittest.TestCase):
         report = run(rows)
         self.assertLessEqual(report["receipt_s"].get("d1", 999), 12)
         self.assertEqual(report["duplicate_finals"], {})
+
+    def test_a_failed_background_agent_is_spoken_not_silent(self):
+        rows = (turn(5, 10, "user", "Check every server we run", "u1") + delegation(9.8, "d1", "servers")
+                + turn(10, 11, "assistant", "On it.", "a1") + hermes("d1", 60, "All servers are up.")
+                + turn(15, 20, "user", "And the phone battery?", "u2") + delegation(19.8, "d2", "battery")
+                + turn(20, 21, "assistant", "Checking.", "a2") + hermes("d2", 3, "error: provider timed out"))
+        r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows)
+        import asyncio
+        report = asyncio.run(r.run())
+        said = [(e.get("delegation_item_id"), "".join(c.get("text", "") for c in e.get("content", []))) for _, e in r.sent]
+        self.assertTrue(any(did == "d2" and "couldn't finish" in text for did, text in said))
+        self.assertEqual(report["held"], [])
 
     def test_a_quick_hermes_answer_gets_no_receipt(self):
         rows = (turn(5, 10, "user", "What is on my calendar today?", "u1") + delegation(9.8, "d1", "calendar")

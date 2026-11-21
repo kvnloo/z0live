@@ -12,6 +12,11 @@ the adapter sends and when, not what the voice would have said to it.
 The fake chat follows the dashboard's busy rule (display.busy_input_mode=interrupt): a prompt sent while a turn
 runs redirects that turn (receipt status "redirected"), and the turn ends with one message.complete that every
 socket listening on the chat receives. A redirected turn ends at max(its end, the new prompt + its own work).
+prompt.background answers {task_id} at once and sends background.complete {task_id, text} to the chat's sockets
+after that request's own work. Call.sleep runs on the replay clock, so receipts fire when they would on a call.
+
+A report's own_answer_s is request -> first final carrying that request's id (a lane answer or Hermes); held lists
+requests with none (folded into another request's turn); receipt_s is request -> spoken receipt.
 """
 from __future__ import annotations
 
@@ -216,7 +221,8 @@ class Replay:
                 patch.object(live, "TRACE_DIR", Path(traces)), patch.object(live, "TIERS_ON", True), \
                 patch.object(live.chat_continuity, "WS", url), patch.object(tiers, "race", race), \
                 patch.object(tiers, "load", return_value=cfg), patch.object(live.Call, "host_delegate", host_delegate), \
-                patch.object(live.guest_voice, "configured", return_value=None):
+                patch.object(live.guest_voice, "configured", return_value=None), \
+                patch.object(live.Call, "sleep", lambda call, seconds: replay.later(seconds, None), create=True):
             http = ClientSession()
             call = live.Call(live.Manager(http), profile="")
             call.relay, call.chat, call.heard_user = None, "chat-1", True
@@ -228,6 +234,7 @@ class Replay:
                     call.message(json.dumps(row["rx"]), row["src"] == "provider")
                     await self.pump()
             await self.advance(self.rows[-1]["t"] + 900, chat)
+            self.counts = dict(call.counts)
             call.closed = True
             for task in list(call.tasks):
                 task.cancel()
@@ -292,7 +299,7 @@ def report(replay: Replay) -> dict:
     return {"delegations": len(replay.started), "answer_s": answer_s, "own_answer_s": own_s,
             "held": [did for did in replay.started if did not in own],
             "receipt_s": {did: round(t - replay.started[did], 3) for did, t in receipts.items() if did in replay.started},
-            "backgrounded": len(replay.backgrounded), "fragments": fragments, "finals": len(sends),
+            "backgrounded": len(replay.backgrounded), "counts": getattr(replay, "counts", {}), "fragments": fragments, "finals": len(sends),
             "duplicate_finals": duplicates, "finals_mid_reply": len(mid_reply),
             "max_finals_per_delegation": max(per_did.values(), default=0), "unanswered": unanswered}
 
