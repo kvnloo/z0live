@@ -1,0 +1,32 @@
+name: Boat tests
+
+on:
+  push:
+    branches: [ci/boat]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: boat-ci
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    if: github.repository == 'kvnloo/z0live' && github.actor == 'kvnloo' && github.triggering_actor == 'kvnloo'
+    runs-on: boat
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Install test dependencies
+        run: python -m pip install -r voice-adapter/requirements.lock pytest==9.2.0
+      - name: Voice adapter unit tests
+        working-directory: voice-adapter
+        run: Z0LIVE_DESKTOP="$PWD/../desktop" env -u PYTHONPATH python -m unittest discover -p 'test_*.py'
+      - name: Root plugin tests
+        run: env -u PYTHONPATH python -m pytest -q tests

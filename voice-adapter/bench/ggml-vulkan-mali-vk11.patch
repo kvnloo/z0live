@@ -1,0 +1,57 @@
+# llama.cpp b12527 (78e0529): ggml-vulkan on a Vulkan 1.1 device (Lenovo TB350FU, Mali-G57 MC2, driver r32p1).
+# Three null-pointer crashes, each a core 1.2 path on a 1.1 device: vkGetBufferDeviceAddress, vkGetDeviceQueue2
+# (returns NULL on this driver), vkWaitSemaphores. Apply: git apply; build: docs/HILLCLIMB-OVERNIGHT.md Track B (B14).
+diff --git i/ggml/src/ggml-vulkan/ggml-vulkan.cpp w/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+index 616a17c..4f69186 100644
+--- i/ggml/src/ggml-vulkan/ggml-vulkan.cpp
++++ w/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -1050,6 +1050,11 @@ std::unique_ptr<vk_queue> ggml_vk_create_queue(vk_device& device, uint32_t queue
+     }
+ 
+     h->queue = device->device.getQueue2(queue_info2);
++    // Mali-G57 r32p1 (Vulkan 1.1) returns VK_NULL_HANDLE from vkGetDeviceQueue2 for queues created without flags,
++    // while vkGetDeviceQueue returns them; the first submit then segfaults.
++    if (!h->queue && !queue_info2.flags) {
++        h->queue = device->device.getQueue(queue_family_index, queue_index);
++    }
+     h->device = device;
+     // Avoid concurrent submissions on NVIDIA due to driver bug.
+     if (device->vendor_id == VK_VENDOR_ID_NVIDIA) {
+@@ -4977,7 +4982,10 @@ vk_device ggml_vk_get_device(size_t idx) {
+                             getenv("GGML_VK_DISABLE_MULTI_ADD") == nullptr;
+ 
+         device->shader_int64 = device_features2.features.shaderInt64;
+-        device->buffer_device_address = vk12_features.bufferDeviceAddress;
++        // A Vulkan 1.1 device (Mali-G57 r32p1) can report the 1.2 feature bit while vkGetBufferDeviceAddress,
++        // a core 1.2 entry point, stays null: calling it segfaults on the first buffer.
++        device->buffer_device_address = vk12_features.bufferDeviceAddress &&
++                                        device->properties.apiVersion >= VK_API_VERSION_1_2;
+         device->vulkan_memory_model = vk12_features.vulkanMemoryModel;
+ 
+         if (device->subgroup_size_control) {
+@@ -5223,12 +5231,25 @@ vk_device ggml_vk_get_device(size_t idx) {
+ #endif
+         device->name = GGML_VK_NAME + std::to_string(idx);
+ 
++        // A Vulkan 1.1 device (Mali-G57 r32p1) has timeline semaphores only through VK_KHR_timeline_semaphore, so the
++        // core 1.2 entry points stay null: enable the extension and route the core names to the KHR ones.
++        const bool vk11_device = device->properties.apiVersion < VK_API_VERSION_1_2;
++        if (vk11_device) {
++            device_extensions.push_back("VK_KHR_timeline_semaphore");
++        }
+         device_create_info
+             .setFlags(vk::DeviceCreateFlags())
+             .setQueueCreateInfos(device_queue_create_infos)
+             .setPEnabledExtensionNames(device_extensions);
+         device_create_info.setPNext(&device_features2);
+         device->device = device->physical_device.createDevice(device_create_info);
++        if (vk11_device) {
++            auto & d = VULKAN_HPP_DEFAULT_DISPATCHER;
++            d.vkWaitSemaphores = (PFN_vkWaitSemaphores) vkGetDeviceProcAddr(device->device, "vkWaitSemaphoresKHR");
++            d.vkSignalSemaphore = (PFN_vkSignalSemaphore) vkGetDeviceProcAddr(device->device, "vkSignalSemaphoreKHR");
++            d.vkGetSemaphoreCounterValue = (PFN_vkGetSemaphoreCounterValue)
++                vkGetDeviceProcAddr(device->device, "vkGetSemaphoreCounterValueKHR");
++        }
+ 
+         if (device->device_fault) {
+             device->pfn_vkGetDeviceFaultInfoEXT = (PFN_vkGetDeviceFaultInfoEXT)

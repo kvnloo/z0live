@@ -1,0 +1,1072 @@
+{
+  "primary": {
+    "numbers": "measured (including summaries calculated from observations)",
+    "modes": {
+      "asr": {
+        "summary": {
+          "peak_rss_bytes": 1410711552,
+          "stop_s": {
+            "n": 20,
+            "median": 0.07703233300708234,
+            "min": 0.06274250001297332,
+            "max": 0.15855662498506717
+          },
+          "first_text_s": {
+            "n": 20,
+            "median": 0.0508796874928521,
+            "min": 0.04408266700920649,
+            "max": 0.0992764169932343
+          },
+          "word_edits": 0,
+          "ref_words": 213,
+          "wer": 0.0
+        },
+        "cases": [
+          {
+            "case": 1,
+            "input": "The kettle is ready now.",
+            "input_s": 1.440125,
+            "stop_s": 0.06519766701967455,
+            "first_text_s": 0.04682529202545993,
+            "text": "The kettle is ready now.",
+            "ref_words": 5,
+            "word_edits": 0
+          },
+          {
+            "case": 2,
+            "input": "Please leave the blue notebook beside the window.",
+            "input_s": 2.4941875,
+            "stop_s": 0.12236075001419522,
+            "first_text_s": 0.0992764169932343,
+            "text": "Please leave the blue notebook beside the window.",
+            "ref_words": 8,
+            "word_edits": 0
+          },
+          {
+            "case": 3,
+            "input": "The last train leaves before sunset, so bring your ticket to the station early.",
+            "input_s": 4.505125,
+            "stop_s": 0.09781541701522656,
+            "first_text_s": 0.056246374995680526,
+            "text": "The last train leaves before sunset, so bring your ticket to the station early.",
+            "ref_words": 14,
+            "word_edits": 0
+          },
+          {
+            "case": 4,
+            "input": "I thought the shop was closed, but the lights were still on.",
+            "input_s": 3.305,
+            "stop_s": 0.09025162499165162,
+            "first_text_s": 0.05362104199593887,
+            "text": "I thought the shop was closed, but the lights were still on.",
+            "ref_words": 12,
+            "word_edits": 0
+          },
+          {
+            "case": 5,
+            "input": "After lunch, we can walk to the river and watch the boats pass under the bridge.",
+            "input_s": 4.3388125,
+            "stop_s": 0.10148816698347218,
+            "first_text_s": 0.05497862500487827,
+            "text": "After lunch, we can walk to the river and watch the boats pass under the bridge.",
+            "ref_words": 16,
+            "word_edits": 0
+          },
+          {
+            "case": 6,
+            "input": "The garden smells like mint after the rain.",
+            "input_s": 2.3224375,
+            "stop_s": 0.06969212499097921,
+            "first_text_s": 0.0463951249839738,
+            "text": "The garden smells like mint after the rain.",
+            "ref_words": 8,
+            "word_edits": 0
+          },
+          {
+            "case": 7,
+            "input": "When the clouds moved away, the evening sun lit up every little pool of water along the path beside our house.",
+            "input_s": 5.9345625,
+            "stop_s": 0.15855662498506717,
+            "first_text_s": 0.0985270419914741,
+            "text": "When the clouds moved away, the evening sun lit up every little pool of water along the path beside our house.",
+            "ref_words": 21,
+            "word_edits": 0
+          },
+          {
+            "case": 8,
+            "input": "Could you say that again a little more slowly?",
+            "input_s": 2.273625,
+            "stop_s": 0.07223629101645201,
+            "first_text_s": 0.04626737500075251,
+            "text": "Could you say that again a little more slowly?",
+            "ref_words": 9,
+            "word_edits": 0
+          },
+          {
+            "case": 9,
+            "input": "She set the warm bread on the table and called everyone in from the yard.",
+            "input_s": 3.678625,
+            "stop_s": 0.09595729201100767,
+            "first_text_s": 0.05429800000274554,
+            "text": "She set the warm bread on the table and called everyone in from the yard.",
+            "ref_words": 15,
+            "word_edits": 0
+          },
+          {
+            "case": 10,
+            "input": "The map showed a narrow trail through the woods, but we stayed on the wide gravel road until we reached the old stone gate.",
+            "input_s": 6.2001875,
+            "stop_s": 0.13230829100939445,
+            "first_text_s": 0.06491566600743681,
+            "text": "The map showed a narrow trail through the woods, but we stayed on the wide gravel road until we reached the old stone gate.",
+            "ref_words": 24,
+            "word_edits": 0
+          },
+          {
+            "case": 11,
+            "input": "What is the capital of France?",
+            "input_s": 1.8135625,
+            "stop_s": 0.06422533301520161,
+            "first_text_s": 0.04605325000011362,
+            "text": "What is the capital of France?",
+            "ref_words": 6,
+            "word_edits": 0
+          },
+          {
+            "case": 12,
+            "input": "What color do you get by mixing red and white paint?",
+            "input_s": 2.951375,
+            "stop_s": 0.08257562498329207,
+            "first_text_s": 0.05164508399320766,
+            "text": "What color do you get by mixing red and white paint?",
+            "ref_words": 11,
+            "word_edits": 0
+          },
+          {
+            "case": 13,
+            "input": "Which planet is known as the red planet?",
+            "input_s": 2.196375,
+            "stop_s": 0.068566790985642,
+            "first_text_s": 0.04523208297905512,
+            "text": "Which planet is known as the Red Planet?",
+            "ref_words": 8,
+            "word_edits": 0
+          },
+          {
+            "case": 14,
+            "input": "What do bees make from nectar?",
+            "input_s": 1.767125,
+            "stop_s": 0.06279437500052154,
+            "first_text_s": 0.04461095802253112,
+            "text": "What do bees make from nectar?",
+            "ref_words": 6,
+            "word_edits": 0
+          },
+          {
+            "case": 15,
+            "input": "How many legs does a spider have?",
+            "input_s": 2.05175,
+            "stop_s": 0.06580004200804979,
+            "first_text_s": 0.04472104200976901,
+            "text": "How many legs does a spider have?",
+            "ref_words": 7,
+            "word_edits": 0
+          },
+          {
+            "case": 16,
+            "input": "What is the opposite of north?",
+            "input_s": 1.67425,
+            "stop_s": 0.06274250001297332,
+            "first_text_s": 0.04408266700920649,
+            "text": "What is the opposite of north?",
+            "ref_words": 6,
+            "word_edits": 0
+          },
+          {
+            "case": 17,
+            "input": "Which animal is famous for its long neck?",
+            "input_s": 2.382125,
+            "stop_s": 0.06944641700829379,
+            "first_text_s": 0.04616700002225116,
+            "text": "Which animal is famous for its long neck?",
+            "ref_words": 8,
+            "word_edits": 0
+          },
+          {
+            "case": 18,
+            "input": "What musical instrument has black and white keys?",
+            "input_s": 2.83525,
+            "stop_s": 0.07472674999735318,
+            "first_text_s": 0.051163083990104496,
+            "text": "What musical instrument has black and white keys?",
+            "ref_words": 8,
+            "word_edits": 0
+          },
+          {
+            "case": 19,
+            "input": "In what season do most leaves fall from the trees?",
+            "input_s": 2.7601875,
+            "stop_s": 0.0793379160168115,
+            "first_text_s": 0.0505962909955997,
+            "text": "In what season do most leaves fall from the trees?",
+            "ref_words": 10,
+            "word_edits": 0
+          },
+          {
+            "case": 20,
+            "input": "What is the name of the ocean between California and Japan?",
+            "input_s": 3.3460625,
+            "stop_s": 0.08409174997359514,
+            "first_text_s": 0.05278924998128787,
+            "text": "What is the name of the ocean between California and Japan?",
+            "ref_words": 11,
+            "word_edits": 0
+          }
+        ]
+      },
+      "tts": {
+        "summary": {
+          "peak_rss_bytes": 1347338240,
+          "stop_s": {
+            "n": 10,
+            "median": 0.45524202099477407,
+            "min": 0.20923395900172181,
+            "max": 0.7658314169966616
+          },
+          "first_audio_s": {
+            "n": 10,
+            "median": 0.024836895492626354,
+            "min": 0.02056683399132453,
+            "max": 0.025338125007692724
+          },
+          "audio_s": {
+            "n": 10,
+            "median": 3.8200000000000003,
+            "min": 1.66,
+            "max": 6.62
+          },
+          "rtf": {
+            "n": 10,
+            "median": 0.1203932744695685,
+            "min": 0.11568450407804555,
+            "max": 0.12604455361549508
+          }
+        },
+        "cases": [
+          {
+            "case": 1,
+            "input": "The kettle is ready now.",
+            "input_s": null,
+            "stop_s": 0.20923395900172181,
+            "first_text_s": null,
+            "text": "",
+            "first_audio_s": 0.02056683399132453,
+            "last_audio_s": 0.19857483397936448,
+            "audio_s": 1.66,
+            "rtf": 0.12604455361549508
+          },
+          {
+            "case": 2,
+            "input": "Please leave the blue notebook beside the window.",
+            "input_s": null,
+            "stop_s": 0.34440299999550916,
+            "first_text_s": null,
+            "text": "",
+            "first_audio_s": 0.0248461659939494,
+            "last_audio_s": 0.33342641600756906,
+            "audio_s": 2.78,
+            "rtf": 0.12388597122140618
+          },
+          {
+            "case": 3,
+            "input": "The last train leaves before sunset, so bring your ticket to the station early.",
+            "input_s": null,
+            "stop_s": 0.5712300000013784,
+            "first_text_s": null,
+            "text": "",
+            "first_audio_s": 0.025338125007692724,
+            "last_audio_s": 0.560626874997979,
+            "audio_s": 4.7,
+            "rtf": 0.12153829787263369
+          },
+          {
+            "case": 4,
+            "input": "I thought the shop was closed, but the lights were still on.",
+            "input_s": null,
+            "stop_s": 0.4459884589887224,
+            "first_text_s": null,
+            "text": "",
+            "first_audio_s": 0.024986375006847084,
+            "last_audio_s": 0.4354779999994207,
+            "audio_s": 3.74,
+            "rtf": 0.11924825106650332
+          },
+          {
+            "case": 5,
+            "input": "After lunch, we can walk to the river and watch the boats pass under the bridge.",
+            "input_s": null,
+            "stop_s": 0.4644955830008257,
+            "first_text_s": null,
+            "text": "",
+            "first_audio_s": 0.02500316599616781,
+            "last_audio_s": 0.45397170798969455,
+            "audio_s": 3.9,
+            "rtf": 0.11910143153867327
+          },
+          {
+            "case": 6,
+            "input": "The garden smells like mint after the rain.",
+            "input_s": null,
+            "stop_s": 0.32952045899583027,
+            "first_text_s": null,
+            "text": "",
+            "first_audio_s": 0.024693083978490904,
+            "last_audio_s": 0.31903233399498276,
+            "audio_s": 2.7,
+            "rtf": 0.12204461444290009
+          },
+          {
+            "case": 7,
+            "input": "When the clouds moved away, the evening sun lit up every little pool of water along the path beside our house.",
+            "input_s": null,
+            "stop_s": 0.7658314169966616,
+            "first_text_s": null,
+            "text": "",
+            "first_audio_s": 0.02501470799325034,
+            "last_audio_s": 0.7551203749899287,
+            "audio_s": 6.62,
+            "rtf": 0.11568450407804555
+          },
+          {
+            "case": 8,
+            "input": "Could you say that again a little more slowly?",
+            "input_s": null,
+            "stop_s": 0.32919629200478084,
+            "first_text_s": null,
+            "text": "",
+            "first_audio_s": 0.02476037500309758,
+            "last_audio_s": 0.31856216699816287,
+            "audio_s": 2.7,
+            "rtf": 0.12192455259436327
+          },
+          {
+            "case": 9,
+            "input": "She set the warm bread on the table and called everyone in from the yard.",
+            "input_s": null,
+            "stop_s": 0.5074638749938458,
+            "first_text_s": null,
+            "text": "",
+            "first_audio_s": 0.02482762499130331,
+            "last_audio_s": 0.49686495898640715,
+            "audio_s": 4.3,
+            "rtf": 0.11801485464973159
+          },
+          {
+            "case": 10,
+            "input": "The map showed a narrow trail through the woods, but we stayed on the wide gravel road until we reached the old stone gate.",
+            "input_s": null,
+            "stop_s": 0.739407916989876,
+            "first_text_s": null,
+            "text": "",
+            "first_audio_s": 0.024797999998554587,
+            "last_audio_s": 0.7287324999924749,
+            "audio_s": 6.38,
+            "rtf": 0.11589465783540376
+          }
+        ]
+      },
+      "chat": {
+        "summary": {
+          "peak_rss_bytes": 1380450304,
+          "stop_s": {
+            "n": 10,
+            "median": 0.9721555205032928,
+            "min": 0.7050400419975631,
+            "max": 1.5139506249979604
+          },
+          "first_text_s": {
+            "n": 10,
+            "median": 0.04626889550127089,
+            "min": 0.04473462500027381,
+            "max": 0.052466875000391155
+          },
+          "first_audio_s": {
+            "n": 10,
+            "median": 0.06835137499729171,
+            "min": 0.06666370900347829,
+            "max": 0.07463849999476224
+          },
+          "audio_s": {
+            "n": 10,
+            "median": 7.5,
+            "min": 5.42,
+            "max": 11.74
+          },
+          "rtf": {
+            "n": 10,
+            "median": 0.12909869037146232,
+            "min": 0.1251703947377915,
+            "max": 0.1321380094060861
+          }
+        },
+        "cases": [
+          {
+            "case": 1,
+            "input": "What is the capital of France?",
+            "input_s": 1.8135625,
+            "stop_s": 0.7576352920150384,
+            "first_text_s": 0.04495341700385325,
+            "text": "Paris is the capital of France. Would you like to know anything else about it?",
+            "first_audio_s": 0.06711079200613312,
+            "last_audio_s": 0.747091959026875,
+            "audio_s": 5.9,
+            "rtf": 0.1284127613584811
+          },
+          {
+            "case": 2,
+            "input": "What color do you get by mixing red and white paint?",
+            "input_s": 2.951375,
+            "stop_s": 0.8430405000108294,
+            "first_text_s": 0.052466875000391155,
+            "text": "Mixing red and white gives you a yellow, so you get a yellow paint. Do you need tips on using it?",
+            "first_audio_s": 0.07463849999476224,
+            "last_audio_s": 0.8324505829950795,
+            "audio_s": 6.38,
+            "rtf": 0.1321380094060861
+          },
+          {
+            "case": 3,
+            "input": "Which planet is known as the red planet?",
+            "input_s": 2.196375,
+            "stop_s": 0.917609458003426,
+            "first_text_s": 0.04618954099714756,
+            "text": "Mars is called the Red Planet because its iron‑rich surface looks rusty. Want to hear more about its surface features?",
+            "first_audio_s": 0.06805979099590331,
+            "last_audio_s": 0.907051499991212,
+            "audio_s": 7.1,
+            "rtf": 0.1292407687328769
+          },
+          {
+            "case": 4,
+            "input": "What do bees make from nectar?",
+            "input_s": 1.767125,
+            "stop_s": 1.5139506249979604,
+            "first_text_s": 0.04501770797651261,
+            "text": "Bees collect nectar to make honey, which they store for winter, and they also produce royal jelly for their larvae. Want to know how they process it?",
+            "first_audio_s": 0.06694333298946731,
+            "last_audio_s": 1.503075082990108,
+            "audio_s": 11.74,
+            "rtf": 0.12895661201004774
+          },
+          {
+            "case": 5,
+            "input": "How many legs does a spider have?",
+            "input_s": 2.05175,
+            "stop_s": 1.0267015830031596,
+            "first_text_s": 0.045654250017832965,
+            "text": "Spiders have eight legs, so they can jump and move quickly. Want to know how many legs different spider species have?",
+            "first_audio_s": 0.0682434159971308,
+            "last_audio_s": 1.015979999996489,
+            "audio_s": 7.9,
+            "rtf": 0.12996222569660248
+          },
+          {
+            "case": 6,
+            "input": "What is the opposite of north?",
+            "input_s": 1.67425,
+            "stop_s": 0.7050400419975631,
+            "first_text_s": 0.04473462500027381,
+            "text": "The opposite of north is south, since they point in opposite directions on a compass.",
+            "first_audio_s": 0.06666370900347829,
+            "last_audio_s": 0.6944774170115124,
+            "audio_s": 5.42,
+            "rtf": 0.130081188560436
+          },
+          {
+            "case": 7,
+            "input": "Which animal is famous for its long neck?",
+            "input_s": 2.382125,
+            "stop_s": 0.8257464999915101,
+            "first_text_s": 0.04634825000539422,
+            "text": "The giraffe is famous for its long neck, letting it reach high foliage. Want to hear more about its habits?",
+            "first_audio_s": 0.06845933399745263,
+            "last_audio_s": 0.815180750010768,
+            "audio_s": 6.3,
+            "rtf": 0.1310708730145254
+          },
+          {
+            "case": 8,
+            "input": "What musical instrument has black and white keys?",
+            "input_s": 2.83525,
+            "stop_s": 1.1490717080014292,
+            "first_text_s": 0.05143695801962167,
+            "text": "The instrument with black and white keys is the piano. It has white keys for the notes and black keys for the white keys.",
+            "first_audio_s": 0.07333149999612942,
+            "last_audio_s": 1.1383277499990072,
+            "audio_s": 9.1,
+            "rtf": 0.12627161626389333
+          },
+          {
+            "case": 9,
+            "input": "In what season do most leaves fall from the trees?",
+            "input_s": 2.7601875,
+            "stop_s": 1.3793777500104625,
+            "first_text_s": 0.051466167002217844,
+            "text": "Most trees drop leaves in the fall, usually September to November, when cooler temps and shorter days trigger the process. Want tips for caring for your trees?",
+            "first_audio_s": 0.07340562500758097,
+            "last_audio_s": 1.3687743339978624,
+            "audio_s": 11.02,
+            "rtf": 0.1251703947377915
+          },
+          {
+            "case": 10,
+            "input": "What is the name of the ocean between California and Japan?",
+            "input_s": 3.3460625,
+            "stop_s": 1.0344499170023482,
+            "first_text_s": 0.052459458995144814,
+            "text": "The ocean between California and Japan is called the Sea of Japan, also known as the East Sea.",
+            "first_audio_s": 0.07446004200028256,
+            "last_audio_s": 1.0239815000095405,
+            "audio_s": 8.22,
+            "rtf": 0.12584548868641704
+          }
+        ]
+      }
+    }
+  },
+  "repeat": {
+    "numbers": "measured (including summaries calculated from observations)",
+    "modes": {
+      "asr": {
+        "summary": {
+          "peak_rss_bytes": 1409662976,
+          "stop_s": {
+            "n": 20,
+            "median": 0.07341843750327826,
+            "min": 0.06156058399938047,
+            "max": 0.13239950002753176
+          },
+          "first_text_s": {
+            "n": 20,
+            "median": 0.0484968745149672,
+            "min": 0.043187167000724,
+            "max": 0.06544845801545307
+          },
+          "word_edits": 0,
+          "ref_words": 213,
+          "wer": 0.0
+        },
+        "cases": [
+          {
+            "case": 1,
+            "input": "The kettle is ready now.",
+            "input_s": 1.440125,
+            "stop_s": 0.06156058399938047,
+            "first_text_s": 0.043187167000724,
+            "text": "The kettle is ready now.",
+            "ref_words": 5,
+            "word_edits": 0
+          },
+          {
+            "case": 2,
+            "input": "Please leave the blue notebook beside the window.",
+            "input_s": 2.4941875,
+            "stop_s": 0.06942916702246293,
+            "first_text_s": 0.04597312500118278,
+            "text": "Please leave the blue notebook beside the window.",
+            "ref_words": 8,
+            "word_edits": 0
+          },
+          {
+            "case": 3,
+            "input": "The last train leaves before sunset, so bring your ticket to the station early.",
+            "input_s": 4.505125,
+            "stop_s": 0.09759250000934117,
+            "first_text_s": 0.05600333298207261,
+            "text": "The last train leaves before sunset, so bring your ticket to the station early.",
+            "ref_words": 14,
+            "word_edits": 0
+          },
+          {
+            "case": 4,
+            "input": "I thought the shop was closed, but the lights were still on.",
+            "input_s": 3.305,
+            "stop_s": 0.088831333006965,
+            "first_text_s": 0.05293504099245183,
+            "text": "I thought the shop was closed, but the lights were still on.",
+            "ref_words": 12,
+            "word_edits": 0
+          },
+          {
+            "case": 5,
+            "input": "After lunch, we can walk to the river and watch the boats pass under the bridge.",
+            "input_s": 4.3388125,
+            "stop_s": 0.10161662500468083,
+            "first_text_s": 0.054953709011897445,
+            "text": "After lunch, we can walk to the river and watch the boats pass under the bridge.",
+            "ref_words": 16,
+            "word_edits": 0
+          },
+          {
+            "case": 6,
+            "input": "The garden smells like mint after the rain.",
+            "input_s": 2.3224375,
+            "stop_s": 0.06955004201154225,
+            "first_text_s": 0.04611395901883952,
+            "text": "The garden smells like mint after the rain.",
+            "ref_words": 8,
+            "word_edits": 0
+          },
+          {
+            "case": 7,
+            "input": "When the clouds moved away, the evening sun lit up every little pool of water along the path beside our house.",
+            "input_s": 5.9345625,
+            "stop_s": 0.12396349999471568,
+            "first_text_s": 0.06436991700320505,
+            "text": "When the clouds moved away, the evening sun lit up every little pool of water along the path beside our house.",
+            "ref_words": 21,
+            "word_edits": 0
+          },
+          {
+            "case": 8,
+            "input": "Could you say that again a little more slowly?",
+            "input_s": 2.273625,
+            "stop_s": 0.07203500001924112,
+            "first_text_s": 0.04624966601841152,
+            "text": "Could you say that again a little more slowly?",
+            "ref_words": 9,
+            "word_edits": 0
+          },
+          {
+            "case": 9,
+            "input": "She set the warm bread on the table and called everyone in from the yard.",
+            "input_s": 3.678625,
+            "stop_s": 0.09516024999902584,
+            "first_text_s": 0.053764125012094155,
+            "text": "She set the warm bread on the table and called everyone in from the yard.",
+            "ref_words": 15,
+            "word_edits": 0
+          },
+          {
+            "case": 10,
+            "input": "The map showed a narrow trail through the woods, but we stayed on the wide gravel road until we reached the old stone gate.",
+            "input_s": 6.2001875,
+            "stop_s": 0.13239950002753176,
+            "first_text_s": 0.06544845801545307,
+            "text": "The map showed a narrow trail through the woods, but we stayed on the wide gravel road until we reached the old stone gate.",
+            "ref_words": 24,
+            "word_edits": 0
+          },
+          {
+            "case": 11,
+            "input": "What is the capital of France?",
+            "input_s": 1.8135625,
+            "stop_s": 0.06354029200156219,
+            "first_text_s": 0.045467874995665625,
+            "text": "What is the capital of France?",
+            "ref_words": 6,
+            "word_edits": 0
+          },
+          {
+            "case": 12,
+            "input": "What color do you get by mixing red and white paint?",
+            "input_s": 2.951375,
+            "stop_s": 0.08318800001870841,
+            "first_text_s": 0.05206116702174768,
+            "text": "What color do you get by mixing red and white paint?",
+            "ref_words": 11,
+            "word_edits": 0
+          },
+          {
+            "case": 13,
+            "input": "Which planet is known as the red planet?",
+            "input_s": 2.196375,
+            "stop_s": 0.06865566701162606,
+            "first_text_s": 0.045301875012228265,
+            "text": "Which planet is known as the Red Planet?",
+            "ref_words": 8,
+            "word_edits": 0
+          },
+          {
+            "case": 14,
+            "input": "What do bees make from nectar?",
+            "input_s": 1.767125,
+            "stop_s": 0.06262791701010428,
+            "first_text_s": 0.04471129202283919,
+            "text": "What do bees make from nectar?",
+            "ref_words": 6,
+            "word_edits": 0
+          },
+          {
+            "case": 15,
+            "input": "How many legs does a spider have?",
+            "input_s": 2.05175,
+            "stop_s": 0.06580049998592585,
+            "first_text_s": 0.0450030830106698,
+            "text": "How many legs does a spider have?",
+            "ref_words": 7,
+            "word_edits": 0
+          },
+          {
+            "case": 16,
+            "input": "What is the opposite of north?",
+            "input_s": 1.67425,
+            "stop_s": 0.06227525000576861,
+            "first_text_s": 0.044205125013832,
+            "text": "What is the opposite of north?",
+            "ref_words": 6,
+            "word_edits": 0
+          },
+          {
+            "case": 17,
+            "input": "Which animal is famous for its long neck?",
+            "input_s": 2.382125,
+            "stop_s": 0.0688022920221556,
+            "first_text_s": 0.04551541700493544,
+            "text": "Which animal is famous for its long neck?",
+            "ref_words": 8,
+            "word_edits": 0
+          },
+          {
+            "case": 18,
+            "input": "What musical instrument has black and white keys?",
+            "input_s": 2.83525,
+            "stop_s": 0.07480187498731539,
+            "first_text_s": 0.051263291999930516,
+            "text": "What musical instrument has black and white keys?",
+            "ref_words": 8,
+            "word_edits": 0
+          },
+          {
+            "case": 19,
+            "input": "In what season do most leaves fall from the trees?",
+            "input_s": 2.7601875,
+            "stop_s": 0.07937600000877865,
+            "first_text_s": 0.05074408301152289,
+            "text": "In what season do most leaves fall from the trees?",
+            "ref_words": 10,
+            "word_edits": 0
+          },
+          {
+            "case": 20,
+            "input": "What is the name of the ocean between California and Japan?",
+            "input_s": 3.3460625,
+            "stop_s": 0.08311687500099652,
+            "first_text_s": 0.05224162500235252,
+            "text": "What is the name of the ocean between California and Japan?",
+            "ref_words": 11,
+            "word_edits": 0
+          }
+        ]
+      },
+      "tts": {
+        "summary": {
+          "peak_rss_bytes": 1347141632,
+          "stop_s": {
+            "n": 10,
+            "median": 0.4553310629999032,
+            "min": 0.20809179201023653,
+            "max": 0.7675384159956593
+          },
+          "first_audio_s": {
+            "n": 10,
+            "median": 0.02469687449047342,
+            "min": 0.020394542021676898,
+            "max": 0.024874333990737796
+          },
+          "audio_s": {
+            "n": 10,
+            "median": 3.8200000000000003,
+            "min": 1.66,
+            "max": 6.62
+          },
+          "rtf": {
+            "n": 10,
+            "median": 0.11920281084459487,
+            "min": 0.115942358911731,
+            "max": 0.12535650121098588
+          }
+        },
+        "cases": [
+          {
+            "case": 1,
+            "input": "The kettle is ready now.",
+            "input_s": null,
+            "stop_s": 0.20809179201023653,
+            "first_text_s": null,
+            "text": "",
+            "first_audio_s": 0.020394542021676898,
+            "last_audio_s": 0.1975698340102099,
+            "audio_s": 1.66,
+            "rtf": 0.12535650121098588
+          },
+          {
+            "case": 2,
+            "input": "Please leave the blue notebook beside the window.",
+            "input_s": null,
+            "stop_s": 0.3389672919875011,
+            "first_text_s": null,
+            "text": "",
+            "first_audio_s": 0.02487433300120756,
+            "last_audio_s": 0.3283000829978846,
+            "audio_s": 2.78,
+            "rtf": 0.12193068057104356
+          },
+          {
+            "case": 3,
+            "input": "The last train leaves before sunset, so bring your ticket to the station early.",
+            "input_s": null,
+            "stop_s": 0.5526443749840837,
+            "first_text_s": null,
+            "text": "",
+            "first_audio_s": 0.024874333990737796,
+            "last_audio_s": 0.542097792000277,
+            "audio_s": 4.7,
+            "rtf": 0.11758390957108163
+          },
+          {
+            "case": 4,
+            "input": "I thought the shop was closed, but the lights were still on.",
+            "input_s": null,
+            "stop_s": 0.4469252919952851,
+            "first_text_s": null,
+            "text": "",
+            "first_audio_s": 0.024791458010440692,
+            "last_audio_s": 0.43629520799731836,
+            "audio_s": 3.74,
+            "rtf": 0.11949874117520991
+          },
+          {
+            "case": 5,
+            "input": "After lunch, we can walk to the river and watch the boats pass under the bridge.",
+            "input_s": null,
+            "stop_s": 0.46373683400452137,
+            "first_text_s": null,
+            "text": "",
+            "first_audio_s": 0.024610958993434906,
+            "last_audio_s": 0.45316170901060104,
+            "audio_s": 3.9,
+            "rtf": 0.11890688051397984
+          },
+          {
+            "case": 6,
+            "input": "The garden smells like mint after the rain.",
+            "input_s": null,
+            "stop_s": 0.330313832993852,
+            "first_text_s": null,
+            "text": "",
+            "first_audio_s": 0.024564541992731392,
+            "last_audio_s": 0.31976341700647026,
+            "audio_s": 2.7,
+            "rtf": 0.12233845666438961
+          },
+          {
+            "case": 7,
+            "input": "When the clouds moved away, the evening sun lit up every little pool of water along the path beside our house.",
+            "input_s": null,
+            "stop_s": 0.7675384159956593,
+            "first_text_s": null,
+            "text": "",
+            "first_audio_s": 0.02470891599659808,
+            "last_audio_s": 0.7568944160011597,
+            "audio_s": 6.62,
+            "rtf": 0.115942358911731
+          },
+          {
+            "case": 8,
+            "input": "Could you say that again a little more slowly?",
+            "input_s": null,
+            "stop_s": 0.3301935420022346,
+            "first_text_s": null,
+            "text": "",
+            "first_audio_s": 0.02458762499736622,
+            "last_audio_s": 0.319541750010103,
+            "audio_s": 2.7,
+            "rtf": 0.12229390444527206
+          },
+          {
+            "case": 9,
+            "input": "She set the warm bread on the table and called everyone in from the yard.",
+            "input_s": null,
+            "stop_s": 0.5076619159954134,
+            "first_text_s": null,
+            "text": "",
+            "first_audio_s": 0.02468483298434876,
+            "last_audio_s": 0.4972154999850318,
+            "audio_s": 4.3,
+            "rtf": 0.11806091069660778
+          },
+          {
+            "case": 10,
+            "input": "The map showed a narrow trail through the woods, but we stayed on the wide gravel road until we reached the old stone gate.",
+            "input_s": null,
+            "stop_s": 0.7398639589955565,
+            "first_text_s": null,
+            "text": "",
+            "first_audio_s": 0.024836458993377164,
+            "last_audio_s": 0.7293135840154719,
+            "audio_s": 6.38,
+            "rtf": 0.1159661377735982
+          }
+        ]
+      },
+      "chat": {
+        "summary": {
+          "peak_rss_bytes": 1380450304,
+          "stop_s": {
+            "n": 10,
+            "median": 0.9586448959889822,
+            "min": 0.7556228330067825,
+            "max": 1.4440348749922123
+          },
+          "first_text_s": {
+            "n": 10,
+            "median": 0.04583799999090843,
+            "min": 0.04435591699439101,
+            "max": 0.05298083298839629
+          },
+          "first_audio_s": {
+            "n": 10,
+            "median": 0.06775908348208759,
+            "min": 0.06624849999207072,
+            "max": 0.07589083298807964
+          },
+          "audio_s": {
+            "n": 10,
+            "median": 7.5,
+            "min": 5.42,
+            "max": 11.74
+          },
+          "rtf": {
+            "n": 10,
+            "median": 0.12828794309347666,
+            "min": 0.12300126703511177,
+            "max": 0.13958620849023384
+          }
+        },
+        "cases": [
+          {
+            "case": 1,
+            "input": "What is the capital of France?",
+            "input_s": 1.8135625,
+            "stop_s": 0.7556228330067825,
+            "first_text_s": 0.04520587500883266,
+            "text": "Paris is the capital of France. Would you like to know anything else about it?",
+            "first_audio_s": 0.0672210410120897,
+            "last_audio_s": 0.7450551660149358,
+            "audio_s": 5.9,
+            "rtf": 0.12807166661131905
+          },
+          {
+            "case": 2,
+            "input": "What color do you get by mixing red and white paint?",
+            "input_s": 2.951375,
+            "stop_s": 0.8381656249985099,
+            "first_text_s": 0.05214441698626615,
+            "text": "Mixing red and white gives you a yellow, so you get a yellow paint. Do you need tips on using it?",
+            "first_audio_s": 0.07405579200712964,
+            "last_audio_s": 0.8276779580046423,
+            "audio_s": 6.38,
+            "rtf": 0.13137392241355955
+          },
+          {
+            "case": 3,
+            "input": "Which planet is known as the red planet?",
+            "input_s": 2.196375,
+            "stop_s": 0.9123799589870032,
+            "first_text_s": 0.04546916700201109,
+            "text": "Mars is called the Red Planet because its iron‑rich surface looks rusty. Want to hear more about its surface features?",
+            "first_audio_s": 0.06731429198407568,
+            "last_audio_s": 0.9018794169824105,
+            "audio_s": 7.1,
+            "rtf": 0.12850421957563427
+          },
+          {
+            "case": 4,
+            "input": "What do bees make from nectar?",
+            "input_s": 1.767125,
+            "stop_s": 1.4440348749922123,
+            "first_text_s": 0.0447697089985013,
+            "text": "Bees collect nectar to make honey, which they store for winter, and they also produce royal jelly for their larvae. Want to know how they process it?",
+            "first_audio_s": 0.066605250001885,
+            "last_audio_s": 1.433416167012183,
+            "audio_s": 11.74,
+            "rtf": 0.12300126703511177
+          },
+          {
+            "case": 5,
+            "input": "How many legs does a spider have?",
+            "input_s": 2.05175,
+            "stop_s": 1.0049098329909611,
+            "first_text_s": 0.04527779098134488,
+            "text": "Spiders have eight legs, so they can jump and move quickly. Want to know how many legs different spider species have?",
+            "first_audio_s": 0.06714087497675791,
+            "last_audio_s": 0.9944556249829475,
+            "audio_s": 7.9,
+            "rtf": 0.12720377632796975
+          },
+          {
+            "case": 6,
+            "input": "What is the opposite of north?",
+            "input_s": 1.67425,
+            "stop_s": 0.7565572500170674,
+            "first_text_s": 0.04435591699439101,
+            "text": "The opposite of north is south, since they point in opposite directions on a compass.",
+            "first_audio_s": 0.06624849999207072,
+            "last_audio_s": 0.7458790840173606,
+            "audio_s": 5.42,
+            "rtf": 0.13958620849023384
+          },
+          {
+            "case": 7,
+            "input": "Which animal is famous for its long neck?",
+            "input_s": 2.382125,
+            "stop_s": 0.8383992080052849,
+            "first_text_s": 0.04620683297980577,
+            "text": "The giraffe is famous for its long neck, letting it reach high foliage. Want to hear more about its habits?",
+            "first_audio_s": 0.0682038749800995,
+            "last_audio_s": 0.8276896250026766,
+            "audio_s": 6.3,
+            "rtf": 0.13307923936591823
+          },
+          {
+            "case": 8,
+            "input": "What musical instrument has black and white keys?",
+            "input_s": 2.83525,
+            "stop_s": 1.1705459170043468,
+            "first_text_s": 0.05275100001017563,
+            "text": "The instrument with black and white keys is the piano. It has white keys for the notes and black keys for the white keys.",
+            "first_audio_s": 0.07589083298807964,
+            "last_audio_s": 1.159958625008585,
+            "audio_s": 9.1,
+            "rtf": 0.12863141945102713
+          },
+          {
+            "case": 9,
+            "input": "In what season do most leaves fall from the trees?",
+            "input_s": 2.7601875,
+            "stop_s": 1.3751046249817591,
+            "first_text_s": 0.05168062497978099,
+            "text": "Most trees drop leaves in the fall, usually September to November, when cooler temps and shorter days trigger the process. Want tips for caring for your trees?",
+            "first_audio_s": 0.07338633298058994,
+            "last_audio_s": 1.3646097919845488,
+            "audio_s": 11.02,
+            "rtf": 0.12478263384589466
+          },
+          {
+            "case": 10,
+            "input": "What is the name of the ocean between California and Japan?",
+            "input_s": 3.3460625,
+            "stop_s": 1.033104333007941,
+            "first_text_s": 0.05298083298839629,
+            "text": "The ocean between California and Japan is called the Sea of Japan, also known as the East Sea.",
+            "first_audio_s": 0.07508062501437962,
+            "last_audio_s": 1.022564707993297,
+            "audio_s": 8.22,
+            "rtf": 0.12568179233673246
+          }
+        ]
+      }
+    }
+  }
+}

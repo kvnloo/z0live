@@ -1,0 +1,12 @@
+{
+  "name": "z0live-collab-prototype",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node relay.mjs",
+    "test": "node --test relay.test.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "1.56.1"
+  }
+}
