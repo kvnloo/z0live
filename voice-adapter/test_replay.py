@@ -48,6 +48,24 @@ class ReplayContract(unittest.TestCase):
         self.assertEqual(report["finals"], 1)
         self.assertEqual(report["unanswered"], [])
 
+    def test_the_request_is_the_callers_whole_utterance_not_the_last_speech_segment(self):
+        # 11-20 20:55 call: the provider's delegation carries only its last segment ("Lane", "requirements, and
+        # how far we got") and can beat the caller's turn.done by 0.2-0.4 s.
+        rows = (turn(258.4, 268.0, "user", "Can you bring up the garden plan and tell me the progress on each one", "u1")
+                + delegation(267.8, "d1", "the progress on each one") + hermes("d1", 10, "Two beds are planted.")
+                + turn(268.0, 270.6, "assistant", "I'll lay it out.", "a1")
+                + turn(300.0, 309.9, "user", "Um, can you give me an update on the bike repair, my major", "u2")
+                + turn(309.9, 310.1, "assistant", "Mm-hm.", "a2")
+                + turn(310.1, 312.6, "user", "requirements, and how far we got", "u3")
+                + delegation(312.2, "d2", "requirements, and how far we got") + hermes("d2", 5, "The chain is fixed.")
+                + turn(312.6, 315.4, "assistant", "Sure, pulling it up.", "a3"))
+        report = run(rows)
+        self.assertEqual(report["fragments"], [])
+        sent = [text for _, _, text in self.last_submitted(rows)]
+        self.assertIn("bring up the garden plan", sent[0])
+        self.assertIn("update on the bike repair", sent[1])
+        self.assertIn("how far we got", sent[1])
+
     def last_submitted(self, rows):
         import asyncio
         r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows)

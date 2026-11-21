@@ -401,6 +401,11 @@ class Protocol:
     def __init__(self, host_delegation: bool = False):
         self.host_delegation = host_delegation
         self.pending_host = []  # (delegation_id, request) awaiting a host run
+        # The caller's words since the voice last answered or delegated: a request is all of them. The provider's
+        # delegation carries only its last speech segment ("Lane", "requirements, and how far we got").
+        self.asked: list[str] = []
+        self.user_open = False  # a user turn has started and its turn.done has not arrived
+        self.deferred: list[tuple[str, str]] = []  # (did, segment): delegations that beat the user's turn.done
         self.turn_text = {"user": "", "assistant": ""}
         self.last_user = ""
         self.last_delegation = ""
@@ -433,6 +438,14 @@ class Protocol:
             if role == "user":
                 self.last_user = self.turn_text[role]
             return [self.transcript(role, text)]
+        if kind == "turn.created":
+            if (event.get("turn") or {}).get("role") == "user":
+                self.user_open = True
+            else:  # the voice is replying, so the caller's turn is over even without its turn.done
+                self.user_open = False
+                while self.deferred:
+                    self.release(*self.deferred.pop(0))
+            return []
         if kind == "turn.done":
             turn = event.get("turn") or {}
             role, text = turn.get("role"), turn.get("transcript", "")
@@ -440,10 +453,18 @@ class Protocol:
                 return []
             prior = self.turn_text[role]
             self.turn_text[role] = ""
+            said = (text or prior).strip()
             if role == "user":
                 self.last_user = text
-            if (text or prior).strip():
-                self.exchanges.append((role, (text or prior).strip()))
+                self.user_open = False
+                if said:
+                    self.asked.append(said)
+                while self.deferred:
+                    self.release(*self.deferred.pop(0))
+            elif substantive(said) and not self.deferred:
+                self.asked.clear()  # the voice answered these words itself; a backchannel ("Mm-hm.") keeps them
+            if said:
+                self.exchanges.append((role, said))
             remainder = text[len(prior):] if text.startswith(prior) else (text if not prior else "")
             return [self.transcript(role, remainder)] if remainder else []
         if kind == "delegation.created":
@@ -460,12 +481,23 @@ class Protocol:
                 result.append(self.transcript("user", request))
                 self.last_user = request
             if self.host_delegation:
-                self.pending_host.append((did, request or self.last_user))
+                if self.user_open:  # the caller's turn.done (0.2-0.4 s behind) carries the whole utterance
+                    self.deferred.append((did, request))
+                else:
+                    self.release(did, request)
                 return result
             result.append({"type": "session.delegation.created", "delegation": {
                 "id": did, "type": "delegation", "target": "client"}})
             return result
         return []
+
+    def release(self, did: str, segment: str):
+        """Queue one host run whose request is the caller's words since the voice last answered or delegated."""
+        words = " ".join(self.asked)
+        if segment and not set(re.findall(r"\w+", segment.casefold())) <= set(re.findall(r"\w+", words.casefold())):
+            words = f"{words} {segment}".strip()
+        self.asked.clear()
+        self.pending_host.append((did, words or self.last_user))
 
     def from_mobile(self, event: dict) -> list[dict]:
         kind = event.get("type")
@@ -1684,6 +1716,9 @@ class Call:
             protocol.seen.clear()
             protocol.turn_text.update(user="", assistant="")
             protocol.last_user = protocol.last_delegation = ""
+            protocol.user_open = False  # the retired session never sends turn.done for a turn it had open
+            while protocol.deferred:
+                protocol.release(*protocol.deferred.pop(0))
             candidate.activate()
             if guest:
                 guest.audio.clear()
