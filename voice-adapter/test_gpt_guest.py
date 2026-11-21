@@ -137,6 +137,20 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((g.floor.owner, g.floor.reason), ("primary", "new_user_turn"))
         self.assertTrue(any("A release." in str(note) for note in self.call.sent))
 
+    async def test_the_other_voice_hears_only_the_gist_of_what_tek_said(self):
+        # 11-21 deployed two-voice probe: with Tek's whole reply as context, "Hermes, back to you" made the primary
+        # re-tell it ("Sure thing. Here's where we stand: ...").
+        g = self.guest
+        g.observe("primary", turn("done", "Tek, what did you do today?", 1000, 2000, tid="u1"))
+        g.observe("guest", turn("created", "", role="assistant", tid="r1"))
+        g.observe("guest", output("Mostly disk cleanup on the Studio. The biggest chunk is the backup copy. "
+                                  "Two things need your call: delete it, and the timers."))
+        g.observe("guest", turn("done", "", role="assistant", tid="r1"))
+        [note] = [n for n in self.call.sent if isinstance(n, str) and "tek said" in n]
+        self.assertIn("Mostly disk cleanup on the Studio.", note)
+        self.assertNotIn("backup copy", note)
+        self.assertNotIn("timers", note)
+
     async def test_barge_in_on_either_leg_but_not_echo_or_backchannel(self):
         for source in ("primary", "guest"):
             with self.subTest(source=source):

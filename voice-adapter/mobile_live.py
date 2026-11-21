@@ -823,12 +823,16 @@ class GPTGuest:
                     self.replies.pop(source)
                     if reply.spoken.strip():
                         target: Leg = "guest" if source == "primary" else "primary"
-                        length = min(1500, self.note_budget[target])
+                        # Only the gist: with the whole reply as context, the other voice re-told it when Kevin
+                        # came back to it (11-21 probe). Its first sentence keeps it oriented.
+                        gist = re.match(r"\s*(.{1,200}?[.!?])(?=\s|$)", reply.spoken)
+                        gist = (gist.group(1) if gist else reply.spoken.strip()[:200]).strip()
+                        length = min(len(gist), self.note_budget[target])
                         if length:
-                            self.note_budget[target] -= min(length, len(reply.spoken))
+                            self.note_budget[target] -= length
                             name = self.config.name if source == "guest" else "Hermes"
-                            note = (f"{name} said (Kevin heard it; silent context, never repeat or summarize it): "
-                                    f"{reply.spoken[:length]}")
+                            note = (f"{name} said (Kevin heard it; silent context, never repeat or summarize it), "
+                                    f"starting: {gist[:length]}")
                             (self.note if target == "guest" else self.call.guest_note)(note)
                     if allowed:
                         self.floor.reply_finished(source, now, reply.began)
