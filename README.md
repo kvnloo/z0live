@@ -33,7 +33,7 @@ To opt in to `z0live_say`, provide the same random `Z0LIVE_PROGRESS_TOKEN` secre
 - The voice stack streams audio and context to OpenAI or xAI, depending on the call engine and guest settings. Model lanes can send context to their configured providers. The legacy Groq lane can send Hermes session excerpts when enabled. Do not run it on profiles with private history. The adapter's local traces can contain transcripts, delegation requests, and responses.
 - `z0live_say` accepts only [stock lines](voice-adapter/progress_lines.json). The adapter sends the selected line to the call's voice provider. It does not send the local shared token, Hermes session ID, caller-supplied text, Telegram data, or chat history through this route.
 
-TODO(Kevin): Reconcile the manifest's MIT field with the GNU GPL v3 text in [LICENSE](LICENSE).
+z0live is licensed under the GNU GPL v3 ([LICENSE](LICENSE)).
 
 ## Existing portable runtime work
 

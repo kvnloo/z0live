@@ -101,7 +101,7 @@ class PluginTests(unittest.TestCase):
             self.assertFalse(default_keep.exists())
 
     def test_tools_hidden_on_fresh_checkout_and_command_does_not_write(self):
-        with patch.dict(os.environ, {z.PROGRESS_TOKEN_ENV: ""}):
+        with patch.object(z, "_secret", lambda name: ""):  # no token in the active profile
             self.assertTrue(all(not tool["check_fn"]() for tool in self.tools.values()))
         command = self.commands["z0live-lanes"]["handler"]
         self.assertIn("not configured", command("gimme 2 small lanes"))

@@ -203,6 +203,12 @@ def make_lanes(cfg, installed):
 
 
 PROGRESS_TOKEN_ENV = "Z0LIVE_PROGRESS_TOKEN"
+
+
+def _secret(name):
+    """Profile-scoped secret through Hermes (catalog rule 11); a bare os.environ read can see another profile's key."""
+    from agent.secret_scope import get_secret
+    return get_secret(name)
 PROGRESS_PORT = 9168
 
 
@@ -211,7 +217,7 @@ def make_say(lines):
         text = (args or {}).get("text")
         if not isinstance(text, str) or text not in lines:
             return json.dumps({"error": "Choose one of the stock progress lines"})
-        token = os.environ.get(PROGRESS_TOKEN_ENV)
+        token = _secret(PROGRESS_TOKEN_ENV)
         if not token or not session_id:
             return json.dumps({"error": "Voice progress is not configured for this Hermes session"})
         conn = HTTPConnection("127.0.0.1", PROGRESS_PORT, timeout=2)
@@ -291,7 +297,7 @@ def register(ctx) -> None:
                       check_fn=installed, description="Show or set the desktop helper-lane board", emoji="🎚️")
     lines = _read_json(ROOT / "voice-adapter/progress_lines.json") or []
     ctx.register_tool(name="z0live_say", toolset=TOOLSET, handler=make_say(lines),
-                      check_fn=lambda: bool(lines and os.environ.get(PROGRESS_TOKEN_ENV)),
+                      check_fn=lambda: bool(lines and _secret(PROGRESS_TOKEN_ENV)),
                       schema={"name": "z0live_say",
                               "description": "Send a stock progress line to the live call for this Hermes session. "
                                              "Use during work, not for the final answer.",
