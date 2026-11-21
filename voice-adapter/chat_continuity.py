@@ -65,6 +65,61 @@ def find_chat(history, profile: str, db_path: Path | None = None) -> str:
 JOINED = frozenset({"steered", "redirected"})  # prompt.submit receipts for a prompt folded into the running turn
 
 
+async def _socket(http, token: str, profile: str, sid: str):
+    """An /api/ws socket resumed onto the chat: (ws, rpc, live sid, scope)."""
+    ids = itertools.count(1)
+    headers = {"X-Hermes-Profile": profile} if profile else {}
+    params = {"token": token, **({"profile": profile} if profile else {})}
+    ws = await http.ws_connect(WS, params=params, headers=headers, heartbeat=30, max_msg_size=0)
+
+    async def rpc(method, p):
+        rid = next(ids)
+        await ws.send_str(json.dumps({"jsonrpc": "2.0", "id": rid, "method": method, "params": p}))
+        async for msg in ws:
+            frame = json.loads(msg.data)
+            if frame.get("id") == rid:
+                if frame.get("error"):
+                    raise RuntimeError(f"{method}: {frame['error'].get('message', frame['error'])}"[:300])
+                return frame.get("result") or {}
+        raise RuntimeError(f"{method}: socket closed")
+
+    scope = {"profile": profile} if profile else {}  # the dashboard picks the store per RPC, not per socket
+    try:
+        live = (await rpc("session.resume", {"session_id": sid, "omit_messages": True, "inline_images": False,
+                                             "lazy": True, **scope})).get("session_id") or sid
+    except BaseException:
+        await ws.close()
+        raise
+    return ws, rpc, live, scope
+
+
+async def ask_background(http, token: str, profile: str, sid: str, request: str, on_receipt=None) -> str:
+    """Run one voice request as a Hermes background agent beside the chat's running turn (the dashboard's
+    prompt.background, the app's /background): the RPC returns a task id at once, and the answer arrives as
+    background.complete {task_id, text} on the chat's sockets. Same profile, tools and approval rules as a chat
+    turn; it does not see the chat's history, so the caller puts the call's recent words in the request."""
+    ws, rpc, live, scope = await _socket(http, token, profile, sid)
+    try:
+        task_id = (await rpc("prompt.background", {"session_id": live, "text": request, **scope})).get("task_id")
+        if not task_id:
+            raise RuntimeError("prompt.background returned no task id")
+        if on_receipt:
+            on_receipt(task_id)
+        async for msg in ws:
+            frame = json.loads(msg.data)
+            p = frame.get("params") or {}
+            payload = p.get("payload") or {}
+            if frame.get("method") == "event" and p.get("type") == "background.complete" \
+                    and payload.get("task_id") == task_id:
+                text = str(payload.get("text") or "").strip()
+                if not text or text.startswith("error:"):
+                    raise RuntimeError(f"background agent failed: {text[:200] or 'no answer'}")
+                return text
+        raise RuntimeError("chat socket closed before the background agent finished")
+    finally:
+        await ws.close()
+
+
 async def ask_chat(http, token: str, profile: str, sid: str, request: str, timeout: float) -> str | None:
     """Submit one voice request into the chat and return the final text of the turn it started, or None when the
     chat was busy and the request joined the running turn: that turn's one final answers both, and it already

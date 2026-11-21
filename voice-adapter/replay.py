@@ -12,6 +12,11 @@ the adapter sends and when, not what the voice would have said to it.
 The fake chat follows the dashboard's busy rule (display.busy_input_mode=interrupt): a prompt sent while a turn
 runs redirects that turn (receipt status "redirected"), and the turn ends with one message.complete that every
 socket listening on the chat receives. A redirected turn ends at max(its end, the new prompt + its own work).
+prompt.background answers {task_id} at once and sends background.complete {task_id, text} to the chat's sockets
+after that request's own work. Call.sleep runs on the replay clock, so receipts fire when they would on a call.
+
+A report's own_answer_s is request -> first final carrying that request's id (a lane answer or Hermes); held lists
+requests with none (folded into another request's turn); receipt_s is request -> spoken receipt.
 """
 from __future__ import annotations
 
@@ -74,6 +79,7 @@ class FakeChat:
 
     def __init__(self, replay):
         self.replay, self.turn, self.sockets, self.runner = replay, None, set(), None
+        self.side: list[tuple[float, str, str]] = []  # (ends, task_id, answer) of running background agents
 
     async def start(self):
         app = web.Application()
@@ -107,11 +113,31 @@ class FakeChat:
                         self.turn.answer = answer
                         status = "redirected"
                     await ws.send_json({"id": rid, "result": {"status": status}})
+                elif method == "prompt.background":
+                    # A fresh side agent beside the chat's turn: {task_id} at once, then background.complete
+                    # {task_id, text} on the chat's sockets once its own work is done (methods_prompt.py).
+                    did = next((d for d, text in reversed(self.replay.requests) if text in params["text"]), None)
+                    self.replay.submitted.append((self.replay.now, did, params["text"]))
+                    self.replay.backgrounded.append(did)
+                    work, answer = self.replay.hermes.get(did, (5.0, f"answer for {did}"))
+                    task_id = f"bg_{len(self.replay.backgrounded)}"
+                    self.side.append((self.replay.now + work, task_id, answer))
+                    await ws.send_json({"id": rid, "result": {"task_id": task_id}})
         finally:
             self.sockets.discard(ws)
         return ws
 
+    def next_due(self, t):
+        ends = [e for e, _, _ in self.side] + ([self.turn.ends] if self.turn else [])
+        return min((e for e in ends if e <= t), default=None)
+
     async def tick(self, now):
+        for side in [s for s in self.side if s[0] <= now]:
+            self.side.remove(side)
+            frame = {"method": "event", "params": {"type": "background.complete", "session_id": "chat-1",
+                                                   "payload": {"task_id": side[1], "text": side[2]}}}
+            for ws in list(self.sockets):
+                await ws.send_json(frame)
         if self.turn and self.turn.ends <= now:
             turn, self.turn = self.turn, None
             frame = {"method": "event", "params": {"type": "message.complete", "session_id": "chat-1",
@@ -137,6 +163,7 @@ class Replay:
         self.started: dict[str, float] = {}
         self.requests: list[tuple[str, str]] = []  # (did, request) as host_delegate received them
         self.waiting: list[tuple[float, asyncio.Future, object]] = []
+        self.backgrounded: list[str] = []  # delegations Hermes ran as background agents beside the chat's turn
 
     def later(self, seconds, value):
         future = asyncio.get_running_loop().create_future()
@@ -150,7 +177,7 @@ class Replay:
     async def advance(self, t, chat):
         while True:
             due = sorted((w for w in self.waiting if w[0] <= t), key=lambda w: w[0])
-            turn_end = chat.turn.ends if chat.turn and chat.turn.ends <= t else None
+            turn_end = chat.next_due(t)
             if not due and turn_end is None:
                 break
             at = min([w[0] for w in due] + ([turn_end] if turn_end is not None else []))
@@ -194,7 +221,8 @@ class Replay:
                 patch.object(live, "TRACE_DIR", Path(traces)), patch.object(live, "TIERS_ON", True), \
                 patch.object(live.chat_continuity, "WS", url), patch.object(tiers, "race", race), \
                 patch.object(tiers, "load", return_value=cfg), patch.object(live.Call, "host_delegate", host_delegate), \
-                patch.object(live.guest_voice, "configured", return_value=None):
+                patch.object(live.guest_voice, "configured", return_value=None), \
+                patch.object(live.Call, "sleep", lambda call, seconds: replay.later(seconds, None), create=True):
             http = ClientSession()
             call = live.Call(live.Manager(http), profile="")
             call.relay, call.chat, call.heard_user = None, "chat-1", True
@@ -206,6 +234,7 @@ class Replay:
                     call.message(json.dumps(row["rx"]), row["src"] == "provider")
                     await self.pump()
             await self.advance(self.rows[-1]["t"] + 900, chat)
+            self.counts = dict(call.counts)
             call.closed = True
             for task in list(call.tasks):
                 task.cancel()
@@ -238,9 +267,17 @@ def report(replay: Replay) -> dict:
         whole = next((u for ut, u in user_turns if 0 <= ut - replay.started.get(did, t) <= 2.0), "")
         if len(words(whole)) > len(words(text)) + 2 and set(words(text)) <= set(words(whole)):
             fragments.append({"did": did, "sent": text[:120], "said": whole[:200]})
-    finals = {}
+    import mobile_live
+    receipt = getattr(mobile_live, "RECEIPT", None)
+    finals, receipts, own = {}, {}, {}
     for t, e in replay.sent:
         text = "".join(c.get("text", "") for c in e.get("content", []))
+        did = e.get("delegation_item_id")
+        if text.startswith(FINAL) and receipt and receipt in text:
+            receipts.setdefault(did, t)  # a receipt says the work runs; it is not an answer
+            continue
+        if text.startswith(FINAL) and did in replay.started:
+            own.setdefault(did, t)
         if text.startswith(FINAL):
             finals.setdefault(" ".join(text[len(FINAL):].split())[:80], []).append((t, e.get("delegation_item_id")))
     duplicates = {k: len(v) for k, v in finals.items() if len(v) > 1}
@@ -256,7 +293,13 @@ def report(replay: Replay) -> dict:
     # Request -> first final the voice got after it (a lane answer or Hermes), in seconds.
     answer_s = sorted(round(min(t for t in sends if t >= began) - began, 3)
                       for began in replay.started.values() if any(t >= began for t in sends))
-    return {"delegations": len(replay.started), "answer_s": answer_s, "fragments": fragments, "finals": len(sends),
+    # Own answer: the first final carrying this request's id. A request folded into another request's turn has none
+    # ("held"): it hears that turn's answer whenever that turn ends.
+    own_s = {did: round(own[did] - began, 3) for did, began in replay.started.items() if did in own}
+    return {"delegations": len(replay.started), "answer_s": answer_s, "own_answer_s": own_s,
+            "held": [did for did in replay.started if did not in own],
+            "receipt_s": {did: round(t - replay.started[did], 3) for did, t in receipts.items() if did in replay.started},
+            "backgrounded": len(replay.backgrounded), "counts": getattr(replay, "counts", {}), "fragments": fragments, "finals": len(sends),
             "duplicate_finals": duplicates, "finals_mid_reply": len(mid_reply),
             "max_finals_per_delegation": max(per_did.values(), default=0), "unanswered": unanswered}
 
