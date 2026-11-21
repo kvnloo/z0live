@@ -406,6 +406,7 @@ class Protocol:
         self.asked: list[str] = []
         self.user_open = False  # a user turn has started and its turn.done has not arrived
         self.deferred: list[tuple[str, str]] = []  # (did, segment): delegations that beat the user's turn.done
+        self.last_request = ""  # the request most recently queued for a host run
         self.turn_text = {"user": "", "assistant": ""}
         self.last_user = ""
         self.last_delegation = ""
@@ -492,12 +493,22 @@ class Protocol:
         return []
 
     def release(self, did: str, segment: str):
-        """Queue one host run whose request is the caller's words since the voice last answered or delegated."""
+        """Queue one host run whose request is the caller's words since the voice last answered or delegated. GPT-Live
+        can make several delegations for one utterance (11-21 probe: "Can you look at my studio" at 17.2 s, "and tell
+        me how much disk space is free" at 20.7 s); a delegation with no new words joins the request already sent
+        (request None: no run of its own)."""
+        def vocab(text):
+            return set(re.findall(r"\w+", text.casefold()))
+
         words = " ".join(self.asked)
-        if segment and not set(re.findall(r"\w+", segment.casefold())) <= set(re.findall(r"\w+", words.casefold())):
+        if not words and segment and vocab(segment) <= vocab(self.last_request):
+            self.pending_host.append((did, None))
+            return
+        if segment and not vocab(segment) <= vocab(words):
             words = f"{words} {segment}".strip()
         self.asked.clear()
-        self.pending_host.append((did, words or self.last_user))
+        self.last_request = words or self.last_user
+        self.pending_host.append((did, self.last_request))
 
     def from_mobile(self, event: dict) -> list[dict]:
         kind = event.get("type")
@@ -922,7 +933,7 @@ class GPTGuest:
             if message.get("type") == "session.output_transcript.delta":
                 self.call.send(message)
         for did, request in self.protocol.pending_host:
-            if self.may_delegate("guest", did):
+            if request is not None and self.may_delegate("guest", did):
                 self.floor.guest_jobs += 1
                 self.call.spawn(self.delegate(did, request))
         self.protocol.pending_host.clear()
@@ -1216,7 +1227,10 @@ class Call:
                 self.spawn(self.lane_final(self.protocol.last_user, self.trace.turn_id))
         while self.protocol.pending_host:
             did, request = self.protocol.pending_host.pop(0)
-            if not duplex or duplex.may_delegate("primary", did):
+            if request is None:  # a second delegation for an utterance already handed off: no run of its own
+                self.counts["host_delegation_joined"] += 1
+                self.trace("delegation.joined", did=did, request=self.protocol.last_request[:300])
+            elif not duplex or duplex.may_delegate("primary", did):
                 self.spawn(self.host_delegate(did, request))
         if from_provider and duplex and (duplex.floor.owner == "guest" or duplex.floor.answers["primary"]
                                          or duplex.deliveries):

@@ -66,6 +66,18 @@ class ReplayContract(unittest.TestCase):
         self.assertIn("update on the bike repair", sent[1])
         self.assertIn("how far we got", sent[1])
 
+    def test_two_delegations_inside_one_utterance_are_one_request(self):
+        # 11-21 real GPT-Live probe: delegations at 17.2 s and 20.7 s inside one caller turn that ended at 21.4 s.
+        rows = (turn(15.5, 21.4, "user", "Can you look at my studio and tell me how much disk space is free right now",
+                     "u1")
+                + delegation(17.2, "d1", "Can you look at my studio")
+                + delegation(20.7, "d2", "and tell me how much disk space is free right now")
+                + hermes("d1", 10, "The Studio has 23 gigabytes free.") + hermes("d2", 10, "The Studio has 23 gigabytes free.")
+                + turn(21.4, 24.7, "assistant", "Sure, I'll check that quickly.", "a1"))
+        sent = self.last_submitted(rows)
+        self.assertEqual([text for _, _, text in sent],
+                         ["Can you look at my studio and tell me how much disk space is free right now"])
+
     def test_one_lane_answer_per_request_then_hermes(self):
         # 11-20 15:17 call: three lane answers and Hermes landed within 4.4 s; the voice spoke a garbled merge
         # and the listener asked "can you repeat the question, you kinda cut off".
