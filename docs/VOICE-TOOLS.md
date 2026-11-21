@@ -4,6 +4,25 @@ z0live's Realtime model remains the fast conversational front end. It says a sho
 “checking…” before invoking a work tool; it does not run a second agent for ordinary
 conversation or phone-local actions. Work executes on the desktop, not on the phone.
 
+## Multi-agent stack update
+
+[ARCHITECTURE.md](ARCHITECTURE.md) is the current desktop stack contract; [STACK-VERIFICATION.md](STACK-VERIFICATION.md) contains new real-provider receipts. z0intelligence supplies a pinned VoicePlan: Realtime L0 → tools-free Haiku L1 → persistent Opus L2 → cheaper native Sol L3 workers. L2 decides fan-out; no per-turn model router in z0live. Jev is reserved, not automatically sent private memory.
+
+Use **`ask_z0({question})`** for every work/knowledge request and **`cancel_work({})`** for abandoned work. Since persona v4 the gpt-realtime mint offers exactly one work tool: `builtin_tools` is `tell_hermes` (feedback only), `get_context`, `summarize`, `ask_z0`, `cancel_work`. The legacy work tools below stay executable at `/v1/tools/{name}` and their names stay reserved, but they are no longer offered to the model: with five overlapping work tools the model chose `work_search` for repo questions and answered from an empty partial (0/5 in the OMP parity eval). By default (`Z0LIVE_REALTIME_WORK=delegate`) `ask_z0` and `tell_hermes(kind:request)` run on the same persistent Hermes backend as Frameless Bidi (`delegation.Delegator.ask`): the call returns `{ok,id,status:"working",say:"",speech:"silent"}` at once, a same-`call_id` retry is idempotent, a new request while work runs steers it, progress stays silent, and the final answer is one inbox item (`source:"run:rt-…"`, `params.delegation_id`) for the current session that the phone's model tells Kevin in its own words. `cancel_work` and "never mind" stop the run and drop its answer. `Z0LIVE_REALTIME_WORK=liaison` restores the L1/L2 stack described next: `ask_z0` acknowledges immediately and returns `turn_id`; exact model identity is a deterministic cache hit; other requests get an asynchronous brief, z0intelligence-first evidence, native work and concise inbox results. Consume `builtin_tools` dynamically.
+
+Progress only belongs to work explicitly requested in the current human-started voice session. It is queued while the client reports user/assistant floor, suppressed for stale/ended/superseded sessions, and never spoken as a later-session backlog. Summaries, setup/context notes and status-only sessions are silent. Forward floor/barge/topic-change events as documented in API.md; Realtime's audio interruption alone cannot cancel desktop work. Local TTS must also clear interrupted-turn items and honor its actual audio floor.
+
+Configure `Z0LIVE_VOICE_PLAN` with the canonical exported profile, or install it at `$Z0INT_HOME/config/z0live-voice-plan.json`. The model source lives in z0intelligence PR #174, not local z0live constants. L1 inference is hosted inside the native API-only process on loopback 8645 (same private API-key boundary); broker audio routing is unchanged. A missing/invalid model binding is a visible failure, never permission to select a paid fallback. Current Haiku inference misses the 800 ms target; acknowledgement/cache admission stays independent.
+
+```sh
+z0live trace --turn TURN_ID
+# For L2 only: bounded read-only native workers, plan.task model, two concurrent:
+z0live fanout --turn TURN_ID --brief 'source A' --brief 'source B'
+z0live progress --turn TURN_ID 'short verified finding'
+```
+
+The trace records layer/model/native runtime, timing and supplied usage; subscription dollar cost is unknown unless billing evidence exists. Never report null as zero. Worker/native stop confirmation, not queue acceptance, establishes cancellation. Full private outputs remain local; only short final speech is delivered.
+
 ## Available in every newly minted session
 
 POST `/v1/tools/NAME`, bearer authenticated, with
@@ -102,7 +121,9 @@ Deferred replies use the existing `/v1/inbox` and SSE contract. `say` is short s
 lookup messages also carry the complete cited result in `params.result` and
 `params.lookup_id`. Cursor replay is non-destructive and notifications deduplicate by
 source. The client must queue speech until the user and Realtime model are quiet,
-then use its existing phone TTS; do not read JSON or raw citations aloud.
+then let that same Realtime model interpret the result in its own words. Never switch
+to platform TTS or read JSON/raw citations aloud. `speech:"silent"` tool receipts append
+context without creating a response; lifecycle notifications and no-news polling stay silent.
 
 No new pairing, microphone permission, or provider credential is needed. Reconnect to
 mint the new tool catalog. A client with a hardcoded builtin allowlist must add all
@@ -125,7 +146,7 @@ sending is not enabled or live-certified. No test message was sent to the owner.
 Configure an existing authorized gateway target before enabling it; do not move
 credentials or modify another profile to work around this.
 
-## Host setup and verification
+## Legacy host setup and verification
 
 Use `hermes config set platform_toolsets.api_server '["terminal","file","web","vision","browser","delegation","skills","code_execution","todo","session_search","kanban","z0_file_search"]'`
 to opt into tools. Preserve the rest of the platform's enabled list. The canonical
