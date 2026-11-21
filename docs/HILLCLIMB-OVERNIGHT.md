@@ -262,6 +262,12 @@ Hypothesis backlog:
    because `adb shell` eats the rest of the script from stdin. The first B11 attempt dropped the tab's wireless adb at
    78 s cold. That killed hre-slm's :8081 embed supervisor, which was restored with `hre_slm_server.sh` and the args
    in `docs/fleet/hre-phone-sweep.md` (k3s-hre-phone-sweep worktree).
+   REVERTED 11-20 (B13, Studio, same GGUFs): a header over the compressed facts ("Kevin's own facts ... general
+   questions are still answered as usual") does not undo the over-SKIP. qwen3-1.7b 20 -> 19/30 (fails vs v2 full 21):
+   it recovers f-gold but still SKIPs f-capital and now SKIPs r-order. gemma4-e2b (first v2 rows): v2 full 25/30,
+   compressed list 24/30, header 25/30, so Gemma keeps facts and general knowledge behind a short brief, but it fails
+   must-SKIP 2-4 of 8, including a false action claim ("I will text Harsha that you are running ten minutes late").
+   The B12 list (20/30, at the gate limit) stays the qwen3-1.7b short brief.
 3. Threads and core pinning: -t 2..6, --cpu-mask big cores (S22: 1 X2 + 3 A710; tab: 2 A76).
    KEPT 11-20 (B6): `-t 6` on the tab (qwen3-1.7b CPU, A-B-A vs -t 4): warm median 2.72 / 2.78 -> 2.39 s (-13 %),
    cold brief 37.1 / 34.7 -> 30.9 s (-14 %), no-cache 41.2 / 45.8 -> 36.9 s. Args only, no model change (slm gate
@@ -290,7 +296,27 @@ Hypothesis backlog:
    by model size costs too much; attack the brief itself (hyp 2) or prefill it before the first ask (hyp 8).
 6. Speculative decoding on the S25 (0.6B draft for 1.7B).
 7. Tab GPU, later: debug build + tombstone for the Vulkan crash, or a Mali-native runtime (MLC-LLM / MNN OpenCL).
+   REVERTED 11-20 (B14; the patch is kept as a tool): the B1 crash was three null core-1.2 entry points. Driver r32p1
+   exposes a Vulkan 1.1 device under a 1.3 loader, and ggml checks only the instance version.
+   `bench/ggml-vulkan-mali-vk11.patch` (gates bufferDeviceAddress, falls back to vkGetDeviceQueue, and enables
+   VK_KHR_timeline_semaphore) makes b12527 run. qwen3-1.7b, llama-bench pp256/tg32 on the idle tab: Vulkan 4.00 / 2.79 tok/s
+   vs the generic CPU build 38.23 / 9.96 (prefill 9.6x slower). Mali-G57 MC2 is a 2-core GPU, so tuning cannot beat
+   the CPU (inferred). gemma4-e2b with -ngl 99 (2.84 GB pinned on a 3.9 GB device) took the tab down mid-run: no adb,
+   no hre-slm :8081, no open TCP port afterwards (likely a reboot, inferred). Never offload Gemma on the tab. A
+   foreground app (com.kvnloo.rehit, 117 % CPU + surfaceflinger 49 %) skewed the first runs: check `top` before a tab run.
+   Tab GPU is closed. A Mali-native runtime is only worth trying if a model needs more than the CPU gives.
 8. Role split: S22/tab as background workers (summaries, prefetch, embeddings), S25 as the live fast lane.
+   KEPT 11-20 (B15, measurement, call-start prefill): in 13 real call traces the first lane ask (delegation.start)
+   came 22.1 s after call start at the earliest (median 39.7 s, n 12), and asks were 55 s apart (median, min 4.3).
+   The tab's cold prefill (B10/B11) is 7.5 s for 304 tokens, 36 s for 1,144 and 66 s for 1,784. Prefilling at call
+   start therefore makes the first ask warm in 12/12 calls with the short brief, 8/12 at 1,144 tokens and 4/12 at the
+   real lane context (inferred from both measured sets). Later turns already reuse the prefix (cache_prompt). The probe
+   has a lane mode for this: `BRIEF_FILE=<lane system text>` sends tiers.SYSTEM + snapshot through the model's own
+   chat template (any model, e.g. Gemma). The real lane context is 1,478 tokens; on the Studio warm turns reuse
+   1,464-1,603 tokens and add 37-61 each. Best tab lane today: qwen3-1.7b Q4_K_M, generic CPU build, `-t 6`, f16 KV,
+   B12's ~150-token compressed facts, prefilled at call start: warm ~1.1 s (B10, 304-token brief), cold 7.5 s hidden
+   before the first ask, slm-v2 20/30 vs 21/30 for the full context (skip 8/8). Not measured: gemma4-e2b on the tab
+   CPU (tab offline since B14).
 Gate: slm-v1 usable score must not drop more than 1/30 for a model/quant change (run slm_bench.py on the Studio with the
 same GGUF); phones must stay cool (thermal status < 3) and on adb.
 
