@@ -66,6 +66,20 @@ class ReplayContract(unittest.TestCase):
         self.assertIn("update on the bike repair", sent[1])
         self.assertIn("how far we got", sent[1])
 
+    def test_one_lane_answer_per_request_then_hermes(self):
+        # 11-20 15:17 call: three lane answers and Hermes landed within 4.4 s; the voice spoke a garbled merge
+        # and the listener asked "can you repeat the question, you kinda cut off".
+        rows = (turn(25.0, 33.6, "user", "He is an intern, ask him an easy first question about the dashboard", "u1")
+                + turn(33.6, 33.8, "assistant", "Mm-hm.", "a1") + delegation(34.4, "d1", "ask him an easy question")
+                + lane("d1", "medium", 1.9, "Vinay, how would you summarize a week of usage?")
+                + lane("d1", "slow", 2.3, "Hey Vinay, start easy: what would you show first on the dashboard?")
+                + lane("d1", "fast", 2.9, "Vinay, which number on the dashboard matters most to you?")
+                + hermes("d1", 6.4, "Sure. Vinay, what is the first thing you would change in the summary page?")
+                + turn(36.6, 56.85, "assistant", "Okay, hey Vinay, easy start.", "a2")
+                + turn(60.0, 63.4, "user", "Thanks, that works", "u2"))
+        report = run(rows)
+        self.assertEqual(report["max_finals_per_delegation"], 2)  # the first lane answer, then Hermes (it adds)
+
     def last_submitted(self, rows):
         import asyncio
         r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows)

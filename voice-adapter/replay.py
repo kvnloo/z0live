@@ -253,7 +253,10 @@ def report(replay: Replay) -> dict:
     # answered by that turn's one final).
     sends = sorted(t for v in finals.values() for t, _ in v)
     unanswered = [did for did, began in replay.started.items() if not any(t >= began for t in sends)]
-    return {"delegations": len(replay.started), "fragments": fragments, "finals": len(sends),
+    # Request -> first final the voice got after it (a lane answer or Hermes), in seconds.
+    answer_s = sorted(round(min(t for t in sends if t >= began) - began, 3)
+                      for began in replay.started.values() if any(t >= began for t in sends))
+    return {"delegations": len(replay.started), "answer_s": answer_s, "fragments": fragments, "finals": len(sends),
             "duplicate_finals": duplicates, "finals_mid_reply": len(mid_reply),
             "max_finals_per_delegation": max(per_did.values(), default=0), "unanswered": unanswered}
 

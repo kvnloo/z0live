@@ -77,14 +77,14 @@ class SpeakTests(unittest.IsolatedAsyncioTestCase):
         with mock.patch.object(tiers, "ask", fake_ask(answers, delays)), mock.patch.object(tiers, "load", lambda: CFG):
             await call.tier_lanes("d1", "boiling point on Everest?")
 
-    async def test_first_answer_spoken_repeat_suppressed_new_fact_spoken(self):
+    async def test_only_the_first_tier_answer_is_spoken(self):
+        # Later tiers phrase the same answer differently; speaking them made the voice merge versions (11-20).
         call = Call()
         await self.run_lanes(call, {"haiku": "Water boils at about 70 C on Everest.",
                                     "sonnet": "On Everest water boils at about 70 C.",
                                     "opus": "About 70 C; pressure there is a third of sea level."},
                              {"haiku": 0, "sonnet": 0.02, "opus": 0.04})
-        self.assertEqual(call.spoke, ["Water boils at about 70 C on Everest.",
-                                      "About 70 C; pressure there is a third of sea level."])
+        self.assertEqual(call.spoke, ["Water boils at about 70 C on Everest."])
 
     async def test_quiet_once_hermes_answered(self):
         call = Call()

@@ -1450,8 +1450,9 @@ class Call:
 
     async def tier_lanes(self, did, request):
         """Fast, medium and slow lanes race within each tier; tiers run at once. The first answer from any tier
-        is spoken; a later tier speaks only if it adds to what was said (tiers.MAX_SPOKEN per request). Lanes go
-        quiet once a newer request starts or Hermes answers."""
+        is the one lane answer spoken for this request; Hermes's answer follows only if it adds to it. Later
+        tiers are traced, not spoken: on 11-20 three tier answers and Hermes landed within 4.4 s and the voice
+        spoke a garbled merge. Lanes go quiet once a newer request starts or Hermes answers."""
         began, cfg = time.monotonic(), tiers.load()
         context = tiers.snapshot(self.context_text, list(self.protocol.exchanges))
         said = self.__dict__.setdefault("tier_said", {}).setdefault(did, [])
@@ -1465,18 +1466,10 @@ class Call:
                        s=round(time.monotonic() - began, 3))
             quiet = (self.closed or getattr(self, "latest_did", did) != did
                      or did in self.__dict__.get("hermes_done", set()))
-            if not text or quiet or len(said) >= tiers.MAX_SPOKEN:
-                continue
-            if not said:
-                if self.say_first(did, text):
-                    said.append(text)
-                    self.counts["tier_first_spoken"] += 1
-                    self.trace("lanes.spoken", did=did, tier=name, model=model, first=True)
-            elif covered and not covered(text, " ".join(said), request):  # no check: no updates
+            if text and not quiet and not said and self.say_first(did, text):
                 said.append(text)
-                self.counts["tier_update_spoken"] += 1
-                self.trace("lanes.spoken", did=did, tier=name, model=model, first=False)
-                self.speak_for(did, text, lane=True)
+                self.counts["tier_first_spoken"] += 1
+                self.trace("lanes.spoken", did=did, tier=name, model=model, first=True)
 
     async def start_haiku(self):
         began, haiku = time.monotonic(), self.haiku
