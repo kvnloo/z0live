@@ -24,7 +24,9 @@ LINE = "I'm still checking the details."
 
 class ProgressTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.enterContext(patch.dict(os.environ, {plugin.PROGRESS_TOKEN_ENV: TOKEN}))
+        self.enterContext(patch.dict(os.environ, {plugin.PROGRESS_TOKEN_ENV: TOKEN}))  # the adapter's copy
+        # The plugin reads its copy through Hermes's profile-scoped get_secret, which only exists inside Hermes.
+        self.enterContext(patch.object(plugin, "_secret", {plugin.PROGRESS_TOKEN_ENV: TOKEN}.get))
         app = make_app()
         app.cleanup_ctx.clear()
         self.call = SimpleNamespace(chat="test-chat", closed=False, provider_ready=True,
