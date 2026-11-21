@@ -18,7 +18,7 @@ copy keeps working from its own tree; nothing here depends on groot.
 LaunchAgents load at login and log to `~/Library/Logs/z0live/<label>.log`. The active voice slot restarts after a crash. The inactive slot stays stopped between rollouts.
 
 Call path: Hermes app → Tailscale HTTPS → proxy → adapter → GPT-Live (`gpt-live-1-codex`) over
-the Codex ChatGPT login. The `poteto` profile hands delegated work to the local Hermes API host.
+the Codex ChatGPT login. Delegated work goes into the Hermes chat the call was started from.
 Lane turns go adapter → core `/v1/lanes/turn` with the relay token.
 
 ## Install or repair
@@ -37,8 +37,8 @@ reload changed plist environment variables. The separate Tek host is not managed
 
 After install, check that ports 8644 and 9168 listen on loopback. Send an authenticated request to
 `/p/poteto/v1/models` on port 8644 using the existing core API credential. Expect HTTP 200.
-Then run an in-process primary hand-off against port 8644 and check `delegation.api` and
-`delegation.done` for the same delegation ID. Do not set the probe-only provider cap in launchd.
+Then run one probe call and check `delegation.chat` and `delegation.done` for the same delegation
+ID. Do not set the probe-only provider cap in launchd.
 
 Run `install.sh` only in an idle maintenance window. It builds `voice-adapter/.venv`, pairs the relay token once, and re-registers the LaunchAgents, including the proxy. The first install of rolling restart switches the proxy to managed routing and starts with slot A. Do not rerun `install.sh` for routine adapter releases.
 
@@ -266,12 +266,13 @@ to record primary requests without running them. Guest delegations still use the
 
 ## Primary hand-offs and call limits
 
-The primary profile defaults to `poteto`. `Z0LIVE_PRIMARY_HOST_PROFILE` selects the profile for
-both the API-only host and the voice adapter. The adapter uses the profile-qualified Responses API
-on loopback port 8644. Calls for other profiles keep their legacy routing. Each primary call has its
-own stored `z0live-primary-` conversation. The call brief seeds it. The adapter does not resubmit a
-failed turn because Hermes may already have acted. Set `HERMES_VOICE_PRIMARY_DELEGATION=legacy`
-to use the old chat or CLI path on new calls.
+Every hand-off goes into the chat the call was started from, through the dashboard's `/api/ws`, so it
+runs with that chat's context, tools and approvals and shows in the app like a typed message. A call
+from a new chat (no app history) falls back to a `hermes chat --oneshot` turn. A request that lands
+while the chat is busy joins the running turn (receipt `steered` or `redirected`) and is answered by
+that turn's one final message. The adapter does not resubmit a failed turn because Hermes may
+already have acted. The API-only host on 8644 serves the core's lanes, not call hand-offs: a
+per-call API conversation ran hand-offs one at a time with no one to approve tools (11-20 night).
 
 `HERMES_VOICE_MAX_CALL_SECONDS` defaults to 14400. Each GPT-Live leg uses its own advertised expiry.
 The adapter prepares a silent replacement and swaps it in at a quiet boundary if time allows.

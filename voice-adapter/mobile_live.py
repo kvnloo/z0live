@@ -40,7 +40,6 @@ import call_brief  # noqa: E402 - sibling module (context packet in the session 
 import grok_leg  # noqa: E402 - sibling module (Grok Voice as the voice model)
 import tiers  # noqa: E402 - sibling module (fast/medium/slow model lanes)
 import guest_voice  # noqa: E402
-import primary_host  # noqa: E402
 from subscription_leg import Speaker, SubscriptionLeg  # noqa: E402
 import av  # noqa: E402
 from aiortc.contrib.media import MediaRelay  # noqa: E402
@@ -1010,8 +1009,6 @@ class Call:
         self.lane_said = {}  # delegation id -> (lane answer, entry id)
         self.token = ""  # the app's own bearer, for submitting voice turns into its open chat
         self.chat_lookup = None
-        self.stream_spoken = {}
-        self.primary_host = primary_host.PrimaryHost(self.id) if primary_host.api_mode(profile) else None
         self.context_text = ""  # recent chat history text, for the ttft lane
         self.haiku = None  # WarmHaiku, started once chat context is known
         self.chat = ""   # stored id of the chat Live Voice was started from ('' = hidden voice session)
@@ -1240,8 +1237,6 @@ class Call:
             # persona and the call brief go in as context, framed as background so they are not answered.
             channel = os.environ.get("HERMES_VOICE_BRIEF_CHANNEL", "developer")
             brief = call_brief.build(history, self.chat)
-            if self.primary_host:
-                self.primary_host.brief = brief
             if self.guest:
                 self.spawn(self.start_guest(brief))
             persona = PERSONA + ("\n" + guest_voice.PRIMARY_NOTE if isinstance(self.guest, guest_voice.GuestVoice) else "")
@@ -1401,11 +1396,6 @@ class Call:
             self.counts["host_delegation_ok"] += 1
             self.trace("delegation.done", did=did, s=round(time.monotonic() - began, 3), answer=answer[:4000],
                        closed=self.closed)
-            first = self.stream_spoken.get(did)
-            if first and answer.startswith(first):
-                answer = answer[len(first):].strip()
-                if not answer:
-                    return
             # Tier lanes: Hermes is skipped when everything it says was already spoken (answer within said).
             if lane and covered and (covered(answer, lane, request) if TIERS_ON else covered(lane, answer, request)):
                 self.counts["host_delegation_covered"] += 1  # the lane already said it
@@ -1589,16 +1579,6 @@ class Call:
         return text or answers[0][1][:280]
 
     async def ask_hermes(self, did, request):
-        if self.primary_host:
-            began = time.monotonic()
-            self.trace("delegation.api", did=did, session=self.primary_host.session)
-
-            def first(text):  # Hermes's own first sentence: the rest of its answer is sent without it
-                if self.say_first(did, text, lane=False):
-                    self.stream_spoken[did] = text
-                    self.trace("delegation.first_sentence", did=did, s=round(time.monotonic() - began, 3))
-
-            return await self.primary_host.ask(self.manager.http, request, DELEGATION_TIMEOUT_SECONDS, first)
         if self.chat_lookup and not self.chat:
             try:
                 self.chat = await asyncio.wait_for(asyncio.shield(self.chat_lookup), 5)
