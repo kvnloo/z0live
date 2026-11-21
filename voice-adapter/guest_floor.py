@@ -53,7 +53,6 @@ class Answer:
     delegation_id: str | None
     text: str
     lane: bool = False  # a fast lane's guess; Hermes's own answer to the same delegation supersedes it
-    sends: int = 0  # times handed to a voice; an answer is sent at most twice
 
 
 @dataclass

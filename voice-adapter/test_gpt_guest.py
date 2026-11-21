@@ -347,6 +347,71 @@ class AnswerDeliveryTest(TimedGuestTest):
         g.flush_answers()
         self.assertEqual(self.speakable("Hermes answer."), 1)
 
+    async def test_answer_merged_into_the_reply_already_playing_is_not_resent(self):
+        # 192702 at 698.7 s: the answer landed mid-reply, the voice folded it in, and 15 s after that reply ended it
+        # was sent again and spoken again ("Quick correction, actually nothing new has started").
+        g = self.guest
+        g.observe("primary", turn("created", "", role="assistant", tid="r1"))
+        g.observe("primary", output("Four of the five garden beds are planted."))
+        self.at(101)
+        self.speak("p1", "Nothing new has started. I need your budget cap and the shed key first.")
+        g.observe("primary", output(" I need your budget cap and the shed key."))
+        self.at(110)
+        g.observe("primary", turn("done", "", role="assistant", tid="r1"))
+        for second in (113, 126, 140):
+            self.at(second)
+            g.flush_answers()
+        self.assertEqual(self.speakable("budget cap"), 1)
+        self.assertIn("floor.answer_spoken", self.call.traces)
+
+    async def test_answer_a_reply_never_says_is_resent_once_the_voice_is_quiet(self):
+        # 205504 at 240.1 s: a reply started after the send ("Not yet", "Checking now") and that alone marked the
+        # answer delivered. The voice never said it.
+        g = self.guest
+        self.speak("p1", "I couldn't repaint the fence because the paint store is closed.")
+        self.at(100.6)
+        g.observe("primary", turn("created", "", role="assistant", tid="r1"))
+        g.observe("primary", output("Not yet, checking now."))
+        self.at(102)
+        g.observe("primary", turn("done", "", role="assistant", tid="r1"))
+        self.at(103)
+        g.flush_answers()
+        self.assertEqual(self.speakable("paint store"), 1, "the voice just stopped: it may still say it")
+        self.at(102 + live.answer_delivery.SETTLE_SECONDS)
+        g.flush_answers()
+        self.assertEqual(self.speakable("paint store"), 2)
+        self.assertIn("floor.answer_resent", self.call.traces)
+
+    async def test_one_delegations_pieces_resend_as_one_message_without_the_spoken_piece(self):
+        g = self.guest
+        self.speak("p1", "The garden has two planted beds.")
+        self.speak("p1", "The tomato seedlings arrive Thursday from the nursery.")
+        self.at(100.6)
+        g.observe("primary", turn("created", "", role="assistant", tid="r1"))
+        g.observe("primary", output("Two beds in the garden are planted."))
+        self.at(103)
+        g.observe("primary", turn("done", "", role="assistant", tid="r1"))
+        self.at(110)
+        before = len(self.call.sent)
+        g.flush_answers()
+        [resend] = [m for m in self.call.sent[before:] if isinstance(m, dict) and m.get("channel") == "speakable"]
+        self.assertIn("tomato seedlings", str(resend))
+        self.assertNotIn("planted beds", str(resend))
+
+    async def test_answer_the_caller_cut_off_is_not_resent(self):
+        g = self.guest
+        self.speak("p1", "Here are two photos of the porch railing and the cracked steps.")
+        self.at(100.6)
+        g.observe("primary", turn("created", "", role="assistant", tid="r1"))
+        g.observe("primary", output("Here are two photos"))
+        self.call.output_loud_at = 100.6
+        g.observe("primary", turn("created", "Wait, different question", 1000, 1800, tid="barge"))
+        self.assertIn("floor.barge_in", self.call.traces)
+        g.observe("primary", turn("done", "", role="assistant", tid="r1"))
+        self.at(120)
+        g.flush_answers()
+        self.assertEqual(self.speakable("porch railing"), 1)
+
     async def test_lane_guesses_waiting_for_the_floor_are_dropped_once_stale(self):
         g = self.guest
         g.observe("guest", turn("done", "Tek, what shipped?", 1000, 2000))
