@@ -1,0 +1,17 @@
+[Unit]
+Description=Hermes mobile subscription voice compatibility adapter
+After=network-online.target hermes-web.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/mnt/zer0models/project-artifacts/hermes-mobile/subscription-voice
+ExecStart=/mnt/zer0models/project-artifacts/hermes-mobile/subscription-voice/.venv/bin/python /mnt/zer0models/project-artifacts/hermes-mobile/subscription-voice/mobile_live.py
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+MemoryMax=768M
+
+[Install]
+WantedBy=default.target

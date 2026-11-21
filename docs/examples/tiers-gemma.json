@@ -1,0 +1,16 @@
+{
+  "fast": [
+    {"provider": "local", "model": "gemma4-e4b"},
+    {"provider": "claude-subscription-directsdk-experimental", "model": "claude-haiku-5-5"},
+    {"provider": "claude-subscription-directsdk-experimental", "model": "claude-haiku-5-5"},
+    {"provider": "claude-subscription-directsdk-experimental", "model": "claude-haiku-5-5"}
+  ],
+  "medium": [
+    {"provider": "claude-subscription-directsdk-experimental", "model": "claude-sonnet-5-5"},
+    {"provider": "openai-codex", "model": "gpt-6.1-terra"}
+  ],
+  "slow": [
+    {"provider": "claude-subscription-directsdk-experimental", "model": "claude-opus-5-5"},
+    {"provider": "openai-codex", "model": "gpt-6.2-sol"}
+  ]
+}

@@ -1,5 +1,6 @@
 """z0live.lanes.v1 on the broker: config + hot reload, blackboard, fan-out splice, text/voice config."""
 
+import concurrent.futures as cf
 import copy
 import hashlib
 import json
@@ -55,6 +56,13 @@ class Base(unittest.TestCase):
         self.addCleanup(minted.stop)
         self.tmp = tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR"))
         self.addCleanup(self.tmp.cleanup)
+        # Each test gets its own lane pool, joined before tmp is removed (cleanups run LIFO): a late
+        # verify job must not write into a deleted broker dir.
+        pool = cf.ThreadPoolExecutor(max_workers=12, thread_name_prefix="lane-test")
+        swapped = patch("z0live_desktop.lane_fanout.POOL", pool)
+        swapped.start()
+        self.addCleanup(pool.shutdown, wait=True)
+        self.addCleanup(swapped.stop)
         self.cfg_path = Path(self.tmp.name) / "z0live-lanes.json"
         env = patch.dict(os.environ, {"Z0LIVE_LANES": str(self.cfg_path)})
         env.start()
@@ -95,6 +103,12 @@ class ConfigTests(Base):
                           cls("how far is the pharmacy from my house"), cls("read me my wifi password")],
                          ["public", "personal", "location", "credentials"])
         self.assertEqual(cls("capital of france", "location"), "location")  # caller floor wins
+        # model-speed talk is not a credential (11-15: "time to first token" locked a call to local lanes)
+        self.assertEqual([cls("what happened to the time to first token test"), cls("how many tokens per second"),
+                          cls("cut the output tokens and the token budget"), cls("is ttft faster on groq")],
+                         ["public"] * 4)
+        self.assertEqual([cls("read me the github token"), cls("paste the api token"), cls("first token, then password")],
+                         ["credentials"] * 3)
         free = {"provider": "free", "model": "vllm-sr/free", "route": "vllm-sr", "billing": "free"}
         local = {"provider": "local", "model": "qwen3.5-4b", "route": "local", "billing": "free"}
         role = {"provider": "voice_plan", "model": "smol", "route": "voice_plan"}
@@ -362,6 +376,36 @@ class PresetDTests(Base):
         self.assertEqual(launched["counts"], {"fast": 2, "small": 1, "large": 1, "council": 0})
         with self.assertRaises(LookupError):
             self.store.lane_turn("someone-else", {"session_id": sid, "text": "hey"})
+
+
+class RouterRouteTests(unittest.TestCase):
+    def test_vllm_sr_lane_calls_the_router_directly_and_reports_the_picked_backend(self):
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        from z0live_desktop import lane_fanout
+        seen = {}
+
+        class H(BaseHTTPRequestHandler):
+            def do_POST(self):
+                seen["path"] = self.path
+                seen["body"] = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                out = json.dumps({"choices": [{"message": {"content": '{"route":"answer","answer":"Paris"}'}}]}).encode()
+                self.send_response(200)
+                self.send_header("X-Vsr-Selected-Model", "groq-qwen3.8-27b")
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers()
+                self.wfile.write(out)
+
+            def log_message(self, format, *args):
+                pass
+
+        srv = HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.shutdown)
+        binding = {"provider": "free", "model": "vllm-sr/turbo", "route": "vllm-sr", "billing": "free"}
+        with patch.object(lanes, "SR_BASE", f"http://127.0.0.1:{srv.server_port}/v1"):
+            result = lane_fanout.Models(None).complete(binding, "capital of france?", timeout=5)
+        self.assertEqual((seen["path"], seen["body"]["model"]), ("/v1/chat/completions", "vllm-sr/turbo"))
+        self.assertEqual((result["model"], lane_fanout._json(result["text"])["answer"]), ("groq-qwen3.8-27b", "Paris"))
 
 
 if __name__ == "__main__":

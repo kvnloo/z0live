@@ -1,0 +1,5 @@
+__pycache__/
+*.bak-*
+*.wav
+*.mp3
+*receipt.json

@@ -1,9 +1,5 @@
-name: Desktop broker
-on:
-  push:
-    paths: ['desktop/**', 'bin/z0live', 'deploy/**', '.github/workflows/desktop.yml']
-  pull_request:
-    paths: ['desktop/**', 'bin/z0live', 'deploy/**', '.github/workflows/desktop.yml']
+name: z0live checks
+on: [push, pull_request]
 permissions:
   contents: read
 jobs:
@@ -21,3 +17,25 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y qrencode zbar-tools
       - run: python -m compileall -q desktop
       - run: python -m unittest discover -s desktop/tests -v
+      - run: python -m unittest discover -s tests -v
+  voice-adapter:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: voice-adapter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: voice-adapter/requirements.lock
+      - run: python -m pip install -r requirements.lock numpy==2.5.5
+      - run: Z0LIVE_DESKTOP="$GITHUB_WORKSPACE/desktop" env -u PYTHONPATH python -m unittest discover -p 'test_*.py'
+  plugin-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: NousResearch/hermes-agent/.github/actions/plugin-validate@514e2cbda616f57d35e7dd9e703d5db20a564bba
+        with:
+          hermes-ref: 514e2cbda616f57d35e7dd9e703d5db20a564bba

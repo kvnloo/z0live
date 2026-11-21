@@ -144,11 +144,20 @@ def validate(cfg) -> list[str]:
     return out
 
 
+# vLLM Semantic Router (k3s NodePort on groot since 11-15); free models only, public-class turns only.
+SR_BASE = os.environ.get("Z0LIVE_SR_URL", "http://100.113.138.100:30899/v1").rstrip("/")
+
+
 # ------------------------------------------------------------------ privacy (Kevin decision 3, 11-05)
 PRIVACY = ("public", "personal", "location", "credentials")  # increasing strictness
 _CREDENTIALS = re.compile(r"\b(passwords?|passcodes?|passphrase|api[ -]?keys?|tokens?|secrets?|credentials?|2fa|otp|"
                           r"one[- ]time code|pin( code| number)?|ssh key|private key|card number|credit card|cvv|cvc|"
                           r"ssn|social security|bank account|routing number|seed phrase|log ?in code)\b", re.I)
+# Model-speed/usage talk ("time to first token", "tokens per second", "token budget") names no secret.
+_TOKEN_METRIC = re.compile(r"\b(?:(?:time\s+to\s+)?first[- ]tokens?|tokens?\s*(?:per|/)\s*(?:second|sec|s|minute|min)\b|"
+                           r"(?:input|output|context|prompt|completion|max|thinking|reasoning)[- ]tokens?|"
+                           r"tokens?[- ](?:count|counts|usage|budget|limit|limits|rate|throughput|speed|window|burn|spend|cost)s?)",
+                           re.I)
 _LOCATION = re.compile(r"\b(address|where (do )?i live|where i am|where am i|my (house|home|apartment|street|"
                        r"location|neighbou?rhood|city|zip)|zip ?code|postcode|coordinates|gps|latitude|longitude|"
                        r"near me|nearby|directions (home|to my))\b", re.I)
@@ -159,7 +168,7 @@ def privacy_class(text, floor="public") -> str:
     """Rule-based class of what a lane would be sent (transcript + quoted context). Errs strict:
     the class is the strictest match, never lower than `floor` (an explicit caller class)."""
     text = str(text or "")
-    found = ("credentials" if _CREDENTIALS.search(text) else "location" if _LOCATION.search(text)
+    found = ("credentials" if _CREDENTIALS.search(_TOKEN_METRIC.sub(" ", text)) else "location" if _LOCATION.search(text)
              else "personal" if _PERSONAL.search(text) else "public")
     floor = floor if floor in PRIVACY else "credentials"
     return max(found, floor, key=PRIVACY.index)

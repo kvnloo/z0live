@@ -144,6 +144,8 @@ class Handler(BaseHTTPRequestHandler):
                 }
             elif method == "POST" and path == "/v1/lanes/turn":
                 result = store.lane_turn(device, body)
+            elif method == "GET" and path == "/v1/lanes/status":
+                result = store.lane_status(device, query.get("session_id", [None])[0])
             elif method == "POST" and path == "/v1/lanes/launch":
                 result = store.lane_launch(device, body)
             elif method == "POST" and path == "/v1/events":

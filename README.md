@@ -1,6 +1,39 @@
 # z0live
 
-Portable realtime conversational voice runtime and fixtures for Zer0.
+z0live connects the Hermes mobile client to GPT-Live or Grok Voice. The Hermes plugin controls a separately installed z0live stack.
+
+## Install the Hermes plugin
+
+The plugin lives on `feat/plugin-s-tier`, not on `main`. To install a specific revision, resolve the branch to a commit SHA first:
+
+```sh
+repo=https://github.com/kvnloo/z0live.git
+ref=$(git ls-remote --exit-code "$repo" refs/heads/feat/plugin-s-tier | cut -f1)
+hermes plugins install "$repo" --ref "$ref" --enable
+```
+
+| Surface | What it does |
+|---|---|
+| `z0live_status` | Voice engine for the next call, the second voice, lane models, lane server health, and the latest call's trace summary. Read only. |
+| `z0live_configure` | Change the next call's engine or second voice, or change the adapter's fast/medium/slow model tiers. Use `reset_tiers: true` to restore the default tiers. |
+| `z0live_lanes`, `/z0live-lanes` | Change the separate desktop helper-lane board in plain words: "gimme 2 fast lanes, 2 small, 2 large, one council". |
+| `z0live_say` | Send a stock line such as "I'm still checking the details." to the active call linked to this Hermes session. |
+
+The tools steer the z0live services; installing those is a separate step (`deploy/macos/install.sh`, see
+[docs/STUDIO.md](docs/STUDIO.md)). Phone calls reach z0live through its own front door until Hermes core has a
+voice-live provider seam ([RFC #77111](https://github.com/NousResearch/hermes-agent/issues/77111)).
+
+The plugin looks for `lanes_file` or `traces_dir` as evidence of a configured stack. Point these settings at your deployment if you use nondefault paths. The lane-server status reports `unknown` on versions without `/health`.
+
+To opt in to `z0live_say`, provide the same random `Z0LIVE_PROGRESS_TOKEN` secret to the voice adapter and the Hermes profile that handles the call. Set it in the Hermes profile's `.env` and the adapter's service environment. The adapter accepts requests only over loopback and requires one ready call linked to the requesting session. A successful tool response means the adapter accepted the line, not that the caller heard it.
+
+### Privacy disclosure
+
+- The plugin reads local configuration and summarizes local call traces. `z0live_status` returns event counts and call metadata, not transcript text. Hermes may send tool output to its configured agent model.
+- The voice stack streams audio and context to OpenAI or xAI, depending on the call engine and guest settings. Model lanes can send context to their configured providers. The legacy Groq lane can send Hermes session excerpts when enabled. Do not run it on profiles with private history. The adapter's local traces can contain transcripts, delegation requests, and responses.
+- `z0live_say` accepts only [stock lines](voice-adapter/progress_lines.json). The adapter sends the selected line to the call's voice provider. It does not send the local shared token, Hermes session ID, caller-supplied text, Telegram data, or chat history through this route.
+
+z0live is licensed under the GNU GPL v3 ([LICENSE](LICENSE)).
 
 ## Existing portable runtime work
 
@@ -14,9 +47,7 @@ The frozen certification wrapper is [z0evals PR #86](https://github.com/kvnloo/z
 
 ## Desktop phone broker (this component)
 
-`desktop/z0live_desktop/` is a **separate host deployment adapter**, not a replacement for the portable
-`src/z0live` actor package or its v0 WebSocket protocol. It adds the owner's explicitly selected ChatGPT
-Realtime + Hermes route without model-ranking policy:
+`desktop/z0live_desktop/` hosts the phone broker. It connects ChatGPT Realtime and Hermes without choosing or ranking models:
 
 ```text
 Android / web ── HTTPS tailnet /v1 ── z0live desktop broker
