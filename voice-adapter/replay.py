@@ -39,6 +39,7 @@ from unittest.mock import patch
 from aiohttp import ClientSession, web
 
 FINAL = '"Agent Final Message":'
+QUEUED = re.compile(r"queued as number \d+")  # the adapter's queued notice (mobile_live.QUEUED)
 _did = contextvars.ContextVar("replay_did", default=None)
 
 
@@ -316,15 +317,19 @@ def report(replay: Replay) -> dict:
             fragments.append({"did": did, "sent": text[:120], "said": whole[:200]})
     import mobile_live
     receipt = getattr(mobile_live, "RECEIPT", None)
-    finals, receipts, own = {}, {}, {}
+    finals, receipts, own, queued, answers = {}, {}, {}, {}, {}
     for t, e in replay.sent:
         text = "".join(c.get("text", "") for c in e.get("content", []))
         did = e.get("delegation_item_id")
         if text.startswith(FINAL) and receipt and receipt in text:
             receipts.setdefault(did, t)  # a receipt says the work runs; it is not an answer
             continue
+        if text.startswith(FINAL) and QUEUED.search(text):
+            queued.setdefault(did, t)  # a queued notice says the work has not started; it is not an answer
+            continue
         if text.startswith(FINAL) and did in replay.started:
             own.setdefault(did, t)
+            answers.setdefault(did, " ".join(text[len(FINAL):].split()))
         if text.startswith(FINAL):
             finals.setdefault(" ".join(text[len(FINAL):].split())[:80], []).append((t, e.get("delegation_item_id")))
     duplicates = {k: len(v) for k, v in finals.items() if len(v) > 1}
@@ -347,6 +352,8 @@ def report(replay: Replay) -> dict:
     return {"delegations": len(replay.started), "answer_s": answer_s, "own_answer_s": own_s,
             "held": [did for did in replay.started if did not in own],
             "receipt_s": {did: round(t - replay.started[did], 3) for did, t in receipts.items() if did in replay.started},
+            "queued_s": {did: round(t - replay.started[did], 3) for did, t in queued.items() if did in replay.started},
+            "answers": answers,  # did -> the first answer the voice got for it (its own words, not a status line)
             "backgrounded": len(replay.backgrounded), "counts": getattr(replay, "counts", {}), "fragments": fragments, "finals": len(sends),
             "duplicate_finals": duplicates, "finals_mid_reply": len(mid_reply),
             "max_finals_per_delegation": max(per_did.values(), default=0), "unanswered": unanswered,

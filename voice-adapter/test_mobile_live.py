@@ -299,6 +299,159 @@ class ConcurrentHostTurnTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.runs), live.HOST_MAX + 1)
 
 
+class BoundedHostQueueTests(unittest.IsolatedAsyncioTestCase):
+    """The host path's queue past HOST_MAX: bounded, truthful about what has started, and each answer lands on its
+    own request. Each Hermes run below blocks on its own gate, so the tests decide which run ends when."""
+
+    def setUp(self):
+        live.VOICE_SESSIONS.clear()
+        self.gates, self.started = {}, []
+
+    def fake(self, request, profile, own_lane=False):
+        did = request.split()[-1]
+        self.started.append(did)
+        gate = self.gates.setdefault(did, __import__("threading").Event())
+        gate.wait(10)
+        if did.startswith("fail"):
+            raise RuntimeError("hermes exited 1")
+        return f"answer for {did}"
+
+    async def call(self):
+        call = live.Call(live.Manager(None), profile='clean')
+        self.sent = []
+        call.send = lambda event, to_provider=False, **kw: self.sent.append(event)
+        self.addAsyncCleanup(call.close, 'test')
+        return call
+
+    def said(self, did=None):
+        out = []
+        for e in self.sent:
+            if did is None or e.get("delegation_item_id") == did:
+                out.append("".join(c.get("text", "") for c in e.get("content", [])))
+        return out
+
+    async def until(self, check, s=3.0):
+        for _ in range(int(s / 0.02)):
+            if check():
+                return True
+            await asyncio.sleep(0.02)
+        return check()
+
+    def release(self, did):
+        self.gates.setdefault(did, __import__("threading").Event()).set()
+
+    async def start(self, call, dids):
+        jobs = {}
+        for did in dids:
+            call.protocol.seen.append(did)
+            jobs[did] = asyncio.ensure_future(call.host_delegate(did, f"request {did}"))
+            await asyncio.sleep(0.02)
+        return jobs
+
+    async def test_past_the_queue_bound_a_request_is_refused_out_loud_and_never_runs(self):
+        call = await self.call()
+        running = [f"r{i}" for i in range(live.HOST_MAX)]
+        waiting = [f"w{i}" for i in range(getattr(live, "QUEUE_MAX", 3))]  # the bound: 3 waiting
+        with patch.object(live, 'run_hermes', self.fake), patch.object(live, 'RECEIPT_SECONDS', 30):
+            jobs = await self.start(call, running + waiting + ["over"])
+            self.assertTrue(await self.until(lambda: jobs["over"].done()), "a request past the bound waits silently")
+            said = " ".join(self.said("over"))
+            self.assertIn("can't take", said)
+            self.assertNotIn("may still be running", said, "it never started, so it cannot still be running")
+            self.assertNotIn("over", self.started)
+            for did in running + waiting:
+                self.release(did)
+            await asyncio.wait_for(asyncio.gather(*jobs.values()), 5)
+        self.assertNotIn("over", self.started, "a refused request is not run later either")
+        self.assertEqual(sorted(self.started), sorted(running + waiting))
+
+    async def test_queue_positions_are_spoken_and_runs_start_in_order(self):
+        call = await self.call()
+        running = [f"r{i}" for i in range(live.HOST_MAX)]
+        with patch.object(live, 'run_hermes', self.fake), patch.object(live, 'RECEIPT_SECONDS', 30):
+            jobs = await self.start(call, running + ["w1", "w2"])
+            self.assertTrue(any("number 1" in s for s in self.said("w1")), self.said("w1"))
+            self.assertTrue(any("number 2" in s for s in self.said("w2")), self.said("w2"))
+            for did in running:
+                self.assertFalse(any("queued" in s for s in self.said(did)), "an admitted request is never 'queued'")
+            self.release("r1")
+            self.assertTrue(await self.until(lambda: "w1" in self.started))
+            await asyncio.sleep(0.1)
+            self.assertNotIn("w2", self.started, "the bound holds: only one slot was freed")
+            self.release("r0")
+            self.assertTrue(await self.until(lambda: "w2" in self.started))
+            for did in running + ["w1", "w2"]:
+                self.release(did)
+            await asyncio.wait_for(asyncio.gather(*jobs.values()), 5)
+        self.assertEqual(self.started[-2:], ["w1", "w2"])
+
+    async def test_each_answer_lands_on_its_own_request_when_runs_end_out_of_order(self):
+        call = await self.call()
+        dids = ["a", "b", "c"]
+        with patch.object(live, 'run_hermes', self.fake), patch.object(live, 'RECEIPT_SECONDS', 30):
+            jobs = await self.start(call, dids)
+            for did in reversed(dids):
+                self.release(did)
+                await asyncio.wait_for(jobs[did], 5)
+        for did in dids:
+            answers = [s for s in self.said(did) if "answer for" in s]
+            self.assertEqual(len(answers), 1, (did, self.said(did)))
+            self.assertIn(f"answer for {did}", answers[0])
+
+    async def test_a_failed_run_says_so_and_frees_its_slot_for_the_next_in_line(self):
+        call = await self.call()
+        running = ["fail0"] + [f"r{i}" for i in range(1, live.HOST_MAX)]
+        with patch.object(live, 'run_hermes', self.fake), patch.object(live, 'RECEIPT_SECONDS', 30):
+            jobs = await self.start(call, running + ["w1"])
+            self.release("fail0")
+            await asyncio.wait_for(jobs["fail0"], 5)
+            self.assertTrue(any("couldn't finish" in s for s in self.said("fail0")))
+            self.assertTrue(await self.until(lambda: "w1" in self.started), "a failure kept its slot")
+            for did in running + ["w1"]:
+                self.release(did)
+            await asyncio.wait_for(asyncio.gather(*jobs.values()), 5)
+        self.assertTrue(any("answer for w1" in s for s in self.said("w1")))
+
+    async def test_a_cancelled_queued_request_never_runs_and_the_line_moves_up(self):
+        call = await self.call()
+        running = [f"r{i}" for i in range(live.HOST_MAX)]
+        with patch.object(live, 'run_hermes', self.fake), patch.object(live, 'RECEIPT_SECONDS', 30):
+            jobs = await self.start(call, running + ["w1", "w2"])
+            jobs["w1"].cancel()
+            await asyncio.gather(jobs["w1"], return_exceptions=True)
+            self.release("r0")
+            self.assertTrue(await self.until(lambda: "w2" in self.started), "the line did not move past a cancel")
+            self.assertNotIn("w1", self.started)
+            for did in running + ["w2"]:
+                self.release(did)
+            await asyncio.wait_for(asyncio.gather(*(j for d, j in jobs.items() if d != "w1")), 5)
+        self.assertNotIn("w1", self.started)
+
+    async def test_a_closed_call_runs_none_of_its_queued_requests(self):
+        call = await self.call()
+        running = [f"r{i}" for i in range(live.HOST_MAX)]
+        with patch.object(live, 'run_hermes', self.fake), patch.object(live, 'RECEIPT_SECONDS', 30):
+            jobs = await self.start(call, running + ["w1"])
+            await call.close('test')
+            for did in running:
+                self.release(did)
+            await asyncio.gather(*jobs.values(), return_exceptions=True)
+            await asyncio.sleep(0.1)
+        self.assertNotIn("w1", self.started, "a request queued on a closed call still ran Hermes")
+
+    async def test_a_queued_request_gets_no_still_working_receipt(self):
+        call = await self.call()
+        running = [f"r{i}" for i in range(live.HOST_MAX)]
+        with patch.object(live, 'run_hermes', self.fake), patch.object(live, 'RECEIPT_SECONDS', 0.2):
+            jobs = await self.start(call, running + ["w1"])
+            await asyncio.sleep(0.5)
+            self.assertFalse(any(live.RECEIPT in s for s in self.said("w1")), "the receipt claims a queued run works")
+            self.assertTrue(any(live.RECEIPT in s for s in self.said("r0")), "a running request keeps its receipt")
+            for did in running + ["w1"]:
+                self.release(did)
+            await asyncio.wait_for(asyncio.gather(*jobs.values()), 5)
+
+
 class IntegrationTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         # Teardown stops the server with fixture calls still open; draining is covered by DrainTests.

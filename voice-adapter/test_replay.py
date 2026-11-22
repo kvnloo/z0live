@@ -52,6 +52,33 @@ class ReplayContract(unittest.TestCase):
         self.assertEqual(report["held"], [])
         self.assertEqual(report["unanswered"], [])
 
+    def test_a_request_past_the_side_bound_is_queued_not_folded_into_the_running_turn(self):
+        # Take 7 of the 11-22 film call, chat path: Kevin's long-run ask waited behind a running turn while the voice
+        # said "Got it, I'll handle that". With the chat turn and SIDE_MAX background agents busy, the next request
+        # was still submitted into the busy chat: the dashboard redirected the running turn, so that request had no
+        # answer of its own and the first request was answered with the redirect's words. Now it waits for a free
+        # agent, the voice says at once that it is queued and its place in line, and it gets its own answer.
+        import mobile_live as live
+        rows = (turn(5, 10, "user", "Install every merged build on my phone", "u1") + delegation(9.8, "d1", "install")
+                + turn(10, 11, "assistant", "On it.", "a1") + hermes("d1", 120, "Every merged build is on the phone."))
+        for i, t in enumerate((20, 30, 40, 50), start=2):
+            rows += (turn(t - 5, t, "user", f"Question number {i} about the studio", f"u{i}")
+                     + delegation(t - 0.2, f"d{i}", f"question {i}") + turn(t, t + 1, "assistant", "Checking.", f"a{i}")
+                     + hermes(f"d{i}", 60 if i < 5 else 5, f"Answer number {i}."))
+        self.assertEqual(live.SIDE_MAX, 3, "fixture: d2-d4 fill the background agents, d5 is past the bound")
+        report = run(rows)
+        self.assertEqual(report["held"], [], "a request past the bound was folded into the running turn")
+        self.assertEqual(report["unanswered"], [])
+        self.assertEqual(report["backgrounded"], 4, "d5 runs as its own background agent once one is free")
+        queued = report["queued_s"]
+        self.assertIn("d5", queued, "the voice was never told d5 is queued")
+        self.assertLess(queued["d5"], 1.0, "the queued notice is prompt")
+        self.assertNotIn("d5", report["receipt_s"], "'still working on it' is not true of a queued request")
+        # d5 starts when the first background agent (d2, 60 s from 19.8 s) finishes, and gets its own answer.
+        self.assertGreaterEqual(report["own_answer_s"]["d5"], 79.8 - 49.8)
+        self.assertEqual(report["answers"]["d1"], "Every merged build is on the phone.")
+        self.assertEqual(report["answers"]["d5"], "Answer number 5.")
+
     def test_side_by_side_requests_with_the_same_answer_are_spoken_once(self):
         rows = (turn(5, 10, "user", "How much disk is free on the studio?", "u1") + delegation(9.8, "d1", "disk")
                 + turn(10, 11, "assistant", "On it.", "a1") + hermes("d1", 20, "The Studio has 23 gigabytes free.")
