@@ -95,15 +95,15 @@ class Floor:
     # How many people share the phone (call_brief.people). With more than one, a bot gets the floor only by name or
     # by a request right after its own reply; everything else is the people talking to each other ("people").
     people: int = 1
-    heard_began: float | None = None  # the floor owner's latest audible reply: began / ended (None while it plays)
-    heard_ended: float | None = None
+    # The floor owner's audible replies since it took the floor: [began, ended] (ended None while it plays).
+    heard: list[list] = field(default_factory=list)
 
     def change(self, owner: Owner, reason: str, now: float) -> None:
         if owner != self.owner:
             previous, self.owner = self.owner, owner
             self.reason, self.since = reason, now
             self.replied_at = self.reply_began_at = None
-            self.heard_began = self.heard_ended = None
+            self.heard = []
             self.trace("floor.changed", previous=previous, speaker=owner, reason=reason, since=now)
 
     def user_turn(self, address: Address | None, text: str, began: float, now: float, *, final: bool,
@@ -123,17 +123,23 @@ class Floor:
 
     def follow_up(self, text: str, began: float) -> bool:
         """With people on the call: an unnamed turn is the next request to the bot that holds the floor when it is a
-        request and began after that bot's latest reply began, within FOLLOW_UP_SECONDS of its end."""
-        return (self.owner != "people" and request(text) and self.heard_began is not None and began >= self.heard_began
-                and (self.heard_ended is None or began - self.heard_ended <= FOLLOW_UP_SECONDS))
+        request that began while one of that bot's replies played or within FOLLOW_UP_SECONDS after one ended. A
+        reply the bot began after the caller started (and the caller cut off) does not count against it (take 8)."""
+        return self.owner != "people" and request(text) and any(
+            start <= began and (end is None or began - end <= FOLLOW_UP_SECONDS) for start, end in self.heard)
 
     def reply_started(self, leg: Leg, now: float) -> None:
         if leg == self.owner:
-            self.heard_began, self.heard_ended = now, None
+            self.heard.append([now, None])
 
     def reply_finished(self, leg: Leg, now: float, began: float) -> None:
         if leg == self.owner:
-            self.heard_began, self.heard_ended = began, now
+            open_reply = next((r for r in reversed(self.heard) if r[1] is None), None)
+            if open_reply:
+                open_reply[1] = now
+            else:
+                self.heard.append([began, now])
+            del self.heard[:-8]
         if leg == self.owner == "guest":
             self.replied_at, self.reply_began_at = now, began
 
