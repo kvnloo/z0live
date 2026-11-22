@@ -2,7 +2,7 @@ name: z0live text climb (CPU llama.cpp)
 # Scores small GGUF lane models on z0live's frozen SLM lane suites (slm-v1, slm-v2, slm-v2 model-compressed brief)
 # with the vendored z0live slm_bench logic (voice-adapter/slm_bench.py). Synthetic suites only, no owner data.
 on:
-  # push on this branch only: workflow_dispatch needs the file on the default branch, which this lane never edits
+  # push on this branch, or `gh workflow run <file> --ref <this branch>` (works without the file on main)
   push:
     branches: [ci/text-climb]
     paths: [".github/workflows/text-climb.yml", "voice-adapter/bench/ghci/**"]
@@ -61,6 +61,7 @@ jobs:
           path: ${{ runner.temp }}/models/${{ matrix.cfg.file }}
           key: gguf-${{ matrix.cfg.sha }}
       - name: Download GGUF (pinned by sha256)
+        timeout-minutes: 15   # a stalled HF transfer hung a 5 GB download for 50 min (run 45002207090)
         if: steps.cache.outputs.cache-hit != 'true'
         env:
           REPO: ${{ matrix.cfg.repo }}
@@ -69,7 +70,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/models"
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/models/$FILE" "https://huggingface.co/$REPO/resolve/main/$FILE"
+          curl -fsSL --retry 5 --retry-all-errors --speed-limit 2000000 --speed-time 60 -o "$RUNNER_TEMP/models/$FILE" "https://huggingface.co/$REPO/resolve/main/$FILE"
           echo "$SHA  $RUNNER_TEMP/models/$FILE" | sha256sum -c -
       - name: Save GGUF cache
         if: matrix.cfg.cache && steps.cache.outputs.cache-hit != 'true' && matrix.brief == 'full'
