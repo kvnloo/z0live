@@ -79,6 +79,7 @@ class Answer:
     delegation_id: str | None
     text: str
     lane: bool = False  # a fast lane's guess; Hermes's own answer to the same delegation supersedes it
+    rest: bool = False  # the unheard rest of an answer whose playback stopped: waits until the caller is quiet
 
 
 @dataclass

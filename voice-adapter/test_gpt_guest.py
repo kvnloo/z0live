@@ -650,7 +650,7 @@ class AnswerDeliveryTest(TimedGuestTest):
     async def test_an_answer_the_provider_cut_under_the_callers_words_comes_back_in_their_pause(self):
         # Take 14, line 5: the provider ended the resumed line-3 answer itself at "then verify" when Jules said
         # "Okay, nice". No barge-in fired ("Okay" is a backchannel, and the output had been quiet 0.26 s), nothing
-        # was parked, Jules's turn never closed, and the call was silent for 60 s.
+        # was handed back, Jules's turn never closed, and the call was silent for 60 s.
         for order in ("turn.done first", "caller first"):
             with self.subTest(order=order):
                 await self.asyncSetUp()

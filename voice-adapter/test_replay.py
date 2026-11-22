@@ -516,7 +516,7 @@ class PeopleOnTheCall(unittest.TestCase):
         resumed = [t for t, event in r.sent if "anything from this call" in json.dumps(event) and t > 99]
         self.assertTrue(resumed, "the rest goes back to the voice once the floor does")
         self.assertEqual(report["lost"], [], "handed back: the recorded voice never had that hand-back to say")
-        with patch.object(mobile_live.GPTGuest, "floor_back", lambda *_: None):  # an adapter that never hands it back
+        with patch.object(mobile_live.GPTGuest, "cut", lambda g, leg: g.ledger.cut(leg)):  # drops the rest
             r, report = self.cut_line_3()
         self.assertEqual([(x["did"], x.get("cut")) for x in report["lost"]], [("d3", True)])
         r, report = self.cut_line_3(*speech(101.5, 108.0, "The receipts so far are a signed build and passing "
@@ -528,7 +528,7 @@ class PeopleOnTheCall(unittest.TestCase):
 
     def test_an_answer_the_provider_cut_under_the_callers_words_is_lost_until_handed_back(self):
         # Take 14, line 5 (words changed): the provider ended the reply reading line 3's answer when the friend said
-        # "Okay, nice". No barge-in fired, that turn never closed, the rest was never parked, and the replay credited
+        # "Okay, nice". No barge-in fired, that turn never closed, the rest was never handed back, and the replay credited
         # the answer as spoken (floor.answer_spoken) and reported lost: [].
         answer = ("That run is already going as card seven, so I won't start a second one. The receipts so far are a "
                   "signed build and passing screenshot tests. I can't install anything from this call.")
@@ -549,10 +549,20 @@ class PeopleOnTheCall(unittest.TestCase):
         self.assertEqual(report["lost"], [])
         from unittest.mock import patch
         import mobile_live
-        with patch.object(mobile_live.GPTGuest, "floor_back", lambda *_: None):
+        with patch.object(mobile_live.GPTGuest, "cut", lambda g, leg: g.ledger.cut(leg)):  # drops the rest
             report = asyncio.run(replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}]
                                                + rows, history=PEOPLE).run())
         self.assertEqual([(x["did"], x.get("cut")) for x in report["lost"]], [("d3", True)])
+
+    def test_a_question_to_tek_heard_as_tech_reaches_teks_hermes(self):
+        # Takes 9 and 14: both legs transcribed "Hey, Tek" as "Hey, Tech", the floor took line 4 for people talk,
+        # and Tek's Hermes was never asked about PR 28.
+        rows = [json.loads(json.dumps(row).replace("Hey, Tek.", "Hey, Tech.").replace("Hey Tek,", "Hey Tech,"))
+                for row in take7()]
+        r = replayed(rows)
+        report = replay.report(r)
+        self.assertTrue(any("dark mode crash" in request for _, request in r.guest_asked), r.guest_asked)
+        self.assertEqual(report["unasked"], [])
 
     def test_a_fixture_keeps_when_the_phone_heard_output_and_teks_answers(self):
         # Without the loud output a replay never sees a barge-in, and without Tek's answer it hears a made-up one.
