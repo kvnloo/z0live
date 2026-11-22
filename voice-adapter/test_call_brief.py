@@ -22,6 +22,13 @@ class Brief(unittest.TestCase):
         self.assertIn("approved it watching his screen", text)
         self.assertNotIn("assistant:", text)  # no transcript roles the model could continue
 
+    def test_people_on_the_call_come_from_the_chat(self):
+        self.assertEqual(call_brief.people([msg("user", "status on the build?")]), 1)
+        self.assertEqual(call_brief.people([msg("assistant", "This call has two people at the desk, Kevin and his "
+                                                             "friend Jules, and two bots.")]), 2)
+        self.assertEqual(call_brief.people([msg("user", "3 people are here")]), 3)
+        self.assertEqual(call_brief.people("not a list"), 1)
+
     def test_written_brief_wins_while_fresh(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
