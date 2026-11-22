@@ -50,6 +50,7 @@ from aiortc.contrib.media import MediaRelay  # noqa: E402
 # the warm-Haiku/Groq instant lane, the Fable lanes and the core lanes relay.
 TIERS_ON = os.environ.get("Z0LIVE_TIERS", "off") == "on"
 import handoff  # noqa: E402 - sibling module (call continues on z0live when Kevin leaves the screen)
+import passthru  # noqa: E402 - sibling module (z0 joins Kevin's other video call)
 CHAT_CONTINUITY = os.environ.get("HERMES_MOBILE_VOICE_CHAT", "1") != "0"
 TTFT_MODEL = os.environ.get("VOICE_TTFT_MODEL", "qwen/qwen3.8-27b")  # Groq: ~0.2 s whole answer (11-15 probe)
 # Children (claude, hermes, lanes) get their own transient scope. Inside this unit's 768M cap they pushed it
@@ -645,9 +646,16 @@ class AudioBridge(MediaStreamTrack):
         if self.direction == "output":
             if self.level.frame(frame, self.duplex.floor.owner if self.duplex else None):
                 call.output_loud_at = time.monotonic()
+            if call.passthru and call.passthru.active:
+                call.passthru.voice(frame)  # z0's voice into the meeting (floor-gated)
+                if call.passthru.phone_muted():
+                    for plane in frame.planes:
+                        plane.update(bytes(plane.buffer_size))
         else:
             if call.muted:
                 self.level.frame(frame)  # let the input span end during mute
+            if call.passthru and call.passthru.active:
+                frame = call.passthru.ears(frame)  # the meeting, mixed into what z0 hears
             call.trace.record_audio(frame)
         return frame
 
@@ -1161,6 +1169,7 @@ class Call:
             self.trace("engine.unavailable", wanted=self.engine, using="gpt-live")
             self.engine = "gpt-live"
         self.leg = grok_leg.GrokLeg(self, PERSONA) if self.engine == "grok" else None
+        self.passthru = passthru.Passthru(self) if passthru.enabled() else None
         self.guest_config = guest_voice.configured() if self.engine == "gpt-live" else None
         self.guest = None
         if self.guest_config:
@@ -1303,6 +1312,8 @@ class Call:
                 text = turn.get("transcript", "")
                 if turn.get("role") == "user" and isinstance(text, str):
                     self.trace.finish_turn(text or self.protocol.turn_text["user"])
+            if self.passthru:
+                self.passthru_event(kind, event)
         duplex = self.guest if isinstance(self.guest, GPTGuest) else None
         if from_provider:
             audible = duplex.observe("primary", event) if duplex else True
@@ -1463,6 +1474,29 @@ class Call:
         did = did if did in self.protocol.seen else None
         for msg in self.protocol.from_mobile({"type": "session.commentary.append", "delegation_id": did, "content": text}):
             self.send(msg, to_provider=True)
+
+    def passthru_event(self, kind, event):
+        """Floor + voice commands for passthru, from the provider's transcripts."""
+        p, now = self.passthru, time.monotonic()
+        turn = event.get("turn") or {}
+        if kind == "input_transcript.added":
+            p.floor.user_said(str((event.get("item") or {}).get("text") or ""), now)
+        elif kind in ("turn.created", "output_transcript.added") and turn.get("role", "assistant") == "assistant" \
+                and not p.floor.reply_open and kind == "turn.created":
+            p.floor.reply_started(now)
+        elif kind == "output_transcript.added" and not p.floor.reply_open and now >= p.floor.tail_until:
+            p.floor.reply_started(now)
+        elif kind == "turn.done" and turn.get("role") == "assistant":
+            p.floor.reply_done(now)
+        elif kind == "turn.done" and turn.get("role") == "user":
+            text = str(turn.get("transcript") or self.protocol.turn_text["user"] or "")
+            p.floor.user_said(text, now)
+            found = passthru.command(text, active=p.active)
+            if found:
+                # Kevin's own phone leg was loud during this turn; otherwise the words came from the meeting.
+                from_kevin = not p.active or (now - self.input_loud_at < 10 and not self.muted)
+                self.trace("passthru.command", action=found[0], arg=found[1][:80], from_kevin=from_kevin)
+                self.spawn(passthru.run_command(self, *found, from_kevin=from_kevin))
 
     def note(self, text, turn_id=None):
         for part in chunks(text[:4000]):
@@ -2100,6 +2134,7 @@ def make_app():
     app = web.Application(client_max_size=512 * 1024)
     app.cleanup_ctx.append(resources)
     app.router.add_post(PATH, progress)
+    app.router.add_post(passthru.PATH, passthru.control)
     app.router.add_get("/_z0live/ready", health)
     app.router.add_get("/api/audio/voice-live/status", status)
     app.router.add_post("/api/audio/voice-live/session", session)
