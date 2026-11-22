@@ -206,10 +206,10 @@ RECEIPT_SECONDS = float(os.environ.get("Z0LIVE_RECEIPT_SECONDS", "8"))
 RECEIPT = "Still working on that in Hermes. I'll tell you as soon as it's done; ask anything else meanwhile."
 SIDE_MAX = 3
 # The background a Hermes run gets when it does not run in the call's own chat (Tek's Hermes, the oneshot path).
-CALL_CONTEXT = ("This request comes from a live voice call; answer in a few short spoken sentences. Below is the chat "
-                "the call was opened from: background, already handled. Use it to place the request (which repo, PR, "
-                "card or device it means). If what the request asks for is already running (a kanban card, a "
-                "session, a job), report its status and latest receipts instead of starting it again.")
+CALL_CONTEXT = ("This request comes from a live voice call; answer in a few short spoken sentences. Below is the call's "
+                "brief and the chat the call was opened from: background, already handled. Use it to place the "
+                "request (which repo, PR, card or device it means). If what the request asks for is already running "
+                "(a kanban card, a session, a job), report its status and latest receipts instead of starting it again.")
 # Hermes runs one call may have going at once on the host path (no linked chat). Past it a request waits for a free
 # run, and the voice says it is queued instead of claiming a hand-off that has not happened.
 HOST_MAX = 3
@@ -1202,6 +1202,7 @@ class Call:
         self.token = ""  # the app's own bearer, for submitting voice turns into its open chat
         self.chat_lookup = None
         self.context_text = ""  # recent chat history text, for the ttft lane
+        self.call_note = ""  # the brief the chat agent wrote for this call (call_brief.written), read once at start
         self.haiku = None  # WarmHaiku, started once chat context is known
         self.chat = ""   # stored id of the chat Live Voice was started from ('' = hidden voice session)
         self.output_loud_at = self.input_loud_at = float("-inf")
@@ -1421,7 +1422,7 @@ class Call:
             # The subscription endpoint ignores session instructions (11-16 canary: "I'm ChatGPT"), so the
             # persona and the call brief go in as context, framed as background so they are not answered.
             channel = os.environ.get("HERMES_VOICE_BRIEF_CHANNEL", "developer")
-            brief = call_brief.build(history, self.chat)
+            brief = call_brief.build(history, self.chat, note=self.call_note)
             if self.guest:
                 self.spawn(self.start_guest(brief))
             persona = PERSONA + ("\n" + guest_voice.PRIMARY_NOTE if isinstance(self.guest, guest_voice.GuestVoice) else "")
@@ -1462,6 +1463,7 @@ class Call:
                     context.append(role + ": " + text[:2000])
         if context:
             self.context_text = "Recent chat context (do not read aloud):\n" + "\n".join(context)
+        self.call_note = call_brief.written(self.chat)
         people = call_brief.people(history)
         if isinstance(self.guest, GPTGuest):
             self.guest.set_people(people)
@@ -1851,18 +1853,23 @@ class Call:
             self.counts["chat_turns"] += 1
             self.trace("delegation.chat", did=did, chat=self.chat)
             return answer
-        return await self.run_host(did, self.host_context() + "\n\nRequest: " + request
-                                   if self.context_text else request)
+        context = self.host_context()
+        return await self.run_host(did, context + "\n\nRequest: " + request if context else request)
 
     def host_context(self) -> str:
         """What a Hermes that starts without the call's chat needs to place a request: the chat the call opened from
         and the call's recent words. Tek's Hermes got only the words to it, so "the glass crash in PR 28" was looked
         up in the wrong repo (11-22 film call, take 7)."""
-        if not self.context_text:
+        if not (self.context_text or self.call_note):
             return ""
+        # The written brief the primary voice opened with (without its voice-only framing): it can name what the
+        # chat's lines do not ("PR 28" is kvnloo/hermes-android#28). Without one, the primary's brief is a digest of
+        # the same chat lines, which follow in full.
+        note = f"\n\nBrief for this call:\n{self.call_note}" if self.call_note else ""
+        chat = f"\n\n{self.context_text[-6000:]}" if self.context_text else ""
         said = "\n".join(f"{'Caller' if role == 'user' else 'Voice'}: {' '.join(text.split())[:400]}"
                          for role, text in list(self.protocol.exchanges)[-6:])
-        return (f"{CALL_CONTEXT}\n\n{self.context_text[-6000:]}"
+        return (f"{CALL_CONTEXT}{note}{chat}"
                 + (f"\n\nSaid on the call so far:\n{said}" if said else ""))
 
     async def run_host(self, did, request):

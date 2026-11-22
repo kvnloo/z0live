@@ -219,8 +219,9 @@ of each call. Changing it does not restart or affect an open call.
 
 Address Tek as `tek`, `teknium`, `டெக்`, or `டெக்னியம்`. Both GPT-Live sessions use the host's Codex ChatGPT
 login but have separate WebRTC sessions and distinct voices. Tek's voice does not get the primary's brief or
-helper lanes. Tek's Hermes gets the call's context with each request: the chat the call opened from and the call's
-recent words (`Call.host_context`). Without it, "the glass crash in PR 28" was looked up in the wrong repo
+helper lanes. Tek's Hermes gets the call's context with each request: the written brief the primary opened with (the
+same one, read once per call, without the voice-only framing), the chat the call opened from and the call's recent
+words (`Call.host_context`). Without it, "the glass crash in PR 28" was looked up in the wrong repo
 (11-22 film call, take 7). A primary hand-off on the oneshot path (no linked chat) gets the same context.
 
 | Failure | Decision for two GPT-Live sessions |
