@@ -270,11 +270,10 @@ PEOPLE = [{"role": "user", "content": [{"type": "input_text", "text": "status on
                                              "Sam talk to each other, stay quiet."}]}]
 
 
-class PeopleOnTheCall(unittest.TestCase):
-    def test_bots_stay_quiet_while_the_people_talk_to_each_other(self):
-        # Take 7: the friend's "Is the glass theme on your phone yet?" (to Kevin) ran a Hermes job that checked the
-        # phone, Tek drafted a reply, and Kevin's "No, I think it's still last night's build" got bot speech too.
-        rows = (GUEST
+def take7():
+    """Take 7 of the 11-22 film call, both legs. Lines 0, 1 and 5 are the people talking to each other; 2 and 3 are
+    to Hermes (by name, then the next request in that exchange); 4 is to Tek by name."""
+    return (GUEST
                 # 0. friend -> Kevin
                 + heard(6.2, 12.3, "Hey, wait, is the dark mode on your laptop yet? I don't see it on mine", "g0", "guest")
                 + heard(6.8, 12.9, "Hey, wait, is the dark mode on your laptop yet? I don't see it on mine", "p0")
@@ -321,9 +320,20 @@ class PeopleOnTheCall(unittest.TestCase):
                 + delegation(97.0, "d5", ", nice. That's the one I kept hitting")
                 + speech(97.3, 106.4, "Thanks, I'll check. Yeah, the crash is fixed in the beta.", "a5")
                 + guest_speech(97.5, 100.6, "Thanks, I'll recheck with that in mind.", "ga6"))
-        r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows, history=PEOPLE)
-        import asyncio
-        asyncio.run(r.run())
+
+
+def replayed(rows, history=PEOPLE):
+    import asyncio
+    r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows, history=history)
+    asyncio.run(r.run())
+    return r
+
+
+class PeopleOnTheCall(unittest.TestCase):
+    def test_bots_stay_quiet_while_the_people_talk_to_each_other(self):
+        # Take 7: the friend's "Is the glass theme on your phone yet?" (to Kevin) ran a Hermes job that checked the
+        # phone, Tek drafted a reply, and Kevin's "No, I think it's still last night's build" got bot speech too.
+        r = replayed(take7())
         self.assertEqual([did for did, _ in r.requests], ["d2", "d3"], "Hermes runs only the two requests to it")
         self.assertEqual(len(r.guest_asked), 1, "Tek's Hermes runs only the question to Tek")
         self.assertIn("crash in PR twelve", r.guest_asked[0][1])
@@ -331,6 +341,25 @@ class PeopleOnTheCall(unittest.TestCase):
         self.assertEqual(before, "", "nothing the bots said while the people talked reached the phone")
         after_tek = "".join(text for t, text in r.heard if 96.5 <= t < 120 and "PR twelve" not in text)
         self.assertNotIn("I'll check", after_tek)
+
+    def test_with_hermes_the_only_bot_it_stays_quiet_while_the_people_talk_to_each_other(self):
+        # Take 7's lines with no second voice on the call (Kevin, a friend and Hermes). The people gate lived only in
+        # the two-voice path, so here Hermes still ran the friend's question to Kevin and answered Kevin's reply.
+        r = replayed([row for row in take7() if row.get("src") != "guest"])
+        self.assertEqual([did for did, _ in r.requests], ["d2", "d3"],
+                         "Hermes runs its named request and the next request in that exchange, nothing else")
+        self.assertNotIn("last night's build", r.requests[0][1], "words the people said to each other never join "
+                         "Hermes's next request")
+        before = "".join(text for t, text in r.heard if t < 27.8)
+        self.assertEqual(before, "", "nothing Hermes said while the people talked reached the phone")
+        after = "".join(text for t, text in r.heard if t >= 92.2)
+        self.assertEqual(after, "", "the friend's reaction to Tek gets no reply from Hermes")
+
+    def test_with_one_person_on_the_call_an_unnamed_question_still_goes_to_hermes(self):
+        # Control: the gate is for calls with more than one person. Alone with Hermes, Kevin never says its name.
+        r = replayed([row for row in take7() if row.get("src") != "guest"], history=None)
+        self.assertIn("d0", [did for did, _ in r.requests])
+        self.assertTrue("".join(text for t, text in r.heard if t < 27.8), "Hermes answers out loud")
 
     def test_a_request_the_bot_talks_over_is_judged_on_the_whole_utterance(self):
         # Take 10: Kevin began his long-run ask 12 ms after Hermes's answer ended; 1.4 s in, Hermes's voice said

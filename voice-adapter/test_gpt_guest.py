@@ -172,7 +172,7 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
         self.addAsyncCleanup(self.guest.close)
         self.guest.message(json.dumps({"type": "session.started"}))
         self.guest.send = self.call.sent.append
-        self.call.guest = self.guest
+        self.call.guest = self.call.duplex = self.guest
 
     async def test_suppressed_reply_never_leaks_audio_text_or_context(self):
         self.guest.observe("guest", turn("done", "Tek, what shipped?"))
@@ -397,7 +397,7 @@ class TimedGuestTest(unittest.IsolatedAsyncioTestCase):
         self.addAsyncCleanup(self.guest.close)
         self.guest.message(json.dumps({"type": "session.started"}))
         self.guest.send = self.call.sent.append
-        self.call.guest = self.guest
+        self.call.guest = self.call.duplex = self.guest
 
     def at(self, now):
         self.clock.now = now
@@ -647,6 +647,132 @@ class GuestContextTest(unittest.IsolatedAsyncioTestCase):
         [request] = asked
         self.assertIn("card t_0a96e2de", request)
         self.assertTrue(request.rstrip().endswith("Get all of it onto my S25"))
+
+
+PR_28 = "kvnloo/hermes-android#28"
+PR_28_TITLE = "fix(glass): stop the crash on every launch after picking Glass"
+# The brief the chat agent wrote for the call (hermes-voice-brief): the primary voice opens with it.
+FILM_BRIEF = (f"Glass on Kevin's S25: {PR_28} '{PR_28_TITLE}' is merged into hermes-android staging; the phone still "
+              "runs last night's 4.0.9.")
+# A chat whose words never name the repo: only the written brief places "PR 28".
+VAGUE_CHAT = [{"role": "user", "content": [{"type": "input_text", "text": "is the glass fix on my phone yet?"}]}]
+REPO_CHAT = [{"role": "user", "content": [{"type": "input_text", "text": "status on getting hermes-android staging onto "
+                                                                        "my phone?"}]},
+             {"role": "assistant", "content": [{"type": "output_text", "text": f"Merged into staging: {PR_28} "
+                                                f"'{PR_28_TITLE}', and the Glass theme."}]}]
+BOAT_CHAT = [{"role": "user", "content": [{"type": "input_text", "text": "when is the boat inspection?"}]}]
+
+
+class GuestCallBriefTest(unittest.IsolatedAsyncioTestCase):
+    """Tek's Hermes gets the call brief the primary voice opened with, not only the chat's raw lines (take 7: the
+    words to Tek said "PR 28"; which repo that is lives in the brief and the chat the call opened from)."""
+
+    async def call(self, history, brief=""):
+        config = guest_voice.GuestConfig("gpt-live", "tek", "ember", "tek")
+        with patch.dict(live.os.environ, {"HERMES_VOICE_ENGINE": "gpt-live"}), \
+                patch.object(live.guest_voice, "configured", return_value=config):
+            call = live.Call(live.Manager(None), profile="")
+        self.addAsyncCleanup(call.close, "test")
+        call.relay, call.heard_user = None, True
+        with patch.object(live.call_brief, "written", return_value=brief):  # the brief file store
+            call.read_history(history)
+        return call
+
+    async def ask_tek(self, call, words="Hey, Tek. What caused the glass crash in PR twenty eight?"):
+        got = []
+
+        async def host(http, profile, session, request, context=""):
+            got.append(SimpleNamespace(profile=profile, session=session, request=request, context=context))
+            return "PR 28 fixed the crash."
+
+        guest = call.guest
+        guest.floor.available = True
+        with patch.object(live, "ask_guest_host", host):
+            guest.message(json.dumps(turn("created", "", 1000, 1200, tid="u1")))
+            guest.message(json.dumps(turn("done", words, 1000, 5000, tid="u1")))
+            guest.message(json.dumps({"type": "delegation.created", "item": {
+                "id": "gd1", "target": "client", "content": [{"text": "what caused the glass crash in PR 28"}]}}))
+            await asyncio.gather(*call.tasks)
+        [asked] = got
+        return asked
+
+    async def test_tek_hermes_gets_the_written_call_brief_the_primary_opened_with(self):
+        call = await self.call(VAGUE_CHAT, FILM_BRIEF)
+        asked = await self.ask_tek(call)
+        self.assertIn(PR_28, asked.context)
+        self.assertIn(PR_28_TITLE, asked.context)
+        self.assertIn("is the glass fix on my phone yet?", asked.context)  # the chat's lines still go with it
+        self.assertEqual((asked.profile, asked.session), ("tek", "z0live-guest-" + call.id))  # still Tek's own Hermes
+
+    async def test_a_call_opened_with_only_a_written_brief_still_gives_tek_hermes_context(self):
+        call = await self.call([], FILM_BRIEF)
+        asked = await self.ask_tek(call)
+        self.assertIn(PR_28, asked.context)
+
+    async def test_the_brief_reaches_tek_hermes_without_the_voice_only_framing(self):
+        call = await self.call(VAGUE_CHAT, FILM_BRIEF)
+        asked = await self.ask_tek(call)
+        self.assertIn(PR_28, asked.context)
+        self.assertNotIn("<call_brief>", asked.context)  # framing for the voice model, not for a Hermes run
+        self.assertNotIn("wait for Kevin to speak", asked.context)
+
+    async def test_each_call_gives_tek_hermes_only_its_own_context(self):
+        film = await self.call(REPO_CHAT, FILM_BRIEF)
+        boat = await self.call(BOAT_CHAT, "Boat inspection is Tuesday at 9.")
+        boat_asked = await self.ask_tek(boat, "Hey, Tek. When is the boat inspection?")
+        film_asked = await self.ask_tek(film)
+        self.assertIn("Boat inspection is Tuesday", boat_asked.context)
+        self.assertNotIn("hermes-android", boat_asked.context)
+        self.assertNotIn("Glass", boat_asked.context)
+        self.assertIn(PR_28_TITLE, film_asked.context)
+        self.assertNotIn("boat", film_asked.context.lower())
+        self.assertNotEqual(film_asked.session, boat_asked.session)
+
+    async def test_tek_hermes_request_payload_places_pr_28_in_hermes_android(self):
+        """The wire payload Tek's Hermes receives, through the real ask_guest_host, from a call whose history names
+        kvnloo/hermes-android#28."""
+        received = []
+
+        async def completion(request):
+            received.append((dict(request.headers), (await request.json())["messages"]))
+            return web.json_response({"choices": [{"message": {"content": "A null theme on first launch."}}]},
+                                     headers={"X-Hermes-Session-Id": request.headers["X-Hermes-Session-Id"]})
+
+        app = web.Application()
+        app.router.add_post("/v1/chat/completions", completion)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        self.addAsyncCleanup(runner.cleanup)
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        call = await self.call(REPO_CHAT)
+        guest = call.guest
+        guest.floor.available = True
+        with tempfile.TemporaryDirectory() as home:
+            keys = Path(home) / ".config/z0live/guest-hosts"
+            keys.mkdir(parents=True)
+            (keys / "tek.key").write_text("tek-key")
+            with patch.object(Path, "home", return_value=Path(home)), patch.dict(
+                    live.os.environ, {"Z0LIVE_GUEST_HOST_PORT": str(runner.addresses[0][1])}):
+                async with ClientSession() as http:
+                    call.manager.http = http
+                    guest.message(json.dumps(turn("created", "", 1000, 1200, tid="u1")))
+                    guest.message(json.dumps(turn("done", "Hey, Tek. What caused the glass crash in PR twenty "
+                                                  "eight?", 1000, 5000, tid="u1")))
+                    guest.message(json.dumps({"type": "delegation.created", "item": {
+                        "id": "gd1", "target": "client",
+                        "content": [{"text": "what caused the glass crash in PR 28"}]}}))
+                    await asyncio.gather(*call.tasks)
+        [(headers, messages)] = received
+        self.assertEqual(headers["Authorization"], "Bearer tek-key")
+        self.assertEqual(headers["X-Hermes-Session-Id"], "z0live-guest-" + call.id)
+        self.assertEqual(messages[0]["role"], "system")
+        self.assertIn("answering as a guest", messages[0]["content"])
+        self.assertEqual(messages[-1]["role"], "user")
+        self.assertIn("PR twenty eight", messages[-1]["content"])
+        background = "\n".join(m["content"] for m in messages[1:-1] if m["role"] == "system")
+        self.assertIn(PR_28, background)
+        self.assertIn(PR_28_TITLE, background)
 
 
 class PrimaryDelegationTest(unittest.IsolatedAsyncioTestCase):
