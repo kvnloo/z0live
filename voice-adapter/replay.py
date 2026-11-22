@@ -8,7 +8,10 @@ the adapter sends and when, not what the voice would have said to it.
 
 A call with a second voice (`src: guest` rows, the GPT-Live guest's session) replays through the real GPTGuest
 floor, on the recorded clock: `repeats` are answers sent again after the phone had already heard them, and `lost`
-are answers it never heard that were never sent again, or that a voice said into a reply the floor had muted.
+are answers it never heard that were never sent again, or that a voice said into a reply the floor had muted, or
+whose rest the phone never heard after a barge-in cut the reply saying them (`cut`). A fixture keeps when the
+phone's output was loud, which is what makes a barge-in (mobile_live GPTGuest.interrupt) a barge-in, and the guest
+Hermes's answers when the trace has them.
 A fixture keeps the call's people count (`floor.people`),
 so a call with people at the phone replays on their floor without the chat it opened from.
 
@@ -57,9 +60,16 @@ def fixture(trace: Path) -> list[dict]:
             rows.append(json.loads(line))
         except ValueError:
             pass
-    out, started, free_at = [], {}, 0.0
+    out, started, free_at, guest_started = [], {}, 0.0, {}
     for r in rows:
         ev = r.get("ev")
+        if ev in ("audio.on", "audio.off") and r.get("dir") == "output":
+            out.append({"t": r.get("at", r["t"]), "output_loud": ev == "audio.on"})
+        elif ev == "guest.delegation.start":
+            guest_started[r.get("did")] = r["t"]
+        elif ev == "guest.delegation.done" and r.get("answer") and r.get("did") in guest_started:
+            out.append({"t": r["t"], "cost": "guest", "work": round(r["t"] - guest_started[r["did"]], 3),
+                        "answer": r["answer"]})
         if ev == "rx" and (r.get("src") == "provider" or str(r.get("type", "")).startswith("session.input_audio")):
             event = r["event"]
             if r.get("type") == "session.context.appended":
@@ -174,6 +184,10 @@ class Replay:
         self.history = history  # the chat the call opened from, as the phone sends it (Call.start)
         self.now = 0.0
         self.hermes = {r["did"]: (r["work"], r["answer"]) for r in self.rows if r.get("cost") == "hermes"}
+        self.guest_answers = [(r["work"], r["answer"]) for r in self.rows if r.get("cost") == "guest"]  # in order
+        self.loud = False  # the phone's output is loud (the recorded audio.on/off spans)
+        self.call = None
+        self.floor: list[tuple[float, str, dict]] = []  # the adapter's floor.* trace events
         self.lanes = {}
         for r in self.rows:
             if r.get("cost") == "lane":
@@ -213,6 +227,7 @@ class Replay:
                 break
             at = min([w[0] for w in due] + ([turn_end] if turn_end is not None else []))
             self.now = at
+            self.keep_loud()
             for w in [w for w in due if w[0] == at]:
                 self.waiting.remove(w)
                 if not w[1].done():
@@ -222,6 +237,11 @@ class Replay:
             await asyncio.sleep(0.005)  # socket round trips
             await self.pump()
         self.now = t
+        self.keep_loud()
+
+    def keep_loud(self):
+        if self.loud and self.call:
+            self.call.output_loud_at = self.now
 
     async def run(self):
         import mobile_live as live
@@ -248,7 +268,16 @@ class Replay:
 
         async def ask_guest_host(http, profile, session, request, *_, **__):
             replay.guest_asked.append((replay.now, request))
-            return await replay.later(5.0, f"guest answer for {request[:40]}")
+            recorded = replay.guest_answers[len(replay.guest_asked) - 1:][:1]
+            work, answer = recorded[0] if recorded else (5.0, f"guest answer for {request[:40]}")
+            return await replay.later(work, answer)
+
+        trace = live.Trace.__call__
+
+        def floor_trace(tr, ev, **data):
+            if ev.startswith("floor."):
+                replay.floor.append((replay.now, ev, data))
+            return trace(tr, ev, **data)
 
         class Clock:  # mobile_live's view of time is the recorded clock; the asyncio loop keeps real time
             def __getattr__(self, name):
@@ -265,11 +294,11 @@ class Replay:
                 patch.object(live.chat_continuity, "WS", url), patch.object(tiers, "race", race), \
                 patch.object(tiers, "load", return_value=cfg), patch.object(live.Call, "host_delegate", host_delegate), \
                 patch.object(live.guest_voice, "configured", return_value=guest), patch.object(live, "time", Clock()), \
-                patch.object(live, "ask_guest_host", ask_guest_host), \
+                patch.object(live, "ask_guest_host", ask_guest_host), patch.object(live.Trace, "__call__", floor_trace), \
                 patch.object(live.GPTGuest, "later", lambda _, seconds, callback: self.call_later(seconds, callback)), \
                 patch.object(live.Call, "sleep", lambda call, seconds: replay.later(seconds, None), create=True):
             http = ClientSession()
-            call = live.Call(live.Manager(http), profile="")
+            call = self.call = live.Call(live.Manager(http), profile="")
             call.relay, call.chat, call.heard_user = None, "chat-1", True
             call.subscription.ready.set()
             if self.history is not None:
@@ -285,7 +314,10 @@ class Replay:
                 call.guest.send = lambda event: self.sent_guest.append((self.now, event))
             for row in self.rows:
                 await self.advance(row["t"], chat)
-                if "rx" in row and row["src"] == "guest":
+                if "output_loud" in row:
+                    self.loud = row["output_loud"]
+                    call.output_loud_at = self.now
+                elif "rx" in row and row["src"] == "guest":
                     if call.guest:
                         call.guest.message(json.dumps(row["rx"]))
                     await self.pump()
@@ -444,9 +476,24 @@ def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
             spoken = set().union(*(content(x) for t, x in voice if t >= since))
             return bool(words) and len(words & spoken) >= needed(len(words))
 
+        # A barge-in cut the reply saying an answer (the adapter's floor.answer_cut; floor.answer_dropped barged_in
+        # before it parked cuts). Three words in, the answer counts as said; what the phone had not heard of it by
+        # the cut must reach it afterwards, unless the caller's next request to that voice superseded it (take 13).
+        cuts: dict[str | None, float] = {}
+        for t, ev, data in replay.floor:
+            if data.get("speaker") != leg:
+                continue
+            if ev == "floor.answer_cut" or (ev == "floor.answer_dropped" and data.get("reason") == "barged_in"):
+                cuts[data.get("did")] = t
+            elif ev == "floor.answer_dropped" and data.get("reason") == "new_request":
+                cuts.pop(data.get("did"), None)
+        for did, t in cuts.items():
+            rest = set().union(*(p["all"] for p in pieces_of.get(did, []))) - heard_before(t)
+            if rest and not said(rest, t, float("inf")):
+                lost.append({"leg": leg, "did": did, "t": t, "cut": True})
         for did, items in handings.items():
             for p in pieces_of[did]:
-                if said(p["words"], p["t"], float("inf")):
+                if did in cuts or said(p["words"], p["t"], float("inf")):  # a cut answer is judged by its rest
                     continue
                 if not p["resent"]:
                     lost.append({"leg": leg, "did": did, "t": p["t"]})

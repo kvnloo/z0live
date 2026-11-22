@@ -478,6 +478,61 @@ class PeopleOnTheCall(unittest.TestCase):
         self.assertIn("30812", heard_after, "the answer the voice reads reaches the phone")
         self.assertEqual(report["lost"], [])
 
+    def cut_line_3(self, *after):
+        """Take 13, line 3 (words changed): Hermes's answer had played one sentence when the friend's "Hey, Tek.
+        While that runs, ..." talked over it; Tek answered, the friend reacted, and the primary voice said nothing
+        more. `after` is what the primary voice says once the floor comes back."""
+        answer = ("That run is already going as card seven, so I won't start a second one. The receipts so far are a "
+                  "signed build and passing screenshot tests. I can't install anything from this call.")
+        rows = (GUEST
+                + heard(40.2, 52.6, "Hermes, get all of it onto my laptop, prove each one, and send receipts", "p3")
+                + heard(41.6, 52.7, "Hermes, get all of it onto my laptop, prove each one, and send receipts", "g3",
+                        "guest")
+                + delegation(52.2, "d3", "Hermes, get all of it onto my laptop, prove each one, and send receipts")
+                + hermes("d3", 8.9, answer)
+                + speech(52.8, 54.0, "Let me check.", "a3")
+                + [{"t": 61.9, "output_loud": True}, {"t": 66.7, "output_loud": False}]
+                + speech(61.3, 66.6, "It's still going as card seven, so I won't start a second one.", "a4")
+                + heard(64.4, 66.5, "Hey, Tek. While that runs, what caused the crash in PR twelve", "g4", "guest")
+                + heard(64.8, 66.9, "Hey, Tek. While that runs, what caused the crash in PR twelve", "p4")
+                + guest_delegation(66.8, "gd4", "Hey Tek, while that runs, what caused the crash in PR twelve")
+                + guest_speech(72.0, 75.2, "I'll pull that up.", "ga4")
+                + guest_speech(87.2, 93.4, "PR twelve fixed a theme lookup that crashed on launch.", "ga5")
+                + heard(93.5, 96.2, "Okay, nice. That's the one I kept hitting", "g5", "guest")
+                + heard(93.6, 99.0, "Okay, nice. That's the one I kept hitting", "p5")
+                + list(after)
+                + [{"t": 130.0, "src": "guest", "rx": {"type": "session.usage.updated"}}])
+        r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows, history=PEOPLE)
+        import asyncio
+        return r, asyncio.run(r.run())
+
+    def test_an_answer_a_barge_in_cut_is_lost_until_the_phone_hears_its_rest(self):
+        r, report = self.cut_line_3()
+        self.assertIn("floor.barge_in", [ev for _, ev, _ in r.floor], "fixture: the friend's words cut the answer")
+        self.assertEqual([(x["did"], x.get("cut")) for x in report["lost"]], [("d3", True)])
+        resumed = [t for t, event in r.sent if "anything from this call" in json.dumps(event) and t > 99]
+        self.assertTrue(resumed, "the rest goes back to the voice once the floor does")
+        r, report = self.cut_line_3(*speech(101.5, 108.0, "The receipts so far are a signed build and passing "
+                                                          "screenshot tests. I can't install anything from this "
+                                                          "call.", "a6"))
+        self.assertIn("anything from this call", "".join(text for t, text in r.heard if t > 100))
+        self.assertEqual(report["lost"], [])
+        self.assertEqual(report["repeats"], [])
+
+    def test_a_fixture_keeps_when_the_phone_heard_output_and_teks_answers(self):
+        # Without the loud output a replay never sees a barge-in, and without Tek's answer it hears a made-up one.
+        with tempfile.TemporaryDirectory() as tmp:
+            trace = Path(tmp) / "call.jsonl"
+            trace.write_text("".join(json.dumps(row) + "\n" for row in [
+                {"t": 61.919, "ev": "audio.on", "dir": "output", "peak": 3628},
+                {"t": 62.2, "ev": "audio.on", "dir": "input", "peak": 4138},
+                {"t": 67.005, "ev": "audio.off", "dir": "output", "at": 66.704},
+                {"t": 71.9, "ev": "guest.delegation.start", "did": "gd4"},
+                {"t": 90.6, "ev": "guest.delegation.done", "did": "gd4", "answer": "A startup timing bug."}]))
+            rows = replay.fixture(trace)
+        self.assertEqual(rows, [{"t": 61.919, "output_loud": True}, {"t": 66.704, "output_loud": False},
+                                {"t": 90.6, "cost": "guest", "work": 18.7, "answer": "A startup timing bug."}])
+
     def test_a_fixture_keeps_the_calls_people_count(self):
         # Take 12's people count came from the chat the call opened on; a fixture cut from its trace replayed it as a
         # call with one person, so the floor never went to the people and the muted answer was never seen.

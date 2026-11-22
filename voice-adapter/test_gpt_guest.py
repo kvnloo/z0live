@@ -533,7 +533,7 @@ class AnswerDeliveryTest(TimedGuestTest):
         self.assertIn("tomato seedlings", str(resend))
         self.assertNotIn("planted beds", str(resend))
 
-    async def test_answer_the_caller_cut_off_is_not_resent(self):
+    async def test_answer_the_caller_cut_off_with_his_next_request_is_not_resent(self):
         g = self.guest
         self.speak("p1", "Here are two photos of the porch railing and the cracked steps.")
         self.at(100.6)
@@ -543,9 +543,93 @@ class AnswerDeliveryTest(TimedGuestTest):
         g.observe("primary", turn("created", "Wait, different question", 1000, 1800, tid="barge"))
         self.assertIn("floor.barge_in", self.call.traces)
         g.observe("primary", turn("done", "", role="assistant", tid="r1"))
+        g.observe("primary", turn("done", "Wait, different question: is the mailbox fixed?", 1000, 3000, tid="barge"))
         self.at(120)
         g.flush_answers()
+        g.floor.change("guest", "guest_addressed", 121)
+        g.floor.change("primary", "guest_idle", 142)  # the floor coming back later does not revive it
+        g.flush_answers()
         self.assertEqual(self.speakable("porch railing"), 1)
+        self.assertIn("floor.answer_dropped", self.call.traces)
+
+    # Take 13, line 3 (words changed): Hermes's answer had played one sentence when a friend said "Hey Tek, while
+    # that runs, ..." over it. The answer was dropped as barged_in, and its receipts and its "I can't install
+    # anything from this call" were never heard.
+    LINE_3 = ("That's already running as card t_0a96e2de, so I won't start a second one. The receipts so far are a "
+              "signed build and passing screenshot tests. I can't install anything from this call.")
+
+    def cut_by_a_friend_asking_tek(self):
+        g = self.guest
+        g.set_people(2)
+        g.floor.change("primary", "redirected", 100)
+        self.speak("d3", self.LINE_3)
+        self.at(100.6)
+        g.observe("primary", turn("created", "", role="assistant", tid="r1"))
+        g.observe("primary", output("It's still running in card t_0a96e2de, so I won't start a second one."))
+        self.at(104)
+        self.call.output_loud_at = 104
+        g.observe("guest", turn("created", "Hey Tek, while that runs, what caused the crash", 4000, 4800, tid="j1"))
+        self.assertEqual(g.floor.owner, "guest", "fixture: the friend's words gave Tek the floor")
+        g.observe("primary", turn("done", "", role="assistant", tid="r1"))
+        return g
+
+    async def test_an_answer_cut_by_a_friend_asking_tek_comes_back_when_the_floor_does(self):
+        g = self.cut_by_a_friend_asking_tek()
+        self.assertEqual(self.speakable("from this call"), 1)
+        g.floor.change("people", "people_talk", 106)
+        self.at(108)  # the people's pause
+        g.flush_answers()
+        self.assertEqual(g.floor.owner, "primary")
+        self.assertEqual(self.speakable("from this call"), 2, "the rest of the answer goes back to Hermes's voice")
+        self.assertEqual(self.speakable("second one"), 1, "and only the rest")
+        self.assertIn("floor.answer_resumed", self.call.traces)
+
+    async def test_an_answer_cut_by_a_friend_is_superseded_by_a_new_request_to_the_same_voice(self):
+        g = self.cut_by_a_friend_asking_tek()
+        self.at(110)
+        g.observe("primary", turn("done", "Hermes, what about the laptop?", 9000, 10000, tid="u2"))
+        g.flush_answers()
+        self.assertEqual(g.floor.owner, "primary")
+        self.assertEqual(self.speakable("from this call"), 1)
+
+    async def test_an_answer_playing_when_the_floor_moves_away_is_cut_not_lost(self):
+        g = self.guest
+        g.set_people(2)
+        g.floor.change("primary", "redirected", 100)
+        self.speak("d3", self.LINE_3)
+        g.observe("primary", turn("created", "", role="assistant", tid="r1"))
+        g.observe("primary", output("It's still running in card t_0a96e2de, so I won't start a second one."))
+        g.floor.change("guest", "guest_addressed", 104)  # no barge-in: the output was not loud
+        self.assertIn("floor.answer_cut", self.call.traces)
+        g.floor.change("people", "people_talk", 106)
+        self.at(108)
+        g.flush_answers()
+        self.assertEqual(self.speakable("from this call"), 2)
+
+    async def test_teks_answer_cut_by_people_talk_comes_back_to_tek(self):
+        # Take 13, line 4 (words changed): three words in, Tek's answer counted as spoken, and line 5 ("Okay,
+        # nice") cut it at "the blur". Nothing more was said.
+        g = self.guest
+        g.set_people(2)
+        g.observe("primary", turn("done", "Tek, why did the shed door stick?", 1000, 2000, tid="u1"))
+        g.floor.enqueue(Answer("guest", "g1", "The shed door stuck because the hinge pin rusted. The new pin went "
+                                              "in on Tuesday. Oil it twice a year."), "Tek")
+        g.flush_answers()
+        self.at(101)
+        g.observe("guest", turn("created", "", role="assistant", tid="r1"))
+        g.observe("guest", output("The shed door stuck, the hinge pin rusted. The new"))
+        self.assertIn("floor.answer_spoken", self.call.traces)
+        self.at(103)
+        self.call.output_loud_at = 103
+        g.observe("primary", turn("created", "Okay, nice, that's good to know", 3000, 3800, tid="u2"))
+        g.observe("primary", turn("done", "Okay, nice, that's good to know", 3000, 4200, tid="u2"))
+        self.assertEqual(g.floor.owner, "people")
+        g.observe("guest", turn("done", "", role="assistant", tid="r1"))
+        self.at(106)
+        g.flush_answers()
+        self.assertEqual(g.floor.owner, "guest")
+        self.assertEqual(self.speakable("twice a year"), 2)
+        self.assertEqual(self.speakable("hinge pin rusted"), 1)
 
     async def test_lane_guesses_waiting_for_the_floor_are_dropped_once_stale(self):
         g = self.guest
