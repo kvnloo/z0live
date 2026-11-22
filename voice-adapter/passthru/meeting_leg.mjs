@@ -6,7 +6,7 @@ import { createRequire } from 'module';
 import { readdirSync, readFileSync, existsSync } from 'fs';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import readline from 'readline';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -21,69 +21,41 @@ function playwright() {
   throw new Error('playwright not found; set Z0_PLAYWRIGHT_DIR');
 }
 
-const RECIPES = [
-  { // Google Meet: guest or signed-in join screen
-    match: /meet\.google\.com/,
-    async join(page) {
-      const name = page.locator('input[aria-label="Your name"], input[placeholder="Your name"]');
-      if (await name.first().isVisible({ timeout: 15000 }).catch(() => false)) await name.first().fill(cfg.name);
-      await page.getByRole('button', { name: /^(Ask to join|Join now|Join)$/ }).first().click({ timeout: 20000 });
-    },
-    async share(page) { await page.getByRole('button', { name: /Share screen|Present now/ }).first().click({ timeout: 8000 }); },
-    async unshare(page) { await page.getByRole('button', { name: /Stop (sharing|presenting)/ }).first().click({ timeout: 8000 }).catch(() => {}); },
-    async leave(page) { await page.getByRole('button', { name: /Leave call/ }).first().click({ timeout: 5000 }).catch(() => {}); },
-  },
-  { // Zoom web client: /j/ID links open the web client at /wc/join/ID
-    match: /zoom\.us\/(j|wc)\//,
-    rewrite: u => u.replace(/zoom\.us\/j\/(\d+)/, 'zoom.us/wc/join/$1'),
-    async join(page) {
-      const name = page.locator('#input-for-name, input[aria-label*="name" i]');
-      if (await name.first().isVisible({ timeout: 20000 }).catch(() => false)) await name.first().fill(cfg.name);
-      await page.getByRole('button', { name: /^Join$/ }).first().click({ timeout: 20000 });
-    },
-  },
-  { // Microsoft Teams: keep it in the browser
-    match: /teams\.(microsoft|live)\.com/,
-    async join(page) {
-      await page.getByRole('button', { name: /Continue on this browser/ }).first().click({ timeout: 15000 }).catch(() => {});
-      const name = page.locator('input[placeholder*="name" i]');
-      if (await name.first().isVisible({ timeout: 20000 }).catch(() => false)) await name.first().fill(cfg.name);
-      await page.getByRole('button', { name: /^Join now$/ }).first().click({ timeout: 20000 });
-    },
-  },
-  { // Jitsi and similar: prejoin name + join button
-    match: /jit\.si|jitsi/,
-    async join(page) {
-      const name = page.locator('input#premeeting-name-input, input[placeholder*="name" i]');
-      if (await name.first().isVisible({ timeout: 15000 }).catch(() => false)) await name.first().fill(cfg.name);
-      await page.getByRole('button', { name: /Join meeting/ }).first().click({ timeout: 15000 }).catch(() => {});
-    },
-  },
-];
-// Anything else (custom apps, shared canvases, whiteboards) just loads: the page asks for the mic itself.
-const GENERIC = {
-  async join() {},
-  async share(page) {  // custom apps: use their own share button when one is visible
-    const b = page.getByRole('button', { name: /^(Share screen|Share your screen|Present( now)?|Screen ?share)$/i }).first();
-    if (!(await b.isVisible({ timeout: 1500 }).catch(() => false))) throw new Error('no share button');
-    await b.click({ timeout: 5000 });
-  },
-};
+// Recipes are the extension point: one file per service in ./recipes, plus $Z0LIVE_PASSTHRU_RECIPES.
+async function loadRecipes() {
+  const dirs = [join(here, 'recipes'), ...(process.env.Z0LIVE_PASSTHRU_RECIPES || '').split(':').filter(Boolean)];
+  const out = []; let generic = null;
+  for (const dir of dirs) {
+    if (!existsSync(dir)) continue;
+    for (const f of readdirSync(dir).filter(f => f.endsWith('.mjs')).sort()) {
+      const r = (await import(pathToFileURL(join(dir, f)).href)).default;
+      if (r && r.name === 'generic') generic = r; else if (r && r.match) out.push(r);
+    }
+  }
+  return [...out, generic || { name: 'generic', match: /./, async join() {} }];
+}
+const ALL = await loadRecipes();
 
 const { chromium } = playwright();
-const recipe = RECIPES.find(r => r.match.test(cfg.url)) || GENERIC;
-const url = recipe.rewrite ? recipe.rewrite(cfg.url) : cfg.url;
+// cfg.create = recipe name: start a new meeting on that service instead of joining a link.
+const recipe = cfg.create ? ALL.find(r => r.name === cfg.create) : ALL.find(r => r.match.test(cfg.url));
+if (!recipe || (cfg.create && !recipe.create)) { say('join.failed', { detail: 'no recipe for ' + (cfg.create || cfg.url) }); process.exit(2); }
+const url = cfg.create ? recipe.home : (recipe.rewrite ? recipe.rewrite(cfg.url) : cfg.url);
 const browser = await chromium.launch({
   headless: cfg.headless !== false,
   args: [
     '--autoplay-policy=no-user-gesture-required',
     '--use-fake-ui-for-media-stream',               // grant mic/camera without a prompt; our init script supplies the streams
     '--enable-features=WebRtcHideLocalIpsWithMdns',
+    // inject.js talks to the adapter on loopback; public meeting sites are otherwise barred from it
+    // (Local/Private Network Access). Only this throwaway z0 profile gets the exemption.
+    '--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests,PrivateNetworkAccessSendPreflights,PrivateNetworkAccessRespectPreflightResults',
   ],
 });
 const context = await browser.newContext({
   viewport: { width: 1280, height: 800 },
   permissions: ['microphone', 'camera'],
+  bypassCSP: true,   // the app's CSP would block inject.js's loopback socket to the adapter
   userAgent: cfg.userAgent || undefined,
 });
 await context.grantPermissions(['microphone', 'camera'], { origin: new URL(url).origin }).catch(() => {});
@@ -151,12 +123,16 @@ readline.createInterface({ input: process.stdin }).on('line', async line => {
     else if (m.cmd === 'unshare') await unshare();
     else if (m.cmd === 'leave') await shutdown();
     else if (m.cmd === 'status') say('status', { stats: await stats(), sharing: !!sharePage });
+    else if (m.cmd === 'eval' && process.env.Z0LIVE_PASSTHRU_DEBUG) say('eval', { out: String(await page.evaluate(m.js)).slice(0, 800) });
   } catch (e) { say('cmd.failed', { cmd: m.cmd, detail: String(e).slice(0, 300) }); }
 }).on('close', shutdown);
 
-say('opening', { url, recipe: recipe.match ? String(recipe.match) : 'generic' });
-await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-try { await recipe.join(page); say('joined', { url: page.url() }); }
+say('opening', { url: cfg.create ? 'new ' + recipe.name : url, recipe: recipe.name });
+try {
+  if (cfg.create) { const link = await recipe.create(page, cfg); say('created', { link }); }
+  else await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await recipe.join(page, cfg); say('joined', { recipe: recipe.name });
+}
 catch (e) { say('join.failed', { detail: String(e).slice(0, 300) }); }
 if (cfg.share) await share(cfg.share).catch(e => say('share.failed', { detail: String(e).slice(0, 200) }));
 setInterval(async () => say('stats', { stats: await stats() }), 5000);

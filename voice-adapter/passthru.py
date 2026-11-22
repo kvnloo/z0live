@@ -43,13 +43,16 @@ REPLY_TAIL = 1.2       # seconds a released reply keeps flowing after turn.done 
 
 MEETING_URL = re.compile(
     r"https?://(?:[\w-]+\.)*(?:meet\.google\.com|zoom\.us|teams\.microsoft\.com|teams\.live\.com|meet\.jit\.si|"
-    r"whereby\.com|discord\.com|webex\.com|excalidraw\.com|tldraw\.com|miro\.com|figma\.com)/[^\s\"'<>)]*",
+    r"call\.element\.io|whereby\.com|discord\.com|webex\.com|excalidraw\.com|tldraw\.com|miro\.com|figma\.com)/[^\s\"'<>)]*",
     re.I)
 ANY_URL = re.compile(r"https?://[^\s\"'<>)]+", re.I)
+SERVICE = os.environ.get("Z0LIVE_PASSTHRU_SERVICE", "element-call")  # recipe used by "z0, start a meeting"
 
 _NAME = r"(?:z0|z zero|zero|zed zero|zee zero|z-zero|hermes)"
 _VOCATIVE = re.compile(rf"(?:^|[.!?,;]\s*|\b(?:hey|hi|ok|okay|yo)\s*,?\s*){_NAME}\b", re.I)
 _COMMANDS = (
+    ("start", re.compile(r"\b(?:start|open|spin up|make|create|set up) (?:a |an |our |my )?(?:new )?(?:z0 |private |encrypted |video )?"
+                         r"(?:meeting|room|video call|call)\b", re.I)),
     ("join", re.compile(r"\b(?:merge (?:the |my |our |both )?calls?|merge (?:us|me) in|passthr(?:u|ough)(?: mode)?(?: on)?|"
                         r"(?:join|hop into|come (?:in|into)|get on) (?:my|the|this) (?:meeting|call|meet|zoom|video call)|"
                         r"bring (?:you|yourself) (?:in|into))\b", re.I)),
@@ -77,6 +80,10 @@ def command(text: str, *, active: bool) -> tuple[str, str] | None:
         m = rx.search(text)
         if not m:
             continue
+        if name == "start":
+            if not addressed(text) and not active:
+                continue
+            return "start", ""
         if name == "join":
             if not active and not (addressed(text) or re.search(r"merge|passthr", text, re.I)):
                 continue
@@ -241,18 +248,23 @@ class Passthru:
         return self.proc is not None and self.proc.returncode is None
 
     def trace(self, ev, **data):
-        self.call.trace("passthru." + ev, **data)
+        # Room keys/passwords live in URL fragments (Element Call, Excalidraw...); traces never hold one.
+        clean = {k: (re.sub(r"(https?://[^\s#\"']+)#[^\s\"']*", r"\1#<fragment>", v) if isinstance(v, str) else v)
+                 for k, v in data.items()}
+        self.call.trace("passthru." + ev, **clean)
 
     # -- lifecycle
-    async def start(self, url: str, ws_url: str = "", *, share: str = "", headless: bool = True):
+    async def start(self, url: str, ws_url: str = "", *, share: str = "", headless: bool = True, create: str = ""):
+        """Join ``url``, or with ``create=<recipe>`` start a new meeting on that service (link via wait_link)."""
         if self.active:
             await self.stop("rejoin")
         self.url, self.started_at = url, time.monotonic()
+        self.link = asyncio.get_running_loop().create_future()
         if not ws_url:
             ws_url = await self.serve()
         cfg = {"url": url, "ws": ws_url + "?call=" + self.call.id, "token": self.token,
                "name": os.environ.get("Z0LIVE_PASSTHRU_NAME", "z0 (Kevin's assistant)"),
-               "headless": headless, "share": share}
+               "headless": headless, "share": share, "create": create}
         self.proc = await asyncio.create_subprocess_exec(
             self.node, str(self.script), json.dumps(cfg), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL)
@@ -270,6 +282,9 @@ class Passthru:
             except ValueError:
                 continue
             name = str(ev.pop("ev", "event"))[:40]
+            if name == "created" and not self.link.done():
+                self.url = str(ev.get("link", ""))
+                self.link.set_result(self.url)
             if name == "stats":
                 ev["room_frames"], ev["room_dropped"] = self.room.received, self.room.dropped
                 ev.update(self.counts)
@@ -277,6 +292,12 @@ class Passthru:
         if proc:
             await proc.wait()
             self.trace("exit", code=proc.returncode)
+
+    async def wait_link(self, timeout: float) -> str:
+        try:
+            return await asyncio.wait_for(asyncio.shield(self.link), timeout)
+        except asyncio.TimeoutError:
+            return ""
 
     async def send(self, cmd: str, **data):
         if self.active and self.proc.stdin:
@@ -529,6 +550,13 @@ async def handle(call, action: str, arg: str = "", *, from_kevin: bool) -> str:
     if key in SENSITIVE and not from_kevin:
         call.trace("passthru.refused", action=action, arg=arg, why="room_voice")
         return "Only Kevin can ask me to share or speak freely, from his phone or chat."
+    if action == "start":
+        await p.start("", create=SERVICE)
+        link = await p.wait_link(40)
+        if not link:
+            return f"I couldn't start a {SERVICE} meeting just now."
+        send_link(call, link)
+        return "I started an encrypted meeting and joined it. The link is in our chat; send it to whoever you want."
     if action == "join":
         url, where = arg, "spoken"
         if not url:
@@ -587,6 +615,16 @@ async def run_command(call, action: str, arg: str, *, from_kevin: bool):
     say(call, line)
 
 
+def send_link(call, link: str):
+    """Put the meeting link in Kevin's Hermes chat transcript (text only; never spoken)."""
+    try:
+        call.send(call.protocol.transcript("assistant", "\n" + link + "\n"))
+    except Exception:  # noqa: BLE001
+        pass
+    out = Path.home() / ".local/share/z0live/meet-last-link"
+    out.write_text(link + "\n"); out.chmod(0o600)
+
+
 PATH = "/_z0live/passthru"
 
 
@@ -605,7 +643,7 @@ async def control(request):
     try:
         data = await request.json()
         sid, action, arg = data["session_id"], data["action"], str(data.get("arg") or "")
-        if action not in ("join", "leave", "share", "unshare", "floor", "status"):
+        if action not in ("start", "join", "leave", "share", "unshare", "floor", "status"):
             raise ValueError()
     except (ValueError, TypeError, KeyError):
         raise web.HTTPBadRequest() from None

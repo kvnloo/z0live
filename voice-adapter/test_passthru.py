@@ -34,6 +34,15 @@ class Commands(unittest.TestCase):
         self.assertEqual(passthru.command("just listen for now", active=True), ("floor", "listen"))
         self.assertIsNone(passthru.command("the canvas looks great", active=True))
 
+    def test_start_meeting(self):
+        self.assertEqual(passthru.command("z0, start a meeting", active=False), ("start", ""))
+        self.assertEqual(passthru.command("hey zero spin up an encrypted room", active=False), ("start", ""))
+        self.assertIsNone(passthru.command("I have to start a meeting at noon", active=False))
+
+    def test_element_call_links_are_meetings(self):
+        link = "https://call.element.io/room/#/z0-ab12?password=" + "x" * 20 + "&roomId=%21abc%3Acall.ems.host"
+        self.assertTrue(passthru.MEETING_URL.search("join " + link))
+
     def test_addressed(self):
         for t in ("z0, what do you think?", "Hey zero can you check", "okay Hermes, summarize"):
             self.assertTrue(passthru.addressed(t), t)
