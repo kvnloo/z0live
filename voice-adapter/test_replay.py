@@ -339,6 +339,35 @@ class PeopleOnTheCall(unittest.TestCase):
         self.assertEqual(notes, [], "no people-talk note while Kevin's request to Hermes is still being spoken")
         self.assertEqual([did for did, _ in r.requests], ["d2", "d3"], "the long-run ask reaches Hermes")
 
+    def test_an_answer_waits_until_the_caller_has_finished_the_next_request(self):
+        # Take 11: Hermes's answer to line 2 reached the voice at 51.0 s, 8 s into Kevin's long-run ask (turn.done at
+        # 52.1). The voice answered the ask from it and never handed the ask to Hermes.
+        ask = "Yeah, merged isn't done. Get all of it onto my laptop, prove each one, and make it update itself"
+        words = ask.split()
+        rows = (GUEST
+                + heard(23.2, 27.8, "Hermes, what's actually on my laptop right now versus the beta", "p2")
+                + heard(22.6, 27.9, "Hermes, what's actually on my laptop right now versus the beta", "g2", "guest")
+                + delegation(27.0, "d2", "Hermes, what's actually on my laptop right now versus the beta")
+                + hermes("d2", 24, "Your laptop is on build 30812 from 3:15 this morning, per the card's receipts.")
+                + speech(27.8, 40.9, "Comparing those now. Your laptop is still on last night's build.", "a2")
+                + [{"t": 41.0, "src": "provider", "rx": {"type": "turn.created", "turn": {
+                    "id": "p3", "role": "user", "transcript": "", "start_ms": 40400, "end_ms": 40600}}}]
+                + [{"t": round(41.2 + i * 0.6, 3), "src": "provider", "rx": {
+                    "type": "turn.delta", "turn_id": "p3", "delta": " " + word,
+                    "start_ms": 40600 + i * 600, "end_ms": 41200 + i * 600}} for i, word in enumerate(words)]
+                + delegation(52.0, "d3", ask)
+                + [{"t": 52.1, "src": "provider", "rx": {"type": "turn.done", "turn": {
+                    "id": "p3", "role": "user", "transcript": ask, "start_ms": 40400, "end_ms": 51400}}}]
+                + hermes("d3", 20, "That run is already going as card 7."))
+        r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows, history=PEOPLE)
+        import asyncio
+        asyncio.run(r.run())
+        handed = [t for t, event in r.sent if event.get("type") == "delegation.context.append"]
+        self.assertTrue(handed, "the line-2 answer still reaches the voice")
+        # Until the voice hands the ask on (its delegation at 52.0 s ends the caller's turn), nothing reaches it.
+        self.assertEqual([t for t in handed if 41.0 <= t < 52.0], [], "nothing handed to the voice mid-request")
+        self.assertEqual([did for did, _ in r.requests], ["d2", "d3"])
+
     def test_a_question_named_to_tek_on_one_leg_stays_with_tek_when_the_other_leg_mishears_the_name(self):
         # Take 9: Hermes's leg heard "Hey Tek, while" and gave Tek the floor mid-line; Tek's own leg heard "Hey Tech,
         # while that runs ..." and its delegation (that leg's final) found no name in it, so the same utterance was
