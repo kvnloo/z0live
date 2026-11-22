@@ -270,8 +270,8 @@ PEOPLE = [{"role": "user", "content": [{"type": "input_text", "text": "status on
                                              "Sam talk to each other, stay quiet."}]}]
 
 
-def take7():
-    """Take 7 of the 11-22 film call, both legs. Lines 0, 1 and 5 are the people talking to each other; 2 and 3 are
+def take7(handoff="Got it, I'll handle that and keep receipts."):
+    """Take 7 of the 11-22 film call, both legs; `handoff` is the voice's own line as it hands line 3 to Hermes. Lines 0, 1 and 5 are the people talking to each other; 2 and 3 are
     to Hermes (by name, then the next request in that exchange); 4 is to Tek by name."""
     return (GUEST
                 # 0. friend -> Kevin
@@ -304,7 +304,7 @@ def take7():
                 + guest_delegation(51.8, "gd3", "Yeah. Shipped isn't done. Get all of it onto my laptop")
                 + delegation(52.2, "d3", "Yeah. Shipped isn't done. Get all of it onto my laptop")
                 + hermes("d3", 30, "That run is already going as card 7; the last receipt is the signed build.")
-                + speech(52.8, 56.0, "Got it, I'll handle that and keep receipts.", "a3")
+                + speech(52.8, 56.0, handoff, "a3")
                 # 4. friend -> Tek, by name
                 + heard(65.0, 71.7, "Hey, Tek. While that runs, what actually caused the dark mode crash in PR twelve",
                         "g4", "guest")
@@ -360,6 +360,28 @@ class PeopleOnTheCall(unittest.TestCase):
         r = replayed([row for row in take7() if row.get("src") != "guest"], history=None)
         self.assertIn("d0", [did for did, _ in r.requests])
         self.assertTrue("".join(text for t, text in r.heard if t < 27.8), "Hermes answers out loud")
+
+    def test_the_voice_hands_off_neutrally_and_hermes_says_what_happened(self):
+        # Takes 7 and 9: handing line 3 to Hermes the voice said "Got it, I'll handle that and keep receipts" / "I'm
+        # taking that on end-to-end. I'll be back with receipts", and Hermes answered with a report on work already
+        # running. The replay flags a promise made before the request's own answer reached the voice.
+        import mobile_live
+        promised = replayed(take7("Got it, I'm taking that on end-to-end. I'll be back with receipts once it's all "
+                                  "buttoned up."))
+        self.assertEqual([p["did"] for p in replay.report(promised)["promised"]], ["d3"])
+        neutral = replayed(take7("Let me check."))
+        report = replay.report(neutral)
+        self.assertEqual(report["promised"], [])
+        self.assertEqual([did for did, _ in neutral.requests], ["d2", "d3"], "line 3 still reaches Hermes")
+        self.assertEqual("".join(text for t, text in neutral.heard if t < 27.8), "", "lines 0-1 stay quiet")
+        # What happened reaches the voice from Hermes, as d3's own Agent Final Message, and the adapter's own words
+        # about d3 never promise new work either.
+        self.assertIn("d3", report["own_answer_s"])
+        about = ["".join(c.get("text", "") for c in e.get("content", []))
+                 for _, e in neutral.sent if e.get("delegation_item_id") == "d3" and e.get("channel") == "speakable"]
+        answers = [text for text in about if mobile_live.RECEIPT not in text]  # the receipt: the run really runs
+        self.assertTrue(answers[0].startswith(replay.FINAL) and "already going as card 7" in answers[0], about)
+        self.assertFalse([text for text in about if mobile_live.promises_new_work(text)])
 
     def test_a_request_the_bot_talks_over_is_judged_on_the_whole_utterance(self):
         # Take 10: Kevin began his long-run ask 12 ms after Hermes's answer ended; 1.4 s in, Hermes's voice said

@@ -172,6 +172,19 @@ MAX_CALLS = 2
 DRAIN_SECONDS = int(os.environ.get("HERMES_MOBILE_VOICE_DRAIN", str(MAX_CALL_SECONDS)))
 # A fast-lane "I found nothing" is not a first answer; saying it then being contradicted is worse than silence.
 UNHELPFUL = re.compile(r"^\W*(not found|nothing found|no (local )?(evidence|results|record)|i (couldn.?t|could not|can.?t) find)", re.I)
+# A hand-off line that promises new work or claims it is handled, before Hermes said what happened (takes 7 and 9:
+# "Got it, I'll handle that and keep receipts", "I'm taking that on end-to-end"). replay.py reports these.
+PROMISE = re.compile(r"\b(i'?m|i am) (taking|handling|on) (that|it|this)\b|\b(take|taking) (that|it|this) on\b"
+                     r"|\bi'?ll (handle|take care of|get (that|it|this) (done|going)|be back"
+                     r"|keep (you )?(posted|updated)|keep receipts|send( you)? receipts"
+                     r"|report back|follow up|circle back)|\bend[- ]to[- ]end\b|\bon it\b|\bconsider it done\b"
+                     r"|\b(it'?s|that'?s) (handled|taken care of)\b", re.I)
+
+
+def promises_new_work(text: str) -> bool:
+    return bool(PROMISE.search(text.replace("\u2019", "'")))
+
+
 PERSONA = """You are Hermes, speaking with the user in the official Hermes mobile app.
 Be natural, brief and direct. Do not speak until the user speaks. While the user tells a longer
 story, acknowledge often with a quick "mm-hm", "yeah" or "right" and let them keep going. Start
@@ -180,6 +193,10 @@ and stop immediately when interrupted. Handle greetings and ordinary small talk 
 You have no tools. For facts, lookups or actions, delegate the complete request to the client.
 Kevin's Hermes chat runs on his PC with adb to his phone: it can screenshot and read his screen, watch logs and run commands. Never say you can't see his screen or aren't connected to the call. "Look at my screen" is a delegation, not a refusal.
 The client is the user's existing Hermes chat with its chosen model, tools and approvals.
+When you delegate, say at most a short neutral line such as "Let me check." The request may
+already be running, may wait in line or may be refused, so never promise new work, say you are
+taking it on or handling it, or promise receipts or a follow-up. The client's answer, queued
+notice or refusal says what happened; say that.
 Do not claim work happened until the client returns its actual result. Progress arriving on
 the commentary channel is silent context, not something to read aloud. Present an Agent
 Final Message as your own concise answer. Never narrate routing or backend plumbing.
@@ -747,7 +764,9 @@ class GPTGuest:
         self.persona = (f"You are {identity}, a guest on Kevin's call. When Kevin addresses you or continues "
                         "that exchange, answer briefly. Do not reply to other exchanges or backchannels. "
                         "For questions about your work or history, delegate to your own Hermes, then speak "
-                        "its answer. Never invent work. Notes about what Hermes said are silent background.")
+                        "its answer. When you delegate, say at most a short neutral line such as \"Let me check\"; "
+                        "never promise new work, say you are taking it on or handling it, or promise receipts or a "
+                        "follow-up. Never invent work. Notes about what Hermes said are silent background.")
         self.subscription = self.new_subscription(active=True) if config else None
         self.protocol = Protocol(host_delegation=True)
         self.closed = False

@@ -174,6 +174,12 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
         self.guest.send = self.call.sent.append
         self.call.guest = self.call.duplex = self.guest
 
+    async def test_guest_persona_asks_for_a_neutral_handoff(self):
+        # Take 9: Tek's leg said "Understood, I'll handle it end-to-end and show results when it's done."
+        self.assertIn('"Let me check"', self.guest.persona)
+        self.assertIn("never promise new work, say you are taking it on or handling it", self.guest.persona)
+        self.assertIn("promise receipts or a follow-up", self.guest.persona)
+
     async def test_suppressed_reply_never_leaks_audio_text_or_context(self):
         self.guest.observe("guest", turn("done", "Tek, what shipped?"))
         self.assertFalse(self.guest.observe("primary", output("Not for Kevin.")))

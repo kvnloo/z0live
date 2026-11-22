@@ -49,6 +49,27 @@ class ChunkTests(unittest.TestCase):
         self.assertTrue(all(len(part.encode("utf-8")) <= 500 for part in parts))
 
 
+class HandoffPreambleTests(unittest.TestCase):
+    """Takes 7 and 9: the voice's own hand-off line promised new work Hermes then did not start."""
+
+    def test_take_7_and_9_handoff_lines_count_as_promises_and_neutral_lines_do_not(self):
+        for line in ("Got it, I'll handle that and keep receipts.",
+                     "Got it, I\u2019m taking that on end-to-end. I\u2019ll be back with receipts once it\u2019s all "
+                     "buttoned up.", "On it.", "Understood, I'll handle it end-to-end and show results when it's done."):
+            self.assertTrue(live.promises_new_work(line), line)
+        for line in ("Let me check.", "Checking now.", "I'll take a quick look.", "Mm-hm.",
+                     "I'll check your laptop quickly.", live.RECEIPT, live.QUEUED.format(running=3, position=1)):
+            self.assertFalse(live.promises_new_work(line), line)
+
+    def test_persona_asks_for_a_neutral_handoff_and_leaves_the_outcome_to_the_client(self):
+        persona = " ".join(live.PERSONA.split())
+        self.assertIn('such as "Let me check."', persona)
+        self.assertFalse(live.promises_new_work("Let me check."))
+        for rule in ("never promise new work", "taking it on or handling it", "promise receipts or a follow-up",
+                     "The client's answer, queued notice or refusal says what happened"):
+            self.assertIn(rule, persona)
+
+
 class ProtocolTests(unittest.TestCase):
     def test_delegation_is_mapped_once_after_user_transcript(self):
         p = live.Protocol()
