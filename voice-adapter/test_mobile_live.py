@@ -417,8 +417,10 @@ class BoundedHostQueueTests(unittest.IsolatedAsyncioTestCase):
         running = [f"r{i}" for i in range(live.HOST_MAX)]
         with patch.object(live, 'run_hermes', self.fake), patch.object(live, 'RECEIPT_SECONDS', 30):
             jobs = await self.start(call, running + ["w1", "w2"])
-            jobs["w1"].cancel()
-            await asyncio.gather(jobs["w1"], return_exceptions=True)
+            # The unit a drop or a close cancels: the request's own Hermes job, while it waits at the head of the line.
+            job = next(j for j in call.pending_delegations if j.get_coro().cr_frame.f_locals.get("did") == "w1")
+            job.cancel()
+            await asyncio.gather(job, return_exceptions=True)
             self.release("r0")
             self.assertTrue(await self.until(lambda: "w2" in self.started), "the line did not move past a cancel")
             self.assertNotIn("w1", self.started)
