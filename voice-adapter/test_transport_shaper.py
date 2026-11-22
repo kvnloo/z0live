@@ -1,3 +1,5 @@
+import hashlib
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -30,6 +32,23 @@ class ShaperScheduleTest(unittest.TestCase):
         self.assertTrue(frozen)
         self.assertTrue(all(20 * i + s[i] == end for i in frozen))
         self.assertEqual(frozen[0], FREEZE_AT_MS // 20)
+
+    def test_reorder_delays_3pct_by_65ms_no_loss(self):
+        s = shape_schedule("reorder", 4100, 50 * 900)
+        self.assertEqual(s[:SHAPE_HEAD], [0.0] * SHAPE_HEAD)
+        self.assertEqual(set(s), {0.0, 65.0})
+        late = sum(d == 65.0 for d in s) / (len(s) - SHAPE_HEAD)
+        self.assertTrue(0.025 < late < 0.035, late)
+        self.assertEqual(s, shape_schedule("reorder", 4100, 50 * 900))
+        self.assertNotEqual(s, shape_schedule("reorder", 4101, 50 * 900))
+
+    def test_earlier_conditions_schedule_unchanged_by_v4(self):
+        # sha256 prefixes of shape_schedule(c, 4100, 3000) at transport_bench/3 (ec752fb).
+        want = {"clean": "86c5820fa5dfba08", "jitter5": "e7901afd44faf6fc", "jitter25": "0f3d05bcdb4aadbf",
+                "loss1_jitter5": "d097845e658c8de6", "freeze300_loss1": "61b1bbfd93f5a5fc"}
+        for c, h in want.items():
+            got = hashlib.sha256(json.dumps(shape_schedule(c, 4100, 3000)).encode()).hexdigest()[:16]
+            self.assertEqual(got, h, c)
 
 
 if __name__ == "__main__":
