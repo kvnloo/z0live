@@ -799,9 +799,16 @@ class GPTGuest:
         self.floor.answers[source].extendleft(reversed(resend))
         self.flush_answers()
 
-    def commit_user(self, source: Leg, now: float, *, final: bool):
+    def commit_user(self, source: Leg, now: float, *, final: bool, voice_began: bool = False):
+        """`voice_began`: the voice started a reply, which usually means the caller's turn is over. With people on the
+        call it can be the voice talking over someone mid-sentence (take 10: "Right" 1.4 s into Kevin's long-run ask
+        made "Yeah, merged isn't" his final, and it was taken for people talk). There, only a name acts at once; the
+        rest of the turn is judged on its own turn.done or delegation."""
         user = self.users.get(source)
         if not user or user.committed or not user.text.strip():
+            return
+        if voice_began and self.floor.people > 1:
+            self.commit_user(source, now, final=False)
             return
         words = " ".join(re.findall(r"\w+", user.text.casefold()))
         if len(words) > 7 and self.echoes(words):
@@ -856,8 +863,10 @@ class GPTGuest:
             self.commit_user(source, now, final=kind == "turn.done")
             if kind == "turn.done":
                 self.quiet_since[source] = now  # the voice gets its chance to answer this turn first
-        if kind == "delegation.created" or kind == "output_transcript.added" or (role == "assistant" and kind == "turn.created"):
+        if kind == "delegation.created":
             self.commit_user(source, now, final=True)
+        elif kind == "output_transcript.added" or (role == "assistant" and kind == "turn.created"):
+            self.commit_user(source, now, final=True, voice_began=True)
         if kind == "output_transcript.added" or role == "assistant":
             reply = self.replies.get(source)
             if kind != "turn.done" and reply is None:

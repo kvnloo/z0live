@@ -1,5 +1,6 @@
 """Replays of tonight's failure shapes through the real adapter (replay.py). Each fixture copies the event order and
 timing of a real call; the words are made up, because call transcripts stay off GitHub."""
+import json
 import os
 import unittest
 
@@ -303,6 +304,40 @@ class PeopleOnTheCall(unittest.TestCase):
         self.assertEqual(before, "", "nothing the bots said while the people talked reached the phone")
         after_tek = "".join(text for t, text in r.heard if 96.5 <= t < 120 and "PR twelve" not in text)
         self.assertNotIn("I'll check", after_tek)
+
+    def test_a_request_the_bot_talks_over_is_judged_on_the_whole_utterance(self):
+        # Take 10: Kevin began his long-run ask 12 ms after Hermes's answer ended; 1.4 s in, Hermes's voice said
+        # "Right" over him. That output committed his turn as final at "Yeah, merged isn't" (no request in it yet), so
+        # it was taken for people talk and the ask never reached Hermes. His turn.done came 8 s later with all of it.
+        ask = "Yeah, merged isn't done. Get all of it onto my laptop, prove each one, and make it update itself"
+        rows = (GUEST
+                + heard(23.2, 27.8, "Hermes, what's actually on my laptop right now versus the beta", "p2")
+                + heard(22.6, 27.9, "Hermes, what's actually on my laptop right now versus the beta", "g2", "guest")
+                + delegation(27.0, "d2", "Hermes, what's actually on my laptop right now versus the beta")
+                + hermes("d2", 12, "Your laptop runs build 9. The beta has twenty newer changes.")
+                + speech(27.8, 42.6, "Comparing those now. Your laptop runs build 9. The beta has twenty newer "
+                                     "changes.", "a2")
+                + [{"t": 42.63, "src": "provider", "rx": {"type": "turn.created", "turn": {
+                    "id": "p3", "role": "user", "transcript": " Yeah", "start_ms": 41800, "end_ms": 42000}}},
+                   {"t": 43.35, "src": "provider", "rx": {"type": "turn.delta", "turn_id": "p3",
+                                                          "delta": ", merged isn't", "start_ms": 42000,
+                                                          "end_ms": 42700}}]
+                + speech(44.0, 45.0, "Right.", "a3")
+                + [{"t": 47.0, "src": "provider", "rx": {"type": "turn.delta", "turn_id": "p3",
+                                                         "delta": " done. Get all of it onto my laptop",
+                                                         "start_ms": 42700, "end_ms": 46000}}]
+                + delegation(52.1, "d3", ask)
+                + [{"t": 52.3, "src": "provider", "rx": {"type": "turn.done", "turn": {
+                    "id": "p3", "role": "user", "transcript": ask, "start_ms": 41800, "end_ms": 51400}}}]
+                + hermes("d3", 20, "That run is already going as card 7."))
+        r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows, history=PEOPLE)
+        import asyncio
+        asyncio.run(r.run())
+        # On the call the voice obeyed the people note sent at 44.0 s and never delegated; the replay's recorded voice
+        # delegates anyway, so the contract is that no such note goes out while the ask is still being spoken.
+        notes = [t for t, event in r.sent if "talking to each other" in json.dumps(event)]
+        self.assertEqual(notes, [], "no people-talk note while Kevin's request to Hermes is still being spoken")
+        self.assertEqual([did for did, _ in r.requests], ["d2", "d3"], "the long-run ask reaches Hermes")
 
     def test_a_question_named_to_tek_on_one_leg_stays_with_tek_when_the_other_leg_mishears_the_name(self):
         # Take 9: Hermes's leg heard "Hey Tek, while" and gave Tek the floor mid-line; Tek's own leg heard "Hey Tech,
