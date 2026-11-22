@@ -1134,6 +1134,26 @@ async def ask_guest_host(http, profile, session, request, context=""):
         return answer
 
 
+def uplink_prefetch() -> int:
+    """Phone-uplink aiortc JitterBuffer prefetch (frames) for the Grok WebSocket path. Default 2: F4a-0 bench
+    (transport_bench/2, loopback + seeded shaper; live radios unverified) measured -40 ms uplink p50 vs stock 4 and no
+    more missing frames than stock 4 under jitter/loss/freeze. Z0LIVE_UPLINK_PREFETCH=4 restores the aiortc default;
+    values outside 1..4 fall back to 4."""
+    raw = os.environ.get("Z0LIVE_UPLINK_PREFETCH", "2").strip()
+    return int(raw) if raw in ("1", "2", "3", "4") else 4
+
+
+def set_uplink_prefetch(receiver, prefetch: int) -> bool:
+    """Set the prefetch of a stock aiortc audio JitterBuffer before receive starts; anything else is left alone."""
+    from aiortc.jitterbuffer import JitterBuffer
+    jb = getattr(receiver, "_RTCRtpReceiver__jitter_buffer", None)
+    if (type(jb) is not JitterBuffer or getattr(receiver, "_RTCRtpReceiver__kind", None) != "audio"
+            or getattr(receiver, "_RTCRtpReceiver__started", True)):
+        return False
+    jb._prefetch = prefetch
+    return True
+
+
 class Call:
     def __init__(self, manager, profile: str = ""):
         self.manager = manager
@@ -1368,6 +1388,12 @@ class Call:
                         if jb is not None:
                             self.uplink_jitter.append(jb)
                 self.trace("uplink.jitter_pilot", installed=len(self.uplink_jitter))
+            if self.leg:
+                prefetch = uplink_prefetch()
+                if prefetch != 4:
+                    changed = sum(set_uplink_prefetch(t.receiver, prefetch)
+                                  for t in self.mobile.getTransceivers() if t.kind == "audio")
+                    self.trace("uplink.prefetch", prefetch=prefetch, receivers=changed)
             if self.leg:  # Grok Voice: a WebSocket, no provider peer; its speech is our own track
                 if not any(t.kind == "audio" for t in self.mobile.getTransceivers()):
                     raise ValueError("An audio track is required")
