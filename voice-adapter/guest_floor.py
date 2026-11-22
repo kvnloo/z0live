@@ -6,8 +6,16 @@ import re
 from typing import Callable, Literal
 
 Leg = Literal["primary", "guest"]
+Owner = Literal["primary", "guest", "people"]  # "people": the people on the call are talking to each other
 IDLE_SECONDS = 20.0
+FOLLOW_UP_SECONDS = 20.0  # with people on the call, an unnamed request this soon after a bot's reply is to that bot
 _WORD = r"[\w\u0b80-\u0bff]"
+# A request or question in the words, not only a remark ("Get all of it onto my S25", "can you check"). Used only to keep
+# an unnamed follow-up with the bot that just answered, when more than one person is on the call.
+_REQUEST = re.compile(
+    r"\?|(?:^|[.!;,]\s*|\b(?:and|so|now|then|also)\s+)(?:please\s+)?(?:get|make|put|install|check|show|tell|find|"
+    r"send|give|run|start|stop|look|pull|open|fix|prove|try|ship|merge|deploy|update|keep|move|add|remove|delete|"
+    r"write|read|can you|could you|would you|will you|i need you|i want you)\b", re.I)
 _BACKCHANNEL = re.compile(r"(?:m+|h?m+|mm[ -]mm|uh|um|uh[ -]huh|m+[ -]?h+m+|yeah|yep|right|okay|ok|thanks|thank you|got it|sure)(?:[.!?, ]*)$", re.I)
 
 
@@ -18,7 +26,7 @@ class Address(Enum):
 
 class Addressing:
     def __init__(self, guest_names: tuple[str, ...]):
-        others = ("hermes", "primary", "assistant", "gpt", "grok")
+        others = ("hermes", "herms", "primary", "assistant", "gpt", "grok")
         names = "|".join(map(re.escape, (*guest_names, *others)))
         self.guest_names = frozenset(name.casefold() for name in guest_names)
         self.known = self.guest_names | frozenset(others)
@@ -61,6 +69,10 @@ def substantive(text: str) -> bool:
     return bool(text and not _BACKCHANNEL.fullmatch(text))
 
 
+def request(text: str) -> bool:
+    return bool(_REQUEST.search(text))
+
+
 @dataclass(frozen=True)
 class Answer:
     leg: Leg
@@ -73,19 +85,25 @@ class Answer:
 class Floor:
     since: float
     trace: Callable[..., None] = field(repr=False)
-    owner: Leg = "primary"
+    owner: Owner = "primary"
     reason: str = "call_start"
     available: bool = False
     replied_at: float | None = None
     reply_began_at: float | None = None
     answers: dict[Leg, deque[Answer]] = field(default_factory=lambda: {"guest": deque(), "primary": deque()})
     guest_jobs: int = 0
+    # How many people share the phone (call_brief.people). With more than one, a bot gets the floor only by name or
+    # by a request right after its own reply; everything else is the people talking to each other ("people").
+    people: int = 1
+    # The floor owner's audible replies since it took the floor: [began, ended] (ended None while it plays).
+    heard: list[list] = field(default_factory=list)
 
-    def change(self, owner: Leg, reason: str, now: float) -> None:
+    def change(self, owner: Owner, reason: str, now: float) -> None:
         if owner != self.owner:
             previous, self.owner = self.owner, owner
             self.reason, self.since = reason, now
             self.replied_at = self.reply_began_at = None
+            self.heard = []
             self.trace("floor.changed", previous=previous, speaker=owner, reason=reason, since=now)
 
     def user_turn(self, address: Address | None, text: str, began: float, now: float, *, final: bool,
@@ -95,19 +113,49 @@ class Floor:
             self.since, self.replied_at, self.reply_began_at = now, None, None  # a new question restarts the idle clock
         elif address is Address.OTHER:
             self.change("primary", "redirected", now)
+        elif self.people > 1:
+            if final and substantive(text) and not self.follow_up(text, began):
+                self.change("people", "people_talk", now)
         elif (final and substantive(text) and (interrupted or (
                 self.replied_at is not None and self.reply_began_at is not None
                 and began >= self.reply_began_at and not self.guest_jobs))):
             self.change("primary", "new_user_turn", now)
 
+    def follow_up(self, text: str, began: float) -> bool:
+        """With people on the call: an unnamed turn is the next request to the bot that holds the floor when it is a
+        request that began while one of that bot's replies played or within FOLLOW_UP_SECONDS after one ended. A
+        reply the bot began after the caller started (and the caller cut off) does not count against it (take 8)."""
+        return self.owner != "people" and request(text) and any(
+            start <= began and (end is None or began - end <= FOLLOW_UP_SECONDS) for start, end in self.heard)
+
+    def reply_started(self, leg: Leg, now: float) -> None:
+        if leg == self.owner:
+            self.heard.append([now, None])
+
     def reply_finished(self, leg: Leg, now: float, began: float) -> None:
+        if leg == self.owner:
+            open_reply = next((r for r in reversed(self.heard) if r[1] is None), None)
+            if open_reply:
+                open_reply[1] = now
+            else:
+                self.heard.append([began, now])
+            del self.heard[:-8]
         if leg == self.owner == "guest":
             self.replied_at, self.reply_began_at = now, began
 
     def expire(self, now: float) -> None:
         if (self.owner == "guest" and not self.guest_jobs and not self.answers["guest"]
                 and now - (self.replied_at if self.replied_at is not None else self.since) >= IDLE_SECONDS):
-            self.change("primary", "guest_idle", now)
+            self.change("people" if self.people > 1 else "primary", "guest_idle", now)
+
+    def answer_ready(self, pending: Callable[[Leg], bool], now: float) -> bool:
+        """While the people talk, a bot with an answer to give takes the floor in their next pause (the caller asked
+        it earlier). Returns whether the floor moved."""
+        for leg in ("primary", "guest"):
+            if self.answers[leg] or pending(leg):
+                self.change(leg, "answer_ready", now)
+                return True
+        return False
 
     def failed(self, name: str, now: float) -> None:
         self.available = False
