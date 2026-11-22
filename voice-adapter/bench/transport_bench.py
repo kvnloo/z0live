@@ -31,6 +31,9 @@ transport_bench/2 (track F4a) adds, without changing any /1 key:
   result["shaped"]: added latency per frame = provider-ws written (adapter) - unshaped phone send time (world),
                missing frames (= concealment demand: nothing in this path synthesises PLC), longest delivery gap at the
                provider ws, frames delivered/expected.
+transport_bench/3: measurement identical to /2. --prefetch unset now means the adapter's own default
+               (Z0LIVE_UPLINK_PREFETCH, 2 since F4a); --prefetch N pins both that knob and the receiver, so the
+               stock-aiortc arm is `--prefetch 4`. config.jitter_buffer records the buffer type/prefetch actually used.
 """
 from __future__ import annotations
 
@@ -49,7 +52,7 @@ import wave
 from collections import defaultdict
 from pathlib import Path
 
-VERSION = "transport_bench/2"
+VERSION = "transport_bench/3"
 NS = time.perf_counter_ns
 HERE = Path(__file__).resolve().parent
 ADAPTER_DIR = HERE.parent
@@ -758,7 +761,8 @@ async def adapter(args):
     os.environ.setdefault("Z0LIVE_DESKTOP", str(ADAPTER_DIR.parent / "desktop"))
     sys.path.insert(0, str(ADAPTER_DIR))
     if args.adaptive:
-        assert args.prefetch == 4, "--adaptive replaces the stock prefetch-4 buffer; do not combine with --prefetch"
+        assert args.prefetch in (None, 4), "--adaptive replaces the stock prefetch-4 buffer; do not combine with --prefetch"
+        args.prefetch = 4
         os.environ["Z0LIVE_ADAPTIVE_UPLINK_JITTER"] = "1"
     else:
         os.environ.pop("Z0LIVE_ADAPTIVE_UPLINK_JITTER", None)
@@ -767,7 +771,8 @@ async def adapter(args):
     from aiohttp import ClientSession
     from aiortc import rtcrtpreceiver
 
-    if args.prefetch != 4:  # harness control: the phone receiver's audio JitterBuffer, set before receive starts
+    if args.prefetch is not None:  # pin both the adapter knob and the receiver's JitterBuffer before receive starts
+        os.environ["Z0LIVE_UPLINK_PREFETCH"] = str(args.prefetch)
         orig_init = rtcrtpreceiver.RTCRtpReceiver.__init__
 
         def rx_init(self, kind, transport):
@@ -867,7 +872,9 @@ def main():
                     help="diagnostic only: macOS QoS class of the adapter process threads (baseline = default)")
     ap.add_argument("--condition", default="clean", choices=sorted(CONDITIONS))
     ap.add_argument("--seed", type=int, default=4100)
-    ap.add_argument("--prefetch", type=int, default=4, help="adapter phone-audio aiortc JitterBuffer prefetch (stock 4)")
+    ap.add_argument("--prefetch", type=int, default=None,
+                    help="pin the adapter phone-audio aiortc JitterBuffer prefetch (aiortc stock = 4); unset = adapter "
+                         "default (Z0LIVE_UPLINK_PREFETCH, 2 since F4a). The used value is in config.jitter_buffer.")
     ap.add_argument("--adaptive", action="store_true", help="Z0LIVE_ADAPTIVE_UPLINK_JITTER=1 (R10 clocked buffer)")
     ap.add_argument("--fixtures", default=str(Path(os.environ.get("TMPDIR", tempfile.gettempdir())) / "transport_bench_fx"))
     ap.add_argument("--workdir", default="")
