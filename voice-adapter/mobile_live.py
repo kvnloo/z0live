@@ -204,6 +204,11 @@ DELEGATION_TIMEOUT_SECONDS = 600
 RECEIPT_SECONDS = float(os.environ.get("Z0LIVE_RECEIPT_SECONDS", "8"))
 RECEIPT = "Still working on that in Hermes. I'll tell you as soon as it's done; ask anything else meanwhile."
 SIDE_MAX = 3
+# The background a Hermes run gets when it does not run in the call's own chat (Tek's Hermes, the oneshot path).
+CALL_CONTEXT = ("This request comes from a live voice call; answer in a few short spoken sentences. Below is the chat "
+                "the call was opened from: background, already handled. Use it to place the request (which repo, PR, "
+                "card or device it means). If what the request asks for is already running (a kanban card, a "
+                "session, a job), report its status and latest receipts instead of starting it again.")
 # Hermes runs one call may have going at once on the host path (no linked chat). Past it a request waits for a free
 # run, and the voice says it is queued instead of claiming a hand-off that has not happened.
 HOST_MAX = 3
@@ -1034,7 +1039,8 @@ class GPTGuest:
         profile = self.config.profile
         self.call.trace("guest.delegation.start", profile=profile, did=did, session=self.session)
         try:
-            answer = await ask_guest_host(self.call.manager.http, profile, self.session, request)
+            answer = await ask_guest_host(self.call.manager.http, profile, self.session, request,
+                                          self.call.host_context())
             self.call.trace("guest.delegation.done", profile=profile, did=did, session=self.session)
         except Exception as exc:  # noqa: BLE001 - explain failure on the guest, never fall back to the primary
             self.call.trace("guest.delegation.failed", profile=profile, did=did, detail=str(exc)[:300])
@@ -1099,12 +1105,13 @@ class GPTGuest:
         await self.subscription.close()
 
 
-async def ask_guest_host(http, profile, session, request):
+async def ask_guest_host(http, profile, session, request, context=""):
     key = (Path.home() / ".config/z0live/guest-hosts" / (profile + ".key")).read_text().strip()
     port = int(os.environ.get("Z0LIVE_GUEST_HOST_PORT", "18644"))
     headers = {"Authorization": "Bearer " + key, "X-Hermes-Session-Id": session}
     messages = [{"role": "system", "content": "You are answering as a guest on a voice call. Give a brief spoken "
                  "answer. Never message, post, deploy, or change settings from this call. Do not quote secrets."},
+                *([{"role": "system", "content": context}] if context else []),
                 {"role": "user", "content": request}]
     async with http.post(f"http://127.0.0.1:{port}/v1/chat/completions", json={"messages": messages},
                          headers=headers, allow_redirects=False,
@@ -1769,7 +1776,19 @@ class Call:
             self.counts["chat_turns"] += 1
             self.trace("delegation.chat", did=did, chat=self.chat)
             return answer
-        return await self.run_host(did, request)
+        return await self.run_host(did, self.host_context() + "\n\nRequest: " + request
+                                   if self.context_text else request)
+
+    def host_context(self) -> str:
+        """What a Hermes that starts without the call's chat needs to place a request: the chat the call opened from
+        and the call's recent words. Tek's Hermes got only the words to it, so "the glass crash in PR 28" was looked
+        up in the wrong repo (11-22 film call, take 7)."""
+        if not self.context_text:
+            return ""
+        said = "\n".join(f"{'Caller' if role == 'user' else 'Voice'}: {' '.join(text.split())[:400]}"
+                         for role, text in list(self.protocol.exchanges)[-6:])
+        return (f"{CALL_CONTEXT}\n\n{self.context_text[-6000:]}"
+                + (f"\n\nSaid on the call so far:\n{said}" if said else ""))
 
     async def run_host(self, did, request):
         """One Hermes run on this host, beside any the call already has going, up to HOST_MAX."""
