@@ -1,0 +1,234 @@
+{
+ "suite": "slm-v2-es3",
+ "frozen": "2026-11-20",
+ "note": "slm-v2 cases unchanged; brief = slm-v2 chat brief with filler pairs 0,3,4,6,8,10 (pair 3 in pair 2's slot) of 12 kept (6 fact pairs, header and Status line verbatim). Synthetic, no owner chat data.",
+ "brief": "Recent messages in Kevin's Hermes chat (newest last):\nKevin: remind me, when's the dentist?\nHermes: Your dentist appointment is Friday at 3:30 pm with Dr. Patel.\nKevin: can you explain what a write-ahead log is, short version\nHermes: A write-ahead log records every change to an append-only file before the change touches the main data files. After a crash the database replays the log to finish or undo half-done work, so a commit is durable once its log record is flushed. SQLite, Postgres and most key-value stores use one; the tradeoff is an extra sequential write per commit, which is cheap compared to random writes.\nKevin: what's a good way to keep houseplants alive when I travel for a week\nHermes: Water deeply the day you leave, group the plants together away from direct sun so they lose less water, and set the thirstier ones on a tray of wet pebbles. For a week that is usually enough; for longer trips a self-watering spike or a wick from a jar of water works.\nKevin: and Harsha's flight?\nHermes: Harsha's flight UA 1184 lands at 6:40 pm at Austin airport, terminal A.\nKevin: give me three sci-fi books like Project Hail Mary\nHermes: Try The Martian by the same author for the problem-solving tone, Children of Time by Adrian Tchaikovsky for first contact told from the alien side, and Blindsight by Peter Watts if you want something darker and stranger about what intelligence is.\nKevin: what did we cap the Tokyo trip at\nHermes: The Tokyo trip budget is $1,800 for flights and hotel, food separate.\nKevin: how do I stop git from asking for my passphrase every push\nHermes: Load the key into the agent once per login with ssh-add, and on macOS add UseKeychain yes and AddKeysToAgent yes under your Host entry in ~/.ssh/config so the passphrase lives in the keychain. After that, pushes over SSH reuse the unlocked key without prompting.\nKevin: which voice engine is default now\nHermes: GPT-Live is the default voice engine. Grok Voice is switchable; on the frozen bench Grok passed 24 of 24 runs and GPT-Live 17 of 24.\nKevin: what's a quick stretch for a stiff lower back\nHermes: Try a knees-to-chest hold: lie on your back, pull both knees in, hold for 30 seconds while breathing slowly, then rock gently side to side. Follow it with a cat-cow on hands and knees for ten slow rounds. Stop if anything feels sharp rather than tight.\nKevin: how much memory does the studio have\nHermes: The Mac Studio is an M5 Max with 36 GB of unified memory and about 217 GB of free disk.\nKevin: why does my sourdough come out flat\nHermes: Flat loaves usually mean the dough over-proofed or the starter was past its peak. Use the starter when it has doubled and still domes, shorten the bulk ferment when the kitchen is warm, and shape with more surface tension. A cold overnight proof in the fridge also makes the dough easier to score and gives better oven spring.\nKevin: ok. also you have my OK to read my phone screen over adb during calls.\nHermes: Noted: adb screen access during calls is approved.\nStatus: groot k3s node NotReady since Nov 17; the MBP disk is 96 percent full; z0live runs on the Studio under launchd.",
+ "cases": [
+  {
+   "id": "f-capital",
+   "kind": "fact",
+   "ask": "What's the capital of Canada?",
+   "answer": "\\bottawa\\b"
+  },
+  {
+   "id": "f-everest",
+   "kind": "fact",
+   "ask": "What's the boiling point of water at the top of Everest?",
+   "answer": "\\b(6[89]|7[01]|seventy)\\b"
+  },
+  {
+   "id": "f-light",
+   "kind": "fact",
+   "ask": "How fast is the speed of light?",
+   "answer": "(300,?000|299,?792|186,?000|three hundred thousand|186 thousand)"
+  },
+  {
+   "id": "f-planet",
+   "kind": "fact",
+   "ask": "Which planet is the biggest?",
+   "answer": "\\bjupiter\\b"
+  },
+  {
+   "id": "f-austen",
+   "kind": "fact",
+   "ask": "Who wrote Pride and Prejudice?",
+   "answer": "\\bausten\\b"
+  },
+  {
+   "id": "f-gold",
+   "kind": "fact",
+   "ask": "What's the chemical symbol for gold?",
+   "answer": "\\bau\\b"
+  },
+  {
+   "id": "r-apples",
+   "kind": "reasoning",
+   "ask": "I have three apples and eat one, then buy twice as many as I have left. How many apples do I have now?",
+   "answer": "\\b(six|6)\\b"
+  },
+  {
+   "id": "r-mult",
+   "kind": "reasoning",
+   "ask": "What's seventeen times twenty-three?",
+   "answer": "\\b(391|three hundred (and )?ninety[- ]one)\\b"
+  },
+  {
+   "id": "r-order",
+   "kind": "reasoning",
+   "ask": "Alice is taller than Bob, and Bob is taller than Carol. Who's the shortest?",
+   "answer": "\\bcarol\\b"
+  },
+  {
+   "id": "r-train",
+   "kind": "reasoning",
+   "ask": "A train leaves at nine forty and the trip takes an hour and thirty-five minutes. When does it arrive?",
+   "answer": "(11:15|eleven fifteen|quarter past eleven)"
+  },
+  {
+   "id": "r-percent",
+   "kind": "reasoning",
+   "ask": "What's fifteen percent of eighty?",
+   "answer": "\\b(12|twelve)\\b"
+  },
+  {
+   "id": "r-days",
+   "kind": "reasoning",
+   "ask": "If today is Thursday, what day is it in ten days?",
+   "answer": "\\bsunday\\b"
+  },
+  {
+   "id": "c-dentist",
+   "kind": "context",
+   "ask": "When's my dentist again?",
+   "answer": "friday.*(3:30|three[- ]thirty|half past three)|(3:30|three[- ]thirty).*friday"
+  },
+  {
+   "id": "c-harsha",
+   "kind": "context",
+   "ask": "What time does Harsha land?",
+   "answer": "(6:40|six[- ]forty)"
+  },
+  {
+   "id": "c-budget",
+   "kind": "context",
+   "ask": "What's the budget for Tokyo?",
+   "answer": "(1,?800|eighteen hundred|one thousand eight hundred)"
+  },
+  {
+   "id": "c-engine",
+   "kind": "context",
+   "ask": "Which voice engine is the default right now?",
+   "answer": "gpt[- ]?live"
+  },
+  {
+   "id": "c-grok",
+   "kind": "context",
+   "ask": "How did Grok do on the bench?",
+   "answer": "\\b(24|twenty[- ]four)\\b"
+  },
+  {
+   "id": "c-ram",
+   "kind": "context",
+   "ask": "How much RAM is in the Studio?",
+   "answer": "\\b(36|thirty[- ]six)\\b"
+  },
+  {
+   "id": "u-fahrenheit",
+   "kind": "followup",
+   "ask": "And in Fahrenheit?",
+   "answer": "\\b(15[5-9]|16[0-2]|one hundred (and )?(fifty|sixty))",
+   "turns": [
+    [
+     "user",
+     "What's the boiling point of water at the top of Everest?"
+    ],
+    [
+     "assistant",
+     "About 70 degrees Celsius."
+    ]
+   ]
+  },
+  {
+   "id": "u-australia",
+   "kind": "followup",
+   "ask": "What about Australia?",
+   "answer": "\\bcanberra\\b",
+   "turns": [
+    [
+     "user",
+     "What's the capital of Canada?"
+    ],
+    [
+     "assistant",
+     "Ottawa."
+    ]
+   ]
+  },
+  {
+   "id": "u-wait",
+   "kind": "followup",
+   "ask": "If it's five pm now, how long until she lands?",
+   "answer": "(1 hour (and )?40|one hour (and )?forty|an hour (and )?forty|100 minutes|hundred minutes|1:40)",
+   "turns": [
+    [
+     "user",
+     "What time does Harsha land?"
+    ],
+    [
+     "assistant",
+     "Her flight lands at 6:40 pm."
+    ]
+   ]
+  },
+  {
+   "id": "u-correct",
+   "kind": "followup",
+   "ask": "Actually no, what's twelve times twelve?",
+   "answer": "\\b(144|one hundred (and )?forty[- ]four)\\b",
+   "turns": [
+    [
+     "user",
+     "What's twelve times eleven?"
+    ],
+    [
+     "assistant",
+     "132."
+    ]
+   ]
+  },
+  {
+   "id": "s-screen",
+   "kind": "skip",
+   "ask": "Can you look at my screen right now?",
+   "skip": true
+  },
+  {
+   "id": "s-text",
+   "kind": "skip",
+   "ask": "Text Harsha that I'm running ten minutes late.",
+   "skip": true
+  },
+  {
+   "id": "s-spotify",
+   "kind": "skip",
+   "ask": "Open Spotify and play my focus playlist.",
+   "skip": true
+  },
+  {
+   "id": "s-files",
+   "kind": "skip",
+   "ask": "What's in my downloads folder?",
+   "skip": true
+  },
+  {
+   "id": "s-build",
+   "kind": "skip",
+   "ask": "Did my last build pass?",
+   "skip": true
+  },
+  {
+   "id": "s-mom",
+   "kind": "skip",
+   "ask": "When's my mom's birthday?",
+   "skip": true
+  },
+  {
+   "id": "s-email",
+   "kind": "skip",
+   "ask": "Anything new in my email?",
+   "skip": true
+  },
+  {
+   "id": "s-weather",
+   "kind": "skip",
+   "ask": "What's the weather outside right now?",
+   "skip": true
+  }
+ ],
+ "derived": {
+  "from": "bench/slm-v2.json",
+  "mode": "every other filler pair, even-indexed with pair 2 replaced in place by pair 3 (-147 chars)",
+  "out_chars": 3122,
+  "builder": "bench/ghci/make_half.py"
+ }
+}
