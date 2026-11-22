@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>z0live collab prototype</title>
+<script type="module" src="/client.js"></script>
+<main>
+  <h1>z0live collab prototype</h1>
+  <p>Loopback demo. Everyone with the link can read and send. No audio or roles.</p>
+  <button id="create" type="button">Create room</button>
+  <p id="status" role="status"></p>
+  <section id="room" hidden>
+    <label>Invite link <input id="invite" type="text" readonly autocomplete="off" size="44"></label>
+    <p>Copy the whole link into another browser on this machine. Use it again after a reload.</p>
+    <form id="compose">
+      <fieldset id="controls" disabled>
+        <label>Message <input id="text" required maxlength="500" autocomplete="off"></label>
+        <button type="submit">Send</button>
+        <button id="wave" type="button">Wave</button>
+      </fieldset>
+    </form>
+    <p id="notice" role="status"></p>
+    <ul id="events" aria-label="Room events" aria-live="polite"></ul>
+  </section>
+</main>
+</html>
