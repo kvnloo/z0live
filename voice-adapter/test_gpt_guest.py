@@ -74,6 +74,40 @@ class FloorTest(unittest.TestCase):
                 floor.user_turn(None, text, began, now, final=True, interrupted=interrupted)
                 self.assertEqual(floor.owner, expected)
 
+    def test_with_people_on_the_call_a_bot_gets_the_floor_by_name_or_a_follow_up_request(self):
+        # 11-22 film call, take 7: Kevin and a friend at one phone; their talk to each other ran Hermes and got speech.
+        floor = Floor(0, lambda *a, **k: None, available=True, people=2)
+        floor.change("people", "people_on_call", 0)
+        floor.user_turn(None, "Is the glass theme on your phone yet?", 1, 2, final=True)
+        self.assertEqual(floor.owner, "people")
+        floor.user_turn(Address.OTHER, "Hermes, what's on my phone?", 3, 4, final=True)
+        self.assertEqual((floor.owner, floor.reason), ("primary", "redirected"))
+        floor.reply_started("primary", 5)
+        floor.user_turn(None, "Get all of it onto my S25", 6, 7, final=True)  # barge-in with the next request
+        self.assertEqual(floor.owner, "primary")
+        floor.reply_finished("primary", 9, 8)
+        floor.user_turn(None, "Get it onto the tablet too", 10, 11, final=True)
+        self.assertEqual(floor.owner, "primary")
+        floor.user_turn(None, "Okay, nice. That's the one I kept hitting", 12, 13, final=True)  # a remark, not a request
+        self.assertEqual((floor.owner, floor.reason), ("people", "people_talk"))
+        floor.user_turn(Address.GUEST, "Tek, what caused the crash?", 14, 15, final=True)
+        floor.reply_finished("guest", 20, 16)
+        floor.user_turn(None, "And can you check the fix too?", 45, 46, final=True)  # too long after the reply
+        self.assertEqual(floor.owner, "people")
+        floor.user_turn(None, "Mm-hm", 47, 48, final=True)
+        self.assertEqual(floor.owner, "people")
+        self.assertFalse(floor.answer_ready(lambda leg: False, 50))
+        floor.enqueue(Answer("primary", "d1", "It is already running."), "tek")
+        self.assertTrue(floor.answer_ready(lambda leg: False, 50))
+        self.assertEqual((floor.owner, floor.reason), ("primary", "answer_ready"))
+
+    def test_with_people_on_the_call_an_idle_guest_leaves_the_floor_to_the_people(self):
+        floor = Floor(0, lambda *a, **k: None, available=True, people=2)
+        floor.user_turn(Address.GUEST, "Tek, what", 1, 1, final=True)
+        floor.reply_finished("guest", 15, 12)
+        floor.expire(35)
+        self.assertEqual((floor.owner, floor.reason), ("people", "guest_idle"))
+
     def test_silence_starts_after_the_reply(self):
         floor = Floor(0, lambda *a, **k: None, available=True)
         floor.user_turn(Address.GUEST, "Tek, what", 1, 1, final=True)
@@ -237,6 +271,22 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(guest_voice.configured(), self.guest.config)
                 path.write_text('{"guest":{"engine":"gpt-live","profile":"../poteto","name":"tek","voice":"ember"}}')
                 self.assertIsNone(guest_voice.configured())
+
+    async def test_people_talk_is_neither_heard_nor_delegated_and_both_voices_are_told(self):
+        g = self.guest
+        g.set_people(2)
+        self.assertEqual(g.floor.owner, "people")
+        g.observe("guest", turn("created", "", 1000, 1200, tid="u1"))
+        g.observe("guest", turn("done", "Is the glass theme on your phone yet?", 1000, 3000, tid="u1"))
+        self.assertFalse(g.observe("primary", output("I'll check your screen quickly.")))
+        self.assertFalse(g.output(frame()).to_ndarray().any())
+        self.assertFalse(g.may_delegate("primary", "d1"))
+        self.assertFalse(g.may_delegate("guest", "gd1"))
+        g.observe("primary", turn("done", "", role="assistant", tid="hidden"))
+        g.observe("primary", turn("done", "Hermes, what's on my phone?", 4000, 6000, tid="u2"))
+        self.assertTrue(g.may_delegate("primary", "d2"))
+        self.assertTrue(g.observe("primary", output("Checking.")))
+        self.assertFalse(any("I'll check your screen" in str(msg) for msg in self.call.sent))
 
     async def test_tek_back_to_you_keeps_tek_on_the_floor(self):
         g = self.guest

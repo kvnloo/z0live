@@ -682,6 +682,12 @@ class VoiceReply:
     cut: bool = False
 
 
+# With more than one person at the phone, the people often talk to each other (11-22 film call, take 7).
+PEOPLE_NOTE = ("(The people on the call are talking to each other, not to you. Nothing you said to that was heard and "
+               "nothing was handed off. Stay quiet until someone says your name or asks you directly.)")
+PEOPLE_PAUSE_SECONDS = 1.5  # a pause in the people's talk long enough for a bot to give an answer it was asked for
+
+
 class GPTGuest:
     def __init__(self, call, config):
         self.call, self.config = call, config
@@ -698,6 +704,7 @@ class GPTGuest:
         # Answers handed to a voice, delivered once the voice has said them (answer_delivery).
         self.ledger = answer_delivery.Ledger()
         self.quiet_since: dict[Leg, float | None] = {"primary": None, "guest": None}  # last reply or caller turn end
+        self.user_heard_at = float("-inf")  # the latest caller transcript event on either leg
         self.flush_timer: asyncio.TimerHandle | None = None
         identity = "Tek (also Teknium, டெக் or டெக்னியம்)" if config.profile == "tek" else config.name
         self.persona = (f"You are {identity}, a guest on Kevin's call. When Kevin addresses you or continues "
@@ -742,6 +749,18 @@ class GPTGuest:
             self.tails.pop(data["previous"], None)
             self.audio.clear()
         self.call.trace(event, **data)
+        if event == "floor.changed" and data["speaker"] == "people" and data["reason"] == "people_talk":
+            # Both voices heard words that were not for them; what they said to it was never heard.
+            self.note(PEOPLE_NOTE)
+            self.call.guest_note(PEOPLE_NOTE)
+
+    def set_people(self, people: int):
+        """More than one person at the phone: a voice speaks only when named or asked right after its own reply."""
+        self.floor.people = people
+        if people > 1:
+            self.call.trace("floor.people", people=people)
+            if self.floor.reason == "call_start":
+                self.floor.change("people", "people_on_call", time.monotonic())
 
     def transport_replaced(self, source: Leg, clock_offset_ms: int):
         self.clock_offsets[source] = clock_offset_ms
@@ -806,6 +825,7 @@ class GPTGuest:
         else:
             user = None
         if user:
+            self.user_heard_at = now
             self.interrupt(user, now)
             self.commit_user(source, now, final=kind == "turn.done")
             if kind == "turn.done":
@@ -817,6 +837,8 @@ class GPTGuest:
             if kind != "turn.done" and reply is None:
                 reply = self.replies[source] = VoiceReply(self.call.heard_user and self.floor.owner == source, now)
                 self.quiet_since[source] = None
+                if reply.allowed:
+                    self.floor.reply_started(source, now)
             if reply is not None:
                 allowed = reply.allowed and not reply.cut and self.floor.owner == source
                 if kind == "turn.created":
@@ -914,6 +936,17 @@ class GPTGuest:
         busy = (reply and reply.allowed and not reply.cut) or self.ledger.pending(self.floor.owner)
         if not busy:
             self.floor.expire(now)
+        if self.floor.owner == "people":
+            # The people are talking to each other: an answer someone asked for earlier waits for their pause.
+            def waiting(leg):
+                return bool(self.floor.answers[leg] or self.ledger.pending(leg))
+            if not (waiting("primary") or waiting("guest")):
+                return
+            if (not self.call.provider_ready
+                    or now - max(self.call.input_loud_at, self.user_heard_at) < PEOPLE_PAUSE_SECONDS):
+                self.flush_timer = self.later(0.5, self.flush_answers)
+                return
+            self.floor.answer_ready(waiting, now)
         source = self.floor.owner
         queue, pending = self.floor.answers[source], self.ledger.pending(source)
         if (queue or pending) and (not self.call.provider_ready or now - self.call.input_loud_at < 0.4):
@@ -1308,26 +1341,10 @@ class Call:
                 await start_subscription(self.manager.http, self.provider, PERSONA, "sol", self.trace)
             answer = await self.mobile.createAnswer()
             await self.mobile.setLocalDescription(answer)
-            context = []
-            if isinstance(history, list):
-                for item in history[-40:]:
-                    if not isinstance(item, dict):
-                        continue
-                    role = item.get("role")
-                    if role not in ("user", "assistant"):
-                        continue
-                    content = item.get("content") or []
-                    if not isinstance(content, list):
-                        continue
-                    text = " ".join(c.get("text", "") for c in content
-                                    if isinstance(c, dict) and isinstance(c.get("text"), str))
-                    if text:
-                        context.append(role + ": " + text[:2000])
+            context = self.read_history(history)
             if context:
-                text = "Recent chat context (do not read aloud):\n" + "\n".join(context)
-                self.context_text = text
                 if os.environ.get("VOICE_WARM_HAIKU", "1") != "0" and shutil.which("claude"):
-                    self.haiku = WarmHaiku(FAST_SYSTEM.format(who="Haiku") + "\n\n" + text[-6000:])
+                    self.haiku = WarmHaiku(FAST_SYSTEM.format(who="Haiku") + "\n\n" + self.context_text[-6000:])
                     self.spawn(self.start_haiku())
                 # raw tail is for the lanes only: as live context items the model answered them (catch-up, 11-16)
             # The subscription endpoint ignores session instructions (11-16 canary: "I'm ChatGPT"), so the
@@ -1354,6 +1371,30 @@ class Call:
             self.trace("call.setup_failed", error=type(exc).__name__, detail=str(exc)[:300])
             await self.close("setup_failed")
             raise
+
+    def read_history(self, history) -> list[str]:
+        """The chat the call opened from: its recent lines become this call's context text (lanes, hosts)."""
+        context = []
+        if isinstance(history, list):
+            for item in history[-40:]:
+                if not isinstance(item, dict):
+                    continue
+                role = item.get("role")
+                if role not in ("user", "assistant"):
+                    continue
+                content = item.get("content") or []
+                if not isinstance(content, list):
+                    continue
+                text = " ".join(c.get("text", "") for c in content
+                                if isinstance(c, dict) and isinstance(c.get("text"), str))
+                if text:
+                    context.append(role + ": " + text[:2000])
+        if context:
+            self.context_text = "Recent chat context (do not read aloud):\n" + "\n".join(context)
+        people = call_brief.people(history)
+        if isinstance(self.guest, GPTGuest):
+            self.guest.set_people(people)
+        return context
 
     async def start_guest(self, brief):
         guest = self.guest
