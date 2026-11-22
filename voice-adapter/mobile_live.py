@@ -197,6 +197,13 @@ REFRESH_LOCK = threading.Lock()
 HOST_DELEGATION = os.environ.get("HERMES_MOBILE_VOICE_CLIENT_DELEGATION", "") != "1"
 HERMES_BIN = os.environ.get("HERMES_BIN", str(Path.home() / ".hermes/hermes-agent/venv/bin/hermes"))
 DELEGATION_TIMEOUT_SECONDS = 600
+# Fire-and-receipt (A0190/A0124): a request made while this call's chat turn runs goes to a Hermes background agent
+# beside it, so a 95-411 s turn no longer holds (or redirects) it. A Hermes request still running after
+# RECEIPT_SECONDS gets one spoken receipt; its answer is spoken when it lands. SIDE_MAX bounds the background agents
+# one call may run at once; past it, a request joins the chat's turn as before.
+RECEIPT_SECONDS = float(os.environ.get("Z0LIVE_RECEIPT_SECONDS", "8"))
+RECEIPT = "Still working on that in Hermes. I'll tell you as soon as it's done; ask anything else meanwhile."
+SIDE_MAX = 3
 
 # z0live lanes relay (z0live_desktop/mobile_relay.py in the served z0live checkout): finals and
 # partials go to the broker's lanes, a delegation gets the lane answer at once, and Hermes' slow
@@ -1444,6 +1451,7 @@ class Call:
             job = self.spawn(self.ask_hermes(did, request))
             self.pending_delegations.add(job)
             job.add_done_callback(self.pending_delegations.discard)
+            self.spawn(self.receipt(did, job))
             self.latest_did = did  # an older question's lanes go quiet once this one starts
             if TIERS_ON:
                 self.spawn(self.tier_lanes(did, request))
@@ -1504,6 +1512,14 @@ class Call:
         if self.closed:
             self.trace("delegation.dropped_after_close", did=did)
             return
+        # Requests running side by side can come back with the same words: say them once (failures always).
+        spoken = self.__dict__.setdefault("answers_spoken", set())
+        key = " ".join(answer.split()).casefold()
+        if key in spoken and not answer.startswith("I couldn't finish"):
+            self.counts["host_delegation_repeat"] += 1
+            self.trace("delegation.repeat", did=did)
+            return
+        spoken.add(key)
         self.speak_for(did, answer)
 
     async def tier_lanes(self, did, request):
@@ -1674,14 +1690,57 @@ class Call:
                 self.chat = ""
             self.trace("chat.resolved", chat=self.chat)
         if self.chat:
-            # No fallback: a lost acknowledgement or final reply does not mean the turn didn't run.
-            answer = await asyncio.wait_for(chat_continuity.ask_chat(
-                self.manager.http, self.token, self.profile, self.chat, request, DELEGATION_TIMEOUT_SECONDS),
-                DELEGATION_TIMEOUT_SECONDS)
+            side = self.__dict__.setdefault("side_jobs", set())
+            if self.__dict__.get("chat_turn") and len(side) < SIDE_MAX:
+                # This call's chat turn is running: joining it would redirect that work and hold this answer
+                # until it ends. Run beside it instead, with the call's recent words as context.
+                side.add(did)
+                try:
+                    answer = await asyncio.wait_for(chat_continuity.ask_background(
+                        self.manager.http, self.token, self.profile, self.chat, self.side_request(request),
+                        lambda task: self.trace("delegation.background", did=did, task=task)),
+                        DELEGATION_TIMEOUT_SECONDS)
+                finally:
+                    side.discard(did)
+                self.counts["background_turns"] += 1
+                return answer
+            self.chat_turn = did  # set before the first await: a request a moment later sees the turn running
+            try:
+                # No fallback: a lost acknowledgement or final reply does not mean the turn didn't run.
+                answer = await asyncio.wait_for(chat_continuity.ask_chat(
+                    self.manager.http, self.token, self.profile, self.chat, request, DELEGATION_TIMEOUT_SECONDS),
+                    DELEGATION_TIMEOUT_SECONDS)
+            finally:
+                if self.__dict__.get("chat_turn") == did:
+                    self.chat_turn = None
             self.counts["chat_turns"] += 1
             self.trace("delegation.chat", did=did, chat=self.chat)
             return answer
         return await asyncio.to_thread(run_hermes, request, self.profile, True)
+
+    def side_request(self, request):
+        """A background agent's prompt: it starts fresh, so it gets the call's recent words with the request."""
+        said = "\n".join(f"{'Kevin' if role == 'user' else 'Voice'}: {text[:400]}"
+                         for role, text in list(self.protocol.exchanges)[-6:])
+        return (f"Kevin asked this on a live voice call while another request runs in this chat. Answer it on its "
+                f"own, in a few short spoken sentences.\n\nRecent call:\n{said or '(none)'}\n\nRequest: {request}")
+
+    async def sleep(self, seconds):  # the replay runs this on its own clock
+        await asyncio.sleep(seconds)
+
+    async def receipt(self, did, job):
+        """One spoken receipt for a Hermes request still running after RECEIPT_SECONDS: the work goes on and its
+        answer is spoken when it lands. A request a lane already answered gets none."""
+        timer = asyncio.ensure_future(self.sleep(RECEIPT_SECONDS))
+        try:
+            await asyncio.wait({job, timer}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            timer.cancel()
+        if job.done() or self.closed or did in self.__dict__.get("first_said", {}):
+            return
+        self.counts["receipts"] += 1
+        self.trace("delegation.receipt", did=did, s=RECEIPT_SECONDS)
+        self.speak_for(did, RECEIPT)
 
     async def audio_health(self):
         """Once a second for the first 60 s: frames each way and event-loop lag (choppy starts, 11-16)."""
