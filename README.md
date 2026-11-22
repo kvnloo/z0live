@@ -2,13 +2,25 @@
 
 z0live connects the Hermes mobile client to GPT-Live or Grok Voice. The Hermes plugin controls a separately installed z0live stack.
 
+## Demos
+
+Real recorded test calls (caller lines are Kevin's own words read by TTS; timings come from the call trace and the lane
+server log). Click a poster to download the video from the [demos release](https://github.com/kvnloo/z0live/releases/tag/demos-2026-11-21).
+
+| | |
+|---|---|
+| [![Field notes v4](docs/film/posters/z0live-field-notes-v4.jpg)](https://github.com/kvnloo/z0live/releases/download/demos-2026-11-21/z0live-field-notes-v4.mp4) | **Field notes: early troubleshooting and testing** (56 s, 1080p60, with music). One turbo-mode test call with the pauses cut and played at 1.1×: eight lanes racing a quick question and stepping aside for a code question, then the three bugs Hermes found in that call. |
+| [![Live demo v3](docs/film/posters/z0live-live-demo-v3.jpg)](https://github.com/kvnloo/z0live/releases/download/demos-2026-11-21/z0live-live-demo-v3.mp4) | **Live call, real recording, turbo (8 lanes)** (62.6 s, 1080p60). The same call uncut on the recording clock: caller and voice audio activity, lane hand-offs and answers, and what Hermes found in the code afterwards. |
+
+Film sources (Rust renderers, trace data and taste notes) are under [`docs/film/`](docs/film/).
+
 ## Install the Hermes plugin
 
-The plugin lives on `feat/plugin-s-tier`, not on `main`. To install a specific revision, resolve the branch to a commit SHA first:
+The plugin is at the repo root on `main`. To install a specific revision, resolve the branch to a commit SHA first:
 
 ```sh
 repo=https://github.com/kvnloo/z0live.git
-ref=$(git ls-remote --exit-code "$repo" refs/heads/feat/plugin-s-tier | cut -f1)
+ref=$(git ls-remote --exit-code "$repo" refs/heads/main | cut -f1)
 hermes plugins install "$repo" --ref "$ref" --enable
 ```
 
