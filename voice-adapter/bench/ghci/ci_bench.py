@@ -30,7 +30,8 @@ SUITES = {"slm-v1": VENDOR / "bench/slm-v1.json", "slm-v2": VENDOR / "bench/slm-
           "slm-v2-chat1k": HERE / "suites/slm-v2-chat1k.json",  # medium brief, make_medium.py (GH8)
           "slm-v2-half": HERE / "suites/slm-v2-half.json",  # half filler brief, make_half.py (GH9)
           "slm-v2-odd": HERE / "suites/slm-v2-odd.json",  # odd-indexed half, make_half.py odd (GH10)
-          "slm-v2-e5": HERE / "suites/slm-v2-e5.json"}  # even half minus filler pair 0, make_half.py e5 (GH11)
+          "slm-v2-e5": HERE / "suites/slm-v2-e5.json",  # even half minus filler pair 0, make_half.py e5 (GH11)
+          "slm-v2-es4": HERE / "suites/slm-v2-es4.json"}  # even half, pair 4 swapped for pair 1 in place, make_half.py es4 (GH12)
 REFUSAL = re.compile(r"(can'?t|cannot|unable|don'?t have|do not have|no access|not able|not sure|don'?t know|"
                      r"isn'?t in|not in the context|hermes)", re.I)
 DIGIT = re.compile(r"\d")

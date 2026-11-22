@@ -9,10 +9,13 @@ GH10: parity=1 keeps the complementary odd-indexed filler pairs 1, 3, ..., 11 (s
 same length, to split filler length from pair content.
 GH11: "e5" keeps the even half minus filler pair 0 (pairs 2,4,..,10; suites/slm-v2-e5.json) to test whether the
 first filler position carries the even half's advantage over the odd half.
+GH12: "es4" is the even half with filler pair 4 (sci-fi, 313 chars) replaced in place by odd pair 1 (dinner, 333,
+the closest-length odd pair). Length and positions stay fixed, and only one pair's content changes.
 Deterministic; fact pairs identified by make_medium.FACT_MARKERS.
 
   python3 make_half.py odd   # writes suites/slm-v2-odd.json
   python3 make_half.py e5    # writes suites/slm-v2-e5.json
+  python3 make_half.py es4   # writes suites/slm-v2-es4.json
 """
 import json
 import sys
@@ -23,12 +26,15 @@ from make_medium import FACT_MARKERS
 HERE = Path(__file__).resolve().parent
 
 
-def half_brief(full_brief, parity=0, drop=()):
+def half_brief(full_brief, parity=0, drop=(), swap=None):
+    """swap = {kept filler index: replacement filler index}; the replacement pair takes the kept pair's slot."""
     lines = full_brief.split("\n")
     header, status, turns = lines[0], lines[-1], lines[1:-1]
     assert header.startswith("Recent messages") and status.startswith("Status:"), (header, status)
+    pairs = list(zip(turns[0::2], turns[1::2]))
+    fillers = [p for p in pairs if not any(m in p[1] for m in FACT_MARKERS)]
     keep, n_fact, n_filler, n_kept_filler = [], 0, 0, 0
-    for kevin, hermes in zip(turns[0::2], turns[1::2]):
+    for kevin, hermes in pairs:
         assert kevin.startswith("Kevin: ") and hermes.startswith("Hermes: "), (kevin, hermes)
         if any(m in hermes for m in FACT_MARKERS):
             n_fact += 1
@@ -36,20 +42,22 @@ def half_brief(full_brief, parity=0, drop=()):
         else:
             if n_filler % 2 == parity and n_filler not in drop:
                 n_kept_filler += 1
-                keep += [kevin, hermes]
+                keep += list(fillers[swap[n_filler]]) if swap and n_filler in swap else [kevin, hermes]
             n_filler += 1
     assert (n_fact, n_filler, n_kept_filler) == (6, 12, 6 - len(drop)), (n_fact, n_filler, n_kept_filler)
     return "\n".join([header, *keep, status])
 
 
-SUITE_NAME = {0: "slm-v2-half", 1: "slm-v2-odd", "e5": "slm-v2-e5"}
-KEPT = {0: "0,2,4,6,8,10", 1: "1,3,5,7,9,11", "e5": "2,4,6,8,10"}
-VARIANT = {0: (0, ()), 1: (1, ()), "e5": (0, (0,))}  # key -> (parity, dropped filler indices)
+SUITE_NAME = {0: "slm-v2-half", 1: "slm-v2-odd", "e5": "slm-v2-e5", "es4": "slm-v2-es4"}
+KEPT = {0: "0,2,4,6,8,10", 1: "1,3,5,7,9,11", "e5": "2,4,6,8,10", "es4": "0,2,1,6,8,10 (pair 1 in pair 4's slot)"}
+# key -> (parity, dropped filler indices[, swap {kept index: replacement index}])
+VARIANT = {0: (0, ()), 1: (1, ()), "e5": (0, (0,)), "es4": (0, (), {4: 1})}
+MODE = {0: "", 1: ", odd-indexed", "e5": ", even-indexed minus pair 0",
+        "es4": ", even-indexed with pair 4 replaced in place by pair 1 (closest odd length, +20 chars)"}
 
 
 def variant_brief(full_brief, key=0):
-    parity, drop = VARIANT[key]
-    return half_brief(full_brief, parity, drop)
+    return half_brief(full_brief, *VARIANT[key])
 
 
 def half_suite(full, parity=0):
@@ -59,13 +67,13 @@ def half_suite(full, parity=0):
                     "(6 fact pairs, header and Status line verbatim). Synthetic, no owner chat data.",
             "brief": brief, "cases": full["cases"],
             "derived": {"from": "bench/slm-v2.json",
-                        "mode": "every other filler pair" + {0: "", 1: ", odd-indexed", "e5": ", even-indexed minus pair 0"}[parity],
+                        "mode": "every other filler pair" + MODE[parity],
                         "out_chars": len(brief), "builder": "bench/ghci/make_half.py"}}
 
 
 if __name__ == "__main__":
     full = json.loads((HERE.parent / "slm-v2.json").read_text())
-    parity = {"odd": 1, "e5": "e5"}.get(sys.argv[1] if sys.argv[1:] else "", 0)
+    parity = {"odd": 1, "e5": "e5", "es4": "es4"}.get(sys.argv[1] if sys.argv[1:] else "", 0)
     out = HERE / f"suites/{SUITE_NAME[parity]}.json"
     out.write_text(json.dumps(half_suite(full, parity), indent=1, ensure_ascii=False) + "\n")
     print(out, len(variant_brief(full["brief"], parity)), "chars")
