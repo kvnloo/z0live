@@ -74,6 +74,55 @@ class FloorTest(unittest.TestCase):
                 floor.user_turn(None, text, began, now, final=True, interrupted=interrupted)
                 self.assertEqual(floor.owner, expected)
 
+    def test_with_people_on_the_call_a_bot_gets_the_floor_by_name_or_a_follow_up_request(self):
+        # 11-22 film call, take 7: Kevin and a friend at one phone; their talk to each other ran Hermes and got speech.
+        floor = Floor(0, lambda *a, **k: None, available=True, people=2)
+        floor.change("people", "people_on_call", 0)
+        floor.user_turn(None, "Is the glass theme on your phone yet?", 1, 2, final=True)
+        self.assertEqual(floor.owner, "people")
+        floor.user_turn(Address.OTHER, "Hermes, what's on my phone?", 3, 4, final=True)
+        self.assertEqual((floor.owner, floor.reason), ("primary", "redirected"))
+        floor.reply_started("primary", 5)
+        floor.user_turn(None, "Get all of it onto my S25", 6, 7, final=True)  # barge-in with the next request
+        self.assertEqual(floor.owner, "primary")
+        floor.reply_finished("primary", 9, 8)
+        floor.user_turn(None, "Get it onto the tablet too", 10, 11, final=True)
+        self.assertEqual(floor.owner, "primary")
+        floor.user_turn(None, "Okay, nice. That's the one I kept hitting", 12, 13, final=True)  # a remark, not a request
+        self.assertEqual((floor.owner, floor.reason), ("people", "people_talk"))
+        floor.user_turn(Address.GUEST, "Tek, what caused the crash?", 14, 15, final=True)
+        floor.reply_finished("guest", 20, 16)
+        floor.user_turn(None, "And can you check the fix too?", 45, 46, final=True)  # too long after the reply
+        self.assertEqual(floor.owner, "people")
+        floor.user_turn(None, "Mm-hm", 47, 48, final=True)
+        self.assertEqual(floor.owner, "people")
+        self.assertFalse(floor.answer_ready(lambda leg: False, 50))
+        floor.enqueue(Answer("primary", "d1", "It is already running."), "tek")
+        self.assertTrue(floor.answer_ready(lambda leg: False, 50))
+        self.assertEqual((floor.owner, floor.reason), ("primary", "answer_ready"))
+
+    def test_with_people_on_the_call_a_request_that_cut_off_the_bot_stays_with_it(self):
+        # Take 8: Kevin began his next request as Hermes finished; Hermes then began "Actually," and Kevin's barge-in
+        # cut it. Measured against that last reply (begun after him), his request was taken for people talk and
+        # never reached Hermes.
+        floor = Floor(0, lambda *a, **k: None, available=True, people=2)
+        floor.user_turn(Address.OTHER, "Hermes, what's on my phone versus staging?", 1, 2, final=True)
+        floor.reply_started("primary", 3)
+        floor.reply_finished("primary", 17, 3)
+        floor.reply_started("primary", 23)  # "Actually," while Kevin (since 20) is already talking
+        floor.reply_finished("primary", 24, 23)  # the barge-in
+        floor.user_turn(None, "Yeah. Merged isn't done. Get all of it onto my S25", 20, 28, final=True)
+        self.assertEqual(floor.owner, "primary")
+        floor.user_turn(None, "Okay, I think it's still last night's build", 50, 52, final=True)
+        self.assertEqual(floor.owner, "people")
+
+    def test_with_people_on_the_call_an_idle_guest_leaves_the_floor_to_the_people(self):
+        floor = Floor(0, lambda *a, **k: None, available=True, people=2)
+        floor.user_turn(Address.GUEST, "Tek, what", 1, 1, final=True)
+        floor.reply_finished("guest", 15, 12)
+        floor.expire(35)
+        self.assertEqual((floor.owner, floor.reason), ("people", "guest_idle"))
+
     def test_silence_starts_after_the_reply(self):
         floor = Floor(0, lambda *a, **k: None, available=True)
         floor.user_turn(Address.GUEST, "Tek, what", 1, 1, final=True)
@@ -100,6 +149,9 @@ class PrimaryCall(FakeCall):
 
     def guest_note(self, text):
         self.sent.append(text)
+
+    def host_context(self):
+        return ""  # a call opened from no chat
 
 
 class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
@@ -179,7 +231,7 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
             g.observe("primary", turn("done", "Hermes, your turn", 3000, 4000, tid="redirect"))
             result.set_result("A release.")
             await asyncio.gather(*self.call.tasks)
-            self.assertEqual(host.await_args.args[1:], ("tek", "z0live-guest-test-call", "What shipped?"))
+            self.assertEqual(host.await_args.args[1:], ("tek", "z0live-guest-test-call", "What shipped?", ""))
         self.assertTrue(any("Primary answer" in str(msg) for msg in self.call.sent))
         self.assertFalse(any("A release" in str(msg) for msg in self.call.sent))
         g.observe("primary", output("Primary answer."))
@@ -237,6 +289,22 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(guest_voice.configured(), self.guest.config)
                 path.write_text('{"guest":{"engine":"gpt-live","profile":"../poteto","name":"tek","voice":"ember"}}')
                 self.assertIsNone(guest_voice.configured())
+
+    async def test_people_talk_is_neither_heard_nor_delegated_and_both_voices_are_told(self):
+        g = self.guest
+        g.set_people(2)
+        self.assertEqual(g.floor.owner, "people")
+        g.observe("guest", turn("created", "", 1000, 1200, tid="u1"))
+        g.observe("guest", turn("done", "Is the glass theme on your phone yet?", 1000, 3000, tid="u1"))
+        self.assertFalse(g.observe("primary", output("I'll check your screen quickly.")))
+        self.assertFalse(g.output(frame()).to_ndarray().any())
+        self.assertFalse(g.may_delegate("primary", "d1"))
+        self.assertFalse(g.may_delegate("guest", "gd1"))
+        g.observe("primary", turn("done", "", role="assistant", tid="hidden"))
+        g.observe("primary", turn("done", "Hermes, what's on my phone?", 4000, 6000, tid="u2"))
+        self.assertTrue(g.may_delegate("primary", "d2"))
+        self.assertTrue(g.observe("primary", output("Checking.")))
+        self.assertFalse(any("I'll check your screen" in str(msg) for msg in self.call.sent))
 
     async def test_tek_back_to_you_keeps_tek_on_the_floor(self):
         g = self.guest
@@ -483,6 +551,91 @@ class FloorTimingTest(TimedGuestTest):
         self.assertTrue((g.output(frame()).to_ndarray() == 7).all(), "tail muted while still loud")
         self.at(100.55)  # quiet for longer than LEVEL_OFF_SECONDS: anything after is not this reply
         self.assertFalse(g.output(frame()).to_ndarray().any())
+
+
+# The chat a call opened from (take 7 of the 11-22 film call, shortened): the work is hermes-android.
+FILM_CHAT = [{"role": "user", "content": [{"type": "input_text", "text": "status on getting hermes-android staging onto "
+                                                                        "my phone?"}]},
+             {"role": "assistant", "content": [{"type": "output_text", "text": "24 PRs merged into staging, including "
+                                                "the Glass theme and a fix for the Glass crash on launch (PR 28). A "
+                                                "long run is already going for this: card t_0a96e2de."}]}]
+
+
+class GuestContextTest(unittest.IsolatedAsyncioTestCase):
+    """Take 7: Jules asked Tek "what caused the glass crash in PR twenty eight?". Tek's Hermes got only those words,
+    searched the wrong repo and said "I can't find any glass crash in PR 28"; the call's chat said hermes-android."""
+
+    async def call(self):
+        config = guest_voice.GuestConfig("gpt-live", "tek", "ember", "tek")
+        with patch.dict(live.os.environ, {"HERMES_VOICE_ENGINE": "gpt-live"}), \
+                patch.object(live.guest_voice, "configured", return_value=config):
+            call = live.Call(live.Manager(None), profile="")
+        self.addAsyncCleanup(call.close, "test")
+        call.relay, call.heard_user = None, True
+        call.read_history(FILM_CHAT)
+        return call
+
+    async def test_tek_hermes_gets_the_calls_chat_context_with_the_request(self):
+        call = await self.call()
+        got = []
+
+        async def host(http, profile, session, request, context=""):
+            got.append((request, context))
+            return "PR 28 fixed the crash."
+
+        guest = call.guest
+        guest.floor.available = True
+        with patch.object(live, "ask_guest_host", host):
+            guest.message(json.dumps(turn("created", "", 1000, 1200, tid="u1")))
+            guest.message(json.dumps(turn("done", "Hey, Tek. What caused the glass crash in PR twenty eight?", 1000,
+                                          5000, tid="u1")))
+            guest.message(json.dumps({"type": "delegation.created", "item": {
+                "id": "gd1", "target": "client", "content": [{"text": "what caused the glass crash in PR 28"}]}}))
+            await asyncio.gather(*call.tasks)
+        [(request, context)] = got
+        self.assertIn("PR twenty eight", request)
+        self.assertIn("hermes-android", context)
+        self.assertIn("Glass crash on launch (PR 28)", context)
+
+    async def test_the_guest_host_request_carries_the_context_as_background(self):
+        received = []
+
+        async def completion(request):
+            received.append((await request.json())["messages"])
+            return web.json_response({"choices": [{"message": {"content": "ok"}}]},
+                                     headers={"X-Hermes-Session-Id": request.headers["X-Hermes-Session-Id"]})
+
+        app = web.Application()
+        app.router.add_post("/v1/chat/completions", completion)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        self.addAsyncCleanup(runner.cleanup)
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        with tempfile.TemporaryDirectory() as home:
+            keys = Path(home) / ".config/z0live/guest-hosts"
+            keys.mkdir(parents=True)
+            (keys / "tek.key").write_text("tek-key")
+            with patch.object(Path, "home", return_value=Path(home)), patch.dict(
+                    live.os.environ, {"Z0LIVE_GUEST_HOST_PORT": str(runner.addresses[0][1])}):
+                async with ClientSession() as http:
+                    await live.ask_guest_host(http, "tek", "s1", "What caused it?", "The work is hermes-android.")
+        [messages] = received
+        self.assertEqual(messages[-1], {"role": "user", "content": "What caused it?"})
+        self.assertTrue(any(m["role"] == "system" and "The work is hermes-android." in m["content"] for m in messages))
+
+    @patch.object(live, "HOST_DELEGATION", True)
+    async def test_kevins_hermes_on_the_oneshot_path_gets_the_same_context(self):
+        call = await self.call()
+        call.protocol.seen.append("d1")
+        call.send = lambda *a, **k: None
+        asked = []
+        with patch.object(live, "run_hermes", lambda request, profile, own_lane=False: asked.append(request) or "ok"), \
+                patch.object(live, "TIERS_ON", True), patch.object(live.Call, "tier_lanes", AsyncMock()):
+            await call.host_delegate("d1", "Get all of it onto my S25")
+        [request] = asked
+        self.assertIn("card t_0a96e2de", request)
+        self.assertTrue(request.rstrip().endswith("Get all of it onto my S25"))
 
 
 class PrimaryDelegationTest(unittest.IsolatedAsyncioTestCase):

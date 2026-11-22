@@ -157,8 +157,9 @@ class FakeChat:
 
 
 class Replay:
-    def __init__(self, rows: list[dict]):
+    def __init__(self, rows: list[dict], history: list | None = None):
         self.rows = sorted(rows, key=lambda r: r["t"])
+        self.history = history  # the chat the call opened from, as the phone sends it (Call.start)
         self.now = 0.0
         self.hermes = {r["did"]: (r["work"], r["answer"]) for r in self.rows if r.get("cost") == "hermes"}
         self.lanes = {}
@@ -174,6 +175,7 @@ class Replay:
         self.requests: list[tuple[str, str]] = []  # (did, request) as host_delegate received them
         self.waiting: list[tuple[float, asyncio.Future, object]] = []
         self.backgrounded: list[str] = []  # delegations Hermes ran as background agents beside the chat's turn
+        self.guest_asked: list[tuple[float, str]] = []  # (t, request) the guest voice's own Hermes received
 
     def later(self, seconds, value):
         future = asyncio.get_running_loop().create_future()
@@ -232,7 +234,8 @@ class Replay:
             self.requests.append((did, request))
             await original(call, did, request)
 
-        async def ask_guest_host(http, profile, session, request):
+        async def ask_guest_host(http, profile, session, request, *_, **__):
+            replay.guest_asked.append((replay.now, request))
             return await replay.later(5.0, f"guest answer for {request[:40]}")
 
         class Clock:  # mobile_live's view of time is the recorded clock; the asyncio loop keeps real time
@@ -257,6 +260,8 @@ class Replay:
             call = live.Call(live.Manager(http), profile="")
             call.relay, call.chat, call.heard_user = None, "chat-1", True
             call.subscription.ready.set()
+            if self.history is not None:
+                call.read_history(self.history)
             def send(event, to_provider=False, **_):
                 if to_provider:
                     self.sent.append((self.now, event))

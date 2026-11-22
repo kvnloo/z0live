@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from pathlib import Path
 
@@ -59,6 +60,18 @@ def digest(history) -> str:
     if replies:
         lines.append("Top of the chat's last reply: " + replies[-1][:700])
     return "\n".join(lines)
+
+
+_COUNT = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6}
+_PEOPLE = re.compile(r"\b(two|three|four|five|six|[2-6])\s+(?:people|persons|humans)\b", re.I)
+
+
+def people(history) -> int:
+    """How many people share the phone on this call, from the chat it opened from ("This call has two people at the
+    desk, Kevin and his friend Jules"). 1 unless the chat says so."""
+    found = [_PEOPLE.search(text) for role in ("user", "assistant") for text in _texts(history, role)]
+    counts = [_COUNT.get(m.group(1).lower()) or int(m.group(1)) for m in found if m]
+    return max(counts, default=1)
 
 
 def build(history, chat: str = "") -> str:

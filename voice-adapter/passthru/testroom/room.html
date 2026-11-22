@@ -1,0 +1,24 @@
+<!doctype html><title>test room</title><body style="background:#222;color:#eee">
+<h3>passthru test room (z0 side)</h3><video id=v autoplay muted playsinline width=320></video>
+<script>
+// A minimal "video app": asks for mic+camera, sends them to one peer, plays the peer's audio.
+(async () => {
+  const pc = new RTCPeerConnection();
+  const s = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+  s.getTracks().forEach(t => pc.addTrack(t, s));
+  pc.ontrack = e => { const a = new Audio(); a.srcObject = e.streams[0]; a.play().catch(() => {}); };
+  await pc.setLocalDescription(await pc.createOffer());
+  await new Promise(r => { if (pc.iceGatheringState === 'complete') r(); else pc.onicegatheringstatechange = () => pc.iceGatheringState === 'complete' && r(); });
+  await fetch('/sig/offer', { method: 'POST', body: JSON.stringify(pc.localDescription) });
+  for (;;) { const r = await fetch('/sig/answer'); if (r.status === 200) { await pc.setRemoteDescription(await r.json()); break; } await new Promise(r => setTimeout(r, 200)); }
+  window.roomPc = pc;
+  if (location.search.includes('button=1')) {  // an app with its own share button, like Meet's
+    const b = document.createElement('button'); b.textContent = 'Share screen'; document.body.appendChild(b);
+    b.onclick = async () => {
+      const d = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      pc.getSenders().find(x => x.track && x.track.kind === 'video').replaceTrack(d.getVideoTracks()[0]);
+      window.appShared = true;
+    };
+  }
+})();
+</script>

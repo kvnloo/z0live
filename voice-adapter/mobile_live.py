@@ -50,6 +50,7 @@ from aiortc.contrib.media import MediaRelay  # noqa: E402
 # the warm-Haiku/Groq instant lane, the Fable lanes and the core lanes relay.
 TIERS_ON = os.environ.get("Z0LIVE_TIERS", "off") == "on"
 import handoff  # noqa: E402 - sibling module (call continues on z0live when Kevin leaves the screen)
+import passthru  # noqa: E402 - sibling module (z0 joins Kevin's other video call)
 CHAT_CONTINUITY = os.environ.get("HERMES_MOBILE_VOICE_CHAT", "1") != "0"
 TTFT_MODEL = os.environ.get("VOICE_TTFT_MODEL", "qwen/qwen3.8-27b")  # Groq: ~0.2 s whole answer (11-15 probe)
 # Children (claude, hermes, lanes) get their own transient scope. Inside this unit's 768M cap they pushed it
@@ -204,6 +205,16 @@ DELEGATION_TIMEOUT_SECONDS = 600
 RECEIPT_SECONDS = float(os.environ.get("Z0LIVE_RECEIPT_SECONDS", "8"))
 RECEIPT = "Still working on that in Hermes. I'll tell you as soon as it's done; ask anything else meanwhile."
 SIDE_MAX = 3
+# The background a Hermes run gets when it does not run in the call's own chat (Tek's Hermes, the oneshot path).
+CALL_CONTEXT = ("This request comes from a live voice call; answer in a few short spoken sentences. Below is the chat "
+                "the call was opened from: background, already handled. Use it to place the request (which repo, PR, "
+                "card or device it means). If what the request asks for is already running (a kanban card, a "
+                "session, a job), report its status and latest receipts instead of starting it again.")
+# Hermes runs one call may have going at once on the host path (no linked chat). Past it a request waits for a free
+# run, and the voice says it is queued instead of claiming a hand-off that has not happened.
+HOST_MAX = 3
+QUEUED = ("I'm still on {running} earlier requests, so this one is queued as number {position}. It starts as soon as "
+          "one of them finishes.")
 
 # z0live lanes relay (z0live_desktop/mobile_relay.py in the served z0live checkout): finals and
 # partials go to the broker's lanes, a delegation gets the lane answer at once, and Hermes' slow
@@ -281,12 +292,19 @@ def _hermes_once(request: str, profile: str, resume: str, own_lane: bool = False
 
 
 def run_hermes(request: str, profile: str, own_lane: bool = False) -> str:
-    with VOICE_LOCKS[profile]:
+    lock = VOICE_LOCKS[profile]
+    if not lock.acquire(blocking=False):
+        # The voice session is busy with an earlier turn. Waiting for it held Kevin's long-run ask for the whole call
+        # (11-22 film call, take 7), so this turn runs now, beside it, in a session of its own.
+        return _hermes_once(request, profile, "", own_lane)[0]
+    try:
         sid, last = VOICE_SESSIONS.get(profile, ("", 0.0))
         resume = sid if sid and time.monotonic() - last < VOICE_SESSION_IDLE_SECONDS else ""
         text, new_sid = _hermes_once(request, profile, resume, own_lane)
         VOICE_SESSIONS[profile] = (new_sid or resume, time.monotonic())
         return text
+    finally:
+        lock.release()
 
 
 def refresh_codex_login():
@@ -628,9 +646,16 @@ class AudioBridge(MediaStreamTrack):
         if self.direction == "output":
             if self.level.frame(frame, self.duplex.floor.owner if self.duplex else None):
                 call.output_loud_at = time.monotonic()
+            if call.passthru and call.passthru.active:
+                call.passthru.voice(frame)  # z0's voice into the meeting (floor-gated)
+                if call.passthru.phone_muted():
+                    for plane in frame.planes:
+                        plane.update(bytes(plane.buffer_size))
         else:
             if call.muted:
                 self.level.frame(frame)  # let the input span end during mute
+            if call.passthru and call.passthru.active:
+                frame = call.passthru.ears(frame)  # the meeting, mixed into what z0 hears
             call.trace.record_audio(frame)
         return frame
 
@@ -682,6 +707,12 @@ class VoiceReply:
     cut: bool = False
 
 
+# With more than one person at the phone, the people often talk to each other (11-22 film call, take 7).
+PEOPLE_NOTE = ("(The people on the call are talking to each other, not to you. Nothing you said to that was heard and "
+               "nothing was handed off. Stay quiet until someone says your name or asks you directly.)")
+PEOPLE_PAUSE_SECONDS = 1.5  # a pause in the people's talk long enough for a bot to give an answer it was asked for
+
+
 class GPTGuest:
     def __init__(self, call, config):
         self.call, self.config = call, config
@@ -698,6 +729,7 @@ class GPTGuest:
         # Answers handed to a voice, delivered once the voice has said them (answer_delivery).
         self.ledger = answer_delivery.Ledger()
         self.quiet_since: dict[Leg, float | None] = {"primary": None, "guest": None}  # last reply or caller turn end
+        self.user_heard_at = float("-inf")  # the latest caller transcript event on either leg
         self.flush_timer: asyncio.TimerHandle | None = None
         identity = "Tek (also Teknium, டெக் or டெக்னியம்)" if config.profile == "tek" else config.name
         self.persona = (f"You are {identity}, a guest on Kevin's call. When Kevin addresses you or continues "
@@ -742,6 +774,18 @@ class GPTGuest:
             self.tails.pop(data["previous"], None)
             self.audio.clear()
         self.call.trace(event, **data)
+        if event == "floor.changed" and data["speaker"] == "people" and data["reason"] == "people_talk":
+            # Both voices heard words that were not for them; what they said to it was never heard.
+            self.note(PEOPLE_NOTE)
+            self.call.guest_note(PEOPLE_NOTE)
+
+    def set_people(self, people: int):
+        """More than one person at the phone: a voice speaks only when named or asked right after its own reply."""
+        self.floor.people = people
+        if people > 1:
+            self.call.trace("floor.people", people=people)
+            if self.floor.reason == "call_start":
+                self.floor.change("people", "people_on_call", time.monotonic())
 
     def transport_replaced(self, source: Leg, clock_offset_ms: int):
         self.clock_offsets[source] = clock_offset_ms
@@ -806,6 +850,7 @@ class GPTGuest:
         else:
             user = None
         if user:
+            self.user_heard_at = now
             self.interrupt(user, now)
             self.commit_user(source, now, final=kind == "turn.done")
             if kind == "turn.done":
@@ -817,6 +862,8 @@ class GPTGuest:
             if kind != "turn.done" and reply is None:
                 reply = self.replies[source] = VoiceReply(self.call.heard_user and self.floor.owner == source, now)
                 self.quiet_since[source] = None
+                if reply.allowed:
+                    self.floor.reply_started(source, now)
             if reply is not None:
                 allowed = reply.allowed and not reply.cut and self.floor.owner == source
                 if kind == "turn.created":
@@ -914,6 +961,17 @@ class GPTGuest:
         busy = (reply and reply.allowed and not reply.cut) or self.ledger.pending(self.floor.owner)
         if not busy:
             self.floor.expire(now)
+        if self.floor.owner == "people":
+            # The people are talking to each other: an answer someone asked for earlier waits for their pause.
+            def waiting(leg):
+                return bool(self.floor.answers[leg] or self.ledger.pending(leg))
+            if not (waiting("primary") or waiting("guest")):
+                return
+            if (not self.call.provider_ready
+                    or now - max(self.call.input_loud_at, self.user_heard_at) < PEOPLE_PAUSE_SECONDS):
+                self.flush_timer = self.later(0.5, self.flush_answers)
+                return
+            self.floor.answer_ready(waiting, now)
         source = self.floor.owner
         queue, pending = self.floor.answers[source], self.ledger.pending(source)
         if (queue or pending) and (not self.call.provider_ready or now - self.call.input_loud_at < 0.4):
@@ -989,7 +1047,8 @@ class GPTGuest:
         profile = self.config.profile
         self.call.trace("guest.delegation.start", profile=profile, did=did, session=self.session)
         try:
-            answer = await ask_guest_host(self.call.manager.http, profile, self.session, request)
+            answer = await ask_guest_host(self.call.manager.http, profile, self.session, request,
+                                          self.call.host_context())
             self.call.trace("guest.delegation.done", profile=profile, did=did, session=self.session)
         except Exception as exc:  # noqa: BLE001 - explain failure on the guest, never fall back to the primary
             self.call.trace("guest.delegation.failed", profile=profile, did=did, detail=str(exc)[:300])
@@ -1054,12 +1113,13 @@ class GPTGuest:
         await self.subscription.close()
 
 
-async def ask_guest_host(http, profile, session, request):
+async def ask_guest_host(http, profile, session, request, context=""):
     key = (Path.home() / ".config/z0live/guest-hosts" / (profile + ".key")).read_text().strip()
     port = int(os.environ.get("Z0LIVE_GUEST_HOST_PORT", "18644"))
     headers = {"Authorization": "Bearer " + key, "X-Hermes-Session-Id": session}
     messages = [{"role": "system", "content": "You are answering as a guest on a voice call. Give a brief spoken "
                  "answer. Never message, post, deploy, or change settings from this call. Do not quote secrets."},
+                *([{"role": "system", "content": context}] if context else []),
                 {"role": "user", "content": request}]
     async with http.post(f"http://127.0.0.1:{port}/v1/chat/completions", json={"messages": messages},
                          headers=headers, allow_redirects=False,
@@ -1109,6 +1169,7 @@ class Call:
             self.trace("engine.unavailable", wanted=self.engine, using="gpt-live")
             self.engine = "gpt-live"
         self.leg = grok_leg.GrokLeg(self, PERSONA) if self.engine == "grok" else None
+        self.passthru = passthru.Passthru(self) if passthru.enabled() else None
         self.guest_config = guest_voice.configured() if self.engine == "gpt-live" else None
         self.guest = None
         if self.guest_config:
@@ -1251,6 +1312,8 @@ class Call:
                 text = turn.get("transcript", "")
                 if turn.get("role") == "user" and isinstance(text, str):
                     self.trace.finish_turn(text or self.protocol.turn_text["user"])
+            if self.passthru:
+                self.passthru_event(kind, event)
         duplex = self.guest if isinstance(self.guest, GPTGuest) else None
         if from_provider:
             audible = duplex.observe("primary", event) if duplex else True
@@ -1308,26 +1371,10 @@ class Call:
                 await start_subscription(self.manager.http, self.provider, PERSONA, "sol", self.trace)
             answer = await self.mobile.createAnswer()
             await self.mobile.setLocalDescription(answer)
-            context = []
-            if isinstance(history, list):
-                for item in history[-40:]:
-                    if not isinstance(item, dict):
-                        continue
-                    role = item.get("role")
-                    if role not in ("user", "assistant"):
-                        continue
-                    content = item.get("content") or []
-                    if not isinstance(content, list):
-                        continue
-                    text = " ".join(c.get("text", "") for c in content
-                                    if isinstance(c, dict) and isinstance(c.get("text"), str))
-                    if text:
-                        context.append(role + ": " + text[:2000])
+            context = self.read_history(history)
             if context:
-                text = "Recent chat context (do not read aloud):\n" + "\n".join(context)
-                self.context_text = text
                 if os.environ.get("VOICE_WARM_HAIKU", "1") != "0" and shutil.which("claude"):
-                    self.haiku = WarmHaiku(FAST_SYSTEM.format(who="Haiku") + "\n\n" + text[-6000:])
+                    self.haiku = WarmHaiku(FAST_SYSTEM.format(who="Haiku") + "\n\n" + self.context_text[-6000:])
                     self.spawn(self.start_haiku())
                 # raw tail is for the lanes only: as live context items the model answered them (catch-up, 11-16)
             # The subscription endpoint ignores session instructions (11-16 canary: "I'm ChatGPT"), so the
@@ -1354,6 +1401,30 @@ class Call:
             self.trace("call.setup_failed", error=type(exc).__name__, detail=str(exc)[:300])
             await self.close("setup_failed")
             raise
+
+    def read_history(self, history) -> list[str]:
+        """The chat the call opened from: its recent lines become this call's context text (lanes, hosts)."""
+        context = []
+        if isinstance(history, list):
+            for item in history[-40:]:
+                if not isinstance(item, dict):
+                    continue
+                role = item.get("role")
+                if role not in ("user", "assistant"):
+                    continue
+                content = item.get("content") or []
+                if not isinstance(content, list):
+                    continue
+                text = " ".join(c.get("text", "") for c in content
+                                if isinstance(c, dict) and isinstance(c.get("text"), str))
+                if text:
+                    context.append(role + ": " + text[:2000])
+        if context:
+            self.context_text = "Recent chat context (do not read aloud):\n" + "\n".join(context)
+        people = call_brief.people(history)
+        if isinstance(self.guest, GPTGuest):
+            self.guest.set_people(people)
+        return context
 
     async def start_guest(self, brief):
         guest = self.guest
@@ -1403,6 +1474,29 @@ class Call:
         did = did if did in self.protocol.seen else None
         for msg in self.protocol.from_mobile({"type": "session.commentary.append", "delegation_id": did, "content": text}):
             self.send(msg, to_provider=True)
+
+    def passthru_event(self, kind, event):
+        """Floor + voice commands for passthru, from the provider's transcripts."""
+        p, now = self.passthru, time.monotonic()
+        turn = event.get("turn") or {}
+        if kind == "input_transcript.added":
+            p.floor.user_said(str((event.get("item") or {}).get("text") or ""), now)
+        elif kind in ("turn.created", "output_transcript.added") and turn.get("role", "assistant") == "assistant" \
+                and not p.floor.reply_open and kind == "turn.created":
+            p.floor.reply_started(now)
+        elif kind == "output_transcript.added" and not p.floor.reply_open and now >= p.floor.tail_until:
+            p.floor.reply_started(now)
+        elif kind == "turn.done" and turn.get("role") == "assistant":
+            p.floor.reply_done(now)
+        elif kind == "turn.done" and turn.get("role") == "user":
+            text = str(turn.get("transcript") or self.protocol.turn_text["user"] or "")
+            p.floor.user_said(text, now)
+            found = passthru.command(text, active=p.active)
+            if found:
+                # Kevin's own phone leg was loud during this turn; otherwise the words came from the meeting.
+                from_kevin = not p.active or (now - self.input_loud_at < 10 and not self.muted)
+                self.trace("passthru.command", action=found[0], arg=found[1][:80], from_kevin=from_kevin)
+                self.spawn(passthru.run_command(self, *found, from_kevin=from_kevin))
 
     def note(self, text, turn_id=None):
         for part in chunks(text[:4000]):
@@ -1716,7 +1810,44 @@ class Call:
             self.counts["chat_turns"] += 1
             self.trace("delegation.chat", did=did, chat=self.chat)
             return answer
-        return await asyncio.to_thread(run_hermes, request, self.profile, True)
+        return await self.run_host(did, self.host_context() + "\n\nRequest: " + request
+                                   if self.context_text else request)
+
+    def host_context(self) -> str:
+        """What a Hermes that starts without the call's chat needs to place a request: the chat the call opened from
+        and the call's recent words. Tek's Hermes got only the words to it, so "the glass crash in PR 28" was looked
+        up in the wrong repo (11-22 film call, take 7)."""
+        if not self.context_text:
+            return ""
+        said = "\n".join(f"{'Caller' if role == 'user' else 'Voice'}: {' '.join(text.split())[:400]}"
+                         for role, text in list(self.protocol.exchanges)[-6:])
+        return (f"{CALL_CONTEXT}\n\n{self.context_text[-6000:]}"
+                + (f"\n\nSaid on the call so far:\n{said}" if said else ""))
+
+    async def run_host(self, did, request):
+        """One Hermes run on this host, beside any the call already has going, up to HOST_MAX."""
+        running = self.__dict__.setdefault("host_running", set())
+        waiting = self.__dict__.setdefault("host_waiting", [])
+        free = self.__dict__.setdefault("host_free", asyncio.Condition())
+        began = time.monotonic()
+        if len(running) >= HOST_MAX:
+            waiting.append(did)
+            self.__dict__.setdefault("host_queued", set()).add(did)
+            self.trace("delegation.queued", did=did, position=len(waiting), running=len(running))
+            self.speak_for(did, QUEUED.format(running=len(running), position=len(waiting)))
+            try:
+                async with free:
+                    await free.wait_for(lambda: len(running) < HOST_MAX and waiting[0] == did)
+            finally:
+                waiting.remove(did)
+        running.add(did)
+        self.trace("delegation.hermes", did=did, running=len(running), waited_s=round(time.monotonic() - began, 3))
+        try:
+            return await asyncio.to_thread(run_hermes, request, self.profile, True)
+        finally:
+            running.discard(did)
+            async with free:
+                free.notify_all()
 
     def side_request(self, request):
         """A background agent's prompt: it starts fresh, so it gets the call's recent words with the request."""
@@ -1736,8 +1867,9 @@ class Call:
             await asyncio.wait({job, timer}, return_when=asyncio.FIRST_COMPLETED)
         finally:
             timer.cancel()
-        if job.done() or self.closed or did in self.__dict__.get("first_said", {}):
-            return
+        if (job.done() or self.closed or did in self.__dict__.get("first_said", {})
+                or did in self.__dict__.get("host_queued", set())):
+            return  # a queued request was already told it is queued: "still working on it" would not be true
         self.counts["receipts"] += 1
         self.trace("delegation.receipt", did=did, s=RECEIPT_SECONDS)
         self.speak_for(did, RECEIPT)
@@ -2002,6 +2134,7 @@ def make_app():
     app = web.Application(client_max_size=512 * 1024)
     app.cleanup_ctx.append(resources)
     app.router.add_post(PATH, progress)
+    app.router.add_post(passthru.PATH, passthru.control)
     app.router.add_get("/_z0live/ready", health)
     app.router.add_get("/api/audio/voice-live/status", status)
     app.router.add_post("/api/audio/voice-live/session", session)

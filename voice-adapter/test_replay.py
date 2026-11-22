@@ -215,5 +215,95 @@ class TwoVoiceDelivery(unittest.TestCase):
         self.assertEqual(report["repeats"], [])
 
 
+def heard(t0, t1, text, tid, src="provider", start_ms=None):
+    """A caller turn as one leg hears it: turn.created, the words as one turn.delta, turn.done."""
+    start = int((t0 - 0.6) * 1000) if start_ms is None else start_ms
+    end = start + int((t1 - t0) * 1000)
+    done = {"id": tid, "role": "user", "transcript": text, "start_ms": start, "end_ms": end}
+    return [{"t": t0, "src": src, "rx": {"type": "turn.created", "turn": {**done, "transcript": "", "end_ms": start + 200}}},
+            {"t": round(t1 - 0.3, 3), "src": src, "rx": {"type": "turn.delta", "turn_id": tid, "delta": text,
+                                                       "start_ms": start + 200, "end_ms": end}},
+            {"t": t1, "src": src, "rx": {"type": "turn.done", "turn": done}}]
+
+
+def guest_delegation(t, did, text):
+    return [{**row, "src": "guest"} for row in delegation(t, did, text)]
+
+
+def guest_speech(t0, t1, text, tid):
+    return [{**row, "src": "guest"} for row in speech(t0, t1, text, tid)]
+
+
+# Two people at one phone (Kevin and a friend) and two bots (Hermes, Tek). Take 7 of the 11-22 film call: timing and
+# event order from its trace, words made up.
+PEOPLE = [{"role": "user", "content": [{"type": "input_text", "text": "status on the laptop beta?"}]},
+          {"role": "assistant", "content": [{"type": "output_text", "text": "This call has two people at the desk, "
+                                             "Kevin and his friend Sam, and two bots: Hermes and Tek. When Kevin and "
+                                             "Sam talk to each other, stay quiet."}]}]
+
+
+class PeopleOnTheCall(unittest.TestCase):
+    def test_bots_stay_quiet_while_the_people_talk_to_each_other(self):
+        # Take 7: the friend's "Is the glass theme on your phone yet?" (to Kevin) ran a Hermes job that checked the
+        # phone, Tek drafted a reply, and Kevin's "No, I think it's still last night's build" got bot speech too.
+        rows = (GUEST
+                # 0. friend -> Kevin
+                + heard(6.2, 12.3, "Hey, wait, is the dark mode on your laptop yet? I don't see it on mine", "g0", "guest")
+                + heard(6.8, 12.9, "Hey, wait, is the dark mode on your laptop yet? I don't see it on mine", "p0")
+                + guest_delegation(11.75, "gd0", "Hey, wait, is the dark mode on your laptop yet?")
+                + delegation(12.8, "d0", "Hey, wait, is the dark mode on your laptop yet?")
+                + hermes("d0", 40, "Your laptop is on last night's build.")
+                + guest_speech(12.0, 14.6, "Yeah, let me check that quickly.", "ga0")
+                + speech(12.95, 14.7, "I'll check your laptop quickly.", "a0")
+                # 1. Kevin -> friend
+                + heard(13.4, 17.8, "No. I think it's still last night's build", "p1")
+                + heard(13.0, 19.0, "No. I think it's still last night's build", "g1", "guest")
+                + guest_delegation(18.7, "gd1", ". I think it's still last night's build")
+                + speech(17.9, 23.6, "Mm-hm. Yeah, it's still on the older build.", "a1")
+                + guest_speech(19.1, 22.0, "Thanks, checking that now.", "ga1")
+                # 2. Kevin -> Hermes, by name
+                + heard(23.2, 27.8, "Hermes, what's actually on my laptop right now versus the beta", "p2")
+                + heard(22.6, 27.9, "Hermes, what's actually on my laptop right now versus the beta", "g2", "guest")
+                + delegation(27.0, "d2", "Hermes, what's actually on my laptop right now versus the beta")
+                + guest_delegation(27.5, "gd2", "Hermes, what's actually on my laptop right now versus the beta")
+                + hermes("d2", 12, "Your laptop runs build 9. The beta has twenty newer changes.")
+                + speech(28.0, 40.9, "I'll take a quick look. Your laptop runs build 9. The beta has twenty newer "
+                                     "changes.", "a2")
+                # 3. Kevin -> Hermes, the next request in that exchange (no name)
+                + heard(40.2, 52.6, "Yeah. Shipped isn't done. Get all of it onto my laptop, prove each one, and "
+                                    "make it update itself. Take as long as you need, just send receipts", "p3")
+                + heard(41.6, 52.7, "Yeah. Shipped isn't done. Get all of it onto my laptop, prove each one, and "
+                                    "make it update itself. Take as long as you need, just send receipts", "g3", "guest")
+                + guest_delegation(51.8, "gd3", "Yeah. Shipped isn't done. Get all of it onto my laptop")
+                + delegation(52.2, "d3", "Yeah. Shipped isn't done. Get all of it onto my laptop")
+                + hermes("d3", 30, "That run is already going as card 7; the last receipt is the signed build.")
+                + speech(52.8, 56.0, "Got it, I'll handle that and keep receipts.", "a3")
+                # 4. friend -> Tek, by name
+                + heard(65.0, 71.7, "Hey, Tek. While that runs, what actually caused the dark mode crash in PR twelve",
+                        "g4", "guest")
+                + heard(65.4, 72.0, "Hey, Tek. While that runs, what actually caused the dark mode crash in PR twelve",
+                        "p4")
+                + guest_delegation(70.8, "gd4", "Hey Tek, while that runs, what actually caused the crash in PR 12")
+                + guest_speech(72.0, 75.2, "I'll pull that up.", "ga4")
+                + guest_speech(87.2, 91.8, "PR twelve fixed a theme lookup that crashed on launch.", "ga5")
+                # 5. friend -> Tek's answer, a reaction (no request)
+                + heard(92.2, 96.7, "Okay, nice. That's the one I kept hitting", "g5", "guest")
+                + heard(92.6, 97.2, "Okay, nice. That's the one I kept hitting", "p5")
+                + guest_delegation(96.5, "gd5", "Okay, nice. That's the one I kept hitting")
+                + delegation(97.0, "d5", ", nice. That's the one I kept hitting")
+                + speech(97.3, 106.4, "Thanks, I'll check. Yeah, the crash is fixed in the beta.", "a5")
+                + guest_speech(97.5, 100.6, "Thanks, I'll recheck with that in mind.", "ga6"))
+        r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows, history=PEOPLE)
+        import asyncio
+        asyncio.run(r.run())
+        self.assertEqual([did for did, _ in r.requests], ["d2", "d3"], "Hermes runs only the two requests to it")
+        self.assertEqual(len(r.guest_asked), 1, "Tek's Hermes runs only the question to Tek")
+        self.assertIn("crash in PR twelve", r.guest_asked[0][1])
+        before = "".join(text for t, text in r.heard if t < 27.8)
+        self.assertEqual(before, "", "nothing the bots said while the people talked reached the phone")
+        after_tek = "".join(text for t, text in r.heard if 96.5 <= t < 120 and "PR twelve" not in text)
+        self.assertNotIn("I'll check", after_tek)
+
+
 if __name__ == "__main__":
     unittest.main()

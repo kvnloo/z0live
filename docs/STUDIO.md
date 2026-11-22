@@ -218,12 +218,15 @@ of each call. Changing it does not restart or affect an open call.
 ```
 
 Address Tek as `tek`, `teknium`, `டெக்`, or `டெக்னியம்`. Both GPT-Live sessions use the host's Codex ChatGPT
-login but have separate WebRTC sessions and distinct voices. Tek does not get the primary's chat history or
-helper lanes.
+login but have separate WebRTC sessions and distinct voices. Tek's voice does not get the primary's brief or
+helper lanes. Tek's Hermes gets the call's context with each request: the chat the call opened from and the call's
+recent words (`Call.host_context`). Without it, "the glass crash in PR 28" was looked up in the wrong repo
+(11-22 film call, take 7). A primary hand-off on the oneshot path (no linked chat) gets the same context.
 
 | Failure | Decision for two GPT-Live sessions |
 | --- | --- |
 | Tek loses the floor on a breath, pause, or `mm` | One call-local floor tracks the owner, reason, and start time. Provider turn boundaries and word timestamps drive the exchange. Mic onsets do not. An unnamed substantive turn after the reply returns to the primary. An explicit redirect can transfer the floor earlier. After 20 seconds idle, the floor returns to the primary unless Tek still has an answer in progress. Addressing Tek again restarts the 20 seconds. |
+| The people on the call talk to each other | When the chat the call opens from says more than one person is at the phone (`This call has two people at the desk, ...`; `call_brief.people`), the floor starts with the people (`people_on_call`). A bot takes it only when named, or with a request (an imperative or a question) that begins while one of its replies plays or within 20 s after one ends; a reply it began after the caller started (and the caller cut off) does not count against it. Any other substantive turn moves it to the people (`people_talk`): neither voice is heard, neither delegates, and both get one silent note that what they said was not heard. A bot that was asked for something earlier takes the floor in the people's next 1.5 s pause to give its answer (`answer_ready`). An idle Tek returns the floor to the people, not to the primary. |
 | A name is mentioned but not addressed | Accept a direct address at the start or within an utterance, such as `One thing, Tek, what shipped?`. `Tell Tek later` does not claim the floor. `Hermes, take this` or `back to Hermes` redirects it. A handoff phrase moves the floor only to a known voice name, so `Tek, back to you` and `back to the budget` do not, and it never overrides a direct address to Tek in the same turn. |
 | Late guest or primary delegation | A voice delegates only while it holds the floor: a request addressed to Tek never runs in the primary's Hermes, and the reverse. Each answer waits only for its own leg's floor. On that floor it is sent at once, even while the voice is speaking, and a fast lane's guess still waiting is dropped when Hermes's answer for the same request arrives or the caller has asked something newer. An answer is delivered once that voice starts an audible reply; a barge-in does not replay it. If the voice stays silent for 15 seconds after it is free, or the floor moves first, the answer is sent once more, then dropped with `floor.answer_dropped`. The queue lives until the call closes. |
 | Both voices answer or a muted reply leaks into the app | One output track selects one leg, never mixes PCM, and keeps a suppressed reply muted through its end. An audible reply keeps playing after the provider's `turn.done` until the output has been quiet for 0.3 s. The same decision filters assistant transcript events before they reach the app or call history. |
@@ -268,7 +271,11 @@ to record primary requests without running them. Guest delegations still use the
 
 Every hand-off goes into the chat the call was started from, through the dashboard's `/api/ws`, so it
 runs with that chat's context, tools and approvals and shows in the app like a typed message. A call
-from a new chat (no app history) falls back to a `hermes chat --oneshot` turn. A request that lands
+from a new chat (no app history) falls back to a `hermes chat --oneshot` turn. Those turns never wait
+for each other: a turn that lands while the profile's voice session is busy runs beside it in a session
+of its own (`delegation.hermes` traces when each run starts), up to `HOST_MAX` (3) per call. Past that,
+a request waits for a free run and the voice says it is queued and at what position
+(`delegation.queued`); it gets no "still working on it" receipt. A request that lands
 while the chat is busy joins the running turn (receipt `steered` or `redirected`) and is answered by
 that turn's one final message. The adapter does not resubmit a failed turn because Hermes may
 already have acted. The API-only host on 8644 serves the core's lanes, not call hand-offs: a
@@ -277,7 +284,7 @@ per-call API conversation ran hand-offs one at a time with no one to approve too
 `HERMES_VOICE_MAX_CALL_SECONDS` defaults to 14400. Each GPT-Live leg uses its own advertised expiry.
 The adapter prepares a silent replacement and swaps it in at a quiet boundary if time allows.
 The new primary gets the original call brief and a bounded recap. Tek gets its guest persona and a
-bounded call-only recap, never the primary's brief or chat history. Primary renewal does not touch
+bounded call-only recap, never the primary's brief (its Hermes gets the call's context with each request). Primary renewal does not touch
 Tek's transport. Tek renews independently and keeps the same Tek Hermes session. The phone WebRTC
 connection, floor, and answer queues stay in place across both swaps. If Tek's replacement fails and
 the old guest disconnects, the primary gives one notice and relays any stranded guest answers.
