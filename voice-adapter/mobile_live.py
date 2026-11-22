@@ -1157,16 +1157,25 @@ def set_uplink_prefetch(receiver, prefetch: int) -> bool:
 def uplink_drain() -> bool:
     """Z0LIVE_UPLINK_DRAIN=1 opts the Grok-path phone uplink into the R13 drain-1 jitter buffer (audio_drain.py).
     Default off: bench-only evidence (F4c, transport_bench/4); live radios unverified."""
-    return os.environ.get("Z0LIVE_UPLINK_DRAIN", "").strip() == "1"
+    return bool(uplink_drain_mode())
+
+
+def uplink_drain_mode() -> str:
+    """Empty = off (default), "drain" = Z0LIVE_UPLINK_DRAIN=1 (R13 drain-1), "guard" = Z0LIVE_UPLINK_DRAIN=guard (R15:
+    drain-1 that ignores packets behind its origin instead of resetting the ring; bench-only, F4d)."""
+    raw = os.environ.get("Z0LIVE_UPLINK_DRAIN", "").strip()
+    return {"1": "drain", "guard": "guard"}.get(raw, "")
 
 
 def install_uplink_drain(transceivers) -> list:
     """Install the drain-1 buffer on each stock audio receiver when the flag is on; returns the installed buffers.
     Must run before receive starts and before the prefetch knob / adaptive pilot (both leave a drain buffer alone)."""
-    if not uplink_drain():
+    mode = uplink_drain_mode()
+    if not mode:
         return []
     from audio_drain import install
-    return [jb for t in transceivers if t.kind == "audio" for jb in [install(t.receiver)] if jb is not None]
+    guard = mode == "guard"
+    return [jb for t in transceivers if t.kind == "audio" for jb in [install(t.receiver, guard)] if jb is not None]
 
 
 class Call:

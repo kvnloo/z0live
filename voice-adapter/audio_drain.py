@@ -28,11 +28,20 @@ class AudioJitterFrame(JitterFrame):
 class AudioDrainJitterBuffer(JitterBuffer):
     """Stock hole handling, prefetch 1, then drain every complete frame per arrival."""
 
-    def __init__(self, emit=None):
+    def __init__(self, emit=None, guard: bool = False):
         super().__init__(capacity=16, prefetch=1)
         self.emit = emit
+        self.guard = guard
         self.closed = False
         self.counts = Counter()
+
+    def behind_origin(self, packet) -> bool:
+        """R15 guard: True when the packet is behind the origin, i.e. (seq - origin) mod 65536 > 32768 (stock's
+        backward half; the exact half-range tie stays forward as in stock). Drain-1 can move the origin >= 100 past
+        such a packet, where stock would flush the whole ring and move the origin back to it."""
+        if self._origin is None:
+            return False
+        return (packet.sequence_number - self._origin) % 65536 > 0x8000
 
     def _remove_frame(self, sequence_number: int) -> Optional[AudioJitterFrame]:
         first = self._packets[self._origin % self._capacity] if self._origin is not None else None
@@ -42,6 +51,9 @@ class AudioDrainJitterBuffer(JitterBuffer):
         return AudioJitterFrame(frame, first.payload_type)
 
     def add_many(self, packet) -> list:
+        if self.guard and self.behind_origin(packet):
+            self.counts["behind_ignored"] += 1
+            return []  # no insertion, no removal, no reset
         _, frame = JitterBuffer.add(self, packet)
         if frame is None:
             return []
@@ -68,7 +80,7 @@ class AudioDrainJitterBuffer(JitterBuffer):
         self.closed = True
 
 
-def install(receiver):
+def install(receiver, guard: bool = False):
     """Replace the stock audio JitterBuffer of one not-yet-started aiortc 1.14.0 receiver; else return None."""
     if aiortc.__version__ != "1.14.0":
         return None
@@ -94,6 +106,6 @@ def install(receiver):
         frame.timestamp = get("timestamp_mapper").map(frame.timestamp)
         get("decoder_queue").put((codec, frame))
 
-    jb = AudioDrainJitterBuffer(emit)
+    jb = AudioDrainJitterBuffer(emit, guard=guard)
     setattr(receiver, prefix + "jitter_buffer", jb)
     return jb
