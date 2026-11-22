@@ -1141,6 +1141,7 @@ class Call:
         self.id = "hermes-subscription-" + uuid.uuid4().hex
         self.trace = Trace(self.id, TRACE_DIR)
         self.mobile = RTCPeerConnection(RTCConfiguration(iceServers=[]))
+        self.uplink_jitter = []
         self.subscription = self.new_subscription(active=True)
         self.primary_audio: Speaker | None = None
         self.microphone: tuple[MediaRelay, AudioBridge] | None = None
@@ -1358,6 +1359,15 @@ class Call:
         self.trace("call.start", history_items=len(history) if isinstance(history, list) else None)
         try:
             await self.mobile.setRemoteDescription(RTCSessionDescription(sdp=sdp, type="offer"))
+            if self.leg and os.environ.get("Z0LIVE_ADAPTIVE_UPLINK_JITTER") == "1":
+                from adaptive_jitter import install
+
+                for t in self.mobile.getTransceivers():
+                    if t.kind == "audio":
+                        jb = install(t.receiver)
+                        if jb is not None:
+                            self.uplink_jitter.append(jb)
+                self.trace("uplink.jitter_pilot", installed=len(self.uplink_jitter))
             if self.leg:  # Grok Voice: a WebSocket, no provider peer; its speech is our own track
                 if not any(t.kind == "audio" for t in self.mobile.getTransceivers()):
                     raise ValueError("An audio track is required")
@@ -2014,6 +2024,9 @@ class Call:
         for task in list(self.tasks):
             if task is not current:
                 task.cancel()
+        for jb in self.uplink_jitter:
+            jb.close()
+            self.trace("uplink.jitter_summary", counts=dict(jb.counts))
         await asyncio.gather(self.mobile.close(), self.subscription.close(), *([self.leg.close()] if self.leg else []),
                              *([self.guest.close()] if self.guest else []), return_exceptions=True)
         if self.relay:
