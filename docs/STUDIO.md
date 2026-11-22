@@ -218,8 +218,10 @@ of each call. Changing it does not restart or affect an open call.
 ```
 
 Address Tek as `tek`, `teknium`, `டெக்`, or `டெக்னியம்`. Both GPT-Live sessions use the host's Codex ChatGPT
-login but have separate WebRTC sessions and distinct voices. Tek does not get the primary's chat history or
-helper lanes.
+login but have separate WebRTC sessions and distinct voices. Tek's voice does not get the primary's brief or
+helper lanes. Tek's Hermes gets the call's context with each request: the chat the call opened from and the call's
+recent words (`Call.host_context`). Without it, "the glass crash in PR 28" was looked up in the wrong repo
+(11-22 film call, take 7). A primary hand-off on the oneshot path (no linked chat) gets the same context.
 
 | Failure | Decision for two GPT-Live sessions |
 | --- | --- |
@@ -282,7 +284,7 @@ per-call API conversation ran hand-offs one at a time with no one to approve too
 `HERMES_VOICE_MAX_CALL_SECONDS` defaults to 14400. Each GPT-Live leg uses its own advertised expiry.
 The adapter prepares a silent replacement and swaps it in at a quiet boundary if time allows.
 The new primary gets the original call brief and a bounded recap. Tek gets its guest persona and a
-bounded call-only recap, never the primary's brief or chat history. Primary renewal does not touch
+bounded call-only recap, never the primary's brief (its Hermes gets the call's context with each request). Primary renewal does not touch
 Tek's transport. Tek renews independently and keeps the same Tek Hermes session. The phone WebRTC
 connection, floor, and answer queues stay in place across both swaps. If Tek's replacement fails and
 the old guest disconnects, the primary gives one notice and relays any stranded guest answers.
