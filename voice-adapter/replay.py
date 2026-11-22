@@ -22,7 +22,10 @@ prompt.background answers {task_id} at once and sends background.complete {task_
 after that request's own work. Call.sleep runs on the replay clock, so receipts fire when they would on a call.
 
 A report's own_answer_s is request -> first final carrying that request's id (a lane answer or Hermes); held lists
-requests with none (folded into another request's turn); receipt_s is request -> spoken receipt.
+requests with none (folded into another request's turn); receipt_s is request -> spoken receipt. promised lists the
+voice's own hand-off lines that promised new work or said it was handled before that request's own answer, queued
+notice or refusal reached it (mobile_live.promises_new_work); the replayed speech is the recorded one, so this scores
+the recorded take.
 """
 from __future__ import annotations
 
@@ -357,6 +360,25 @@ def report(replay: Replay) -> dict:
     # Own answer: the first final carrying this request's id. A request folded into another request's turn has none
     # ("held"): it hears that turn's answer whenever that turn ends.
     own_s = {did: round(own[did] - began, 3) for did, began in replay.started.items() if did in own}
+    # Promised: the voice's own hand-off line for a request Hermes runs promised new work or said it was handled,
+    # before that request's answer, queued notice or refusal reached the voice (takes 7 and 9).
+    created = {}
+    for t, e in rx:
+        if e.get("type") == "delegation.created":
+            created.setdefault((e.get("item") or {}).get("id"), t)
+    said, open_at = [], None
+    for r in replay.rows:
+        e, turn_ = r.get("rx") or {}, (r.get("rx") or {}).get("turn") or {}
+        if r.get("src") != "provider" or turn_.get("role") != "assistant":
+            continue
+        if e.get("type") == "turn.created":
+            open_at = r["t"]
+        elif e.get("type") == "turn.done":
+            said.append((r["t"] if open_at is None else open_at, turn_.get("transcript") or ""))
+            open_at = None
+    promised = [{"did": did, "said": text[:160]} for did in replay.started if did in created
+                for at, text in said if created[did] - 1.5 <= at < own.get(did, float("inf"))
+                and mobile_live.promises_new_work(text)]
     return {"delegations": len(replay.started), "answer_s": answer_s, "own_answer_s": own_s,
             "held": [did for did in replay.started if did not in own],
             "receipt_s": {did: round(t - replay.started[did], 3) for did, t in receipts.items() if did in replay.started},
@@ -365,7 +387,7 @@ def report(replay: Replay) -> dict:
             "backgrounded": len(replay.backgrounded), "counts": getattr(replay, "counts", {}), "fragments": fragments, "finals": len(sends),
             "duplicate_finals": duplicates, "finals_mid_reply": len(mid_reply),
             "max_finals_per_delegation": max(per_did.values(), default=0), "unanswered": unanswered,
-            "repeats": repeats, "lost": lost}
+            "repeats": repeats, "lost": lost, "promised": promised}
 
 
 def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
