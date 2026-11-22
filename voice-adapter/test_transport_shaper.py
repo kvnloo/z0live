@@ -50,6 +50,25 @@ class ShaperScheduleTest(unittest.TestCase):
             got = hashlib.sha256(json.dumps(shape_schedule(c, 4100, 3000)).encode()).hexdigest()[:16]
             self.assertEqual(got, h, c)
 
+    def test_earlier_conditions_schedule_unchanged_by_v5(self):
+        # sha256 prefixes of shape_schedule(c, 4100, 3000) at transport_bench/4 (fba3c6c).
+        want = {"clean": "86c5820fa5dfba08", "jitter5": "e7901afd44faf6fc", "jitter25": "0f3d05bcdb4aadbf",
+                "loss1_jitter5": "d097845e658c8de6", "freeze300_loss1": "61b1bbfd93f5a5fc",
+                "reorder": "7e2540a93534df94"}
+        for c, h in want.items():
+            got = hashlib.sha256(json.dumps(shape_schedule(c, 4100, 3000)).encode()).hexdigest()[:16]
+            self.assertEqual(got, h, c)
+
+    def test_far_late_conditions_are_r15_reconstructions(self):
+        s = shape_schedule("far_late", 4100, 50 * 900)
+        self.assertEqual({i: d for i, d in enumerate(s) if d},
+                         {**{i: 2001.0 for i in (500, 501)}, **{i: 181.0 for i in range(502, 509)}})
+        m = shape_schedule("far_late_mid", 4100, 50 * 900)
+        self.assertEqual({i: d for i, d in enumerate(m) if d}, {i: 2001.0 for i in range(700, 705)})
+        self.assertNotIn(None, s + m)  # no loss
+        # 2001 ms late = arrives with packet index + 100, the aiortc backward-misorder reset distance.
+        self.assertEqual(round(2001.0 / 20), 100)
+
 
 if __name__ == "__main__":
     unittest.main()

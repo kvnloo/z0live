@@ -39,6 +39,10 @@ transport_bench/4 (track F4c): measurement identical to /3; the five /2 schedule
   --drain      sets Z0LIVE_UPLINK_DRAIN=1 (R13 drain-1 buffer, audio_drain.py; replaces the stock buffer, so the
                prefetch knob does not apply). Its counters appear in shaped.adaptive_counts_window (key kept from /2).
   Worst inter-append pause at the provider = shaped.longest_provider_gap_ms (unchanged since /2).
+transport_bench/5 (track F4d): measurement identical to /4; the six /4 schedules are byte-identical.
+  --condition far_late      packets 500-501 +2001 ms, 502-508 +181 ms (R15 far-late, frame k = packet 500 + k).
+  --condition far_late_mid  packets 700-704 +2001 ms (R15 far-late-midstream, frames 200-204).
+  --drain-guard  sets Z0LIVE_UPLINK_DRAIN=guard (R15 guarded drain-1). config.jitter_buffer[].guard records it.
 """
 from __future__ import annotations
 
@@ -57,7 +61,7 @@ import wave
 from collections import defaultdict
 from pathlib import Path
 
-VERSION = "transport_bench/4"
+VERSION = "transport_bench/5"
 NS = time.perf_counter_ns
 HERE = Path(__file__).resolve().parent
 ADAPTER_DIR = HERE.parent
@@ -79,7 +83,14 @@ CONDITIONS = {
     "freeze300_loss1": {"scale": 0, "loss": 0.01, "freeze": True},
     # /4: 3 % of packets (seeded, own RNG stream) arrive 65 ms late = reordered ~3 places; no loss, no jitter.
     "reorder": {"scale": 0, "loss": 0.0, "freeze": False, "reorder": 0.03, "reorder_ms": 65.0},
+    # /5 (F4d): R15's deterministic far-late reconstructions, no loss, no jitter. "late" = [(first, last, extra ms)]
+    # packet indices; R15 frame k = packet FAR_AT + k so the events sit inside the scored window (R15 far-late is at
+    # stream start, which the bench's warmup never scores). 2001 ms = ~100 packets, i.e. at or past aiortc's
+    # backward-misorder reset once drain-1 has moved its origin on.
+    "far_late": {"scale": 0, "loss": 0.0, "freeze": False, "late": [(500, 501, 2001.0), (502, 508, 181.0)]},
+    "far_late_mid": {"scale": 0, "loss": 0.0, "freeze": False, "late": [(700, 704, 2001.0)]},
 }
+FAR_AT = 500  # 10 s media time
 SHAPE_HEAD = 50          # first 1 s unshaped: stable origin for aiortc's jitter buffer and timestamp mapper
 FREEZE_AT_MS = 15000     # media time of the freeze start (inside the scored window for --warmup 3 --seconds 30)
 FREEZE_MS = 300
@@ -97,6 +108,9 @@ def shape_schedule(condition: str, seed: int, n: int) -> list:
         d = max(0.0, scale * (1.5 + 0.5 * g + 0.35 * lomax)) if scale else 0.0
         if reorder and rrng.random() < reorder:
             d += c["reorder_ms"]
+        for lo, hi, ms in c.get("late", ()):
+            if lo <= i <= hi:
+                d += ms
         a = 20.0 * i + d
         if c["freeze"] and FREEZE_AT_MS <= a < FREEZE_AT_MS + FREEZE_MS:
             a = FREEZE_AT_MS + FREEZE_MS
@@ -777,9 +791,10 @@ async def adapter(args):
         os.environ["Z0LIVE_ADAPTIVE_UPLINK_JITTER"] = "1"
     else:
         os.environ.pop("Z0LIVE_ADAPTIVE_UPLINK_JITTER", None)
-    if args.drain:
+    if args.drain or args.drain_guard:
         assert not args.adaptive and args.prefetch is None, "--drain replaces the stock buffer; use it alone"
-        os.environ["Z0LIVE_UPLINK_DRAIN"] = "1"
+        assert not (args.drain and args.drain_guard), "--drain and --drain-guard are separate arms"
+        os.environ["Z0LIVE_UPLINK_DRAIN"] = "guard" if args.drain_guard else "1"
     else:
         os.environ.pop("Z0LIVE_UPLINK_DRAIN", None)
     import mobile_live as live
@@ -827,7 +842,8 @@ async def adapter(args):
                 await asyncio.sleep(0.05)
         await asyncio.sleep(args.warmup + args.reply_delay)
         jbs = [t.receiver._RTCRtpReceiver__jitter_buffer for t in call.mobile.getTransceivers() if t.kind == "audio"]
-        jb_info = [{"type": type(j).__name__, "prefetch": j._prefetch, "capacity": j.capacity} for j in jbs]
+        jb_info = [{"type": type(j).__name__, "prefetch": j._prefetch, "capacity": j.capacity,
+                    "guard": bool(getattr(j, "guard", False))} for j in jbs]
         pilot = list(getattr(call, "uplink_jitter", []))
         c0 = [dict(j.counts) for j in pilot]
         mono_off = NS() - int(time.monotonic() * 1e9)
@@ -893,6 +909,8 @@ def main():
                          "default (Z0LIVE_UPLINK_PREFETCH, 2 since F4a). The used value is in config.jitter_buffer.")
     ap.add_argument("--adaptive", action="store_true", help="Z0LIVE_ADAPTIVE_UPLINK_JITTER=1 (R10 clocked buffer)")
     ap.add_argument("--drain", action="store_true", help="Z0LIVE_UPLINK_DRAIN=1 (R13 drain-1 buffer, prefetch 1)")
+    ap.add_argument("--drain-guard", action="store_true",
+                    help="Z0LIVE_UPLINK_DRAIN=guard (R15: drain-1 that ignores packets behind its origin)")
     ap.add_argument("--fixtures", default=str(Path(os.environ.get("TMPDIR", tempfile.gettempdir())) / "transport_bench_fx"))
     ap.add_argument("--workdir", default="")
     ap.add_argument("--world-out", default="")
