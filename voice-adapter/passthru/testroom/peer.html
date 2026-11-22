@@ -1,0 +1,30 @@
+<!doctype html><title>peer</title><body>
+<canvas id=c width=64 height=36></canvas>
+<script>
+// The "other participant": speaks a 440 Hz tone, measures what it hears and sees from z0.
+window.result = { ready: false };
+(async () => {
+  const ctx = new AudioContext({ sampleRate: 48000 }); await ctx.resume();
+  const osc = ctx.createOscillator(); osc.frequency.value = 440; const g = ctx.createGain(); g.gain.value = 0.3;
+  const dest = ctx.createMediaStreamDestination(); osc.connect(g); g.connect(dest); osc.start();
+  const pc = new RTCPeerConnection();
+  dest.stream.getTracks().forEach(t => pc.addTrack(t, dest.stream));
+  const an = ctx.createAnalyser(); an.fftSize = 8192;
+  const vid = document.createElement('video'); vid.muted = true; vid.autoplay = true;
+  pc.ontrack = e => {
+    if (e.track.kind === 'audio') { const el = new Audio(); el.muted = true; el.srcObject = new MediaStream([e.track]); el.play();
+      ctx.createMediaStreamSource(new MediaStream([e.track])).connect(an); }
+    else { vid.srcObject = new MediaStream([e.track]); vid.play(); }
+  };
+  let offer; for (;;) { const r = await fetch('/sig/offer'); if (r.status === 200) { offer = await r.json(); break; } await new Promise(r => setTimeout(r, 200)); }
+  await pc.setRemoteDescription(offer); await pc.setLocalDescription(await pc.createAnswer());
+  await new Promise(r => { if (pc.iceGatheringState === 'complete') r(); else pc.onicegatheringstatechange = () => pc.iceGatheringState === 'complete' && r(); });
+  await fetch('/sig/answer', { method: 'POST', body: JSON.stringify(pc.localDescription) });
+  const bins = new Float32Array(an.frequencyBinCount), cg = document.getElementById('c').getContext('2d');
+  setInterval(() => {
+    an.getFloatFrequencyData(bins); let k = 0; for (let i = 1; i < bins.length; i++) if (bins[i] > bins[k]) k = i;
+    let px = null; if (vid.videoWidth) { cg.drawImage(vid, 0, 0, 64, 36); px = Array.from(cg.getImageData(32, 18, 1, 1).data.slice(0, 3)); }
+    window.result = { ready: true, heardHz: Math.round(k * 48000 / an.fftSize), heardDb: Math.round(bins[k]), video: [vid.videoWidth, vid.videoHeight], centerPx: px, state: pc.connectionState };
+  }, 250);
+})();
+</script>
