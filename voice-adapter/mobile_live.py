@@ -711,6 +711,7 @@ class VoiceReply:
 PEOPLE_NOTE = ("(The people on the call are talking to each other, not to you. Nothing you said to that was heard and "
                "nothing was handed off. Stay quiet until someone says your name or asks you directly.)")
 PEOPLE_PAUSE_SECONDS = 1.5  # a pause in the people's talk long enough for a bot to give an answer it was asked for
+MID_REQUEST_SECONDS = 2.0  # with people on the call, answers wait while the caller's words keep coming this often
 DEFERRED_SECONDS = 1.5  # the caller's turn.done trails a delegation by 0.2-0.8 s; past this the delegation runs anyway
 
 
@@ -962,6 +963,14 @@ class GPTGuest:
         self.call.trace("floor.delegation_dropped", speaker=leg, did=did, owner=self.floor.owner)
         return False
 
+    def caller_mid_request(self, leg: Leg, now: float) -> bool:
+        """With people on the call: the caller is still saying a turn on this leg (not finished, words in the last
+        MID_REQUEST_SECONDS). An answer handed over now is what the voice answers that turn with: take 11's line-2
+        answer reached it 8 s into the long-run ask, and the voice replied from it instead of handing the ask on."""
+        user = self.users.get(leg)
+        return bool(self.floor.people > 1 and user and not user.committed and substantive(user.text)
+                    and now - self.user_heard_at < MID_REQUEST_SECONDS)
+
     def later(self, seconds, callback):
         return asyncio.get_running_loop().call_later(seconds, callback)
 
@@ -989,7 +998,8 @@ class GPTGuest:
             self.floor.answer_ready(waiting, now)
         source = self.floor.owner
         queue, pending = self.floor.answers[source], self.ledger.pending(source)
-        if (queue or pending) and (not self.call.provider_ready or now - self.call.input_loud_at < 0.4):
+        if (queue or pending) and (not self.call.provider_ready or now - self.call.input_loud_at < 0.4
+                                   or (source != "people" and self.caller_mid_request(source, now))):
             self.flush_timer = self.later(0.25, self.flush_answers)
             return
         protocol, send = ((self.protocol, self.send) if source == "guest" else
