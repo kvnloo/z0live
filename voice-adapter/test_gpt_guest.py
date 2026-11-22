@@ -172,7 +172,7 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
         self.addAsyncCleanup(self.guest.close)
         self.guest.message(json.dumps({"type": "session.started"}))
         self.guest.send = self.call.sent.append
-        self.call.guest = self.guest
+        self.call.guest = self.call.duplex = self.guest
 
     async def test_suppressed_reply_never_leaks_audio_text_or_context(self):
         self.guest.observe("guest", turn("done", "Tek, what shipped?"))
@@ -397,7 +397,7 @@ class TimedGuestTest(unittest.IsolatedAsyncioTestCase):
         self.addAsyncCleanup(self.guest.close)
         self.guest.message(json.dumps({"type": "session.started"}))
         self.guest.send = self.call.sent.append
-        self.call.guest = self.guest
+        self.call.guest = self.call.duplex = self.guest
 
     def at(self, now):
         self.clock.now = now
