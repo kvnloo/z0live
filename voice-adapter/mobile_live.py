@@ -51,6 +51,7 @@ from aiortc.contrib.media import MediaRelay  # noqa: E402
 TIERS_ON = os.environ.get("Z0LIVE_TIERS", "off") == "on"
 import handoff  # noqa: E402 - sibling module (call continues on z0live when Kevin leaves the screen)
 import passthru  # noqa: E402 - sibling module (z0 joins Kevin's other video call)
+import turn_slots  # noqa: E402 - sibling module (a call's bounded line of Hermes runs)
 CHAT_CONTINUITY = os.environ.get("HERMES_MOBILE_VOICE_CHAT", "1") != "0"
 TTFT_MODEL = os.environ.get("VOICE_TTFT_MODEL", "qwen/qwen3.8-27b")  # Groq: ~0.2 s whole answer (11-15 probe)
 # Children (claude, hermes, lanes) get their own transient scope. Inside this unit's 768M cap they pushed it
@@ -201,7 +202,9 @@ DELEGATION_TIMEOUT_SECONDS = 600
 # Fire-and-receipt (A0190/A0124): a request made while this call's chat turn runs goes to a Hermes background agent
 # beside it, so a 95-411 s turn no longer holds (or redirects) it. A Hermes request still running after
 # RECEIPT_SECONDS gets one spoken receipt; its answer is spoken when it lands. SIDE_MAX bounds the background agents
-# one call may run at once; past it, a request joins the chat's turn as before.
+# one call may run at once; past it, a request waits in the call's line (QUEUE_MAX) and the voice says so. It is
+# never submitted into the busy chat: the dashboard redirects the running turn, so the request had no answer of its
+# own and the running request was answered with the redirect's words.
 RECEIPT_SECONDS = float(os.environ.get("Z0LIVE_RECEIPT_SECONDS", "8"))
 RECEIPT = "Still working on that in Hermes. I'll tell you as soon as it's done; ask anything else meanwhile."
 SIDE_MAX = 3
@@ -213,8 +216,13 @@ CALL_CONTEXT = ("This request comes from a live voice call; answer in a few shor
 # Hermes runs one call may have going at once on the host path (no linked chat). Past it a request waits for a free
 # run, and the voice says it is queued instead of claiming a hand-off that has not happened.
 HOST_MAX = 3
-QUEUED = ("I'm still on {running} earlier requests, so this one is queued as number {position}. It starts as soon as "
-          "one of them finishes.")
+# The line past HOST_MAX (or past the chat turn plus SIDE_MAX): at most QUEUE_MAX requests wait, first in, first
+# out. Past that a request is refused out loud at once and never runs, so nothing waits without the caller knowing.
+QUEUE_MAX = max(0, int(os.environ.get("Z0LIVE_QUEUE_MAX", "3")))
+QUEUED = ("That one hasn't started yet: I'm still on {running} earlier requests, so it's queued as number {position}. "
+          "It starts as soon as one of them finishes.")
+FULL = ("I can't take that one right now: {running} requests are running and {waiting} more are waiting, so I "
+        "haven't started it. Ask me again once one of them finishes.")
 
 # z0live lanes relay (z0live_desktop/mobile_relay.py in the served z0live checkout): finals and
 # partials go to the broker's lanes, a delegation gets the lane answer at once, and Hermes' slow
@@ -1190,6 +1198,10 @@ class Call:
         self.microphone: tuple[MediaRelay, AudioBridge] | None = None
         self.opening_context = []
         self.pending_delegations = set()
+        # One line of Hermes runs per call: host runs (no linked chat), or the chat turn plus its background agents.
+        self.host_slots = turn_slots.TurnSlots(HOST_MAX, QUEUE_MAX)
+        self.chat_slots = turn_slots.TurnSlots(1 + SIDE_MAX, QUEUE_MAX)
+        self.told_queued: dict[str, float] = {}  # did -> when the voice was told it is queued (no "still working")
         self.protocol = Protocol(host_delegation=HOST_DELEGATION)
         self.counts = Counter()
         self.created = time.monotonic()
@@ -1650,6 +1662,10 @@ class Call:
             if lane and covered and (covered(answer, lane, request) if TIERS_ON else covered(lane, answer, request)):
                 self.counts["host_delegation_covered"] += 1  # the lane already said it
                 return
+        except turn_slots.QueueFull as full:  # refused at once: it never started, so nothing "may still be running"
+            self.counts["delegations_refused"] += 1
+            self.trace("delegation.refused", did=did, running=full.running, waiting=full.waiting)
+            answer = FULL.format(running=full.running, waiting=full.waiting)
         except Exception as exc:  # noqa: BLE001 - every failure is spoken, never silent
             LOG.warning("host delegation failed id=%s: %s", self.id, type(exc).__name__)
             self.counts["host_delegation_failed"] += 1
@@ -1662,7 +1678,7 @@ class Call:
         # Requests running side by side can come back with the same words: say them once (failures always).
         spoken = self.__dict__.setdefault("answers_spoken", set())
         key = " ".join(answer.split()).casefold()
-        if key in spoken and not answer.startswith("I couldn't finish"):
+        if key in spoken and not answer.startswith(("I couldn't finish", "I can't take")):
             self.counts["host_delegation_repeat"] += 1
             self.trace("delegation.repeat", did=did)
             return
@@ -1837,34 +1853,50 @@ class Call:
                 self.chat = ""
             self.trace("chat.resolved", chat=self.chat)
         if self.chat:
-            side = self.__dict__.setdefault("side_jobs", set())
-            if self.__dict__.get("chat_turn") and len(side) < SIDE_MAX:
-                # This call's chat turn is running: joining it would redirect that work and hold this answer
-                # until it ends. Run beside it instead, with the call's recent words as context.
-                side.add(did)
-                try:
-                    answer = await asyncio.wait_for(chat_continuity.ask_background(
-                        self.manager.http, self.token, self.profile, self.chat, self.side_request(request),
-                        lambda task: self.trace("delegation.background", did=did, task=task)),
-                        DELEGATION_TIMEOUT_SECONDS)
-                finally:
-                    side.discard(did)
-                self.counts["background_turns"] += 1
-                return answer
-            self.chat_turn = did  # set before the first await: a request a moment later sees the turn running
-            try:
-                # No fallback: a lost acknowledgement or final reply does not mean the turn didn't run.
-                answer = await asyncio.wait_for(chat_continuity.ask_chat(
-                    self.manager.http, self.token, self.profile, self.chat, request, DELEGATION_TIMEOUT_SECONDS),
-                    DELEGATION_TIMEOUT_SECONDS)
-            finally:
-                if self.__dict__.get("chat_turn") == did:
-                    self.chat_turn = None
-            self.counts["chat_turns"] += 1
-            self.trace("delegation.chat", did=did, chat=self.chat)
+            async with self.chat_slots.slot(did, self.queued_notice(did)):
+                self.dequeued(did)
+                return await self.ask_chat_slot(did, request)
+        async with self.host_slots.slot(did, self.queued_notice(did)):
+            self.dequeued(did)
+            context = self.host_context()
+            return await self.run_host(did, context + "\n\nRequest: " + request if context else request)
+
+    def queued_notice(self, did):
+        """What the voice hears when a request has to wait: it has not started, and where it is in line."""
+        def notice(position, running):
+            self.told_queued[did] = time.monotonic()
+            self.counts["delegations_queued"] += 1
+            self.trace("delegation.queued", did=did, position=position, running=running)
+            self.speak_for(did, QUEUED.format(running=running, position=position))
+        return notice
+
+    def dequeued(self, did):
+        if did in self.told_queued:
+            self.trace("delegation.dequeued", did=did, waited_s=round(time.monotonic() - self.told_queued[did], 3))
+
+    async def ask_chat_slot(self, did, request):
+        """One admitted request on the chat path: the chat's own turn when it is free, else a background agent."""
+        if self.__dict__.get("chat_turn"):
+            # This call's chat turn is running: joining it would redirect that work and hold this answer
+            # until it ends. Run beside it instead, with the call's recent words as context.
+            answer = await asyncio.wait_for(chat_continuity.ask_background(
+                self.manager.http, self.token, self.profile, self.chat, self.side_request(request),
+                lambda task: self.trace("delegation.background", did=did, task=task)),
+                DELEGATION_TIMEOUT_SECONDS)
+            self.counts["background_turns"] += 1
             return answer
-        context = self.host_context()
-        return await self.run_host(did, context + "\n\nRequest: " + request if context else request)
+        self.chat_turn = did  # set before the first await: a request a moment later sees the turn running
+        try:
+            # No fallback: a lost acknowledgement or final reply does not mean the turn didn't run.
+            answer = await asyncio.wait_for(chat_continuity.ask_chat(
+                self.manager.http, self.token, self.profile, self.chat, request, DELEGATION_TIMEOUT_SECONDS),
+                DELEGATION_TIMEOUT_SECONDS)
+        finally:
+            if self.__dict__.get("chat_turn") == did:
+                self.chat_turn = None
+        self.counts["chat_turns"] += 1
+        self.trace("delegation.chat", did=did, chat=self.chat)
+        return answer
 
     def host_context(self) -> str:
         """What a Hermes that starts without the call's chat needs to place a request: the chat the call opened from
@@ -1883,29 +1915,9 @@ class Call:
                 + (f"\n\nSaid on the call so far:\n{said}" if said else ""))
 
     async def run_host(self, did, request):
-        """One Hermes run on this host, beside any the call already has going, up to HOST_MAX."""
-        running = self.__dict__.setdefault("host_running", set())
-        waiting = self.__dict__.setdefault("host_waiting", [])
-        free = self.__dict__.setdefault("host_free", asyncio.Condition())
-        began = time.monotonic()
-        if len(running) >= HOST_MAX:
-            waiting.append(did)
-            self.__dict__.setdefault("host_queued", set()).add(did)
-            self.trace("delegation.queued", did=did, position=len(waiting), running=len(running))
-            self.speak_for(did, QUEUED.format(running=len(running), position=len(waiting)))
-            try:
-                async with free:
-                    await free.wait_for(lambda: len(running) < HOST_MAX and waiting[0] == did)
-            finally:
-                waiting.remove(did)
-        running.add(did)
-        self.trace("delegation.hermes", did=did, running=len(running), waited_s=round(time.monotonic() - began, 3))
-        try:
-            return await asyncio.to_thread(run_hermes, request, self.profile, True)
-        finally:
-            running.discard(did)
-            async with free:
-                free.notify_all()
+        """One Hermes run on this host, in a slot of host_slots (beside any the call already has going)."""
+        self.trace("delegation.hermes", did=did, running=len(self.host_slots.running))
+        return await asyncio.to_thread(run_hermes, request, self.profile, True)
 
     def side_request(self, request):
         """A background agent's prompt: it starts fresh, so it gets the call's recent words with the request."""
@@ -1925,8 +1937,8 @@ class Call:
             await asyncio.wait({job, timer}, return_when=asyncio.FIRST_COMPLETED)
         finally:
             timer.cancel()
-        if (job.done() or self.closed or did in self.__dict__.get("first_said", {})
-                or did in self.__dict__.get("host_queued", set())):
+        if (job.done() or self.closed or did in self.__dict__.get("first_said", {}) or did in self.told_queued
+                or "running" not in (self.host_slots.state(did), self.chat_slots.state(did))):
             return  # a queued request was already told it is queued: "still working on it" would not be true
         self.counts["receipts"] += 1
         self.trace("delegation.receipt", did=did, s=RECEIPT_SECONDS)

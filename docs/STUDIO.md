@@ -274,11 +274,17 @@ Every hand-off goes into the chat the call was started from, through the dashboa
 runs with that chat's context, tools and approvals and shows in the app like a typed message. A call
 from a new chat (no app history) falls back to a `hermes chat --oneshot` turn. Those turns never wait
 for each other: a turn that lands while the profile's voice session is busy runs beside it in a session
-of its own (`delegation.hermes` traces when each run starts), up to `HOST_MAX` (3) per call. Past that,
-a request waits for a free run and the voice says it is queued and at what position
-(`delegation.queued`); it gets no "still working on it" receipt. A request that lands
-while the chat is busy joins the running turn (receipt `steered` or `redirected`) and is answered by
-that turn's one final message. The adapter does not resubmit a failed turn because Hermes may
+of its own (`delegation.hermes` traces when each run starts), up to `HOST_MAX` (3) per call. On the
+chat path a request that lands while the call's chat turn runs goes to a background agent beside it,
+up to `SIDE_MAX` (3). Past either bound a request waits in the call's line, first in first out, and
+the voice says at once that it hasn't started and its number in line (`delegation.queued`, then
+`delegation.dequeued` with `waited_s` when it starts). A queued request gets no "still working on it"
+receipt. At most `QUEUE_MAX` (3, `Z0LIVE_QUEUE_MAX`) wait; past that the voice says it can't take the
+request now and it never runs (`delegation.refused`). A request past the bound is never submitted
+into the busy chat: the dashboard would redirect the running turn, so it got no answer of its own
+and the running request got the redirect's words. A request that lands while the chat is busy with a
+turn the call didn't start still joins that turn (receipt `steered` or `redirected`) and is answered
+by its one final message. The adapter does not resubmit a failed turn because Hermes may
 already have acted. The API-only host on 8644 serves the core's lanes, not call hand-offs: a
 per-call API conversation ran hand-offs one at a time with no one to approve tools (11-20 night).
 
