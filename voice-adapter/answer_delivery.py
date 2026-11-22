@@ -15,9 +15,9 @@ resend carries only its unspoken pieces. A resend happens only after the voice h
 without saying the entry, at most once.
 
 "Spoken" means the voice began saying it, which is enough while the reply plays on. A reply cut off mid-answer (a
-barge-in, or the floor moving away) is not: take 13's line-3 answer was cut after its first sentence and Tek's after
-"It was a startup timing bug: the blur". So the ledger keeps the entries the current reply is saying, closed or not,
-and a cut parks each one's unheard sentences (Cut) for when the floor comes back to that leg.
+barge-in, the floor moving away, or the provider ending it under the caller's words) is not: take 13's line-3
+answer was cut after its first sentence and Tek's after "It was a startup timing bug: the blur". So the ledger keeps
+the entries the current or just-finished reply is saying, closed or not, and a cut parks each one's unheard sentences (Cut) for when the floor comes back to that leg.
 """
 from __future__ import annotations
 
@@ -165,9 +165,15 @@ class Ledger:
         self.said |= said
         return self._close(leg)
 
+    def reply_started(self, leg: str) -> None:
+        """A new reply opened on this leg: the last one ran its course, and what it said of an answer is what the
+        voice chose to say."""
+        self.speaking.pop(leg, None)
+
     def reply_done(self, leg: str) -> list[Entry]:
-        """An audible reply on this leg ended: a piece with no new words to listen for counts as said."""
-        self.speaking.pop(leg, None)  # the reply ran its course: what it said of an answer is what the voice chose
+        """An audible reply on this leg ended: a piece with no new words to listen for counts as said. The entries it
+        was saying stay with it until the next reply: the provider ends a reply itself when the caller talks over
+        it, and that is a cut too (take 14)."""
         for entry in self.pending(leg):
             for piece in entry.unspoken:
                 if not piece.new:

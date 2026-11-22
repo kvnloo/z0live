@@ -172,11 +172,12 @@ MAX_CALLS = 2
 DRAIN_SECONDS = int(os.environ.get("HERMES_MOBILE_VOICE_DRAIN", str(MAX_CALL_SECONDS)))
 # A fast-lane "I found nothing" is not a first answer; saying it then being contradicted is worse than silence.
 UNHELPFUL = re.compile(r"^\W*(not found|nothing found|no (local )?(evidence|results|record)|i (couldn.?t|could not|can.?t) find)", re.I)
-# A hand-off line that promises new work or claims it is handled, before Hermes said what happened (takes 7 and 9:
-# "Got it, I'll handle that and keep receipts", "I'm taking that on end-to-end"). replay.py reports these.
+# A hand-off line that promises new work or claims it is handled, before Hermes said what happened (takes 7, 9 and 14:
+# "Got it, I'll handle that and keep receipts", "I'm taking that on end-to-end", "Got it—I'll go step by step and
+# show receipts"). replay.py reports these.
 PROMISE = re.compile(r"\b(i'?m|i am) (taking|handling|on) (that|it|this)\b|\b(take|taking) (that|it|this) on\b"
-                     r"|\bi'?ll (handle|take care of|get (that|it|this) (done|going)|be back"
-                     r"|keep (you )?(posted|updated)|keep receipts|send( you)? receipts"
+                     r"|\bi'?ll (handle|take care of|get (that|it|this) (done|going)|be back|go step by step"
+                     r"|keep (you )?(posted|updated)|(keep|send|show)( you)?( the)? receipts"
                      r"|report back|follow up|circle back)|\bend[- ]to[- ]end\b|\bon it\b|\bconsider it done\b"
                      r"|\b(it'?s|that'?s) (handled|taken care of)\b", re.I)
 
@@ -729,6 +730,7 @@ class VoiceReply:
     id: str | None = None
     spoken: str = ""
     cut: bool = False
+    span_ms: tuple[int, int] | None = None  # the provider's start_ms/end_ms for it, from its turn.done
 
 
 # With more than one person at the phone, the people often talk to each other (11-22 film call, take 7).
@@ -745,7 +747,9 @@ class GPTGuest:
 
     def __init__(self, call, config):
         self.call, self.config = call, config
-        aliases = ("tek", "teknium", "டெக்", "டெக்னியம்") if config and config.profile == "tek" else ()
+        # The transcriber hears Tek as "Tech", "Tec" or "Tech's" (takes 9 and 14); only a vocative names a voice.
+        aliases = (("tek", "tech's", "tech’s", "tech", "tec", "teknium", "டெக்", "டெக்னியம்")
+                   if config and config.profile == "tek" else ())
         self.addressing = Addressing((config.name, *aliases) if config else ())
         self.floor = Floor(time.monotonic(), self.floor_event)
         self.users: dict[Leg, UserTurn] = {}
@@ -822,9 +826,10 @@ class GPTGuest:
 
     def floor_back(self, leg: Leg, reason: str):
         """The floor came to this leg. An answer a cut reply left unfinished goes back to its voice when the floor
-        returns for it (answer_ready, or the guest leg going idle or away): take 13 lost line 3's receipts this way.
+        returns for it (answer_ready, or the guest leg going idle or away), or in the caller's pause when it never left
+        (caller_pause): take 13 lost line 3's receipts this way.
         When the caller gave this voice the floor by addressing it, the new request supersedes the cut answer."""
-        resume = reason in ("answer_ready", "guest_idle", "guest_failed")
+        resume = reason in ("answer_ready", "guest_idle", "guest_failed", "caller_pause")
         for cut in reversed(self.ledger.unpark(leg)):
             if resume:
                 self.floor.answers[leg].appendleft(Answer(leg, cut.did, answer_delivery.RESUME_PREFIX + cut.text))
@@ -929,6 +934,7 @@ class GPTGuest:
         if user:
             self.user_heard_at = now
             self.interrupt(user, now)
+            self.talked_over(source)
             self.commit_user(source, now, final=kind == "turn.done")
             if kind == "turn.done":
                 self.quiet_since[source] = now  # the voice gets its chance to answer this turn first
@@ -940,6 +946,7 @@ class GPTGuest:
             reply = self.replies.get(source)
             if kind != "turn.done" and reply is None:
                 reply = self.replies[source] = VoiceReply(self.call.heard_user and self.floor.owner == source, now)
+                self.ledger.reply_started(source)
                 self.quiet_since[source] = None
                 if reply.allowed:
                     self.floor.reply_started(source, now)
@@ -970,7 +977,9 @@ class GPTGuest:
                     if allowed:
                         self.floor.reply_finished(source, now, reply.began)
                         self.tails[source] = reply, now
+                        reply.span_ms = turn.get("start_ms", 0), turn.get("end_ms", 0)
                         self.delivered(source, self.ledger.reply_done(source))
+                        self.talked_over(source)
                     self.quiet_since[source] = now
                     self.flush_answers()
                 return allowed
@@ -992,6 +1001,20 @@ class GPTGuest:
             self.floor.reply_finished(source, now, reply.began)
             self.call.trace("floor.barge_in", speaker=source, user_turn=user.id)
             self.cut(source)
+
+    def talked_over(self, leg: Leg):
+        """The provider ends its own reply when the caller starts talking over it, sometimes before interrupt() can
+        (take 14: line 5's "Okay" is a backchannel, and by ", nice" the output had been quiet 0.26 s; turn.done
+        came at 93.95 with the answer stopped at "then verify"). A caller turn on this leg that began inside the
+        finished reply (the provider's own clock) cut it there, whichever of the two events came first."""
+        tail, user = self.tails.get(leg), self.users.get(leg)
+        if not tail or not user or tail[0].cut or not tail[0].span_ms:
+            return
+        reply, (start_ms, end_ms) = tail[0], tail[0].span_ms
+        if start_ms < user.start_ms < end_ms:
+            reply.cut = True
+            self.call.trace("floor.barge_in", speaker=leg, user_turn=user.id, by="provider")
+            self.cut(leg)
 
     def delivered(self, leg: Leg, entries):
         for entry in entries:
@@ -1064,6 +1087,13 @@ class GPTGuest:
                 return
             self.floor.answer_ready(waiting, now)
         source = self.floor.owner
+        if source != "people" and self.ledger.parked(source):
+            # The cut left the floor with this voice (take 14: the provider ended the reply under the caller's
+            # "Okay, nice", and that turn never closed). Its rest comes back in the caller's pause, as after people talk.
+            if source in self.replies or now - max(self.call.input_loud_at, self.user_heard_at) < PEOPLE_PAUSE_SECONDS:
+                self.flush_timer = self.later(0.5, self.flush_answers)
+                return
+            self.floor_back(source, "caller_pause")
         queue, pending = self.floor.answers[source], self.ledger.pending(source)
         if (queue or pending) and (not self.call.provider_ready or now - self.call.input_loud_at < 0.4
                                    or (source != "people" and self.caller_mid_request(source, now))):

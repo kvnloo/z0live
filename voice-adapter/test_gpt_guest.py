@@ -631,6 +631,64 @@ class AnswerDeliveryTest(TimedGuestTest):
         self.assertEqual(self.speakable("twice a year"), 2)
         self.assertEqual(self.speakable("hinge pin rusted"), 1)
 
+    async def test_a_friend_saying_hey_tech_asks_tek(self):
+        # Takes 9 and 14: both legs heard Jules's "Hey, Tek" as "Hey, Tech", the floor read it as the people talking
+        # to each other, and Tek's Hermes was never asked about PR 28.
+        for text, owner in [("Hey, Tech, while that runs, what actually caused the glass crash in PR 28", "guest"),
+                            ("Tec, what caused it?", "guest"), ("Tech's, what caused it?", "guest"),
+                            ("Hermes, is the tech stack on the laptop the same as staging?", "primary")]:
+            with self.subTest(text=text):
+                g = live.GPTGuest(self.call, guest_voice.GuestConfig("gpt-live", "tek", "ember", "tek"))
+                g.send = self.call.sent.append
+                g.message(json.dumps({"type": "session.started"}))
+                g.set_people(2)
+                g.floor.change("primary", "redirected", 100)
+                g.observe("guest", turn("done", text, 1000, 4000, tid="j1"))
+                self.assertEqual(g.floor.owner, owner)
+                await g.close()
+
+    async def test_an_answer_the_provider_cut_under_the_callers_words_comes_back_in_their_pause(self):
+        # Take 14, line 5: the provider ended the resumed line-3 answer itself at "then verify" when Jules said
+        # "Okay, nice". No barge-in fired ("Okay" is a backchannel, and the output had been quiet 0.26 s), nothing
+        # was parked, Jules's turn never closed, and the call was silent for 60 s.
+        for order in ("turn.done first", "caller first"):
+            with self.subTest(order=order):
+                await self.asyncSetUp()
+                g = self.guest
+                g.set_people(2)
+                g.floor.change("primary", "redirected", 100)
+                self.speak("d3", self.LINE_3)
+                self.at(100.6)
+                g.observe("primary", turn("created", "", role="assistant", tid="r1"))
+                g.observe("primary", output("It's still running in card t_0a96e2de, so I won't start a second one."))
+                self.at(104)
+                done = turn("done", "", 600, 4200, role="assistant", tid="r1")
+                okay = turn("created", "Okay", 4000, 4200, tid="j5")  # began inside the reply, provider clock
+                for event in ((done, okay) if order == "turn.done first" else (okay, done)):
+                    g.observe("primary", event)
+                self.assertIn("floor.answer_cut", self.call.traces)
+                self.at(104.5)
+                g.flush_answers()
+                self.assertEqual(self.speakable("from this call"), 1, "not while the caller is still talking")
+                self.at(106)
+                g.flush_answers()
+                self.assertEqual(self.speakable("from this call"), 2, "the rest comes back in the caller's pause")
+                self.assertEqual(self.speakable("second one"), 1, "and only the rest")
+                await g.close()
+
+    async def test_a_caller_turn_after_the_reply_ended_cuts_nothing(self):
+        g = self.guest
+        g.set_people(2)
+        g.floor.change("primary", "redirected", 100)
+        self.speak("d3", self.LINE_3)
+        self.at(100.6)
+        g.observe("primary", turn("created", "", role="assistant", tid="r1"))
+        g.observe("primary", output("It's still running in card t_0a96e2de, so I won't start a second one."))
+        self.at(104)
+        g.observe("primary", turn("done", "", 600, 4200, role="assistant", tid="r1"))
+        g.observe("primary", turn("created", "Okay", 4400, 4600, tid="j5"))
+        self.assertNotIn("floor.answer_cut", self.call.traces)
+
     async def test_lane_guesses_waiting_for_the_floor_are_dropped_once_stale(self):
         g = self.guest
         g.observe("guest", turn("done", "Tek, what shipped?", 1000, 2000))

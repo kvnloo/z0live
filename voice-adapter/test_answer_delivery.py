@@ -117,7 +117,16 @@ class LedgerTest(unittest.TestCase):
         self.ledger.sent("primary", "d1", "The bike chain is fixed. The brakes need new pads.", 10)
         self.ledger.heard("primary", "The bike chain is fixed.")
         self.ledger.reply_done("primary")
+        self.ledger.reply_started("primary")
         self.assertEqual(self.ledger.cut("primary"), [], "the voice chose to stop there")
+
+    def test_a_reply_the_provider_ended_under_the_caller_still_parks_its_rest(self):
+        # Take 14, line 5: the caller's turn arrives just after the provider's turn.done for the reply it cut.
+        self.ledger.sent("primary", "d1", "The bike chain is fixed. The brakes need new pads.", 10)
+        self.ledger.heard("primary", "The bike chain is fixed.")
+        self.ledger.reply_done("primary")
+        [cut] = self.ledger.cut("primary")
+        self.assertEqual(cut.text, "The brakes need new pads.")
 
     def test_short_answer_said_in_other_words_is_delivered(self):
         # 113507 at 478 s: "No, I don't have access to your phone's location." was said as "No, I don't have your

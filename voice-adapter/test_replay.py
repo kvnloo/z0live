@@ -181,16 +181,18 @@ class ReplayContract(unittest.TestCase):
         return r.submitted
 
 
-def speech(t0, t1, text, tid):
-    """A voice reply as the provider streams it: turn.created, one output_transcript.added per word, turn.done."""
+def speech(t0, t1, text, tid, *, span=False):
+    """A voice reply as the provider streams it: turn.created, one output_transcript.added per word, turn.done.
+    `span`: turn.done carries the reply's start_ms/end_ms on the provider clock (heard()'s: t - 0.6 s)."""
     parts = text.split()
     step = (t1 - t0) / max(len(parts), 1)
     rows = [{"t": t0, "src": "provider", "rx": {"type": "turn.created", "turn": {"id": tid, "role": "assistant"}}}]
     rows += [{"t": round(t0 + i * step, 3), "src": "provider", "rx": {"type": "output_transcript.added",
                                                                      "item": {"text": " " + word}}}
              for i, word in enumerate(parts)]
+    clock = {"start_ms": int((t0 - 0.6) * 1000), "end_ms": int((t1 - 0.6) * 1000)} if span else {}
     return rows + [{"t": t1, "src": "provider", "rx": {"type": "turn.done", "turn": {
-        "id": tid, "role": "assistant", "transcript": text}}}]
+        "id": tid, "role": "assistant", "transcript": text, **clock}}}]
 
 
 GUEST = [{"t": 1.4, "src": "guest", "rx": {"type": "session.started"}}]  # a second voice (Tek) on the call
@@ -506,18 +508,51 @@ class PeopleOnTheCall(unittest.TestCase):
         import asyncio
         return r, asyncio.run(r.run())
 
-    def test_an_answer_a_barge_in_cut_is_lost_until_the_phone_hears_its_rest(self):
+    def test_an_answer_a_barge_in_cut_is_lost_unless_its_rest_comes_back(self):
+        from unittest.mock import patch
+        import mobile_live
         r, report = self.cut_line_3()
         self.assertIn("floor.barge_in", [ev for _, ev, _ in r.floor], "fixture: the friend's words cut the answer")
-        self.assertEqual([(x["did"], x.get("cut")) for x in report["lost"]], [("d3", True)])
         resumed = [t for t, event in r.sent if "anything from this call" in json.dumps(event) and t > 99]
         self.assertTrue(resumed, "the rest goes back to the voice once the floor does")
+        self.assertEqual(report["lost"], [], "handed back: the recorded voice never had that hand-back to say")
+        with patch.object(mobile_live.GPTGuest, "floor_back", lambda *_: None):  # an adapter that never hands it back
+            r, report = self.cut_line_3()
+        self.assertEqual([(x["did"], x.get("cut")) for x in report["lost"]], [("d3", True)])
         r, report = self.cut_line_3(*speech(101.5, 108.0, "The receipts so far are a signed build and passing "
                                                           "screenshot tests. I can't install anything from this "
                                                           "call.", "a6"))
         self.assertIn("anything from this call", "".join(text for t, text in r.heard if t > 100))
         self.assertEqual(report["lost"], [])
         self.assertEqual(report["repeats"], [])
+
+    def test_an_answer_the_provider_cut_under_the_callers_words_is_lost_until_handed_back(self):
+        # Take 14, line 5 (words changed): the provider ended the reply reading line 3's answer when the friend said
+        # "Okay, nice". No barge-in fired, that turn never closed, the rest was never parked, and the replay credited
+        # the answer as spoken (floor.answer_spoken) and reported lost: [].
+        answer = ("That run is already going as card seven, so I won't start a second one. The receipts so far are a "
+                  "signed build and passing screenshot tests. I can't install anything from this call.")
+        ask = "Hermes, get all of it onto my laptop, prove each one, and send receipts"
+        okay = {"id": "p5", "role": "user", "transcript": "Okay", "start_ms": 65800, "end_ms": 66000}
+        rows = (GUEST + heard(40.2, 52.6, ask, "p3") + heard(41.6, 52.7, ask, "g3", "guest")
+                + delegation(52.2, "d3", ask) + hermes("d3", 8.9, answer) + speech(52.8, 54.0, "Let me check.", "a3")
+                + speech(61.3, 66.6, "It's still going as card seven, so I won't start a second one.", "a4", span=True)
+                + [{"t": 66.65, "src": "provider", "rx": {"type": "turn.created", "turn": okay}},
+                   {"t": 90.0, "src": "guest", "rx": {"type": "session.usage.updated"}}])
+        r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows, history=PEOPLE)
+        import asyncio
+        report = asyncio.run(r.run())
+        self.assertNotIn("floor.barge_in", [ev for _, ev, d in r.floor if d.get("by") != "provider"],
+                         "fixture: no barge-in of the adapter's own")
+        resumed = [t for t, event in r.sent if "anything from this call" in json.dumps(event) and t > 66.6]
+        self.assertTrue(resumed, "the rest goes back to the voice in the caller's pause")
+        self.assertEqual(report["lost"], [])
+        from unittest.mock import patch
+        import mobile_live
+        with patch.object(mobile_live.GPTGuest, "floor_back", lambda *_: None):
+            report = asyncio.run(replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}]
+                                               + rows, history=PEOPLE).run())
+        self.assertEqual([(x["did"], x.get("cut")) for x in report["lost"]], [("d3", True)])
 
     def test_a_fixture_keeps_when_the_phone_heard_output_and_teks_answers(self):
         # Without the loud output a replay never sees a barge-in, and without Tek's answer it hears a made-up one.
