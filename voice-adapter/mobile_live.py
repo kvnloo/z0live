@@ -619,7 +619,6 @@ class AudioBridge(MediaStreamTrack):
         self.source, self.call, self.direction = source, call, direction
         self.level = Level(call, direction)
         self.counter = direction + "_frames"
-        self.duplex = call.guest if isinstance(call.guest, GPTGuest) else None
 
     async def recv(self):
         frame = await self.source.recv()
@@ -631,8 +630,8 @@ class AudioBridge(MediaStreamTrack):
                 call.input_loud_at = time.monotonic()
             if prior_on is None and self.level.on is not None:
                 call.trace.begin_turn(self.level.on - call.output_loud_at <= OUTPUT_FRAME_GRACE)
-        if self.direction == "output" and self.duplex:
-            frame = self.duplex.output(frame)
+        if self.direction == "output" and call.duplex:
+            frame = call.duplex.output(frame)
         if self.direction == "input" and not call.heard_user and self.level.on is not None and not call.muted:
             call.heard_user = True
             call.trace("output.gate_open", gated_frames=call.counts["output_gated"])
@@ -644,7 +643,7 @@ class AudioBridge(MediaStreamTrack):
             for plane in frame.planes:
                 plane.update(bytes(plane.buffer_size))
         if self.direction == "output":
-            if self.level.frame(frame, self.duplex.floor.owner if self.duplex else None):
+            if self.level.frame(frame, call.duplex.floor.owner if call.duplex else None):
                 call.output_loud_at = time.monotonic()
             if call.passthru and call.passthru.active:
                 call.passthru.voice(frame)  # z0's voice into the meeting (floor-gated)
@@ -716,10 +715,13 @@ DEFERRED_SECONDS = 1.5  # the caller's turn.done trails a delegation by 0.2-0.8 
 
 
 class GPTGuest:
+    """The call's floor and the second GPT-Live voice. With `config` None there is no second voice: the floor alone,
+    for a call where several people share the phone with Hermes (Call.read_history)."""
+
     def __init__(self, call, config):
         self.call, self.config = call, config
-        aliases = ("tek", "teknium", "டெக்", "டெக்னியம்") if config.profile == "tek" else ()
-        self.addressing = Addressing((config.name, *aliases))
+        aliases = ("tek", "teknium", "டெக்", "டெக்னியம்") if config and config.profile == "tek" else ()
+        self.addressing = Addressing((config.name, *aliases) if config else ())
         self.floor = Floor(time.monotonic(), self.floor_event)
         self.users: dict[Leg, UserTurn] = {}
         self.replies: dict[Leg, VoiceReply] = {}
@@ -733,12 +735,12 @@ class GPTGuest:
         self.quiet_since: dict[Leg, float | None] = {"primary": None, "guest": None}  # last reply or caller turn end
         self.user_heard_at = float("-inf")  # the latest caller transcript event on either leg
         self.flush_timer: asyncio.TimerHandle | None = None
-        identity = "Tek (also Teknium, டெக் or டெக்னியம்)" if config.profile == "tek" else config.name
+        identity = "Tek (also Teknium, டெக் or டெக்னியம்)" if aliases else (config.name if config else "")
         self.persona = (f"You are {identity}, a guest on Kevin's call. When Kevin addresses you or continues "
                         "that exchange, answer briefly. Do not reply to other exchanges or backchannels. "
                         "For questions about your work or history, delegate to your own Hermes, then speak "
                         "its answer. Never invent work. Notes about what Hermes said are silent background.")
-        self.subscription = self.new_subscription(active=True)
+        self.subscription = self.new_subscription(active=True) if config else None
         self.protocol = Protocol(host_delegation=True)
         self.closed = False
         self.audio = bytearray()
@@ -759,8 +761,8 @@ class GPTGuest:
         await asyncio.wait_for(self.subscription.ready.wait(), 10)
 
     def send(self, event):
-        channel = self.subscription.channel
-        if not self.closed and channel.readyState == "open":
+        channel = self.subscription and self.subscription.channel
+        if not self.closed and channel and channel.readyState == "open":
             channel.send(json.dumps(event))
 
     def note(self, text):
@@ -1151,7 +1153,8 @@ class GPTGuest:
         self.closed = True
         if self.flush_timer:
             self.flush_timer.cancel()
-        await self.subscription.close()
+        if self.subscription:
+            await self.subscription.close()
 
 
 async def ask_guest_host(http, profile, session, request, context=""):
@@ -1217,7 +1220,8 @@ class Call:
         if self.guest_config:
             self.guest = (GPTGuest(self, self.guest_config) if self.guest_config.engine == "gpt-live"
                           else guest_voice.GuestVoice(self))
-        if isinstance(self.guest, GPTGuest):  # each voice's request is only the caller's words to that voice
+        self.duplex = self.guest if isinstance(self.guest, GPTGuest) else None  # the call's floor, if it has one
+        if self.duplex:  # each voice's request is only the caller's words to that voice
             self.protocol.own = lambda said: self.guest.own_words("primary", said)
             self.guest.protocol.own = lambda said: self.guest.own_words("guest", said)
         self.trace("call.created", profile=profile, engine=self.engine,
@@ -1356,7 +1360,7 @@ class Call:
                     self.trace.finish_turn(text or self.protocol.turn_text["user"])
             if self.passthru:
                 self.passthru_event(kind, event)
-        duplex = self.guest if isinstance(self.guest, GPTGuest) else None
+        duplex = self.duplex
         if from_provider:
             audible = duplex.observe("primary", event) if duplex else True
             translated = self.protocol.from_provider(event, assistant_audible=audible)
@@ -1465,8 +1469,13 @@ class Call:
             self.context_text = "Recent chat context (do not read aloud):\n" + "\n".join(context)
         self.call_note = call_brief.written(self.chat)
         people = call_brief.people(history)
-        if isinstance(self.guest, GPTGuest):
-            self.guest.set_people(people)
+        if people > 1 and not self.guest and not self.leg:
+            # Several people and Hermes the only bot (take 7 without Tek): the same floor, with no second voice. Its
+            # request is only the words said to it, never what the people said to each other before it.
+            self.duplex = GPTGuest(self, None)
+            self.protocol.own = lambda said: self.duplex.own_words("primary", said)
+        if self.duplex:
+            self.duplex.set_people(people)
         return context
 
     async def start_guest(self, brief):
@@ -1509,9 +1518,10 @@ class Call:
     def speak_for(self, did, text, lane=False):
         if self.closed or not text.strip():
             return
-        if isinstance(self.guest, GPTGuest):
-            self.guest.floor.enqueue(Answer("primary", did, text, lane), self.guest.config.name)
-            self.guest.flush_answers()
+        if self.duplex:
+            config = self.duplex.config
+            self.duplex.floor.enqueue(Answer("primary", did, text, lane), config.name if config else "")
+            self.duplex.flush_answers()
             return
         # A session renewal clears the ids the new provider knows; an answer to an older delegation still speaks.
         did = did if did in self.protocol.seen else None
@@ -1971,7 +1981,7 @@ class Call:
             raise RuntimeError("Call audio is not connected")
         candidate = owner.new_subscription()
         protocol = owner.protocol
-        duplex = self.guest if isinstance(self.guest, GPTGuest) else None
+        duplex = self.duplex
         source = "guest" if guest else "primary"
         trace = guest.trace if guest else self.trace
         try:
@@ -2063,7 +2073,7 @@ class Call:
             if task is not current:
                 task.cancel()
         await asyncio.gather(self.mobile.close(), self.subscription.close(), *([self.leg.close()] if self.leg else []),
-                             *([self.guest.close()] if self.guest else []), return_exceptions=True)
+                             *(voice.close() for voice in {self.guest, self.duplex} if voice), return_exceptions=True)
         if self.relay:
             await self.relay.close()
             self.counts.update({"relay_" + k: v for k, v in self.relay.counts.items()})
