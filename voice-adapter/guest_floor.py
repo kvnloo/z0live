@@ -97,6 +97,7 @@ class Floor:
     people: int = 1
     # The floor owner's audible replies since it took the floor: [began, ended] (ended None while it plays).
     heard: list[list] = field(default_factory=list)
+    addressed_at: float = float("-inf")  # when a caller turn last named a voice
 
     def change(self, owner: Owner, reason: str, now: float) -> None:
         if owner != self.owner:
@@ -111,10 +112,14 @@ class Floor:
         if address is Address.GUEST and self.available:
             self.change("guest", "guest_addressed", now)
             self.since, self.replied_at, self.reply_began_at = now, None, None  # a new question restarts the idle clock
+            self.addressed_at = now
         elif address is Address.OTHER:
             self.change("primary", "redirected", now)
+            self.addressed_at = now
         elif self.people > 1:
-            if final and substantive(text) and not self.follow_up(text, began):
+            # Both legs transcribe the same mic. A final that began before the latest address is the same utterance
+            # heard by the other leg, which may miss the name ("Hey Tech", take 9): it never undoes that address.
+            if final and substantive(text) and began > self.addressed_at and not self.follow_up(text, began):
                 self.change("people", "people_talk", now)
         elif (final and substantive(text) and (interrupted or (
                 self.replied_at is not None and self.reply_began_at is not None

@@ -304,6 +304,31 @@ class PeopleOnTheCall(unittest.TestCase):
         after_tek = "".join(text for t, text in r.heard if 96.5 <= t < 120 and "PR twelve" not in text)
         self.assertNotIn("I'll check", after_tek)
 
+    def test_a_question_named_to_tek_on_one_leg_stays_with_tek_when_the_other_leg_mishears_the_name(self):
+        # Take 9: Hermes's leg heard "Hey Tek, while" and gave Tek the floor mid-line; Tek's own leg heard "Hey Tech,
+        # while that runs ..." and its delegation (that leg's final) found no name in it, so the same utterance was
+        # taken for people talk: the floor went to the people, Tek's Hermes was never asked and Tek stayed silent.
+        rows = (GUEST
+                + heard(23.2, 27.8, "Hermes, what's actually on my laptop right now versus the beta", "p2")
+                + heard(22.6, 27.9, "Hermes, what's actually on my laptop right now versus the beta", "g2", "guest")
+                + delegation(27.0, "d2", "Hermes, what's actually on my laptop right now versus the beta")
+                + hermes("d2", 12, "Your laptop runs build 9. The beta has twenty newer changes.")
+                + speech(28.0, 40.9, "Your laptop runs build 9. The beta has twenty newer changes.", "a2")
+                + heard(65.0, 71.7, "Hey Tek, while that runs, what actually caused the dark mode crash in PR "
+                                    "twelve", "p4")
+                # Tek's leg kept the turn open: no turn.done, no reply of its own after its delegation (take 9).
+                + heard(65.4, 72.0, "Hey Tech, while that runs, what actually caused the dark mode crash in PR "
+                                    "twelve", "g4", "guest")[:2]
+                + guest_delegation(71.6, "gd4", "Tech, while that runs, what actually caused the dark mode crash "
+                                                "in PR twelve")
+                + [{"t": 90.0, "src": "guest", "rx": {"type": "session.usage.updated"}}])
+        r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows, history=PEOPLE)
+        import asyncio
+        asyncio.run(r.run())
+        self.assertEqual([did for did, _ in r.requests], ["d2"], "Hermes runs only the request to it")
+        self.assertEqual(len(r.guest_asked), 1, "Tek's Hermes runs the question to Tek")
+        self.assertIn("crash in PR twelve", r.guest_asked[0][1])
+
 
 if __name__ == "__main__":
     unittest.main()
