@@ -13,6 +13,11 @@ reply that spoke an answer said 3 to 33 of its new words; a reply that ignored i
 Everything one delegation sends to one voice (a lane guess, Hermes's answer, a 500-byte split) is one entry, and a
 resend carries only its unspoken pieces. A resend happens only after the voice has been quiet for SETTLE_SECONDS
 without saying the entry, at most once.
+
+"Spoken" means the voice began saying it, which is enough while the reply plays on. A reply cut off mid-answer (a
+barge-in, or the floor moving away) is not: take 13's line-3 answer was cut after its first sentence and Tek's after
+"It was a startup timing bug: the blur". So the ledger keeps the entries the current reply is saying, closed or not,
+and a cut parks each one's unheard sentences (Cut) for when the floor comes back to that leg.
 """
 from __future__ import annotations
 
@@ -24,6 +29,7 @@ MIN_HITS = 3
 SETTLE_SECONDS = 2.5
 MAX_SENDS = 2
 STARTED_HITS = 2  # new words said before a barge-in that show the voice had begun this answer (one can be chance)
+RESUME_PREFIX = "To finish what I was saying: "
 
 _NUMBERS = dict(enumerate("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen "
                           "fifteen sixteen seventeen eighteen nineteen twenty".split()))
@@ -65,6 +71,10 @@ class Piece:
             self.spoken = True
 
 
+def sentences(text: str) -> list[str]:
+    return [s for s in re.split(r"(?<=[.!?])\s+", text.strip()) if s]
+
+
 @dataclass
 class Entry:
     leg: str
@@ -72,6 +82,25 @@ class Entry:
     sent_at: float
     pieces: list[Piece] = field(default_factory=list)
     sends: int = 1
+    said: set[str] = field(default_factory=set)  # content words the voice said while this entry was out
+
+    @property
+    def started(self) -> bool:
+        return any(p.spoken or (p.hits and len(p.hits) >= min(STARTED_HITS, len(p.new))) for p in self.pieces)
+
+    def rest(self) -> str:
+        """The sentences after the last one the voice said (`needed` of the words it adds to the ones before it).
+        Speech runs in order, so what comes before that sentence, or before the piece the voice was saying (a
+        receipt the answer overtook, take 13), is not owed."""
+        begun = [i for i, p in enumerate(self.pieces) if p.hits or p.spoken]
+        pieces = self.pieces[begun[-1] if begun else 0:]
+        parts, last, before = [s for p in pieces for s in sentences(p.text)], -1, set()
+        for i, sentence in enumerate(parts):
+            own = content(sentence) - before
+            before |= own
+            if own and len(own & self.said) >= needed(len(own)):
+                last = i
+        return " ".join(parts[last + 1:])
 
     @property
     def unspoken(self) -> list[Piece]:
@@ -85,10 +114,21 @@ class Entry:
         return "\n\n".join(p.text for p in self.unspoken)
 
 
+@dataclass(frozen=True)
+class Cut:
+    """The unheard rest of an answer a cut reply was saying, parked until the floor comes back to its leg."""
+    leg: str
+    did: str | None
+    text: str
+    lane: bool = False
+
+
 class Ledger:
     def __init__(self):
         self.entries: list[Entry] = []
         self.said: set[str] = set()  # content words any voice has said on this call
+        self.speaking: dict[str, list[Entry]] = {}  # per leg: entries the open reply has begun, closed ones too
+        self.cuts: list[Cut] = []
 
     def pending(self, leg: str) -> list[Entry]:
         return [e for e in self.entries if e.leg == leg]
@@ -113,26 +153,44 @@ class Ledger:
     def heard(self, leg: str, text: str) -> list[Entry]:
         """The voice on this leg said these words aloud. Returns the entries now fully spoken (and closes them)."""
         said = content(text)
+        speaking = self.speaking.setdefault(leg, [])
         for entry in self.pending(leg):
             for piece in entry.unspoken:
                 piece.hear(said)
+            entry.said |= said
+            if entry.started and entry not in speaking:
+                speaking.append(entry)
+        for entry in speaking:  # closed entries the reply is still saying
+            entry.said |= said
         self.said |= said
         return self._close(leg)
 
     def reply_done(self, leg: str) -> list[Entry]:
         """An audible reply on this leg ended: a piece with no new words to listen for counts as said."""
+        self.speaking.pop(leg, None)  # the reply ran its course: what it said of an answer is what the voice chose
         for entry in self.pending(leg):
             for piece in entry.unspoken:
                 if not piece.new:
                     piece.spoken = True
         return self._close(leg)
 
-    def barged_in(self, leg: str) -> list[Entry]:
-        """The caller cut this leg off. What the voice had started saying, he chose not to hear out."""
-        cut = [e for e in self.pending(leg)
-               if any(len(p.hits) >= min(STARTED_HITS, len(p.new)) and p.hits for p in e.pieces)]
-        self.entries = [e for e in self.entries if e not in cut]
-        return cut
+    def cut(self, leg: str) -> list[Cut]:
+        """This leg's reply was cut off. Each answer it had begun leaves the pending entries; its unheard sentences
+        are parked (returned), and one it had said to the end is done. Unbegun answers stay pending."""
+        begun = self.speaking.pop(leg, [])
+        self.entries = [e for e in self.entries if e not in begun]
+        parked = [Cut(leg, e.did, text) for e in begun if (text := e.rest())]
+        self.cuts += parked
+        return parked
+
+    def parked(self, leg: str) -> list[Cut]:
+        return [c for c in self.cuts if c.leg == leg]
+
+    def unpark(self, leg: str) -> list[Cut]:
+        """The floor came back to this leg (resume them) or it was asked something new (they are superseded)."""
+        out = self.parked(leg)
+        self.cuts = [c for c in self.cuts if c.leg != leg]
+        return out
 
     def due(self, leg: str, now: float, quiet_since: float | None) -> list[tuple[Entry, str | None]]:
         """Entries the voice had its chance to say and didn't: (entry, text to resend), or (entry, None) once it
@@ -154,10 +212,11 @@ class Ledger:
         return min(times, default=None)
 
     def retire(self, leg: str) -> list[tuple[Entry, str]]:
-        """This leg's session is gone: hand back every entry with its unspoken text."""
+        """This leg's session is gone: hand back every entry with its unspoken text, and its parked cuts."""
         gone = self.pending(leg)
         self.entries = [e for e in self.entries if e.leg != leg]
-        return [(e, e.text()) for e in gone]
+        self.speaking.pop(leg, None)
+        return [(e, e.text()) for e in gone] + [(c, c.text) for c in self.unpark(leg)]
 
     def _close(self, leg: str) -> list[Entry]:
         done = [e for e in self.pending(leg) if not e.unspoken]
