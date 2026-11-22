@@ -29,12 +29,10 @@ jobs:
       fail-fast: false
       max-parallel: 8
       matrix:
-        brief: [full, compressed, medium, half, odd, e5, es4]   # medium = slm-v2-chat1k: chat header + 6 fact turns + status (GH8); half = slm-v2-half: full brief, 6 of 12 filler pairs (GH9); odd = slm-v2-odd: the other 6 (GH10); e5 = slm-v2-e5: even minus pair 0 (GH11); es4 = slm-v2-es4: even with pair 4 swapped for pair 1 in place (GH12)
+        # GH13: cut to the decision arms/cells (full, half, odd, es2 x gemma4-e2b) to save runner minutes;
+        # earlier briefs: compressed, medium, e5, es4; earlier cfgs: qwen3-0.6b / qwen3-1.7b Q4_K_M, Q8_0 (see GH12 branch).
+        brief: [full, half, odd, es2]   # es2 = slm-v2-es2: even with pair 2 swapped for pair 5 in place (GH13); medium = slm-v2-chat1k: chat header + 6 fact turns + status (GH8); half = slm-v2-half: full brief, 6 of 12 filler pairs (GH9); odd = slm-v2-odd: the other 6 (GH10); e5 = slm-v2-e5: even minus pair 0 (GH11); es4 = slm-v2-es4: even with pair 4 swapped for pair 1 in place (GH12)
         cfg:
-          - {model: qwen3-0.6b, quant: Q4_K_M, repo: unsloth/Qwen3-0.6B-GGUF, file: Qwen3-0.6B-Q4_K_M.gguf, sha: ac2d97712095a558e31573f62f466a3f9d93990898b0ec79d7c974c1780d524a, cache: true}
-          - {model: qwen3-0.6b, quant: Q8_0, repo: unsloth/Qwen3-0.6B-GGUF, file: Qwen3-0.6B-Q8_0.gguf, sha: e150ed544dfe6016930c026a93913a5e3184181ebfe6ab2223ae01dd0491784c, cache: true}
-          - {model: qwen3-1.7b, quant: Q4_K_M, repo: unsloth/Qwen3-1.7B-GGUF, file: Qwen3-1.7B-Q4_K_M.gguf, sha: b139949c5bd74937ad8ed8c8cf3d9ffb1e99c866c823204dc42c0d91fa181897, cache: true}
-          - {model: qwen3-1.7b, quant: Q8_0, repo: unsloth/Qwen3-1.7B-GGUF, file: Qwen3-1.7B-Q8_0.gguf, sha: 0becaa825564295d82e9af4d008bca5f8b7f5f73bf1c6a0b58f7c53ef26b47fd, cache: true}
           - {model: gemma4-e2b, quant: Q4_K_M, repo: unsloth/gemma-4-E2B-it-GGUF, file: gemma-4-E2B-it-Q4_K_M.gguf, sha: 740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8, cache: true}
           - {model: gemma4-e2b, quant: Q8_0, repo: unsloth/gemma-4-E2B-it-GGUF, file: gemma-4-E2B-it-Q8_0.gguf, sha: 605d3c2647d7c58c1e4b5375ccb5702acf94c2611b4c8d4877812f8fdd32d053, cache: false}
     steps:
@@ -102,7 +100,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --quiet "aiohttp>=3.9,<4"   # tiers.py imports aiohttp.ClientTimeout
-          case "$BRIEF" in full) SUITES=slm-v1,slm-v2 ;; medium) SUITES=slm-v2-chat1k ;; half) SUITES=slm-v2-half ;; odd) SUITES=slm-v2-odd ;; e5) SUITES=slm-v2-e5 ;; es4) SUITES=slm-v2-es4 ;; *) SUITES=slm-v2-model1100 ;; esac
+          case "$BRIEF" in full) SUITES=slm-v1,slm-v2 ;; medium) SUITES=slm-v2-chat1k ;; half) SUITES=slm-v2-half ;; odd) SUITES=slm-v2-odd ;; e5) SUITES=slm-v2-e5 ;; es4) SUITES=slm-v2-es4 ;; es2) SUITES=slm-v2-es2 ;; *) SUITES=slm-v2-model1100 ;; esac
           mkdir -p out
           meta=$(python -c 'import json,os;print(json.dumps({k.lower():os.environ[k] for k in ("MODEL","QUANT","REPO","FILE","BRIEF","CPU_MODEL")}))')
           Z0_VENDOR=voice-adapter python voice-adapter/bench/ghci/ci_bench.py --gguf "$RUNNER_TEMP/models/$FILE" --name "$MODEL-$QUANT" --suites "$SUITES" \
