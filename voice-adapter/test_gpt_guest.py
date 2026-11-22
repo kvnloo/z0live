@@ -116,6 +116,17 @@ class FloorTest(unittest.TestCase):
         floor.user_turn(None, "Okay, I think it's still last night's build", 50, 52, final=True)
         self.assertEqual(floor.owner, "people")
 
+    def test_with_people_on_the_call_a_final_without_the_name_never_undoes_its_own_address(self):
+        # Take 9: one leg heard "Hey Tek, while" (floor to Tek mid-line); the other leg's final of the same utterance
+        # read "Hey Tech, while that runs, ..." and flipped the floor to the people, so Tek never answered.
+        floor = Floor(0, lambda *a, **k: None, available=True, people=2)
+        floor.user_turn(Address.GUEST, "Hey Tek, while", 64.2, 65.9, final=False)
+        floor.user_turn(None, "Hey Tech, while that runs, what caused the crash in PR 28", 65.0, 69.9, final=True)
+        self.assertEqual((floor.owner, floor.reason), ("guest", "guest_addressed"))
+        # The next utterance, begun after the address, is judged on its own.
+        floor.user_turn(None, "Okay, nice. That's the one I kept hitting", 90.0, 92.5, final=True)
+        self.assertEqual(floor.owner, "people")
+
     def test_with_people_on_the_call_an_idle_guest_leaves_the_floor_to_the_people(self):
         floor = Floor(0, lambda *a, **k: None, available=True, people=2)
         floor.user_turn(Address.GUEST, "Tek, what", 1, 1, final=True)

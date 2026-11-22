@@ -711,6 +711,7 @@ class VoiceReply:
 PEOPLE_NOTE = ("(The people on the call are talking to each other, not to you. Nothing you said to that was heard and "
                "nothing was handed off. Stay quiet until someone says your name or asks you directly.)")
 PEOPLE_PAUSE_SECONDS = 1.5  # a pause in the people's talk long enough for a bot to give an answer it was asked for
+DEFERRED_SECONDS = 1.5  # the caller's turn.done trails a delegation by 0.2-0.8 s; past this the delegation runs anyway
 
 
 class GPTGuest:
@@ -923,6 +924,11 @@ class GPTGuest:
         """The part of a finished caller turn on this leg that was spoken to this leg's voice (its request)."""
         user = self.users.get(leg)
         lead = (user.opened_on if user else self.floor.owner) == leg
+        # The other leg heard this voice's name in this same turn and gave it the floor; this leg may have misheard
+        # the name ("Hey Tech, while that runs", take 9): when this leg found no name at all, the words are this voice's.
+        if (user and self.floor.owner == leg and self.floor.addressed_at >= user.began
+                and self.addressing(said, final=True) is None):
+            lead = True
         return self.addressing.own_words(said, guest=leg == "guest", lead=lead)
 
     def echoes(self, words: str) -> bool:
@@ -1035,6 +1041,22 @@ class GPTGuest:
         for message in self.protocol.from_provider(event, assistant_audible=allowed):
             if message.get("type") == "session.output_transcript.delta":
                 self.call.send(message)
+        if kind == "delegation.created" and self.protocol.deferred:
+            self.later(DEFERRED_SECONDS, self.release_deferred)
+        self.run_pending()
+
+    def release_deferred(self):
+        """A delegation waits for the caller's turn.done (it carries the whole utterance), but this leg can keep the
+        turn open and never send it (take 9: Tek's leg went quiet after its delegation and Tek's Hermes was never
+        asked). After DEFERRED_SECONDS the delegation runs with the words it has."""
+        if self.closed or not self.protocol.deferred:
+            return
+        self.call.trace("guest.delegation.undeferred", dids=[did for did, _ in self.protocol.deferred])
+        while self.protocol.deferred:
+            self.protocol.release(*self.protocol.deferred.pop(0))
+        self.run_pending()
+
+    def run_pending(self):
         for did, request in self.protocol.pending_host:
             if request is not None and self.may_delegate("guest", did):
                 self.floor.guest_jobs += 1
