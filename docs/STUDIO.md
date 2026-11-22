@@ -269,7 +269,11 @@ to record primary requests without running them. Guest delegations still use the
 
 Every hand-off goes into the chat the call was started from, through the dashboard's `/api/ws`, so it
 runs with that chat's context, tools and approvals and shows in the app like a typed message. A call
-from a new chat (no app history) falls back to a `hermes chat --oneshot` turn. A request that lands
+from a new chat (no app history) falls back to a `hermes chat --oneshot` turn. Those turns never wait
+for each other: a turn that lands while the profile's voice session is busy runs beside it in a session
+of its own (`delegation.hermes` traces when each run starts), up to `HOST_MAX` (3) per call. Past that,
+a request waits for a free run and the voice says it is queued and at what position
+(`delegation.queued`); it gets no "still working on it" receipt. A request that lands
 while the chat is busy joins the running turn (receipt `steered` or `redirected`) and is answered by
 that turn's one final message. The adapter does not resubmit a failed turn because Hermes may
 already have acted. The API-only host on 8644 serves the core's lanes, not call hand-offs: a

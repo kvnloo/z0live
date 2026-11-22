@@ -204,6 +204,11 @@ DELEGATION_TIMEOUT_SECONDS = 600
 RECEIPT_SECONDS = float(os.environ.get("Z0LIVE_RECEIPT_SECONDS", "8"))
 RECEIPT = "Still working on that in Hermes. I'll tell you as soon as it's done; ask anything else meanwhile."
 SIDE_MAX = 3
+# Hermes runs one call may have going at once on the host path (no linked chat). Past it a request waits for a free
+# run, and the voice says it is queued instead of claiming a hand-off that has not happened.
+HOST_MAX = 3
+QUEUED = ("I'm still on {running} earlier requests, so this one is queued as number {position}. It starts as soon as "
+          "one of them finishes.")
 
 # z0live lanes relay (z0live_desktop/mobile_relay.py in the served z0live checkout): finals and
 # partials go to the broker's lanes, a delegation gets the lane answer at once, and Hermes' slow
@@ -281,12 +286,19 @@ def _hermes_once(request: str, profile: str, resume: str, own_lane: bool = False
 
 
 def run_hermes(request: str, profile: str, own_lane: bool = False) -> str:
-    with VOICE_LOCKS[profile]:
+    lock = VOICE_LOCKS[profile]
+    if not lock.acquire(blocking=False):
+        # The voice session is busy with an earlier turn. Waiting for it held Kevin's long-run ask for the whole call
+        # (11-22 film call, take 7), so this turn runs now, beside it, in a session of its own.
+        return _hermes_once(request, profile, "", own_lane)[0]
+    try:
         sid, last = VOICE_SESSIONS.get(profile, ("", 0.0))
         resume = sid if sid and time.monotonic() - last < VOICE_SESSION_IDLE_SECONDS else ""
         text, new_sid = _hermes_once(request, profile, resume, own_lane)
         VOICE_SESSIONS[profile] = (new_sid or resume, time.monotonic())
         return text
+    finally:
+        lock.release()
 
 
 def refresh_codex_login():
@@ -1757,7 +1769,32 @@ class Call:
             self.counts["chat_turns"] += 1
             self.trace("delegation.chat", did=did, chat=self.chat)
             return answer
-        return await asyncio.to_thread(run_hermes, request, self.profile, True)
+        return await self.run_host(did, request)
+
+    async def run_host(self, did, request):
+        """One Hermes run on this host, beside any the call already has going, up to HOST_MAX."""
+        running = self.__dict__.setdefault("host_running", set())
+        waiting = self.__dict__.setdefault("host_waiting", [])
+        free = self.__dict__.setdefault("host_free", asyncio.Condition())
+        began = time.monotonic()
+        if len(running) >= HOST_MAX:
+            waiting.append(did)
+            self.__dict__.setdefault("host_queued", set()).add(did)
+            self.trace("delegation.queued", did=did, position=len(waiting), running=len(running))
+            self.speak_for(did, QUEUED.format(running=len(running), position=len(waiting)))
+            try:
+                async with free:
+                    await free.wait_for(lambda: len(running) < HOST_MAX and waiting[0] == did)
+            finally:
+                waiting.remove(did)
+        running.add(did)
+        self.trace("delegation.hermes", did=did, running=len(running), waited_s=round(time.monotonic() - began, 3))
+        try:
+            return await asyncio.to_thread(run_hermes, request, self.profile, True)
+        finally:
+            running.discard(did)
+            async with free:
+                free.notify_all()
 
     def side_request(self, request):
         """A background agent's prompt: it starts fresh, so it gets the call's recent words with the request."""
@@ -1777,8 +1814,9 @@ class Call:
             await asyncio.wait({job, timer}, return_when=asyncio.FIRST_COMPLETED)
         finally:
             timer.cancel()
-        if job.done() or self.closed or did in self.__dict__.get("first_said", {}):
-            return
+        if (job.done() or self.closed or did in self.__dict__.get("first_said", {})
+                or did in self.__dict__.get("host_queued", set())):
+            return  # a queued request was already told it is queued: "still working on it" would not be true
         self.counts["receipts"] += 1
         self.trace("delegation.receipt", did=did, s=RECEIPT_SECONDS)
         self.speak_for(did, RECEIPT)

@@ -234,6 +234,71 @@ class VoiceSessionContinuityTests(unittest.TestCase):
         self.assertEqual(calls[0][-2:], ['--resume', 'old'])
 
 
+class ConcurrentHostTurnTests(unittest.IsolatedAsyncioTestCase):
+    """Take 7 of the 11-22 film call: Kevin's long-run ask never reached Hermes during the call. It waited behind the
+    call's running request (one turn at a time per call), while the voice said "Got it, I'll handle that"."""
+
+    def setUp(self):
+        live.VOICE_SESSIONS.clear()
+        self.release = __import__("threading").Event()
+        self.runs = []  # (args, monotonic start) of each Hermes process
+
+    def hermes(self, args, **kw):
+        self.runs.append((args, live.time.monotonic()))
+        n = len(self.runs)
+        if n == 1:
+            self.release.wait(10)  # the first request is a long run
+        return type('P', (), {'returncode': 0, 'stdout': f'answer {n}', 'stderr': f'session_id: s{n}'})()
+
+    async def call(self):
+        call = live.Call(live.Manager(None), profile='clean')
+        sent = []
+        call.send = lambda event, to_provider=False, **kw: sent.append(event)
+        self.addAsyncCleanup(call.close, 'test')
+        return call, sent
+
+    async def test_a_new_request_reaches_hermes_while_an_earlier_one_runs(self):
+        call, sent = await self.call()
+        call.protocol.seen.extend(['d1', 'd2'])
+        with patch.object(live.subprocess, 'run', side_effect=self.hermes), patch.object(live, 'RECEIPT_SECONDS', 30):
+            first = asyncio.ensure_future(call.host_delegate('d1', "What's on my phone versus staging?"))
+            await asyncio.sleep(0.2)
+            began = live.time.monotonic()
+            second = asyncio.ensure_future(call.host_delegate('d2', 'Get all of it onto my S25'))
+            for _ in range(50):
+                if len(self.runs) == 2:
+                    break
+                await asyncio.sleep(0.05)
+            self.assertEqual(len(self.runs), 2, "the second request waited for the first")
+            self.assertLess(self.runs[1][1] - began, 1.0)
+            self.assertNotIn('--resume', self.runs[1][0], "a session busy with a turn is never resumed twice")
+            await asyncio.wait_for(second, 5)
+            self.assertTrue(any('answer 2' in str(e) for e in sent))
+            self.release.set()
+            await asyncio.wait_for(first, 5)
+        self.assertEqual(live.VOICE_SESSIONS['clean'][0], 's1', "the voice session stays the first request's")
+
+    async def test_past_the_bound_a_request_is_queued_and_the_voice_says_so(self):
+        call, sent = await self.call()
+        dids = [f'd{i}' for i in range(live.HOST_MAX + 1)]
+        call.protocol.seen.extend(dids)
+
+        def busy(request, profile, own_lane=False):
+            self.runs.append((request, live.time.monotonic()))
+            self.release.wait(10)
+            return 'done: ' + request
+
+        with patch.object(live, 'run_hermes', busy), patch.object(live, 'RECEIPT_SECONDS', 30):
+            jobs = [asyncio.ensure_future(call.host_delegate(did, f'request {did}')) for did in dids]
+            await asyncio.sleep(0.3)
+            self.assertEqual(len(self.runs), live.HOST_MAX)
+            said = [str(e) for e in sent]
+            self.assertTrue(any('queued' in s and f'd{live.HOST_MAX}' in s for s in said), said)
+            self.release.set()
+            await asyncio.wait_for(asyncio.gather(*jobs), 5)
+        self.assertEqual(len(self.runs), live.HOST_MAX + 1)
+
+
 class IntegrationTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         # Teardown stops the server with fixture calls still open; draining is covered by DrainTests.
