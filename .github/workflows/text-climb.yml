@@ -1,0 +1,130 @@
+name: z0live text climb (CPU llama.cpp)
+# Scores small GGUF lane models on z0live's frozen SLM lane suites (slm-v1, slm-v2, slm-v2 model-compressed brief)
+# with the vendored z0live slm_bench logic (voice-adapter/slm_bench.py). Synthetic suites only, no owner data.
+on:
+  # push on this branch only: workflow_dispatch needs the file on the default branch, which this lane never edits
+  push:
+    branches: [ci/text-climb]
+    paths: [".github/workflows/text-climb.yml", "voice-adapter/bench/ghci/**"]
+  workflow_dispatch:
+    inputs:
+      note:
+        description: "free-text label for this run (shown in the summary)"
+        required: false
+        default: ""
+permissions:
+  contents: read
+concurrency:
+  group: text-climb-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  LLAMA_TAG: b12527            # same llama.cpp build as the Studio bench (slm_bench default)
+  LLAMA_SHA256: fc1895f37f14884bf35776bd98029d9e21096c7f0e1d4398355504178a35f696
+jobs:
+  bench:
+    name: ${{ matrix.cfg.model }} ${{ matrix.cfg.quant }} ${{ matrix.brief }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        brief: [full, compressed]
+        cfg:
+          - {model: qwen3-0.6b, quant: Q4_K_M, repo: unsloth/Qwen3-0.6B-GGUF, file: Qwen3-0.6B-Q4_K_M.gguf, sha: ac2d97712095a558e31573f62f466a3f9d93990898b0ec79d7c974c1780d524a, cache: true}
+          - {model: qwen3-0.6b, quant: Q8_0, repo: unsloth/Qwen3-0.6B-GGUF, file: Qwen3-0.6B-Q8_0.gguf, sha: e150ed544dfe6016930c026a93913a5e3184181ebfe6ab2223ae01dd0491784c, cache: true}
+          - {model: qwen3-1.7b, quant: Q4_K_M, repo: unsloth/Qwen3-1.7B-GGUF, file: Qwen3-1.7B-Q4_K_M.gguf, sha: b139949c5bd74937ad8ed8c8cf3d9ffb1e99c866c823204dc42c0d91fa181897, cache: true}
+          - {model: qwen3-1.7b, quant: Q8_0, repo: unsloth/Qwen3-1.7B-GGUF, file: Qwen3-1.7B-Q8_0.gguf, sha: 0becaa825564295d82e9af4d008bca5f8b7f5f73bf1c6a0b58f7c53ef26b47fd, cache: true}
+          - {model: gemma4-e2b, quant: Q4_K_M, repo: unsloth/gemma-4-E2B-it-GGUF, file: gemma-4-E2B-it-Q4_K_M.gguf, sha: 740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8, cache: true}
+          - {model: gemma4-e2b, quant: Q8_0, repo: unsloth/gemma-4-E2B-it-GGUF, file: gemma-4-E2B-it-Q8_0.gguf, sha: 605d3c2647d7c58c1e4b5375ccb5702acf94c2611b4c8d4877812f8fdd32d053, cache: false}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: llama.cpp ${{ env.LLAMA_TAG }} (prebuilt ubuntu x64 CPU)
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/llama" && cd "$RUNNER_TEMP/llama"
+          curl -fsSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_TAG}/llama-${LLAMA_TAG}-bin-ubuntu-x64.tar.gz"
+          echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
+          tar xzf llama.tgz
+          server=$(find "$RUNNER_TEMP/llama" -type f -name llama-server | head -1)
+          test -x "$server"
+          echo "LLAMA_SERVER=$server" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$(dirname "$server")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+          nproc; free -g; df -h "$RUNNER_TEMP" | tail -1
+      - name: Restore GGUF cache
+        if: matrix.cfg.cache
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/models/${{ matrix.cfg.file }}
+          key: gguf-${{ matrix.cfg.sha }}
+      - name: Download GGUF (pinned by sha256)
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          REPO: ${{ matrix.cfg.repo }}
+          FILE: ${{ matrix.cfg.file }}
+          SHA: ${{ matrix.cfg.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/models"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/models/$FILE" "https://huggingface.co/$REPO/resolve/main/$FILE"
+          echo "$SHA  $RUNNER_TEMP/models/$FILE" | sha256sum -c -
+      - name: Save GGUF cache
+        if: matrix.cfg.cache && steps.cache.outputs.cache-hit != 'true' && matrix.brief == 'full'
+        continue-on-error: true   # a parallel job may have saved the same key first
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/models/${{ matrix.cfg.file }}
+          key: gguf-${{ matrix.cfg.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Bench
+        env:
+          MODEL: ${{ matrix.cfg.model }}
+          QUANT: ${{ matrix.cfg.quant }}
+          REPO: ${{ matrix.cfg.repo }}
+          FILE: ${{ matrix.cfg.file }}
+          BRIEF: ${{ matrix.brief }}
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet "aiohttp>=3.9,<4"   # tiers.py imports aiohttp.ClientTimeout
+          if [ "$BRIEF" = full ]; then SUITES=slm-v1,slm-v2; else SUITES=slm-v2-model1100; fi
+          mkdir -p out
+          meta=$(python -c 'import json,os;print(json.dumps({k.lower():os.environ[k] for k in ("MODEL","QUANT","REPO","FILE","BRIEF")}))')
+          Z0_VENDOR=voice-adapter python voice-adapter/bench/ghci/ci_bench.py --gguf "$RUNNER_TEMP/models/$FILE" --name "$MODEL-$QUANT" --suites "$SUITES" \
+            --meta "$meta" --out "out/$MODEL-$QUANT-$BRIEF.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: result-${{ matrix.cfg.model }}-${{ matrix.cfg.quant }}-${{ matrix.brief }}
+          path: out/
+          if-no-files-found: warn
+          retention-days: 30
+  summary:
+    needs: bench
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: result-*
+          path: results
+      - name: Table
+        run: |
+          python3 voice-adapter/bench/ghci/summarize.py results summary-out > /dev/null
+          { [ -n "${NOTE}" ] && echo "note: ${NOTE}"; cat summary-out/summary.md; } >> "$GITHUB_STEP_SUMMARY"
+          cat summary-out/summary.md
+        env:
+          NOTE: ${{ inputs.note }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: summary
+          path: summary-out/
+          retention-days: 30
