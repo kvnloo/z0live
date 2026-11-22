@@ -101,6 +101,21 @@ class FloorTest(unittest.TestCase):
         self.assertTrue(floor.answer_ready(lambda leg: False, 50))
         self.assertEqual((floor.owner, floor.reason), ("primary", "answer_ready"))
 
+    def test_with_people_on_the_call_a_request_that_cut_off_the_bot_stays_with_it(self):
+        # Take 8: Kevin began his next request as Hermes finished; Hermes then began "Actually," and Kevin's barge-in
+        # cut it. Measured against that last reply (begun after him), his request was taken for people talk and
+        # never reached Hermes.
+        floor = Floor(0, lambda *a, **k: None, available=True, people=2)
+        floor.user_turn(Address.OTHER, "Hermes, what's on my phone versus staging?", 1, 2, final=True)
+        floor.reply_started("primary", 3)
+        floor.reply_finished("primary", 17, 3)
+        floor.reply_started("primary", 23)  # "Actually," while Kevin (since 20) is already talking
+        floor.reply_finished("primary", 24, 23)  # the barge-in
+        floor.user_turn(None, "Yeah. Merged isn't done. Get all of it onto my S25", 20, 28, final=True)
+        self.assertEqual(floor.owner, "primary")
+        floor.user_turn(None, "Okay, I think it's still last night's build", 50, 52, final=True)
+        self.assertEqual(floor.owner, "people")
+
     def test_with_people_on_the_call_an_idle_guest_leaves_the_floor_to_the_people(self):
         floor = Floor(0, lambda *a, **k: None, available=True, people=2)
         floor.user_turn(Address.GUEST, "Tek, what", 1, 1, final=True)
