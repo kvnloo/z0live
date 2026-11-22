@@ -26,7 +26,8 @@ sys.path.insert(0, str(VENDOR))
 import slm_bench  # noqa: E402  (reads LLAMA_SERVER at import)
 
 SUITES = {"slm-v1": VENDOR / "bench/slm-v1.json", "slm-v2": VENDOR / "bench/slm-v2.json",
-          "slm-v2-model1100": HERE / "suites/slm-v2-model1100.json"}
+          "slm-v2-model1100": HERE / "suites/slm-v2-model1100.json",
+          "slm-v2-chat1k": HERE / "suites/slm-v2-chat1k.json"}  # medium brief, make_medium.py (GH8)
 REFUSAL = re.compile(r"(can'?t|cannot|unable|don'?t have|do not have|no access|not able|not sure|don'?t know|"
                      r"isn'?t in|not in the context|hermes)", re.I)
 DIGIT = re.compile(r"\d")
