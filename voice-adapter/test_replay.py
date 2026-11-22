@@ -151,5 +151,69 @@ class ReplayContract(unittest.TestCase):
         return r.submitted
 
 
+def speech(t0, t1, text, tid):
+    """A voice reply as the provider streams it: turn.created, one output_transcript.added per word, turn.done."""
+    parts = text.split()
+    step = (t1 - t0) / max(len(parts), 1)
+    rows = [{"t": t0, "src": "provider", "rx": {"type": "turn.created", "turn": {"id": tid, "role": "assistant"}}}]
+    rows += [{"t": round(t0 + i * step, 3), "src": "provider", "rx": {"type": "output_transcript.added",
+                                                                     "item": {"text": " " + word}}}
+             for i, word in enumerate(parts)]
+    return rows + [{"t": t1, "src": "provider", "rx": {"type": "turn.done", "turn": {
+        "id": tid, "role": "assistant", "transcript": text}}}]
+
+
+GUEST = [{"t": 1.4, "src": "guest", "rx": {"type": "session.started"}}]  # a second voice (Tek) on the call
+
+
+class TwoVoiceDelivery(unittest.TestCase):
+    """The guest's floor path decides when an answer reached the caller (11-20 night calls 192702, 181920, 205504)."""
+
+    def test_answer_folded_into_the_reply_playing_is_not_sent_again(self):
+        # 192702: Hermes's answer landed 2 s into a 24 s reply, which spoke it; 15 s after the reply ended it was
+        # sent again and the voice said "Quick correction, actually nothing new has started".
+        rows = (GUEST + turn(670, 681.5, "user", "Did the garden jobs finish and did the shed get built?", "u1")
+                + delegation(681.4, "d1", "garden jobs")
+                + hermes("d1", 17.3, "Nothing new has started. I need your lumber budget and the shed permit first.")
+                + speech(681.6, 682.4, "Checking.", "a0")
+                + turn(690, 696.5, "user", "And how are the tomatoes?", "u2")
+                + speech(696.8, 720.8, "Four of the five garden jobs are done. The tomatoes are fine. I need your "
+                                       "lumber budget and the shed permit before the shed.", "a1")
+                + turn(780, 782, "user", "Thanks.", "u3"))
+        report = run(rows)
+        self.assertEqual(report["repeats"], [])
+        self.assertEqual(report["lost"], [])
+
+    def test_answer_merged_mid_reply_is_not_resent_into_the_callers_next_turn(self):
+        # 181920: the Android answer arrived while the OpenROAD reply played and that reply spoke it; the 463 s
+        # resend went out as the caller started a new request.
+        rows = (GUEST + turn(255, 260, "user", "Where are the bike and the boat repairs at?", "u1")
+                + delegation(259.8, "d1", "bike and boat")
+                + hermes("d1", 169.6, "The boat has a new hull patch, not painted yet, and the motor isn't fixed.")
+                + speech(260.1, 261, "On it.", "a0")
+                + turn(405, 413.7, "user", "So what happened with the bike?", "u2")
+                + speech(413.8, 448.1, "The bike chain is fixed and the brakes need pads. The boat has a new hull "
+                                       "patch, but it's not painted, and the motor isn't fixed yet.", "a1")
+                + turn(453.2, 464.3, "user", "Can you start on all the high priority repairs now", "u3"))
+        report = run(rows)
+        self.assertEqual(report["repeats"], [])
+
+    def test_answer_no_reply_said_is_sent_again_once_the_voice_is_quiet(self):
+        # 205504 at 240.1 s: the answer went out as the caller spoke; the voice said "Not yet" (cut off) and
+        # "Checking now" and never the answer, and nothing sent it again.
+        rows = (GUEST + turn(170, 174, "user", "Can you install the new kettle firmware?", "u1")
+                + delegation(173.8, "d1", "kettle firmware")
+                + hermes("d1", 66.3, "I couldn't install it because the kettle is unplugged from the wifi.")
+                + speech(174.1, 175, "Sure.", "a0")
+                + turn(237.7, 241.3, "user", "So you have no firmware after all those changes", "u2")
+                + speech(241.4, 242.1, "Not yet—since", "a1")
+                + turn(242.1, 244.4, "user", "or even a photo", "u3")
+                + speech(244.4, 246.6, "Checking now.", "a2")
+                + turn(270, 272, "user", "Okay.", "u4"))
+        report = run(rows)
+        self.assertEqual(report["lost"], [])
+        self.assertEqual(report["repeats"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

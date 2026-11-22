@@ -43,6 +43,21 @@ class FloorTest(unittest.TestCase):
                 self.assertIs(parse(text, final=True), expected)
         self.assertIsNone(parse("Hey Tek", final=False))
 
+    def test_each_voice_keeps_only_the_words_addressed_to_it(self):
+        # A silent leg keeps one user turn open across both exchanges (11-21 two-voice probes).
+        parse = Addressing(("tek", "teknium"))
+        merged = "Tek, what did you work on today Thanks, Tek—Hermes, back to you. That's all for now, thanks"
+        self.assertEqual(parse.own_words(merged, guest=False, lead=True),
+                         "Hermes, back to you. That's all for now, thanks")
+        self.assertEqual(parse.own_words("Hey, can you check the garden? Tek, what did you work on today?",
+                                         guest=True, lead=False), "Tek, what did you work on today?")
+        self.assertEqual(parse.own_words("Tek, what did you work on today?", guest=False, lead=True), "")
+        self.assertEqual(parse.own_words("When is the boat inspection?", guest=False, lead=True),
+                         "When is the boat inspection?")
+        self.assertEqual(parse.own_words("one more detail", guest=True, lead=True), "one more detail")
+        self.assertEqual(parse.own_words("Can you check the garden? Over to Tek", guest=False, lead=True),
+                         "Can you check the garden? Over to")
+
     def test_exchange_transitions(self):
         for scenario, text, began, finished, interrupted, now, expected in [
             ("mid-sentence pause", "what shipped today", 1, 3, False, 4, "guest"),
@@ -121,6 +136,20 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
         g.observe("primary", turn("done", "Tek, what shipped? Thanks. What's twelve times twelve?", 1000, 6200))
         self.assertEqual((g.floor.owner, g.floor.reason), ("primary", "new_user_turn"))
         self.assertTrue(any("A release." in str(note) for note in self.call.sent))
+
+    async def test_the_other_voice_hears_only_the_gist_of_what_tek_said(self):
+        # 11-21 deployed two-voice probe: with Tek's whole reply as context, "Hermes, back to you" made the primary
+        # re-tell it ("Sure thing. Here's where we stand: ...").
+        g = self.guest
+        g.observe("primary", turn("done", "Tek, what did you do today?", 1000, 2000, tid="u1"))
+        g.observe("guest", turn("created", "", role="assistant", tid="r1"))
+        g.observe("guest", output("Mostly disk cleanup on the Studio. The biggest chunk is the backup copy. "
+                                  "Two things need your call: delete it, and the timers."))
+        g.observe("guest", turn("done", "", role="assistant", tid="r1"))
+        [note] = [n for n in self.call.sent if isinstance(n, str) and "tek said" in n]
+        self.assertIn("Mostly disk cleanup on the Studio.", note)
+        self.assertNotIn("backup copy", note)
+        self.assertNotIn("timers", note)
 
     async def test_barge_in_on_either_leg_but_not_echo_or_backchannel(self):
         for source in ("primary", "guest"):
@@ -347,6 +376,71 @@ class AnswerDeliveryTest(TimedGuestTest):
         g.flush_answers()
         self.assertEqual(self.speakable("Hermes answer."), 1)
 
+    async def test_answer_merged_into_the_reply_already_playing_is_not_resent(self):
+        # 192702 at 698.7 s: the answer landed mid-reply, the voice folded it in, and 15 s after that reply ended it
+        # was sent again and spoken again ("Quick correction, actually nothing new has started").
+        g = self.guest
+        g.observe("primary", turn("created", "", role="assistant", tid="r1"))
+        g.observe("primary", output("Four of the five garden beds are planted."))
+        self.at(101)
+        self.speak("p1", "Nothing new has started. I need your budget cap and the shed key first.")
+        g.observe("primary", output(" I need your budget cap and the shed key."))
+        self.at(110)
+        g.observe("primary", turn("done", "", role="assistant", tid="r1"))
+        for second in (113, 126, 140):
+            self.at(second)
+            g.flush_answers()
+        self.assertEqual(self.speakable("budget cap"), 1)
+        self.assertIn("floor.answer_spoken", self.call.traces)
+
+    async def test_answer_a_reply_never_says_is_resent_once_the_voice_is_quiet(self):
+        # 205504 at 240.1 s: a reply started after the send ("Not yet", "Checking now") and that alone marked the
+        # answer delivered. The voice never said it.
+        g = self.guest
+        self.speak("p1", "I couldn't repaint the fence because the paint store is closed.")
+        self.at(100.6)
+        g.observe("primary", turn("created", "", role="assistant", tid="r1"))
+        g.observe("primary", output("Not yet, checking now."))
+        self.at(102)
+        g.observe("primary", turn("done", "", role="assistant", tid="r1"))
+        self.at(103)
+        g.flush_answers()
+        self.assertEqual(self.speakable("paint store"), 1, "the voice just stopped: it may still say it")
+        self.at(102 + live.answer_delivery.SETTLE_SECONDS)
+        g.flush_answers()
+        self.assertEqual(self.speakable("paint store"), 2)
+        self.assertIn("floor.answer_resent", self.call.traces)
+
+    async def test_one_delegations_pieces_resend_as_one_message_without_the_spoken_piece(self):
+        g = self.guest
+        self.speak("p1", "The garden has two planted beds.")
+        self.speak("p1", "The tomato seedlings arrive Thursday from the nursery.")
+        self.at(100.6)
+        g.observe("primary", turn("created", "", role="assistant", tid="r1"))
+        g.observe("primary", output("Two beds in the garden are planted."))
+        self.at(103)
+        g.observe("primary", turn("done", "", role="assistant", tid="r1"))
+        self.at(110)
+        before = len(self.call.sent)
+        g.flush_answers()
+        [resend] = [m for m in self.call.sent[before:] if isinstance(m, dict) and m.get("channel") == "speakable"]
+        self.assertIn("tomato seedlings", str(resend))
+        self.assertNotIn("planted beds", str(resend))
+
+    async def test_answer_the_caller_cut_off_is_not_resent(self):
+        g = self.guest
+        self.speak("p1", "Here are two photos of the porch railing and the cracked steps.")
+        self.at(100.6)
+        g.observe("primary", turn("created", "", role="assistant", tid="r1"))
+        g.observe("primary", output("Here are two photos"))
+        self.call.output_loud_at = 100.6
+        g.observe("primary", turn("created", "Wait, different question", 1000, 1800, tid="barge"))
+        self.assertIn("floor.barge_in", self.call.traces)
+        g.observe("primary", turn("done", "", role="assistant", tid="r1"))
+        self.at(120)
+        g.flush_answers()
+        self.assertEqual(self.speakable("porch railing"), 1)
+
     async def test_lane_guesses_waiting_for_the_floor_are_dropped_once_stale(self):
         g = self.guest
         g.observe("guest", turn("done", "Tek, what shipped?", 1000, 2000))
@@ -415,6 +509,55 @@ class PrimaryDelegationTest(unittest.IsolatedAsyncioTestCase):
     @patch.object(live, "HOST_DELEGATION", True)
     async def test_kevins_hermes_never_runs_a_request_addressed_to_tek(self):
         self.assertEqual(await self.delegate("Tek, delete the old release branch"), [])
+
+    @patch.object(live, "HOST_DELEGATION", True)
+    async def test_words_said_to_tek_never_join_the_next_request_to_hermes(self):
+        # 11-21 two-voice probe: after "Tek, what did you work on today?" and Tek's answer, "Hermes, back to you"
+        # delegated "Tek, what did you work on today Thanks, Tek. Hermes, back to you" to Kevin's Hermes.
+        config = guest_voice.GuestConfig("gpt-live", "tek", "ember", "tek")
+        with patch.dict(live.os.environ, {"HERMES_VOICE_ENGINE": "gpt-live"}), \
+                patch.object(live.guest_voice, "configured", return_value=config):
+            call = live.Call(live.Manager(None), profile="")
+        self.addAsyncCleanup(call.close, "test")
+        ran = []
+
+        async def host_delegate(did, request):
+            ran.append(request)
+
+        call.host_delegate, call.relay, call.heard_user = host_delegate, None, True
+        call.guest.floor.available = True
+        guest_ran = []
+        call.guest.delegate = lambda did, request: guest_ran.append(request) or asyncio.sleep(0)
+        primary = lambda event: call.message(json.dumps(event), True)  # noqa: E731
+        guest = lambda event: call.guest.message(json.dumps(event))  # noqa: E731
+
+        def delta(text, start, end):
+            return {"type": "turn.delta", "turn_id": "p1", "delta": text, "start_ms": start, "end_ms": end}
+
+        # Tek's leg hears the caller's earlier question to Hermes in the same turn as the address to Tek.
+        guest(turn("created", "", 1000, 1200, tid="g1"))
+        guest(turn("done", "Hey, can you check the garden project? Tek, what did you work on today?", 1000, 6000,
+                   tid="g1"))
+        guest({"type": "delegation.created", "item": {"id": "gd1", "target": "client", "content": [
+            {"type": "input_text", "text": "what did you work on today"}]}})
+        # The primary stays silent while Tek talks, so its leg keeps ONE user turn open across both exchanges.
+        primary(turn("created", "", 1000, 1200, tid="p1"))
+        primary(delta("Tek, what did you work on today?", 3500, 6000))
+        guest(turn("created", "", 60000, 60200, tid="g2"))
+        guest(turn("done", "Thanks, Tek. Hermes, back to you. When is the boat inspection?", 60000, 64000, tid="g2"))
+        primary(delta(" Thanks, Tek. Hermes, back to you. When is the boat inspection?", 60000, 64000))
+        primary(turn("done", "Tek, what did you work on today? Thanks, Tek. Hermes, back to you. When is the boat "
+                             "inspection?", 3500, 64000, tid="p1"))
+        primary({"type": "delegation.created", "item": {"id": "d1", "target": "client", "content": [
+            {"type": "input_text", "text": "Thanks, Tek. Hermes, back to you. When is the boat inspection"}]}})
+        await asyncio.sleep(0)
+        self.assertEqual(len(ran), 1, f"floor {call.guest.floor.owner}")
+        self.assertNotIn("work on today", ran[0])
+        self.assertNotIn("Tek", ran[0], "the provider's delegation segment carries the words to Tek too")
+        self.assertIn("boat inspection", ran[0])
+        self.assertEqual(len(guest_ran), 1)
+        self.assertNotIn("garden", guest_ran[0])
+        self.assertIn("work on today", guest_ran[0])
 
     @patch.object(live, "HOST_DELEGATION", True)
     async def test_kevins_hermes_runs_a_request_addressed_to_it(self):

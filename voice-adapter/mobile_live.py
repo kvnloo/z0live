@@ -9,7 +9,8 @@ from __future__ import annotations
 import asyncio
 import base64
 from collections import Counter, defaultdict, deque
-from dataclasses import dataclass, replace
+from collections.abc import Callable
+from dataclasses import dataclass
 import hashlib
 import json
 import re
@@ -40,6 +41,7 @@ import call_brief  # noqa: E402 - sibling module (context packet in the session 
 import grok_leg  # noqa: E402 - sibling module (Grok Voice as the voice model)
 import tiers  # noqa: E402 - sibling module (fast/medium/slow model lanes)
 import guest_voice  # noqa: E402
+import answer_delivery  # noqa: E402 - sibling module (what each voice has actually said)
 from subscription_leg import Speaker, SubscriptionLeg  # noqa: E402
 import av  # noqa: E402
 from aiortc.contrib.media import MediaRelay  # noqa: E402
@@ -411,6 +413,8 @@ class Protocol:
         # The caller's words since the voice last answered or delegated: a request is all of them. The provider's
         # delegation carries only its last speech segment ("Lane", "requirements, and how far we got").
         self.asked: list[str] = []
+        # With two voices, only the caller's words to this voice: words to Tek never join a request to Hermes.
+        self.own: Callable[[str], str] = lambda said: said
         self.user_open = False  # a user turn has started and its turn.done has not arrived
         self.deferred: list[tuple[str, str]] = []  # (did, segment): delegations that beat the user's turn.done
         self.last_request = ""  # the request most recently queued for a host run
@@ -465,8 +469,8 @@ class Protocol:
             if role == "user":
                 self.last_user = text
                 self.user_open = False
-                if said:
-                    self.asked.append(said)
+                if said and (mine := self.own(said)):
+                    self.asked.append(mine)
                 while self.deferred:
                     self.release(*self.deferred.pop(0))
             elif substantive(said) and not self.deferred:
@@ -507,15 +511,19 @@ class Protocol:
         def vocab(text):
             return set(re.findall(r"\w+", text.casefold()))
 
-        words = " ".join(self.asked)
+        words, segment = " ".join(self.asked), self.own(segment) if segment else segment
         if not words and segment and vocab(segment) <= vocab(self.last_request):
             self.pending_host.append((did, None))
             return
         if segment and not vocab(segment) <= vocab(words):
             words = f"{words} {segment}".strip()
         self.asked.clear()
-        self.last_request = words or self.last_user
-        self.pending_host.append((did, self.last_request))
+        request = words or self.own(self.last_user)
+        if not request and self.last_user.strip():  # every word was to the other voice: nothing for this one to run
+            self.pending_host.append((did, None))
+            return
+        self.last_request = request
+        self.pending_host.append((did, request))
 
     def from_mobile(self, event: dict) -> list[dict]:
         kind = event.get("type")
@@ -550,7 +558,6 @@ LEVEL_ON = 800          # s16 peak (~-32 dBFS) that counts as sound
 LEVEL_OFF_SECONDS = 0.3  # quiet this long ends a sound span
 OUTPUT_FRAME_GRACE = 0.06  # the most recent loud frame still represents playback
 _SILENCE = {1920: bytes(1920), 3840: bytes(3840)}
-DELIVERY_WAIT_SECONDS = 15  # a sent answer with no reply after this long is sent once more, then dropped
 
 
 def slim(event, limit=1500):
@@ -663,6 +670,7 @@ class UserTurn:
     committed: bool = False
     continuation: bool = False
     interrupted: bool = False
+    opened_on: Leg = "primary"  # the floor when the provider opened this turn (one turn can span exchanges)
 
 
 @dataclass
@@ -687,9 +695,9 @@ class GPTGuest:
         self.clock_offsets = {"primary": 0, "guest": 0}
         self.last_output = ""
         self.note_budget = {"primary": 12000, "guest": 12000}
-        # Answers handed to a voice, with the time the voice became free to speak them. Delivered once an allowed
-        # reply starts on that leg.
-        self.deliveries: list[tuple[Answer, float]] = []
+        # Answers handed to a voice, delivered once the voice has said them (answer_delivery).
+        self.ledger = answer_delivery.Ledger()
+        self.quiet_since: dict[Leg, float | None] = {"primary": None, "guest": None}  # last reply or caller turn end
         self.flush_timer: asyncio.TimerHandle | None = None
         identity = "Tek (also Teknium, டெக் or டெக்னியம்)" if config.profile == "tek" else config.name
         self.persona = (f"You are {identity}, a guest on Kevin's call. When Kevin addresses you or continues "
@@ -740,9 +748,9 @@ class GPTGuest:
         self.users.pop(source, None)
         self.replies.pop(source, None)  # the retired session never sends turn.done for a reply it had open
         self.tails.pop(source, None)
-        # The new session never saw these answers: they go out again, without the old session's delegation ids.
-        resend = [replace(answer, sends=0) for answer, _ in self.deliveries if answer.leg == source]
-        self.deliveries = [(answer, at) for answer, at in self.deliveries if answer.leg != source]
+        # The new session never saw these answers: what it had not said goes out again, without the old session's
+        # delegation ids.
+        resend = [Answer(source, entry.did, text, entry.lane) for entry, text in self.ledger.retire(source)]
         self.floor.answers[source].extendleft(reversed(resend))
         self.flush_answers()
 
@@ -775,20 +783,22 @@ class GPTGuest:
         role = turn.get("role")
         user = self.users.get(source)
         if role == "user" and kind == "turn.created":
-            self.users[source] = user = UserTurn(turn["id"], now, turn.get("start_ms", 0),
-                                                  turn.get("end_ms", 0), turn.get("transcript") or "")
+            self.users[source] = user = UserTurn(turn["id"], now, turn.get("start_ms", 0), turn.get("end_ms", 0),
+                                                  turn.get("transcript") or "", opened_on=self.floor.owner)
         elif kind == "turn.delta" and user and event.get("turn_id") == user.id:
             end_ms = event.get("end_ms", user.end_ms)
             start_ms = event.get("start_ms", end_ms - 200)
             # A silent leg can keep one user ID open across several exchanges. Only split at a
             # gap in the provider's word timestamps, never at a mic onset or a delayed packet.
             if start_ms - user.end_ms >= 1500:
-                self.users[source] = user = UserTurn(user.id, now, start_ms, end_ms, continuation=True)
+                self.users[source] = user = UserTurn(user.id, now, start_ms, end_ms, continuation=True,
+                                                      opened_on=user.opened_on)
             user.end_ms = end_ms
             user.text = (user.text + event.get("delta", ""))[-2000:]
         elif role == "user" and kind == "turn.done":
             if not user:
-                self.users[source] = user = UserTurn(turn["id"], now, turn.get("start_ms", 0), turn.get("end_ms", 0))
+                self.users[source] = user = UserTurn(turn["id"], now, turn.get("start_ms", 0), turn.get("end_ms", 0),
+                                                      opened_on=self.floor.owner)
             if user.id != turn["id"]:
                 return False
             if not user.committed and not user.continuation:
@@ -798,36 +808,44 @@ class GPTGuest:
         if user:
             self.interrupt(user, now)
             self.commit_user(source, now, final=kind == "turn.done")
+            if kind == "turn.done":
+                self.quiet_since[source] = now  # the voice gets its chance to answer this turn first
         if kind == "delegation.created" or kind == "output_transcript.added" or (role == "assistant" and kind == "turn.created"):
             self.commit_user(source, now, final=True)
         if kind == "output_transcript.added" or role == "assistant":
             reply = self.replies.get(source)
             if kind != "turn.done" and reply is None:
                 reply = self.replies[source] = VoiceReply(self.call.heard_user and self.floor.owner == source, now)
-                if reply.allowed:  # the voice is speaking: answers already sent to it are delivered, never resent
-                    self.deliveries = [(answer, at) for answer, at in self.deliveries if answer.leg != source]
+                self.quiet_since[source] = None
             if reply is not None:
                 allowed = reply.allowed and not reply.cut and self.floor.owner == source
                 if kind == "turn.created":
                     reply.id = turn.get("id")
                 elif kind == "output_transcript.added" and allowed:
-                    reply.spoken = (reply.spoken + (event.get("item") or {}).get("text", ""))[-1500:]
+                    text = (event.get("item") or {}).get("text", "")
+                    reply.spoken = (reply.spoken + text)[-1500:]
                     self.last_output = " ".join(re.findall(r"\w+", reply.spoken.casefold()))
+                    self.delivered(source, self.ledger.heard(source, text))
                 elif kind == "turn.done" and reply.id in (None, turn.get("id")):
                     self.replies.pop(source)
                     if reply.spoken.strip():
                         target: Leg = "guest" if source == "primary" else "primary"
-                        length = min(1500, self.note_budget[target])
+                        # Only the gist: with the whole reply as context, the other voice re-told it when Kevin
+                        # came back to it (11-21 probe). Its first sentence keeps it oriented.
+                        gist = re.match(r"\s*(.{1,200}?[.!?])(?=\s|$)", reply.spoken)
+                        gist = (gist.group(1) if gist else reply.spoken.strip()[:200]).strip()
+                        length = min(len(gist), self.note_budget[target])
                         if length:
-                            self.note_budget[target] -= min(length, len(reply.spoken))
+                            self.note_budget[target] -= length
                             name = self.config.name if source == "guest" else "Hermes"
-                            note = f"{name} said (already spoken; silent context): {reply.spoken[:length]}"
+                            note = (f"{name} said (Kevin heard it; silent context, never repeat or summarize it), "
+                                    f"starting: {gist[:length]}")
                             (self.note if target == "guest" else self.call.guest_note)(note)
                     if allowed:
                         self.floor.reply_finished(source, now, reply.began)
                         self.tails[source] = reply, now
-                    # Answers sent while this reply played get their full wait from now, when the voice is free.
-                    self.deliveries = [(answer, now if answer.leg == source else at) for answer, at in self.deliveries]
+                        self.delivered(source, self.ledger.reply_done(source))
+                    self.quiet_since[source] = now
                     self.flush_answers()
                 return allowed
         return False
@@ -847,6 +865,18 @@ class GPTGuest:
             user.interrupted = True
             self.floor.reply_finished(source, now, reply.began)
             self.call.trace("floor.barge_in", speaker=source, user_turn=user.id)
+            for entry in self.ledger.barged_in(source):
+                self.call.trace("floor.answer_dropped", speaker=source, did=entry.did, reason="barged_in")
+
+    def delivered(self, leg: Leg, entries):
+        for entry in entries:
+            self.call.trace("floor.answer_spoken", speaker=leg, did=entry.did, sends=entry.sends)
+
+    def own_words(self, leg: Leg, said: str) -> str:
+        """The part of a finished caller turn on this leg that was spoken to this leg's voice (its request)."""
+        user = self.users.get(leg)
+        lead = (user.opened_on if user else self.floor.owner) == leg
+        return self.addressing.own_words(said, guest=leg == "guest", lead=lead)
 
     def echoes(self, words: str) -> bool:
         """Whether the caller's words are the voice's own recent words (whole words: "no" is not in "know")."""
@@ -870,6 +900,9 @@ class GPTGuest:
         self.call.trace("floor.delegation_dropped", speaker=leg, did=did, owner=self.floor.owner)
         return False
 
+    def later(self, seconds, callback):
+        return asyncio.get_running_loop().call_later(seconds, callback)
+
     def flush_answers(self):
         if self.call.closed:
             return
@@ -878,45 +911,50 @@ class GPTGuest:
             self.flush_timer = None
         now = time.monotonic()
         reply = self.replies.get(self.floor.owner)
-        busy = (reply and reply.allowed and not reply.cut) or self.deliveries
+        busy = (reply and reply.allowed and not reply.cut) or self.ledger.pending(self.floor.owner)
         if not busy:
             self.floor.expire(now)
         source = self.floor.owner
-        # A sent answer waits for an allowed reply on its leg (observe). If the floor moves first, or the voice stays
-        # silent for DELIVERY_WAIT_SECONDS, it is sent once more; a second miss is dropped.
-        waiting, talking = [], source in self.replies
-        for answer, since in self.deliveries:
-            if answer.leg == source and (talking or now - since < DELIVERY_WAIT_SECONDS):
-                waiting.append((answer, since))
-            elif answer.sends < 2:
-                self.floor.enqueue(answer, self.config.name)
-            else:
-                self.call.trace("floor.answer_dropped", speaker=answer.leg, did=answer.delegation_id, reason="unspoken")
-        self.deliveries = waiting
-        # Answers wait only for their floor. On it, they go out at once, even mid-reply: the voice merges them.
-        queue = self.floor.answers[source]
-        if queue and (not self.call.provider_ready or now - self.call.input_loud_at < 0.4):
-            self.flush_timer = asyncio.get_running_loop().call_later(0.25, self.flush_answers)
+        queue, pending = self.floor.answers[source], self.ledger.pending(source)
+        if (queue or pending) and (not self.call.provider_ready or now - self.call.input_loud_at < 0.4):
+            self.flush_timer = self.later(0.25, self.flush_answers)
             return
         protocol, send = ((self.protocol, self.send) if source == "guest" else
                           (self.call.protocol, lambda msg: self.call.send(msg, to_provider=True)))
+
+        def hand(did, text):
+            did = did if did in protocol.seen else None
+            for msg in protocol.from_mobile({"type": "session.commentary.append", "delegation_id": did,
+                                             "content": text}):
+                send(msg)
+            return did
+
+        # A sent answer is resent only after the voice had its chance and stayed quiet without saying it (observe
+        # credits what it says); a second miss is dropped.
+        quiet = source not in self.replies and not self.playing(source)
+        if quiet:
+            for entry, text in self.ledger.due(source, now, self.quiet_since[source]):
+                if text is None:
+                    self.call.trace("floor.answer_dropped", speaker=source, did=entry.did, reason="unspoken")
+                    continue
+                did = hand(entry.did, text)
+                self.ledger.resent(entry, now)
+                self.call.trace("floor.answer_resent", speaker=source, did=did, sends=entry.sends)
+        # New answers wait only for their floor. On it, they go out at once, even mid-reply: the voice merges them.
         while queue:
             answer = queue.popleft()
             if answer.lane and getattr(self.call, "latest_did", answer.delegation_id) != answer.delegation_id:
                 self.call.trace("floor.answer_dropped", speaker=source, did=answer.delegation_id, reason="stale")
                 continue  # a lane's guess for a question Kevin has moved on from
-            did = answer.delegation_id if answer.delegation_id in protocol.seen else None
-            for msg in protocol.from_mobile({"type": "session.commentary.append", "delegation_id": did, "content": answer.text}):
-                send(msg)
-            self.deliveries.append((replace(answer, sends=answer.sends + 1), now))
+            did = hand(answer.delegation_id, answer.text)
+            self.ledger.sent(source, answer.delegation_id, answer.text, now, lane=answer.lane)
             self.call.trace("floor.answer_sent", speaker=source, did=did)
-        if self.deliveries and not talking:
-            due = min(since for _, since in self.deliveries) + DELIVERY_WAIT_SECONDS
-            self.flush_timer = asyncio.get_running_loop().call_later(max(0.01, due - now), self.flush_answers)
+        due = self.ledger.next_due(source, self.quiet_since[source]) if source not in self.replies else None
+        if due is not None:  # a reply still open on this leg flushes again when it ends (observe)
+            self.flush_timer = self.later(max(0.05, due - now) if quiet else 0.25, self.flush_answers)
         elif source == "guest" and not busy and not self.floor.guest_jobs:
             since = self.floor.replied_at if self.floor.replied_at is not None else self.floor.since
-            self.flush_timer = asyncio.get_running_loop().call_later(max(0.01, since + IDLE_SECONDS - now),
-                                                                     self.flush_answers)
+            self.flush_timer = self.later(max(0.01, since + IDLE_SECONDS - now), self.flush_answers)
 
     def message(self, raw):
         if self.closed or not isinstance(raw, str) or len(raw) > 262144:
@@ -968,6 +1006,9 @@ class GPTGuest:
         self.call.trace("guest.failed", reason=reason)
         self.replies.pop("guest", None)
         self.audio.clear()
+        # What Tek was handed and never said goes to the primary voice with the rest of Tek's answers.
+        unsaid = self.ledger.retire("guest")
+        self.floor.answers["guest"].extend(Answer("guest", entry.did, text) for entry, text in unsaid)
         self.floor.failed(self.config.name, time.monotonic())
         self.flush_answers()
         self.call.spawn(self.subscription.close())
@@ -1073,6 +1114,9 @@ class Call:
         if self.guest_config:
             self.guest = (GPTGuest(self, self.guest_config) if self.guest_config.engine == "gpt-live"
                           else guest_voice.GuestVoice(self))
+        if isinstance(self.guest, GPTGuest):  # each voice's request is only the caller's words to that voice
+            self.protocol.own = lambda said: self.guest.own_words("primary", said)
+            self.guest.protocol.own = lambda said: self.guest.own_words("guest", said)
         self.trace("call.created", profile=profile, engine=self.engine,
                    model=grok_leg.URL.rsplit("=", 1)[-1] if self.leg else MODEL, rev=ADAPTER_REV, pid=os.getpid(),
                    host_delegation=HOST_DELEGATION, lanes=bool(self.relay),
@@ -1240,7 +1284,7 @@ class Call:
             elif not duplex or duplex.may_delegate("primary", did):
                 self.spawn(self.host_delegate(did, request))
         if from_provider and duplex and (duplex.floor.owner == "guest" or duplex.floor.answers["primary"]
-                                         or duplex.deliveries):
+                                         or duplex.ledger.entries):
             duplex.flush_answers()
         if kind in ("session.close", "session.closed"):
             self.spawn(self.close("client_closed" if not from_provider else "provider_closed"))
@@ -1759,7 +1803,7 @@ class Call:
             while time.monotonic() < deadline - 2 and not owner.closed and (
                 self.microphone[1].level.on is not None or time.monotonic() - self.output_loud_at < 0.75
                 or (guest.floor.guest_jobs if guest else self.pending_delegations)
-                or (duplex and any(answer.leg == source for answer, _ in duplex.deliveries))
+                or (duplex and duplex.ledger.pending(source))
             ):
                 await asyncio.sleep(0.15)
             if (self.closed or owner.closed or not candidate.output or candidate.output.readyState != "live"

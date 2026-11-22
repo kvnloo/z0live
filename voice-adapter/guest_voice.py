@@ -48,7 +48,9 @@ class GuestConfig:
     def primary_note(self):
         return (f"A second voice, {self.name}, is on this call. When Kevin addresses {self.name} by name"
                 f"{' (including tek or teknium)' if self.profile == 'tek' else ''}, say nothing and do not "
-                f"delegate; let the guest answer. Notes beginning '{self.name} said' are silent context.")
+                f"delegate; let the guest answer. Notes beginning '{self.name} said' are what {self.name} already "
+                f"told Kevin, and he heard it: never repeat, summarize or re-ask it. When Kevin comes back to you, "
+                f"answer only what he says to you then.")
 
 
 def configured() -> GuestConfig | None:
