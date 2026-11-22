@@ -2,6 +2,8 @@
 timing of a real call; the words are made up, because call transcripts stay off GitHub."""
 import json
 import os
+from pathlib import Path
+import tempfile
 import unittest
 
 os.environ.setdefault("HERMES_VOICE_ENGINE", "gpt-live")  # never the owner's lanes config
@@ -423,6 +425,48 @@ class PeopleOnTheCall(unittest.TestCase):
         # Until the voice hands the ask on (its delegation at 52.0 s ends the caller's turn), nothing reaches it.
         self.assertEqual([t for t in handed if 41.0 <= t < 52.0], [], "nothing handed to the voice mid-request")
         self.assertEqual([did for did, _ in r.requests], ["d2", "d3"])
+
+    def test_an_answer_handed_back_after_people_talk_reaches_the_phone(self):
+        # Take 12, line 3: Hermes's answer came back while Tek spoke, and the friend's reaction to Tek gave the floor
+        # to the people. The primary voice began reading the answer before answer_ready gave it the floor back, and
+        # that reply stayed muted: the phone was silent from 95 s to the end and the answer was dropped as unspoken.
+        answer = "That run is already going as card seven. Your laptop has been on build 30812 since 3:15 this morning."
+        rows = (GUEST
+                + heard(40.2, 52.6, "Hermes, get all of it onto my laptop, prove each one, and send receipts", "p3")
+                + heard(41.6, 52.7, "Hermes, get all of it onto my laptop, prove each one, and send receipts", "g3",
+                        "guest")
+                + delegation(52.2, "d3", "Hermes, get all of it onto my laptop, prove each one, and send receipts")
+                + hermes("d3", 40, answer)
+                + speech(52.8, 56.0, "Let me look into that.", "a3")
+                + heard(65.0, 71.7, "Hey, Tek. While that runs, what actually caused the crash in PR twelve", "g4",
+                        "guest")
+                + heard(65.4, 72.0, "Hey, Tek. While that runs, what actually caused the crash in PR twelve", "p4")
+                + guest_delegation(70.8, "gd4", "Hey Tek, while that runs, what actually caused the crash in PR 12")
+                + guest_speech(72.0, 75.2, "I'll pull that up.", "ga4")
+                + guest_speech(87.2, 93.4, "PR twelve fixed a theme lookup that crashed on launch.", "ga5")
+                # the friend's reaction to Tek; the primary leg's final for it trails by 2 s (take 12: 96.2, 99.0)
+                + heard(93.5, 96.2, "Okay, nice. That's the one I kept hitting", "g5", "guest")
+                + heard(93.6, 99.0, "Okay, nice. That's the one I kept hitting", "p5")
+                + speech(98.98, 112.0, "That's already going as card seven. One correction: your laptop has been on "
+                                       "build 30812 since 3:15 this morning.", "a6"))
+        r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows, history=PEOPLE)
+        import asyncio
+        report = asyncio.run(r.run())
+        heard_after = "".join(text for t, text in r.heard if t >= 98.9)
+        self.assertIn("30812", heard_after, "the answer the voice reads reaches the phone")
+        self.assertEqual(report["lost"], [])
+
+    def test_a_fixture_keeps_the_calls_people_count(self):
+        # Take 12's people count came from the chat the call opened on; a fixture cut from its trace replayed it as a
+        # call with one person, so the floor never went to the people and the muted answer was never seen.
+        with tempfile.TemporaryDirectory() as tmp:
+            trace = Path(tmp) / "call.jsonl"
+            trace.write_text(json.dumps({"t": 0.7, "ev": "floor.people", "people": 2}) + "\n")
+            rows = replay.fixture(trace)
+        self.assertEqual(rows, [{"t": 0.7, "people": 2}])
+        r = replay.Replay(rows + [{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}])
+        import call_brief
+        self.assertEqual(call_brief.people(r.history), 2)
 
     def test_a_question_named_to_tek_on_one_leg_stays_with_tek_when_the_other_leg_mishears_the_name(self):
         # Take 9: Hermes's leg heard "Hey Tek, while" and gave Tek the floor mid-line; Tek's own leg heard "Hey Tech,

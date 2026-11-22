@@ -189,6 +189,27 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((self.guest.output(frame()).to_ndarray() == 7).all())
         self.assertFalse(any("Not for Kevin" in str(msg) for msg in self.call.sent))
 
+    async def test_a_reply_the_floor_muted_is_heard_once_the_floor_passes_back_for_its_answer(self):
+        # Take 12, line 3: Hermes's answer waited while the people talked. The primary's reply opened (as the floor
+        # left it, or before the floor came back), and when answer_ready gave the primary the floor the reply stayed
+        # muted: the voice read the whole answer into silence and the ledger dropped it as unspoken.
+        for opened in ("under the people", "then cut by people talk"):
+            with self.subTest(opened=opened):
+                g = live.GPTGuest(self.call, None)
+                g.set_people(2)
+                if opened != "under the people":
+                    g.floor.change("primary", "answer_ready", live.time.monotonic())
+                g.observe("primary", turn("created", "", role="assistant", tid="r1"))
+                g.observe("primary", output("That's"))
+                if opened != "under the people":
+                    g.floor.change("people", "people_talk", live.time.monotonic())
+                self.assertFalse(g.observe("primary", output(" already")), "muted while the people talk")
+                g.floor.answers["primary"].append(Answer("primary", "d1", "Your laptop is on build 30812."))
+                g.floor.answer_ready(lambda leg: bool(g.floor.answers[leg]), live.time.monotonic())
+                self.assertTrue(g.observe("primary", output(" running. Your laptop is on build 30812.")),
+                                "the reply carrying the answer reaches the phone")
+                self.assertTrue((g.output(frame()).to_ndarray() == 7).all(), "and its audio plays")
+
     async def test_cumulative_final_does_not_reclaim_old_address(self):
         g = self.guest
         g.observe("primary", turn("created", "Tek, what shipped?", 1000, 1800))

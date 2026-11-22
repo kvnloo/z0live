@@ -790,6 +790,21 @@ class GPTGuest:
             # Both voices heard words that were not for them; what they said to it was never heard.
             self.note(PEOPLE_NOTE)
             self.call.guest_note(PEOPLE_NOTE)
+        if event == "floor.changed" and data["reason"] == "answer_ready":
+            self.unmute(data["speaker"], data["since"])
+
+    def unmute(self, leg: Leg, now: float):
+        """The floor came back to this leg so it can give the answer it was handed. A reply it has open was muted
+        when it opened (the floor was elsewhere) or cut when the people talked, and a muted reply never becomes
+        audible: take 12's line-3 answer was read into one and lost. That reply is where the voice reads the answer,
+        so the phone hears it from here on, and the ledger credits what it says."""
+        reply = self.replies.get(leg)
+        if reply is None or (reply.allowed and not reply.cut) or not self.call.heard_user:
+            return
+        reply.allowed, reply.cut, reply.began = True, False, now
+        self.quiet_since[leg] = None
+        self.floor.reply_started(leg, now)
+        self.call.trace("floor.reply_unmuted", speaker=leg, turn=reply.id)
 
     def set_people(self, people: int):
         """More than one person at the phone: a voice speaks only when named or asked right after its own reply."""

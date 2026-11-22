@@ -8,7 +8,9 @@ the adapter sends and when, not what the voice would have said to it.
 
 A call with a second voice (`src: guest` rows, the GPT-Live guest's session) replays through the real GPTGuest
 floor, on the recorded clock: `repeats` are answers sent again after the phone had already heard them, and `lost`
-are answers it never heard that were never sent again.
+are answers it never heard that were never sent again, or that a voice said into a reply the floor had muted.
+A fixture keeps the call's people count (`floor.people`),
+so a call with people at the phone replays on their floor without the chat it opened from.
 
     replay.py fixture TRACE.jsonl OUT.jsonl   # cut a fixture from a call trace (stays local: it has transcripts)
     replay.py run FIXTURE.jsonl ...           # print the contract report per call
@@ -69,6 +71,8 @@ def fixture(trace: Path) -> list[dict]:
             free_at = r["t"]
             out.append({"t": r["t"], "cost": "hermes", "did": r["did"], "work": round(r["t"] - began, 3),
                         "answer": r.get("answer") or ""})
+        elif ev == "floor.people":
+            out.append({"t": r["t"], "people": r["people"]})  # the call's people count (from the chat it opened on)
         elif ev == "lanes.tier":
             out.append({"t": r["t"], "cost": "lane", "did": r["did"], "tier": r["tier"], "s": r.get("s"),
                         "text": r.get("text") or ""})
@@ -160,6 +164,10 @@ class FakeChat:
 class Replay:
     def __init__(self, rows: list[dict], history: list | None = None):
         self.rows = sorted(rows, key=lambda r: r["t"])
+        people = max((r["people"] for r in self.rows if "people" in r), default=1)
+        if history is None and people > 1:  # a fixture cut from a trace: the chat said how many share the phone
+            history = [{"role": "assistant", "content": [{"type": "output_text",
+                                                           "text": f"This call has {people} people at the desk."}]}]
         self.history = history  # the chat the call opened from, as the phone sends it (Call.start)
         self.now = 0.0
         self.hermes = {r["did"]: (r["work"], r["answer"]) for r in self.rows if r.get("cost") == "hermes"}
@@ -368,6 +376,7 @@ def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
 
     repeats, lost = [], []
     speech = replay.heard  # what reached the phone from either voice (a muted reply never does)
+    rx = [(r["t"], r["rx"], r["src"]) for r in replay.rows if "rx" in r]
     for leg, sent in (("primary", replay.sent), ("guest", replay.sent_guest)):
         handings: dict[str | None, list[tuple[float, str]]] = {}
         last = None
@@ -389,8 +398,9 @@ def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
         def heard_before(t):
             return set().union(*(content(x) for at, x in speech if at < t))
 
+        pieces_of: dict[str | None, list[dict]] = {}
         for did, items in handings.items():
-            pieces: list[dict] = []  # each distinct piece of this answer: first sent, its new words, handed again
+            pieces = pieces_of[did] = []  # each distinct piece of this answer: first sent, its new words, handed again
             for t, text in items:
                 words = content(text)
                 again = [p for p in pieces if p["all"] <= words]  # a resend carries whole pieces
@@ -401,8 +411,25 @@ def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
                         p["resent"] = True
                 else:
                     pieces.append({"t": t, "all": words, "words": words - heard_before(t), "resent": False})
-            lost += [{"leg": leg, "did": did, "t": p["t"]} for p in pieces
-                     if not p["resent"] and not said(p["words"], p["t"], float("inf"))]
+        # What this leg's voice said (its recorded transcript), heard or not. A piece it said that the phone never
+        # heard went into a muted reply: lost however often it was sent (take 12: line 3's answer was resent, read
+        # into a reply the floor had muted, then dropped as unspoken). A resend the recording never had is judged
+        # only by the phone: the recorded voice never had the chance to answer it.
+        voice = [(t, (e.get("item") or {}).get("text", "")) for t, e, src in rx
+                 if src == ("guest" if leg == "guest" else "provider") and e.get("type") == "output_transcript.added"]
+
+        def voiced(words, since):
+            spoken = set().union(*(content(x) for t, x in voice if t >= since))
+            return bool(words) and len(words & spoken) >= needed(len(words))
+
+        for did, items in handings.items():
+            for p in pieces_of[did]:
+                if said(p["words"], p["t"], float("inf")):
+                    continue
+                if not p["resent"]:
+                    lost.append({"leg": leg, "did": did, "t": p["t"]})
+                elif voiced(p["words"], p["t"]):
+                    lost.append({"leg": leg, "did": did, "t": p["t"], "muted": True})
     return repeats, lost
 
 
