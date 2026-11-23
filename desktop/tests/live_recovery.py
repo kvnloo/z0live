@@ -5,15 +5,17 @@ import os
 from pathlib import Path
 import sqlite3
 import subprocess
+import sys
 import time
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[2]
-BASE = os.environ.get("Z0LIVE_TEST_BASE", "https://0.taila30dc.ts.net:8791")
+BASE = os.environ.get("Z0LIVE_TEST_BASE") or os.environ.get("Z0LIVE_BASE_URL") or sys.exit("set Z0LIVE_TEST_BASE")
 DATA = ROOT.parents[1] / "data/z0live"
 result = subprocess.check_output(
     [str(ROOT / "bin/z0live"), "pair", "headless-recovery-" + str(time.time_ns())],
     text=True,
+    env={**os.environ, "Z0LIVE_BASE_URL": BASE},
 )
 TOKEN = result.split("Device token: ", 1)[1].splitlines()[0]
 

@@ -58,10 +58,10 @@ the default layout file is `$Z0INT_HOME/config/z0live-lanes.json` (`z0live.lanes
 
 ## Front door (one app URL, every call traced)
 
-The Hermes app uses `https://studio.taila30dc.ts.net:9119` (tailnet only). Tailscale serve holds the
+The Hermes app uses `https://STUDIO.TAILNET.ts.net:9119` (tailnet only). Tailscale serve holds the
 certificate and forwards to the z0live proxy on `127.0.0.1:9165`, which sends the voice-live paths to the
 active voice slot (`:9168` or `:9169`). The adapter writes `~/.local/share/z0live/voice-traces/<day>/*.jsonl`. The proxy sends everything else to
-the dashboard on `127.0.0.1:9119`. This is groot's layout (`https://0.taila30dc.ts.net:9119`). The proxy tells
+the dashboard on `127.0.0.1:9119`. This is groot's layout (`https://HOST.TAILNET.ts.net:9119`). The proxy tells
 the dashboard the app is on https (`HERMES_PROXY_FORWARDED_PROTO`), so session cookies are Secure; behind a
 plain-http front door they are never sent back and every ws-ticket fails with `no_cookie`. Without it the app talks to
 the dashboard directly, calls run on stock Hermes voice (no lanes, no brief, no trace), and the only sign of

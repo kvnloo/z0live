@@ -5,6 +5,8 @@ brightness, a media session) and answers the exact commands the lane sends, so e
 `landed` claim is checked against state the fake actually changed.
 """
 
+import io
+import json
 import os
 from pathlib import Path
 import re
@@ -331,6 +333,25 @@ class DelegatorRoutingTests(unittest.TestCase):
             d = Delegator(self.store, hermes=FakeHermes(), router=NoRoute())
         self.assertIsNone(d.system)
         self.assertIsNone(d.phone_hermes)
+
+
+class ChainTests(unittest.TestCase):
+    def test_unconfigured_router_tier_is_skipped_not_dialled(self):
+        seen = []
+
+        class Reply:
+            def __enter__(self):
+                return io.BytesIO(json.dumps({"choices": [{"message": {"content": '{"ok": true}'}}]}).encode())
+
+            def __exit__(self, *a):
+                return False
+
+        def opener(req, timeout):
+            seen.append(req.full_url)
+            return Reply()
+        chain = [{"url": "", "model": "router-model"}, {"url": "http://127.0.0.1:9/v1/chat/completions", "model": "local"}]
+        text, _, model = ps.chain_chat(chain, opener=opener)("pick one")
+        self.assertEqual((seen, model), (["http://127.0.0.1:9/v1/chat/completions"], "local"))
 
 
 if __name__ == "__main__":

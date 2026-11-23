@@ -39,6 +39,11 @@ LOCAL = {"qwen 0.6b": "qwen3-0.6b-q8", "qwen 1.7b": "qwen3-1.7b", "qwen 4b": "qw
 MODEL_RE = re.compile(r"opus|sonnet|haiku|qwen ?[0-9.]+b|vllm|free|smol|plan|slow|judge|default|task")
 
 
+def _pool(tier):
+    """POOLS[tier], minus vllm-sr entries unless the operator set Z0LIVE_SR_URL (no default router host)."""
+    return [b for b in POOLS[tier] if b["route"] != "vllm-sr" or lanes.sr_configured()]
+
+
 def model_binding(word, tier):
     w = word.lower().replace("qwen3", "qwen ").replace("  ", " ").strip()
     if w in ANTHROPIC:
@@ -47,6 +52,8 @@ def model_binding(word, tier):
         model = next(v for k, v in LOCAL.items() if k.replace(" ", "") == w.replace(" ", ""))
         return {"provider": "local", "model": model, "route": "local", "billing": "free"}
     if w in {"vllm", "free"}:
+        if not lanes.sr_configured():
+            raise ValueError("vllm-sr lanes need Z0LIVE_SR_URL (no default router host)")
         return {"provider": "free", "model": "vllm-sr/free", "route": "vllm-sr", "billing": "free"}
     if w in lanes.ROLES:
         return {"provider": "voice_plan", "model": w, "route": "voice_plan",
@@ -108,7 +115,7 @@ def parse(utterance, base=None) -> dict:
             cfg["lanes"]["council"]["invoke"]["max_per_call"] = min(n, 3) if n else 0
         else:
             have = _bindings(cfg, tier)
-            pool = [b for b in POOLS[tier] if all(b["model"] != h["model"] for h in have)]
+            pool = [b for b in _pool(tier) if all(b["model"] != h["model"] for h in have)]
             if n > len(have) + len(pool):
                 raise ValueError(f"only {len(have) + len(pool)} {tier} lanes are available")
             _set_tier(cfg, tier, [{k: v for k, v in b.items() if k != "tier"} for b in (have + pool)[:n]])

@@ -119,6 +119,7 @@ class ConfigTests(Base):
         for c in ("location", "credentials"):
             self.assertEqual([lanes.allowed(b, c, PLAN) for b in (free, local, role)], [False, True, False])
 
+    @patch.object(lanes, "SR_BASE", "http://router.example:8801/v1")  # the small pool's third lane is vllm-sr
     def test_edits_rebind_one_tier_and_counts_reshape(self):
         cfg = lanes_intent.parse("make the large lanes Opus and Sonnet")
         self.assertEqual([b["model"] for b in lanes.large(cfg)], ["claude-opus-5-5", "claude-sonnet-5"])
@@ -377,6 +378,61 @@ class PresetDTests(Base):
         with self.assertRaises(LookupError):
             self.store.lane_turn("someone-else", {"session_id": sid, "text": "hey"})
 
+
+
+class NoDefaultRouterTests(unittest.TestCase):
+    """No operator host ships as a default: vllm-sr lanes exist only when Z0LIVE_SR_URL is set."""
+
+    FREE = {"provider": "free", "model": "vllm-sr/free", "route": "vllm-sr", "billing": "free", "tier": "small"}
+
+    def test_fresh_import_has_no_default_router_broker_or_system_model_host(self):
+        import subprocess
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("Z0LIVE_SR_URL", "Z0LIVE_BASE_URL", "Z0LIVE_SYSTEM_MODEL_URL")}
+        code = ("import json; from z0live_desktop import core, lanes, phone_system as ps; "
+                "print(json.dumps([lanes.SR_BASE, core.BASE, ps.MODEL_URL, "
+                "[e['url'] for e in ps.CHOOSER_CHAIN + ps.WATCH_CHAIN if e['url']]]))")
+        out = subprocess.run([sys.executable, "-c", code], env=env, cwd=str(Path(__file__).resolve().parents[1]),
+                             capture_output=True, text=True, check=True).stdout
+        sr, base, model_url, urls = json.loads(out)
+        self.assertEqual((sr, base, model_url), ("", "", ""))
+        self.assertTrue(urls and all(u.startswith("http://127.0.0.1:") for u in urls), urls)
+
+    def test_validate_rejects_vllm_sr_lanes_without_a_router_url(self):
+        cfg = copy.deepcopy(lanes.B)
+        cfg["lanes"]["smol"]["models"].append(dict(self.FREE))
+        with patch.object(lanes, "SR_BASE", ""):
+            issues = lanes.validate(cfg)
+            self.assertEqual(len(issues), 1)
+            self.assertIn("Z0LIVE_SR_URL", issues[0])
+            self.assertEqual(lanes.validate(lanes.B), [])  # presets carry no vllm-sr lane
+        with patch.object(lanes, "SR_BASE", "http://router.example:8801/v1"):
+            self.assertEqual(lanes.validate(cfg), [])
+
+    def test_intent_skips_vllm_sr_pool_entries_without_a_router_url(self):
+        with patch.object(lanes, "SR_BASE", ""):
+            for text in ("gimme 3 fast lanes", "three small lanes", "two fast lanes, three small"):
+                try:
+                    cfg = lanes_intent.parse(text)
+                except ValueError as exc:
+                    self.assertIn("lanes are available", str(exc))
+                    continue
+                self.assertNotIn("vllm-sr", json.dumps(cfg))
+            with self.assertRaisesRegex(ValueError, "only 2 fast lanes"):
+                lanes_intent.parse("gimme 3 fast lanes")  # the third fast lane would have been vllm-sr
+            with self.assertRaisesRegex(ValueError, "Z0LIVE_SR_URL"):
+                lanes_intent.parse("set fast lanes to qwen 0.6b and vllm")
+        with patch.object(lanes, "SR_BASE", "http://router.example:8801/v1"):
+            cfg = lanes_intent.parse("gimme 3 fast lanes")
+            self.assertEqual([b["route"] for b in lanes.tier(cfg, "fast")][-1], "vllm-sr")
+
+    def test_fanout_never_dials_a_vllm_sr_lane_without_a_router_url(self):
+        from z0live_desktop import lane_fanout
+        with patch.object(lanes, "SR_BASE", ""), \
+                patch("urllib.request.urlopen", side_effect=AssertionError("network call")) as urlopen:
+            with self.assertRaisesRegex(RuntimeError, "Z0LIVE_SR_URL"):
+                lane_fanout.Models(None).complete(self.FREE, "capital of france?", timeout=1)
+        urlopen.assert_not_called()
 
 class RouterRouteTests(unittest.TestCase):
     def test_vllm_sr_lane_calls_the_router_directly_and_reports_the_picked_backend(self):

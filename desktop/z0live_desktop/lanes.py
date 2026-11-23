@@ -141,11 +141,27 @@ def validate(cfg) -> list[str]:
     else:
         for i, b in enumerate(verifiers):
             _large(b, f"driver.verifiers[{i}]", out)
+    if not sr_configured():
+        for where, b in _sr_bindings(cfg):
+            if isinstance(b, dict) and b.get("route") == "vllm-sr":
+                out.append(f"{where}: vllm-sr lane needs Z0LIVE_SR_URL (no default router host)")
     return out
 
 
-# vLLM Semantic Router (k3s NodePort on groot since 11-15); free models only, public-class turns only.
-SR_BASE = os.environ.get("Z0LIVE_SR_URL", "http://100.113.138.100:30899/v1").rstrip("/")
+# vLLM Semantic Router: free models only, public-class turns only. No default host: `vllm-sr` lanes
+# exist only when Z0LIVE_SR_URL names the operator's own router (e.g. http://router.example:8801/v1).
+SR_BASE = os.environ.get("Z0LIVE_SR_URL", "").strip().rstrip("/")
+
+
+def sr_configured() -> bool:
+    return bool(SR_BASE)
+
+
+def _sr_bindings(cfg):
+    lanes_ = cfg["lanes"]
+    yield from ((f"smol.models[{i}]", b) for i, b in enumerate(lanes_["smol"]["models"]))
+    yield "driver.model", lanes_["driver"]["model"]
+    yield from ((f"driver.verifiers[{i}]", b) for i, b in enumerate(lanes_["driver"].get("verifiers") or []))
 
 
 # ------------------------------------------------------------------ privacy (Kevin decision 3, 11-05)

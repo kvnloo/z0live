@@ -133,6 +133,8 @@ def main():
         print(dumps({"status": "queued", "turn_id": args.turn}))
     elif args.command == "pair":
         qr_mode = args.qr or args.qr_png is not None
+        if not BASE:
+            parser.error("pairing needs Z0LIVE_BASE_URL (the https URL phones reach the broker on)")
         encoder = shutil.which("qrencode") if qr_mode else None
         if qr_mode and not encoder:
             parser.error(

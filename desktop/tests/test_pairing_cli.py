@@ -25,6 +25,7 @@ class PairingCliTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR"))
         self.store = Store(Path(self.tmp.name) / "data")
+        self.base = "https://broker.example:8791"  # operator-set Z0LIVE_BASE_URL; none ships as a default
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -32,7 +33,7 @@ class PairingCliTests(unittest.TestCase):
     def invoke(self, *args):
         out, err = io.StringIO(), io.StringIO()
         with (
-            patch.dict(CLI.__globals__, Store=lambda: self.store),
+            patch.dict(CLI.__globals__, Store=lambda: self.store, BASE=self.base),
             patch.object(sys, "argv", ["z0live", "pair", "test device", *args]),
             contextlib.redirect_stdout(out),
             contextlib.redirect_stderr(err),
@@ -98,7 +99,7 @@ class PairingCliTests(unittest.TestCase):
             )
             self.assertEqual(
                 decoded,
-                "z0live://pair?url=https%3A%2F%2F0.taila30dc.ts.net%3A8791&token="
+                "z0live://pair?url=https%3A%2F%2Fbroker.example%3A8791&token="
                 + TOKEN,
             )
 
@@ -144,6 +145,14 @@ class PairingCliTests(unittest.TestCase):
         self.assert_private(out + err)
         self.assertIsNone(self.store.authenticate(TOKEN))
         self.assertFalse(path.exists())
+
+    def test_pairing_refuses_without_a_base_url_and_mints_nothing(self):
+        self.base = ""
+        with patch("z0live_desktop.core.secrets.token_urlsafe", return_value=TOKEN):
+            status, out, err = self.invoke()
+        self.assertEqual(status, 2)
+        self.assertIn("Z0LIVE_BASE_URL", err)
+        self.assertNotIn(TOKEN, out + err)
 
     def test_legacy_output_preserved_only_without_qr_flags(self):
         with patch("z0live_desktop.core.secrets.token_urlsafe", return_value=TOKEN):

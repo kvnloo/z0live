@@ -5,8 +5,9 @@ import {execFileSync} from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
 const root=path.resolve(import.meta.dirname,'../..');
-const base=process.env.Z0LIVE_TEST_BASE||'https://0.taila30dc.ts.net:8791';
-const pairing=execFileSync(path.join(root,'bin/z0live'),['pair','work-tools-test-'+Date.now()],{encoding:'utf8'});
+const base=process.env.Z0LIVE_TEST_BASE||process.env.Z0LIVE_BASE_URL;
+if(!base)throw new Error('set Z0LIVE_TEST_BASE (the broker URL the phone reaches)');
+const pairing=execFileSync(path.join(root,'bin/z0live'),['pair','work-tools-test-'+Date.now()],{encoding:'utf8',env:{...process.env,Z0LIVE_BASE_URL:base}});
 const token=pairing.match(/Device token: ([^\n]+)/)[1];
 const request=async(p,body)=>{
  const r=await fetch(base+p,{method:body===undefined?'GET':'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});

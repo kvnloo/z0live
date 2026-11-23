@@ -29,7 +29,7 @@ Owner question: should the event trace move into Hermes core (opt-in trace for p
 
 **Plugin: Hermes Wrapped** owns the normalised `TraceEvent` and its read-only reader. The plan names an `events.db`; I read only the plan doc, not `store.py`. It joins by an explicit `session_id` and never reads message bodies.
 
-**AgentsView:** read-only indexer, never a write target. I found a clone at `/Users/kvn/workspace/repos/agentsview` but didn't read it, so anything beyond that is unverified.
+**AgentsView:** read-only indexer, never a write target. I found a local clone but didn't read it, so anything beyond that is unverified.
 
 ## 2. Smallest upstreamable core PR
 

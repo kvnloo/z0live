@@ -131,7 +131,9 @@ class Models:
                 data = json.loads(r.read())
             return {"text": data["choices"][0]["message"]["content"], "model": data.get("model", b["model"]),
                     "ms": round((time.monotonic() - start) * 1000)}
-        if b["route"] == "vllm-sr":  # direct to the router (k3s NodePort): ~0.4 s vs the liaison hop
+        if b["route"] == "vllm-sr":  # direct to the operator's router: ~0.4 s vs the liaison hop
+            if not lanes_mod.SR_BASE:
+                raise RuntimeError("vllm-sr lane without Z0LIVE_SR_URL")
             body = {"model": b["model"], "max_tokens": 1024, "temperature": 0.2,  # reasoning backends need room
                     "messages": [{"role": "user", "content": prompt}]}
             req = urllib.request.Request(lanes_mod.SR_BASE + "/chat/completions", data=json.dumps(body).encode(),

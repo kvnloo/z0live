@@ -438,7 +438,8 @@ class System:
 
 # -- fast model tier and watcher -------------------------------------------------------
 
-MODEL_URL = os.environ.get("Z0LIVE_SYSTEM_MODEL_URL", "http://100.113.138.100:30899/v1/chat/completions")
+# No default host: without Z0LIVE_SYSTEM_MODEL_URL the chains use only the local tier-1 server.
+MODEL_URL = os.environ.get("Z0LIVE_SYSTEM_MODEL_URL", "").strip()
 MODEL_TIMEOUT = float(os.environ.get("Z0LIVE_SYSTEM_MODEL_TIMEOUT", "2.5"))
 # Tried in order until one returns a usable answer. Explicit models through the vLLM
 # semantic router (Cerebras/Groq) answer a catalog choice in ~0.15-0.25 s; its `auto`
@@ -478,6 +479,8 @@ def chain_chat(chain, timeout=MODEL_TIMEOUT, opener=urllib.request.urlopen):
     def chat(prompt):
         errors = []
         for endpoint in chain:
+            if not endpoint.get("url"):  # router tier not configured (Z0LIVE_SYSTEM_MODEL_URL unset)
+                continue
             try:
                 text, ms, model = _chat_one(prompt, endpoint, timeout, opener)
             except Exception as exc:  # noqa: BLE001 - try the next endpoint
