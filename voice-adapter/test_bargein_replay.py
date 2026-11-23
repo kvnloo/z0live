@@ -497,5 +497,103 @@ class ArmDEnergyGateTest(unittest.TestCase):
             self.assertNotIn('valid_trials_with_veto', res['arms']['A'])
 
 
+# A-bargein-F arm-D output (bargein_replay/4), pinned from exp/bargein-energy-gate @0ef2824.
+ARM_D_F_ARGS = ('--seed', '39', '--trials', '20', '--arm-c', '--echo-model', 'residual', '--bot-render', 'recorded',
+                '--arm-d', '--energy-k-db', '-12', '--energy-min-speech-ms', '30')
+ARM_D_F_SHA256 = 'e32ff57ea07cfe2ecc54cc3a345429debccb01b9fb3847beec13bfffe211514e'
+STRESS = ('--caller-level-db-range=-10,0', '--erl-db-range=0,6')  # '=': argparse 3.9-3.12 reject a separate '-10,0'
+
+
+class StressFlagsTest(unittest.TestCase):
+    """bargein_replay/5: opt-in caller level randomisation and ERL range override."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.plain = list(replay.stimuli(60, 39, echo_model='residual', bot_render='recorded'))
+        cls.stress = list(replay.stimuli(60, 39, echo_model='residual', bot_render='recorded',
+                                         caller_level_db_range=(-10.0, 0.0), erl_db_range=(0.0, 6.0)))
+
+    def test_harness_id(self):
+        self.assertEqual(replay.HARNESS_STRESS, 'bargein_replay/5')
+
+    def test_arm_d_f_bytes_unchanged(self):
+        proc, data = run_cli(*ARM_D_F_ARGS)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sha256(data).hexdigest(), ARM_D_F_SHA256)
+
+    def test_other_streams_unchanged(self):
+        for p, s in zip(self.plain, self.stress):
+            for key in BASE_KEYS:
+                if key != 'mic':
+                    self.assertEqual(p[key], s[key], key)
+            for key in ('bot_clip', 'bot_offset', 'bot', 'mic_clip'):
+                self.assertEqual(p[key], s[key], key)
+            pr, sr = p['residual'], s['residual']
+            for key in ('delay_ms', 'rir_ms', 'taps', 'clip_level', 'noise_rms', 'noise', 'double_talk',
+                        'double_talk_ms'):
+                self.assertEqual(pr[key], sr[key], key)
+            self.assertTrue(0 <= sr['erl_db'] <= 6)
+            self.assertTrue(6 <= pr['erl_db'] <= 20)
+
+    def test_caller_gain_applied_to_valid_only(self):
+        gains = []
+        for p, s in zip(self.plain, self.stress):
+            if p['kind'] == 'valid':
+                g = s['caller_gain_db']
+                gains.append(g)
+                self.assertTrue(-10 <= g <= 0)
+                scale = 10 ** (g / 20)
+                self.assertEqual(list(s['mic']), [max(-32768, min(32767, round(v * scale))) for v in p['mic']])
+            else:
+                self.assertEqual(p['mic'], s['mic'])
+                self.assertNotIn('caller_gain_db', s)
+        self.assertGreater(max(gains) - min(gains), 3)
+        self.assertNotIn('caller_gain_db', self.plain[0])
+
+    def test_each_flag_alone(self):
+        only_erl = list(replay.stimuli(20, 39, echo_model='residual', bot_render='recorded', erl_db_range=(0.0, 6.0)))
+        for p, s in zip(self.plain, only_erl):
+            self.assertEqual(p['mic'], s['mic'])
+        only_caller = list(replay.stimuli(20, 39, echo_model='residual', bot_render='recorded',
+                                          caller_level_db_range=(-10.0, 0.0)))
+        for p, s in zip(self.plain, only_caller):
+            self.assertEqual(p['residual']['erl_db'], s['residual']['erl_db'])
+
+    def test_cli_marks_v5_and_is_deterministic(self):
+        proc, data = run_cli(*ARM_D_F_ARGS, *STRESS, '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out = json.loads(data)
+        self.assertEqual(out['harness'], 'bargein_replay/5')
+        self.assertEqual(out['parameters']['caller_level_db_range'], [-10.0, 0.0])
+        self.assertEqual(out['parameters']['erl_db_range'], [0.0, 6.0])
+        self.assertIs(json.loads(proc.stdout)['aa_identical'], True)
+        valid = [t for t in out['arms']['D']['trials'] if t['kind'] == 'valid']
+        self.assertTrue(all('caller_gain_db' in t for t in valid))
+        self.assertTrue(all(0 <= t['echo_path']['erl_db'] <= 6 for t in out['arms']['A']['trials']))
+        _, again = run_cli(*ARM_D_F_ARGS, *STRESS)
+        self.assertEqual(sha256(data).hexdigest(), sha256(again).hexdigest())
+        _, plain = run_cli(*ARM_D_F_ARGS)
+        self.assertNotIn('caller_level_db_range', json.loads(plain)['parameters'])
+        self.assertNotIn('erl_db_range', json.loads(plain)['parameters'])
+
+    def test_cli_rejects_bad_ranges(self):
+        for args in (('--caller-level-db-range=0,-10',), ('--caller-level-db-range=x',),
+                     ('--erl-db-range', '0,6'),  # needs --echo-model residual
+                     ('--echo-model', 'residual', '--erl-db-range', '-1,6')):
+            bad, _ = run_cli('--trials', '10', *args)
+            self.assertNotEqual(bad.returncode, 0, args)
+
+    def test_sweep_passes_stress_flags(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([sys.executable, '-B', str(BENCH_DIR / 'bargein_sweep.py'), '--seeds', '39', '--trials', '20',
+                            '--echo-model', 'residual', '--bot-render', 'recorded', '--rhos', '0.9', '--arm-d',
+                            '--energy-k-db', '-12', '--energy-min-speech-ms', '30', *STRESS, '--out', tmp],
+                           check=True, capture_output=True, timeout=900)
+            res = json.loads(Path(tmp, 'seed-39.json').read_text())
+            self.assertEqual(res['harness'], 'bargein_replay/5')
+            self.assertEqual(res['extra_args'][-2:], list(STRESS))
+            self.assertEqual(sorted(res['arms']), ['A', 'B', 'C0.9', 'D'])
+
+
 if __name__ == '__main__':
     unittest.main()

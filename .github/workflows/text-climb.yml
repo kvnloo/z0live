@@ -1,10 +1,11 @@
-name: z0live barge-in energy-gate sweep (CPU, stdlib)
-# A-bargein-F: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml
+name: z0live barge-in energy-gate stress sweep (CPU, stdlib)
+# A-bargein-G: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml
 # --ref <branch>` can dispatch it (a new workflow file is not dispatchable until it is on the default branch).
-# It runs voice-adapter/bench/bargein_sweep.py with --echo-model residual --bot-render recorded --arm-d
-# (bargein_replay/4, offline virtual-time sim, Python stdlib only, no network, no secrets) on holdout seed 44
-# and fresh seeds 3000-3039: arms A, B, C rho 0.9 at M 40 ms, D (energy gate k -12 dB, M 30 ms, picked on
-# dev seed 43).
+# It runs voice-adapter/bench/bargein_sweep.py with --echo-model residual --bot-render recorded --arm-d plus
+# the stress flags --caller-level-db-range -10,0 --erl-db-range 0,6 (bargein_replay/5, offline virtual-time
+# sim, Python stdlib only, no network, no secrets) on holdout seed 46 and fresh seeds 4000-4039: arms A, B,
+# C rho 0.9 at M 40 ms, D frozen (k -12 dB, M 30 ms, A-bargein-F pick). A second sweep (out/tuned) runs
+# D-retuned k -18 M30 (least-bad on dev seed 45; descriptive only).
 on:
   workflow_dispatch:
     inputs:
@@ -18,13 +19,13 @@ jobs:
   sweep:
     name: seeds ${{ matrix.seeds }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        seeds: ["44", 3000-3001, 3002-3003, 3004-3005, 3006-3007, 3008-3009, 3010-3011, 3012-3013, 3014-3015,
-                3016-3017, 3018-3019, 3020-3021, 3022-3023, 3024-3025, 3026-3027, 3028-3029, 3030-3031,
-                3032-3033, 3034-3035, 3036-3037, 3038-3039]
+        seeds: ["46", 4000-4001, 4002-4003, 4004-4005, 4006-4007, 4008-4009, 4010-4011, 4012-4013, 4014-4015,
+                4016-4017, 4018-4019, 4020-4021, 4022-4023, 4024-4025, 4026-4027, 4028-4029, 4030-4031,
+                4032-4033, 4034-4035, 4036-4037, 4038-4039]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,7 +38,7 @@ jobs:
           cpu=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)
           echo "runner CPU: ${cpu:-unknown} ($(uname -m), $(nproc) cpus), $(python --version)" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Sweep
-        timeout-minutes: 17
+        timeout-minutes: 36
         env:
           SEEDS: ${{ matrix.seeds }}
         run: |
@@ -45,7 +46,12 @@ jobs:
           cd voice-adapter
           python -B bench/bargein_sweep.py --seeds "$SEEDS" --out ../out --jobs "$(nproc)" \
             --echo-model residual --bot-render recorded --rhos 0.9 \
-            --arm-d --energy-k-db -12 --energy-min-speech-ms 30 | tee -a "$GITHUB_STEP_SUMMARY"
+            --arm-d --energy-k-db -12 --energy-min-speech-ms 30 \
+            --caller-level-db-range=-10,0 --erl-db-range=0,6 | tee -a "$GITHUB_STEP_SUMMARY"
+          python -B bench/bargein_sweep.py --seeds "$SEEDS" --out ../out/tuned --jobs "$(nproc)" \
+            --echo-model residual --bot-render recorded --rhos 0.9 \
+            --arm-d --energy-k-db -18 --energy-min-speech-ms 30 \
+            --caller-level-db-range=-10,0 --erl-db-range=0,6 | sed 's/^/tuned /' | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -69,5 +75,5 @@ jobs:
           NOTE: ${{ inputs.note }}
         run: |
           set -euo pipefail
-          { [ -n "${NOTE}" ] && echo "note: ${NOTE}"; echo '```'; (cd results && ls seed-*.json | wc -l && sha256sum seed-*.json); echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          (cd results && sha256sum seed-*.json)
+          { [ -n "${NOTE}" ] && echo "note: ${NOTE}"; echo '```'; (cd results && ls seed-*.json tuned/seed-*.json | wc -l && sha256sum seed-*.json tuned/seed-*.json); echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          (cd results && sha256sum seed-*.json tuned/seed-*.json)

@@ -47,6 +47,14 @@ Arm D (--arm-d, opt-in, output marked bargein_replay/4; arms A/B/C unchanged):
   log (--energy-k-db k); flush after --energy-min-speech-ms of consecutive
   unvetoed hot packets. Same adapter-only inputs as arm C, no spectral match.
 
+Stress flags (opt-in, output marked bargein_replay/5; without them nothing changes):
+  --caller-level-db-range LO,HI  per valid trial, caller gain g ~ U(LO, HI) dB
+            relative to the fixture level (bot render stays at its level), drawn
+            from its own RNG; the caller clip is scaled by 10^(g/20). Negative
+            trials are unchanged.
+  --erl-db-range LO,HI  (with --echo-model residual) residual ERL ~ U(LO, HI)
+            dB instead of U(6, 20); only the bounds of that one draw change.
+
 Timing definitions (virtual ms; t=0 is the first bot frame generated):
   latency_ms       valid trials: end of the last audible bot sample at the
                    simulated phone speaker minus the caller mic onset (>= 0).
@@ -94,6 +102,8 @@ HARNESS = "bargein_replay/1"
 HARNESS_RESIDUAL = "bargein_replay/2"  # only with --echo-model residual
 HARNESS_RECORDED = "bargein_replay/3"  # only with --bot-render recorded
 HARNESS_ENERGY = "bargein_replay/4"  # only with --arm-d
+HARNESS_STRESS = "bargein_replay/5"  # only with --caller-level-db-range / --erl-db-range
+ERL_DB_RANGE = (6, 20)
 REFLECTIONS = 12
 
 
@@ -268,8 +278,8 @@ class EnergyGate:
         return False
 
 
-def residual_echo(seed, index, kind):
-    """bargein_replay/2 per-trial echo path, drawn from its own RNG."""
+def residual_echo(seed, index, kind, erl_db_range=None):
+    """bargein_replay/2 per-trial echo path, drawn from its own RNG (erl_db_range: bargein_replay/5)."""
     rng = Random(f"{HARNESS_RESIDUAL}:{seed}:{index}")
     delay_ms = rng.randint(20, 120)
     rir_ms = rng.randint(10, 60)
@@ -279,7 +289,7 @@ def residual_echo(seed, index, kind):
         d = rng.randint(SAMPLES_MS, span)
         sign = rng.choice((-1, 1))
         taps.append((d, sign * rng.uniform(.2, .6) * exp(-3 * d / span)))
-    erl_db = rng.uniform(6, 20)
+    erl_db = rng.uniform(*(erl_db_range or ERL_DB_RANGE))  # one random() draw whatever the bounds
     clip_level = rng.uniform(12000, 20000)
     noise_rms = rng.uniform(40, 160)
     noise_rng = Random(rng.getrandbits(32))
@@ -304,7 +314,17 @@ def recorded_bot(seed, index, clips, names, exclude):
     return names[k], offset, bot
 
 
-def stimuli(n, seed, echo_model="copy", bot_render="periodic"):
+def caller_gain_db(seed, index, level_range):
+    """bargein_replay/5 per-trial caller gain in dB, from its own RNG (other streams untouched)."""
+    return Random(f"{HARNESS_STRESS}:caller:{seed}:{index}").uniform(*level_range)
+
+
+def scaled(samples, gain_db):
+    scale = 10 ** (gain_db / 20)
+    return array("h", (max(-32768, min(32767, round(v * scale))) for v in samples))
+
+
+def stimuli(n, seed, echo_model="copy", bot_render="periodic", caller_level_db_range=None, erl_db_range=None):
     rng = Random(seed)
     paths = sorted(ASSETS.glob("*.wav"))
     names = [path.name for path in paths]
@@ -333,13 +353,16 @@ def stimuli(n, seed, echo_model="copy", bot_render="periodic"):
         trial = dict(id=index, kind=kind, onset=onset, mic=mic, echo_ms=duration,
                      up=up, ws_up=ws_up, ws_back=ws_back, down=down, phone_extra=phone_extra)
         if echo_model == "residual":
-            trial["residual"] = residual_echo(seed, index, kind)
+            trial["residual"] = residual_echo(seed, index, kind, erl_db_range)
         if bot_render == "recorded":
             mic_clip = next((names[k] for k, c in enumerate(clips) if c is mic), None)
             assert (mic_clip is not None) == (kind == "valid")
             trial["mic_clip"] = mic_clip
             trial["bot_clip"], trial["bot_offset"], trial["bot"] = recorded_bot(seed, index, clips, names, mic_clip)
             assert trial["bot_clip"] != mic_clip  # bot render never reuses the caller's onset clip
+        if caller_level_db_range and kind == "valid":
+            trial["caller_gain_db"] = caller_gain_db(seed, index, caller_level_db_range)
+            trial["mic"] = scaled(mic, trial["caller_gain_db"])
         yield trial
 
 
@@ -544,6 +567,8 @@ def replay(trial, arm, cfg, bot):
         r = trial["residual"]
         row["echo_path"] = dict(delay_ms=r["delay_ms"], rir_ms=r["rir_ms"], erl_db=round(r["erl_db"], 3),
                                 double_talk=r["double_talk"], double_talk_ms=r["double_talk_ms"])
+    if "caller_gain_db" in trial:
+        row["caller_gain_db"] = round(trial["caller_gain_db"], 3)
     if "bot" in trial:
         row["bot_render"] = dict(clip=trial["bot_clip"], offset=trial["bot_offset"], mic_clip=trial["mic_clip"])
     return row
@@ -569,7 +594,12 @@ def run(n, seed, cfg, bot):
     echo_model = getattr(cfg, "echo_model", "copy")
     bot_render = getattr(cfg, "bot_render", "periodic")
     recorded = bot_render == "recorded"
-    cases = list(stimuli(n, seed, echo_model, bot_render)) if recorded else list(stimuli(n, seed, echo_model))
+    stress = {k: getattr(cfg, k, None) for k in ("caller_level_db_range", "erl_db_range")}
+    stress = {k: tuple(v) for k, v in stress.items() if v is not None}
+    if stress:
+        cases = list(stimuli(n, seed, echo_model, bot_render, **stress))
+    else:
+        cases = list(stimuli(n, seed, echo_model, bot_render)) if recorded else list(stimuli(n, seed, echo_model))
     arm_c = getattr(cfg, "arm_c", False)
     arm_d = getattr(cfg, "arm_d", False)
     result = dict(seed=seed, trials_per_arm=n, parameters={
@@ -578,6 +608,7 @@ def run(n, seed, cfg, bot):
         and (arm_d or not k.startswith("energy_"))
         and (k != "echo_model" or echo_model != "copy")
         and (k != "bot_render" or recorded)
+        and (k not in ("caller_level_db_range", "erl_db_range") or v is not None)
     }, arms={})
     if echo_model != "copy":
         result["harness"] = HARNESS_RESIDUAL
@@ -585,6 +616,8 @@ def run(n, seed, cfg, bot):
         result["harness"] = HARNESS_RECORDED
     if arm_d:
         result["harness"] = HARNESS_ENERGY
+    if stress:
+        result["harness"] = HARNESS_STRESS
     arms = ("A", "B", "C") if arm_c else ("A", "B")
     for arm in arms + ("D",) if arm_d else arms:
         rows = [replay(case, arm, cfg, bot) for case in cases]
@@ -627,6 +660,16 @@ def run(n, seed, cfg, bot):
     return result
 
 
+def db_range(text):
+    try:
+        lo, hi = (float(v) for v in text.split(","))
+    except ValueError:
+        raise argparse.ArgumentTypeError("expected LO,HI in dB, e.g. -10,0")
+    if lo > hi:
+        raise argparse.ArgumentTypeError("LO must be <= HI")
+    return [lo, hi]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--trials", type=int, default=200, help="paired trials per arm")
@@ -659,6 +702,10 @@ def main():
                         help="residual: bargein_replay/2 filtered, attenuated, clipped, noisy echo plus double-talk")
     parser.add_argument("--bot-render", choices=("periodic", "recorded"), default="periodic",
                         help="recorded: bargein_replay/3 LibriSpeech bot render disjoint from the caller clip")
+    parser.add_argument("--caller-level-db-range", type=db_range, default=None, metavar="LO,HI",
+                        help="bargein_replay/5: per valid trial caller gain U(LO, HI) dB, own RNG stream")
+    parser.add_argument("--erl-db-range", type=db_range, default=None, metavar="LO,HI",
+                        help="bargein_replay/5 (needs --echo-model residual): residual ERL U(LO, HI) dB, default 6,20")
     parser.add_argument("--aa", action="store_true", help="repeat and compare canonical JSON bytes")
     parser.add_argument("--output", type=Path, help="write full canonical per-trial JSON")
     cfg = parser.parse_args()
@@ -676,6 +723,10 @@ def main():
         parser.error("energy minimum speech must be a positive multiple of 10 ms; k in [-200, 40] dB")
     if not 0 <= cfg.energy_lag_max_ms <= 1000:
         parser.error("energy lag max must be 0..1000 ms")
+    if cfg.caller_level_db_range and not -60 <= cfg.caller_level_db_range[0] <= cfg.caller_level_db_range[1] <= 20:
+        parser.error("caller level range must be LO,HI with -60 <= LO <= HI <= 20 dB")
+    if cfg.erl_db_range and (cfg.echo_model != "residual" or not 0 <= cfg.erl_db_range[0] <= cfg.erl_db_range[1] <= 60):
+        parser.error("ERL range needs --echo-model residual and 0 <= LO <= HI <= 60 dB")
 
     bot = voice(BOT_MS, 142, 11000, 115)
     result = run(cfg.trials, cfg.seed, cfg, bot)

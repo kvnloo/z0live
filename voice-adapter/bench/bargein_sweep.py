@@ -92,6 +92,8 @@ def main():
     p.add_argument("--arm-d", action="store_true", help="also run arm D (energy-ratio gate, bargein_replay/4)")
     p.add_argument("--energy-k-db", type=float, default=-6.0)
     p.add_argument("--energy-min-speech-ms", type=int, default=40)
+    p.add_argument("--caller-level-db-range", help="bargein_replay/5 stress pass-through, e.g. -10,0")
+    p.add_argument("--erl-db-range", help="bargein_replay/5 stress pass-through, e.g. 0,6")
     a = p.parse_args()
     a.out.mkdir(parents=True, exist_ok=True)
     seeds = parse_seeds(a.seeds)
@@ -103,6 +105,10 @@ def main():
         extra += ["--bot-render", a.bot_render]
     if a.arm_d:
         extra += ["--arm-d", "--energy-k-db", str(a.energy_k_db), "--energy-min-speech-ms", str(a.energy_min_speech_ms)]
+    if a.caller_level_db_range:
+        extra += ["--caller-level-db-range=" + a.caller_level_db_range]  # "=": the value starts with "-"
+    if a.erl_db_range:
+        extra += ["--erl-db-range=" + a.erl_db_range]
 
     def work(seed):
         res = sweep_seed(seed, a.min_speech_ms, a.trials, extra, rhos)
