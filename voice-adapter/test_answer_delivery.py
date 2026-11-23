@@ -30,6 +30,14 @@ class LedgerTest(unittest.TestCase):
         self.assertEqual([e.did for e in self.ledger.heard("primary", "It's already running as card seven, so "
                                                                          "I won't start another.")], ["d1"])
 
+    def test_a_late_answer_the_voice_began_from_its_start_is_cut_with_its_unheard_rest(self):
+        # floor_sim seed 49: the voice merged the answer into its open reply and said "That run is already" before
+        # the caller cut in. A voice reads a merged answer from its start, so that is having begun it.
+        answer = "That job is already running as card seven, so I won't start another. Oil it twice a year."
+        self.ledger.sent("primary", "d1", answer, 10, late=True)
+        self.ledger.heard("primary", " That job is already")
+        self.assertEqual(self.ledger.cut("primary"), [("d1", answer)])
+
     def test_a_reply_that_never_says_it_does_not_deliver_it(self):
         # Any allowed reply starting used to mark every pending answer delivered ("Mm-hm." included).
         self.ledger.sent("primary", "d1", "The bike chain is fixed and the brakes need new pads.", 10)

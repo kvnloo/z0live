@@ -72,6 +72,14 @@ class Take15(unittest.TestCase):
         sent = [(d["of"], t) for t, ev, d in floor if ev in ("floor.answer_sent", "floor.answer_resent")]
         self.assertEqual([(did, t) for did, t in sent if did in dropped and t >= dropped[did]], [])
 
+    def test_a_reply_that_ran_its_course_is_not_cut_and_a_rest_is_never_resumed_twice(self):
+        # 106.0 (Tek), 144.7 and 150.9 s: replies ended on their own, the mic quiet since 94.5 s, and each was logged
+        # as a cut and its last sentence re-queued, the second time as "To finish what I was saying: To finish ...".
+        cuts = [round(t, 1) for t, ev, _ in self.r.floor if ev == "floor.answer_cut"]
+        self.assertEqual([t for t in cuts if t > 100], [])
+        self.assertEqual([t for t, text in handed(self.r) if text.count("To finish what I was saying") > 1], [])
+        self.assertEqual([t for t, text in self.r.sent_guest if "To finish" in json.dumps(text) and t > 100], [])
+
 
 class RecordedTakes(unittest.TestCase):
     def test_the_takes_are_here(self):

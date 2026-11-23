@@ -694,26 +694,32 @@ class AnswerDeliveryTest(TimedGuestTest):
                 self.assertEqual(self.speakable("second one"), 1, "and only the rest")
                 await g.close()
 
-    async def test_a_reply_that_ends_before_its_answer_hands_the_rest_back_without_a_barge_in(self):
+    async def test_a_reply_stopped_mid_sentence_hands_the_rest_back_and_one_that_ran_its_course_does_not(self):
         # The sim's provider stops a reply at a random word with nobody talking: the answer was credited as spoken
-        # (answer_delivery's few words) and its rest never came back.
-        g = self.guest
-        g.set_people(2)
-        g.floor.change("primary", "redirected", 100)
-        self.speak("d3", self.LINE_3)
-        self.at(100.6)
-        g.observe("primary", turn("created", "", role="assistant", tid="r1"))
-        g.observe("primary", output("It's still running in card t_0a96e2de, so I won't start a second one."))
-        self.at(104)
-        g.observe("primary", turn("done", "", 600, 4200, role="assistant", tid="r1"))
-        g.observe("primary", turn("created", "Okay", 4400, 4600, tid="j5"))
-        self.assertNotIn("floor.barge_in", self.call.traces)
-        self.assertIn("floor.answer_cut", self.call.traces)
-        self.at(107)
-        utterance_ends(g)
-        g.flush_answers()
-        self.assertEqual(self.speakable("from this call"), 2, "the rest goes back once the caller pauses")
-        self.assertEqual(self.speakable("second one"), 1, "and only the rest")
+        # (answer_delivery's few words) and its rest never came back. Take 15 (144.7 and 150.9 s): replies that ended
+        # on their own, on a sentence end with the mic quiet, were cut too, and their last sentence re-queued twice.
+        for said, cut in (("It's still running in card t_0a96e2de, so I won't", True),
+                          ("It's still running in card t_0a96e2de, so I won't start a second one.", False)):
+            with self.subTest(said=said):
+                await self.asyncSetUp()
+                g = self.guest
+                g.set_people(2)
+                g.floor.change("primary", "redirected", 100)
+                self.speak("d3", self.LINE_3)
+                self.at(100.6)
+                g.observe("primary", turn("created", "", role="assistant", tid="r1"))
+                g.observe("primary", output(said))
+                self.at(104)
+                g.observe("primary", turn("done", "", 600, 4200, role="assistant", tid="r1"))
+                g.observe("primary", turn("created", "Okay", 4400, 4600, tid="j5"))  # after the reply, not over it
+                self.assertNotIn("floor.barge_in", self.call.traces)
+                self.assertEqual("floor.answer_cut" in self.call.traces, cut)
+                self.at(107)
+                utterance_ends(g)
+                g.flush_answers()
+                self.assertEqual(self.speakable("from this call"), 2 if cut else 1, "the rest goes back if stopped")
+                self.assertEqual(self.speakable("second one"), 1, "and only the rest")
+                await g.close()
 
     async def test_lane_guesses_waiting_for_the_floor_are_dropped_once_stale(self):
         g = self.guest

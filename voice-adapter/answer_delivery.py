@@ -86,7 +86,11 @@ class Piece:
 
     @property
     def begun(self) -> bool:
-        return self.spoken or (bool(self.hits) and len(self.hits) >= min(STARTED_HITS, len(self.new)) and self.read())
+        """The voice had begun saying it: a late piece from its start, as a voice merging an answer reads it."""
+        if self.spoken or not self.hits or len(self.hits) < min(STARTED_HITS, len(self.new)):
+            return self.spoken
+        first = next((own for s in sentences(self.text) if (own := content(s) & self.new)), set())
+        return not self.late or len(first & self.hits) >= min(STARTED_HITS, len(first)) or self.read()
 
 
 @dataclass

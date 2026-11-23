@@ -53,7 +53,6 @@ TEK = re.compile(r"(?:^|(?:hey|hi|ok|okay)[\s,]+)\W*(?:tek|tech|teck|tec|teknium
                  re.I)
 QUEUED = re.compile(r"queued as number \d+")  # the adapter's queued notice (mobile_live.QUEUED)
 _did = contextvars.ContextVar("replay_did", default=None)
-_leg = contextvars.ContextVar("replay_leg", default="primary")  # the voice whose event the adapter is handling
 
 
 def fixture(trace: Path) -> list[dict]:
@@ -211,6 +210,7 @@ class Replay:
         self.sent_guest: list[tuple[float, dict]] = []  # events sent to the guest voice's session
         self.heard: list[tuple[float, str]] = []  # voice transcript the phone received (audible replies only)
         self.heard_from: list[str] = []  # the voice each of `heard` came from ("primary" or "guest")
+        self.leg = "primary"  # the voice whose event the adapter is handling
         self.guest = any(r.get("src") == "guest" for r in self.rows)
         self.started: dict[str, float] = {}
         self.requests: list[tuple[str, str]] = []  # (did, request) as host_delegate received them
@@ -309,11 +309,11 @@ class Replay:
         guest_message = live.GPTGuest.message
 
         def from_guest(guest, raw):  # what the adapter sends while handling the guest's event is the guest's
-            token = _leg.set("guest")
+            replay.leg = "guest"  # not a ContextVar: a timer set meanwhile (floor_sim's voices) would inherit it
             try:
                 return guest_message(guest, raw)
             finally:
-                _leg.reset(token)
+                replay.leg = "primary"
 
         def floor_trace(tr, ev, **data):
             if ev.startswith("floor."):
@@ -351,7 +351,7 @@ class Replay:
                     self.react("primary", event)
                 elif event.get("type") == "session.output_transcript.delta":
                     self.heard.append((self.now, event.get("delta") or ""))
-                    self.heard_from.append(_leg.get())
+                    self.heard_from.append(self.leg)
 
             call.send = send
             if isinstance(call.guest, live.GPTGuest):
