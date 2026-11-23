@@ -1,5 +1,21 @@
 # Desktop operations
 
+## What this stack does beyond the plugin
+
+The separately installed voice adapter and desktop broker have access beyond
+the Hermes plugin's tools:
+
+- The GPT-Live path reuses the host's existing login by reading
+  `~/.codex/auth.json` without modifying it. It uses the login against
+  `chatgpt.com` with `Codex Desktop` client headers.
+- The stack reads every local Hermes profile's `state.db` in read-only mode to
+  discover sessions and gather context. This is not limited to the profile
+  that enabled the plugin.
+- [`desktop/hermes_relay.py`](../desktop/hermes_relay.py) attaches to Hermes sessions through
+  the gateway. It can steer a running turn (`session.steer`) or submit a
+  prompt (`prompt.submit`) for the next turn. The database access is read-only,
+  but relaying prompts can change what a session does.
+
 ## Host installation
 
 Deployment targets Kevin's desktop `the desktop host`, user `kvn`; the paths in `deploy/*.service` are deliberately
