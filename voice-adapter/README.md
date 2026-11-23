@@ -84,7 +84,7 @@ journalctl --user -u hermes-mobile-subscription-voice.service --since '5 minutes
 
 Deployment unit: `~/.config/systemd/user/hermes-mobile-subscription-voice.service`.
 Proxy activation: `~/.config/systemd/user/hermes-drive-web-proxy.service.d/mobile-subscription-voice.conf`.
-Proxy source: `dashboard_proxy.py` in this folder (vendored from groot's chief-of-staff `tailnet_dashboard_proxy.py`; `HERMES_DASHBOARD_UPSTREAM` and `HERMES_PROXY_PORT` set the dashboard address and listen port).
+Proxy source: `dashboard_proxy.py` in this folder (vendored from the desktop host's chief-of-staff `tailnet_dashboard_proxy.py`; `HERMES_DASHBOARD_UPSTREAM` and `HERMES_PROXY_PORT` set the dashboard address and listen port).
 
 To roll back voice routing without changing Hermes, remove only the named proxy
 activation drop-in, daemon-reload, and restart only the proxy. Then disable/stop the

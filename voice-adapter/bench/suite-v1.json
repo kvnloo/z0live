@@ -12,7 +12,7 @@
     {"id": "c-smalltalk", "kind": "conversation", "ask": "Hey, how's it going?", "reply": ".+", "delegate": false},
     {"id": "h-screen", "kind": "hermes", "ask": "Hey. Can you take a look at my screen right now?", "request": "screen", "delegate": true},
     {"id": "h-commit", "kind": "hermes", "ask": "What did the last commit on my z0live repo change?", "request": "commit|z0live", "delegate": true},
-    {"id": "h-message", "kind": "hermes", "ask": "Text Harsha that I'll be ten minutes late.", "request": "harsha", "delegate": true},
+    {"id": "h-message", "kind": "hermes", "ask": "Text Maya that I'll be ten minutes late.", "request": "maya", "delegate": true},
     {"id": "x-fact", "kind": "context", "ask": "Quick one, what's my favorite fruit?", "reply": "\\bmango", "delegate": false,
      "history": [
        {"role": "user", "content": [{"type": "input_text", "text": "Remember for later: my favorite fruit is mango."}]},

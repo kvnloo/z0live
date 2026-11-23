@@ -1,7 +1,7 @@
-"""Switch a Hermes Live Voice call to z0live on the phone when Kevin leaves the call screen.
+"""Switch a Hermes Live Voice call to z0live on the phone when the user leaves the call screen.
 
 Mode (HERMES_VOICE_HANDOFF): "auto" (default) switches on every phone-side close, because the
-Hermes app has no back button: hanging up is how Kevin leaves the call screen (11-16 call: closed
+Hermes app has no back button: hanging up is how the user leaves the call screen (11-16 call: closed
 with Hermes still in front). "off" never switches (opt-out). "always" is kept as an alias of auto.
 The handoff record is a small JSON file z0live reads when it opens the next call.
 """
@@ -18,7 +18,7 @@ Z0LIVE_START = ["am", "start", "-a", "z0live.action.START",
                 "-n", "app.zer0.z0live/app.lawnchair.zer0.voice.z0live.Z0LiveCommandActivity"]
 PHONE_CLOSES = ("client_closed", "transport_closed")
 PATH = Path(os.environ.get("Z0LIVE_HANDOFF_FILE",
-                           "/mnt/zer0models/workspace/zer0/data/z0live/handoff.json"))
+                           str(Path.home() / ".local/share/z0live/handoff.json")))
 
 
 def mode() -> str:

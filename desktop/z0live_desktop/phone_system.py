@@ -1,8 +1,8 @@
-"""System-level phone control over groot's adb: volume, do-not-disturb, Bluetooth,
+"""System-level phone control over the desktop host's adb: volume, do-not-disturb, Bluetooth,
 brightness and media, each verified by reading the setting back.
 
 The phone's own app tools (`volume`, `media_control`) can only send one step or one key
-and cannot read the result. This lane runs from groot through adb, so it can set exact
+and cannot read the result. This lane runs from the desktop host through adb, so it can set exact
 levels and report what the phone now says (`landed`), not what was sent.
 
 Fast path, in order:
@@ -27,6 +27,8 @@ import subprocess
 import threading
 import time
 import urllib.request
+
+from .tailnet import is_tailnet_transport
 from pathlib import Path
 
 STREAMS = {"media": 3, "music": 3, "ring": 2, "ringer": 2, "notification": 5,
@@ -193,7 +195,7 @@ class Adb:
     """Run shell commands on the owner's phone, resolved by its hardware serial number.
 
     `Z0LIVE_PHONE_SERIALNO` pins the phone (ro.serialno). Among transports that reach it,
-    the tailnet one is preferred. Without the pin, exactly one 100.x transport is required,
+    the tailnet one is preferred. Without the pin, exactly one tailnet transport is required,
     the same rule the gesture fallback uses; several candidates are never guessed between.
     """
 
@@ -225,10 +227,10 @@ class Adb:
                         continue
                     if got == self.serialno:
                         matches.append(t)
-                matches.sort(key=lambda t: (not t.startswith("100."), t))
+                matches.sort(key=lambda t: (not is_tailnet_transport(t), t))
                 serial = matches[0] if matches else None
             else:
-                tailnet = [t for t in ready if t.startswith("100.") and ":" in t]
+                tailnet = [t for t in ready if is_tailnet_transport(t)]
                 serial = tailnet[0] if len(tailnet) == 1 else None
             self.cache = (time.monotonic(), serial)
             return serial
@@ -438,11 +440,11 @@ class System:
 
 # -- fast model tier and watcher -------------------------------------------------------
 
-MODEL_URL = os.environ.get("Z0LIVE_SYSTEM_MODEL_URL", "http://100.113.138.100:30899/v1/chat/completions")
+MODEL_URL = os.environ.get("Z0LIVE_SYSTEM_MODEL_URL", "").strip()
 MODEL_TIMEOUT = float(os.environ.get("Z0LIVE_SYSTEM_MODEL_TIMEOUT", "2.5"))
 # Tried in order until one returns a usable answer. Explicit models through the vLLM
 # semantic router (Cerebras/Groq) answer a catalog choice in ~0.15-0.25 s; its `auto`
-# recipe fans out and can return 403 for some prompts, so name the model. groot's
+# recipe fans out and can return 403 for some prompts, so name the model. The desktop host's
 # llama-server router is the local fallback (~0.1-0.3 s warm, ~15 s when it has unloaded).
 
 
@@ -450,14 +452,16 @@ def _router(model, **extra):
     return {"url": MODEL_URL, "model": model, "extra": {"max_tokens": 400, "reasoning_effort": "low", **extra}}
 
 
-GROOT = {"url": os.environ.get("Z0LIVE_TIER1_URL", "http://127.0.0.1:11530/v1/chat/completions"),
+LOCAL_ENDPOINT = {"url": os.environ.get("Z0LIVE_TIER1_URL", "http://127.0.0.1:11530/v1/chat/completions"),
          "model": os.environ.get("Z0LIVE_TIER1_MODEL", "qwen3-4b-q4km"),
          "extra": {"chat_template_kwargs": {"enable_thinking": False}, "max_tokens": 120}}
 CHOOSER_CHAIN = [_router(os.environ.get("Z0LIVE_SYSTEM_MODEL", "cerebras-qwen-3.8-27b")),
-                 _router("groq-gpt-oss-20b"), GROOT]
+                 _router("groq-gpt-oss-20b")] if MODEL_URL else []
+CHOOSER_CHAIN.append(LOCAL_ENDPOINT)
 WATCH_CHAIN = [_router(os.environ.get("Z0LIVE_SYSTEM_WATCH_MODEL", "cerebras-gpt-oss-120b"), reasoning_effort="medium",
                        max_tokens=1500),
-               _router("cerebras-qwen-3.8-27b"), GROOT]
+               _router("cerebras-qwen-3.8-27b")] if MODEL_URL else []
+WATCH_CHAIN.append(LOCAL_ENDPOINT)
 
 
 def _chat_one(prompt, endpoint, timeout, opener=urllib.request.urlopen):
@@ -491,8 +495,8 @@ def chain_chat(chain, timeout=MODEL_TIMEOUT, opener=urllib.request.urlopen):
 
 
 def warm(chain=None):
-    """Load groot's local fallback model in the background so it is warm if needed."""
-    endpoint = GROOT if chain is None else chain[0]
+    """Load the desktop host's local fallback model in the background so it is warm if needed."""
+    endpoint = LOCAL_ENDPOINT if chain is None else chain[0]
     threading.Thread(target=lambda: _safe(lambda: _chat_one('Reply {"ok": true}', endpoint, 30)),
                      daemon=True, name="phone-system-warm").start()
 

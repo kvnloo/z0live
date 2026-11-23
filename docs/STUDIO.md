@@ -1,7 +1,7 @@
 # z0live on the Mac Studio
 
-The Studio (`studio`, tailnet `100.100.77.46`) runs the whole voice stack natively under launchd. groot's
-copy keeps working from its own tree; nothing here depends on groot.
+The Studio runs the whole voice stack natively under launchd. The desktop host's
+copy keeps working from its own tree; nothing here depends on the desktop host.
 
 ## What runs
 
@@ -26,17 +26,17 @@ Lane turns go adapter → core `/v1/lanes/turn` with the relay token.
 Wait until no Live Voice call is active. From the deployed checkout of the approved revision, run:
 
 ```sh
-Z0LIVE_PRIMARY_HOST_PROFILE=poteto ./deploy/macos/install.sh
+Z0LIVE_PRIMARY_HOST_PROFILE=<profile> ./deploy/macos/install.sh
 ```
 
 The installer builds `voice-adapter/.venv` from `requirements.lock`, writes the LaunchAgent plists,
 pairs the relay token once, and re-registers the jobs. It sets `HERMES_HOME` for
-`com.zer0.z0live.hermes` to `$HOME/.hermes/profiles/poteto` and sets `Z0LIVE_PRIMARY_HOST_PROFILE`
+`com.zer0.z0live.hermes` to `$HOME/.hermes/profiles/<profile>` and sets `Z0LIVE_PRIMARY_HOST_PROFILE`
 for `com.zer0.z0live.voice` to match. Use the installer rather than `kickstart` alone, which does not
 reload changed plist environment variables. The separate Tek host is not managed by this installer.
 
 After install, check that ports 8644 and 9168 listen on loopback. Send an authenticated request to
-`/p/poteto/v1/models` on port 8644 using the existing core API credential. Expect HTTP 200.
+`/p/<profile>/v1/models` on port 8644 using the existing core API credential. Expect HTTP 200.
 Then run one probe call and check `delegation.chat` and `delegation.done` for the same delegation
 ID. Do not set the probe-only provider cap in launchd.
 
@@ -47,6 +47,7 @@ Run `install.sh` only in an idle maintenance window. It builds `voice-adapter/.v
 - Data: `~/.local/share/z0live/` (`core/` broker DB and `.hermes-api-key`, `voice-traces/`, `call-briefs/`, `handoff.json`). Mode 700.
 - Relay token: `~/.config/z0live/hermes-mobile-relay.token` (0600). The core stores only its SHA-256. Lost: `z0live revoke` the old device, delete the file, rerun install.
 - Optional `~/.config/z0live/voice.env` (0600, bws-synced), read by `run.sh`. `GROQ_API_KEY` there turns on the Groq instant lane; without it the instant lane is warm Haiku.
+  Set `Z0LIVE_CLAUDE_CONFIG_DIR` there to select another Claude CLI config directory. When unset, Claude CLI uses its normal lookup; the adapter does not forward an inherited `CLAUDE_CONFIG_DIR` or service secrets to its fast-lane Claude children.
 - adb: `~/.local/bin/adb` (Google platform-tools). Phone needs Wireless debugging on.
 
 ## Change the lanes live
@@ -58,10 +59,10 @@ the default layout file is `$Z0INT_HOME/config/z0live-lanes.json` (`z0live.lanes
 
 ## Front door (one app URL, every call traced)
 
-The Hermes app uses `https://studio.taila30dc.ts.net:9119` (tailnet only). Tailscale serve holds the
+The Hermes app uses `https://<your-host>:9119` (tailnet only). Tailscale serve holds the
 certificate and forwards to the z0live proxy on `127.0.0.1:9165`, which sends the voice-live paths to the
 active voice slot (`:9168` or `:9169`). The adapter writes `~/.local/share/z0live/voice-traces/<day>/*.jsonl`. The proxy sends everything else to
-the dashboard on `127.0.0.1:9119`. This is groot's layout (`https://0.taila30dc.ts.net:9119`). The proxy tells
+the dashboard on `127.0.0.1:9119`. The proxy tells
 the dashboard the app is on https (`HERMES_PROXY_FORWARDED_PROTO`), so session cookies are Secure; behind a
 plain-http front door they are never sent back and every ws-ticket fails with `no_cookie`. Without it the app talks to
 the dashboard directly, calls run on stock Hermes voice (no lanes, no brief, no trace), and the only sign of
@@ -161,8 +162,8 @@ The first real answer is spoken; a later tier, and Hermes's own answer, speak on
 Lanes reply SKIP for phone, screen, file or action requests, which leaves those to Hermes.
 
 `lane_server.py` (LaunchAgent `com.zer0.z0live.lanes`, 127.0.0.1:8646) makes plain model calls through the
-poteto profile's logins: the Claude subscription, and a separate Hermes Codex login for GPT
-(`HERMES_HOME=~/.hermes/profiles/poteto hermes auth add openai-codex`). Don't adopt `~/.codex`: GPT-Live uses
+primary profile's logins: the Claude subscription, and a separate Hermes Codex login for GPT
+(`HERMES_HOME=~/.hermes/profiles/<profile> hermes auth add openai-codex`). Don't adopt `~/.codex`: GPT-Live uses
 that token family, and sharing it logs one of them out. Change the models per call without a restart by
 writing `~/.config/z0live/tiers.json` in the shape of `tiers.TIERS`. `Z0LIVE_TIERS=off` in the voice plist
 restores the older instant/Fable/relay lanes.
@@ -308,9 +309,11 @@ Hermes runtime and hands the adapter a client secret that expires in minutes; th
 
 ## Verify
 
+Run these checks on the Mac where the proxy is bound to loopback.
+
 ```sh
-curl -s -o /dev/null -w '%{http_code}\n' http://100.100.77.46:9165/api/status          # 200 (dashboard via proxy)
-curl -s http://100.100.77.46:9165/api/audio/voice-live/status                          # 401 without a Hermes login
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:9165/api/status          # 200 (dashboard via proxy)
+curl -s http://127.0.0.1:9165/api/audio/voice-live/status                          # 401 without a Hermes login
 cd voice-adapter && PATH=$PWD/.venv/bin:$PATH PROBE_ASK="What's the capital of Australia?" \
   env -u PYTHONPATH .venv/bin/python context_probe.py /dev/stdin <<< '[]'
 ```

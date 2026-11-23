@@ -11,14 +11,14 @@ import subprocess
 import sys
 
 # The owner's phone identity is local config, never committed: $PHONE_ADB_IP / $PHONE_ADB_SERIAL, else
-# ${XDG_CONFIG_HOME:-~/.config}/z0live/phone.json {"ip": ..., "serial": ...}. Defaults are placeholders.
+# ${XDG_CONFIG_HOME:-~/.config}/z0live/phone.json {"ip": ..., "serial": ...}.
 _CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "z0live/phone.json"
 try:
     _PHONE = json.loads(_CONFIG.read_text()) if _CONFIG.is_file() else {}
 except (OSError, ValueError):
     _PHONE = {}
-PHONE_IP = os.environ.get("PHONE_ADB_IP") or _PHONE.get("ip") or "100.64.0.2"
-PHONE_SERIAL = os.environ.get("PHONE_ADB_SERIAL") or _PHONE.get("serial") or "TESTSERIAL1"
+PHONE_IP = os.environ.get("PHONE_ADB_IP") or _PHONE.get("ip")
+PHONE_SERIAL = os.environ.get("PHONE_ADB_SERIAL") or _PHONE.get("serial")
 STATE = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "z0live/phone-adb.json"
 SDK_ADB = Path.home() / "android/sdk/platform-tools/adb"
 ADB = os.environ.get("PHONE_ADB_BIN") or (str(SDK_ADB) if SDK_ADB.is_file() else shutil.which("adb"))
@@ -79,7 +79,7 @@ def verify(p):
         return False
     identity = adb("-s", address, "shell", "getprop", "ro.serialno")
     if identity.returncode or identity.stdout.strip() != PHONE_SERIAL:
-        raise PhoneIdentityError("Connected hardware serial does not match Kevin's S25 Ultra")
+        raise PhoneIdentityError("Connected hardware serial does not match the configured phone")
     return True
 
 
@@ -121,7 +121,7 @@ def reconnect():
             print(f"Saved endpoint unavailable: {exc}", file=sys.stderr)
     found = discover()
     if len(found) != 1:
-        raise RuntimeError("No unique S25 Ultra connect port on this LAN. mDNS does not cross Tailscale; read the phone's current port and run connect PORT")
+        raise RuntimeError("No unique connect port for the configured phone on this LAN. mDNS does not cross Tailscale; read the phone's current port and run connect PORT")
     return connect(found[0])
 
 
@@ -140,6 +140,10 @@ def main():
     execute = sub.add_parser("exec", help="Pinned adb arguments; install/UI actions still require owner approval")
     execute.add_argument("args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
+    if not (args.command == "pair" and args.host) and not PHONE_IP:
+        parser.error("set PHONE_ADB_IP or ip in z0live/phone.json")
+    if args.command != "pair" and not PHONE_SERIAL:
+        parser.error("set PHONE_ADB_SERIAL or serial in z0live/phone.json")
     if args.command == "pair":
         import ipaddress
         host = str(ipaddress.IPv4Address(args.host))

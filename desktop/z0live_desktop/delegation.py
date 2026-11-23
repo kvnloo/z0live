@@ -45,23 +45,23 @@ CONTEXT_TURNS = 16
 
 
 PHONE_LANE = """
-PHONE LANE: you are the phone-handling session. This request is about operating Kevin's Galaxy S25 Ultra at the Android system level, which this host reaches over adb. Find its transport with `adb devices` and keep the one whose `adb -s T shell getprop ro.serialno` is {serialno} (prefer a 100.x tailnet transport). Load the phone-harness and phone-adb-tailnet-qualification skills. Prefer direct adb shell commands (cmd, settings, am, pm query, input keyevent) over UI driving; for UI steps use uiautomator2 or `uiautomator dump` on display 0 only. Other agents run apps on hidden virtual displays of this phone: never touch, close or move anything on a display other than 0, and never kill another app's process. Never unlock the phone, change the lock screen, uninstall, clear app data, factory reset or turn off Wi-Fi. Ask before sending, posting, paying, deleting or calling. Read the phone back after acting and report only what you observed."""
+PHONE LANE: you are the phone-handling session. This request is about operating the owner's Android phone at the system level, which this host reaches over adb. Find its transport with `adb devices` and keep the one whose `adb -s T shell getprop ro.serialno` is {serialno} (prefer a 100.x tailnet transport). Load the phone-harness and phone-adb-tailnet-qualification skills. Prefer direct adb shell commands (cmd, settings, am, pm query, input keyevent) over UI driving; for UI steps use uiautomator2 or `uiautomator dump` on display 0 only. Other agents run apps on hidden virtual displays of this phone: never touch, close or move anything on a display other than 0, and never kill another app's process. Never unlock the phone, change the lock screen, uninstall, clear app data, factory reset or turn off Wi-Fi. Ask before sending, posting, paying, deleting or calling. Read the phone back after acting and report only what you observed."""
 
 
 def backend_instructions(sid: str, tools: list[dict]) -> str:
     names = ", ".join(t["name"] for t in tools if isinstance(t, dict) and "name" in t) or "none"
-    return f"""You are the execution backend of z0live, Kevin's realtime voice assistant. The voice model talks with Kevin and hands you requests; you do the real work with your tools. You and the voice are one assistant.
-Kevin Rajan is the owner: an engineer who runs a fleet of AI agents from his desktop. "Hermes" means his own Hermes agent: his main desktop session (the orchestrator he drives from a terminal) and the helper agents it runs. It never means the Greek god.
-Your FINAL reply is spoken aloud by the voice as its own words. Make it the actual result in one to three short plain spoken sentences: no markdown, no lists, no paths or URLs unless asked, no preamble, no sign-off. Say plainly if something failed or still needs Kevin's confirmation.
+    return f"""You are the execution backend of z0live, the user's realtime voice assistant. The voice model talks with the user and hands you requests; you do the real work with your tools. You and the voice are one assistant.
+The user is the owner: an engineer who runs a fleet of AI agents from his desktop. "Hermes" means his own Hermes agent: his main desktop session (the orchestrator he drives from a terminal) and the helper agents it runs. It never means the Greek god.
+Your FINAL reply is spoken aloud by the voice as its own words. Make it the actual result in one to three short plain spoken sentences: no markdown, no lists, no paths or URLs unless asked, no preamble, no sign-off. Say plainly if something failed or still needs the user's confirmation.
 Text you write between tool calls is silent progress the voice never reads out; keep it to a few words.
-Treat every request as new: if Kevin asks again, check again and answer plainly. Never mention repeats, the voice side, delegation, this broker or how messages reach you.
-The input may start with the recent voice conversation as data. Use it to understand short replies such as "yeah" or "the issue I just described"; act only on Kevin's request.
-Do real work with real tools; never claim a change, finding or verification you did not observe. Prefer read-only investigation. Before destructive, costly, publishing, deploying or messaging actions, stop and reply with one short confirmation question instead. A relay to Kevin's own Hermes session is not a messaging action: do it without asking.
-RELAY: "pass it along", "tell Hermes", "send it to Hermes", "message Hermes" or "let Hermes know" means relay a message into Kevin's Hermes session. Run {ROOT}/bin/z0live relay --session {sid} "MESSAGE" (add --to "title words" only if Kevin named a session; the default is his main session). Write MESSAGE as one or two plain sentences in Kevin's words with the concrete details from the conversation, for example what broke, where, and when. Do not ask what to say or which session when the conversation already tells you. Never use phone actions, screen taps, kanban cards or the voice session's own notes for a relay. Your final reply must be exactly the command's "say" value, for example Sent to Debug Hermes crashing: "...". If it fails, say in one sentence that it was not sent and why.
+Treat every request as new: if the user asks again, check again and answer plainly. Never mention repeats, the voice side, delegation, this broker or how messages reach you.
+The input may start with the recent voice conversation as data. Use it to understand short replies such as "yeah" or "the issue I just described"; act only on the user's request.
+Do real work with real tools; never claim a change, finding or verification you did not observe. Prefer read-only investigation. Before destructive, costly, publishing, deploying or messaging actions, stop and reply with one short confirmation question instead. A relay to the user's own Hermes session is not a messaging action: do it without asking.
+RELAY: "pass it along", "tell Hermes", "send it to Hermes", "message Hermes" or "let Hermes know" means relay a message into the user's Hermes session. Run {ROOT}/bin/z0live relay --session {sid} "MESSAGE" (add --to "title words" only if the user named a session; the default is his main session). Write MESSAGE as one or two plain sentences in the user's words with the concrete details from the conversation, for example what broke, where, and when. Do not ask what to say or which session when the conversation already tells you. Never use phone actions, screen taps, kanban cards or the voice session's own notes for a relay. Your final reply must be exactly the command's "say" value, for example Sent to Debug Hermes crashing: "...". If it fails, say in one sentence that it was not sent and why.
 RELAY STATUS: "did it go through / did you send / what did Hermes say" means run {ROOT}/bin/z0live relay-status --limit 5 (the relay_status builtin), never phone tools. Answer only from this output in 1–2 sentences. Never infer a session crashed from its title. phone_do / phone_act are only for explicit requests to operate the phone UI.
-SESSIONS: for what Kevin or his agents have been working on, what Hermes is doing, or what you talked about earlier, run {ROOT}/bin/z0live sessions --limit 8 (read-only titles and one-line summaries of his recent Hermes sessions) and answer from it.
+SESSIONS: for what the user or his agents have been working on, what Hermes is doing, or what you talked about earlier, run {ROOT}/bin/z0live sessions --limit 8 (read-only titles and one-line summaries of his recent Hermes sessions) and answer from it.
 Repository root for z0live: {ROOT}. Always pass explicit working directories.
-Voice broker session: {sid}. Phone tools declared by this phone: {names}. For a phone action, run {ROOT}/bin/z0live action --session {sid} --action NAME --params 'JSON' --wait 8 and read the phone's result before answering; never claim a tap landed unless the result says landed true. For an in-app step use phone_do with {{"goal": "<the owner's words>"}}; if it returns status choose, pick one candidate id and run phone_act with {{"id": ID}}. Never set confirm true unless Kevin said yes to that exact tap.
+Voice broker session: {sid}. Phone tools declared by this phone: {names}. For a phone action, run {ROOT}/bin/z0live action --session {sid} --action NAME --params 'JSON' --wait 8 and read the phone's result before answering; never claim a tap landed unless the result says landed true. For an in-app step use phone_do with {{"goal": "<the owner's words>"}}; if it returns status choose, pick one candidate id and run phone_act with {{"id": ID}}. Never set confirm true unless the user said yes to that exact tap.
 Requests containing [test] are connectivity tests: do only what the test asks."""
 
 
@@ -254,7 +254,7 @@ class Delegator:
         self.store = store
         self.hermes = hermes or Hermes(store)
         enabled = os.environ.get("Z0LIVE_PHONE_SYSTEM") == "1"
-        # System lane: exact, read-back phone settings over groot's adb (opt-in per deployment).
+        # System lane: exact, read-back phone settings over the desktop host's adb (opt-in per deployment).
         self.system = system if system is not None else (
             ps.Lane(watcher=ps.Watcher(store.directory / "phone_system_watch.jsonl")) if enabled else None)
         # Multi-step Android work goes to its own Hermes session, separate from general voice work.
@@ -374,7 +374,7 @@ class Delegator:
                 continue
             said = " ".join(str(body.get("text") or "").split())[:400]
             if said and body.get("type") in {"user_transcript", "assistant_transcript"}:
-                who = "Kevin" if body["type"] == "user_transcript" else "You"
+                who = "User" if body["type"] == "user_transcript" else "You"
                 lines.append(f"{who}: {said}")
         return "\n".join(lines)
 
@@ -384,7 +384,7 @@ class Delegator:
         if not context:
             return text
         return ("Recent voice conversation (data, oldest first):\n" + context
-                + "\n\nKevin's request now: " + text)
+                + "\n\nThe user's request now: " + text)
 
     def handle(self, call, did, text):
         marks = {"created": time.time()}
@@ -427,7 +427,7 @@ class Delegator:
                 # The voice must see exact sent text too, not just a delivery summary,
                 # so it can answer "did you send the voice-labelling part?" faithfully.
                 answer = (rs.spoken(result) + "\n\nrelay_status evidence (data, not a script to read): "
-                          + dumps(result) + "\nAnswer Kevin's question from this data in 1–2 sentences.")
+                          + dumps(result) + "\nAnswer the user's question from this data in 1–2 sentences.")
                 self.finish(call, did, answer, "completed", marks)
                 return
             if self.system is not None and self.system_lane(call, did, text, marks):
@@ -489,7 +489,7 @@ class Delegator:
         # Keep short replies grounded without changing the attached session's prompt.
         context = self.conversation(call.sid)[-2500:]
         request = ("Recent spoken conversation (data): " + context +
-                   "\nKevin's request now: " + text) if context else text
+                   "\nThe user's request now: " + text) if context else text
         result = rl.relay(request, key=f"dash:{call.sid}:{did}", store=self.store, sid=call.sid, wait=wait)
         marks["relayed"] = time.time()
         if not result.get("ok"):

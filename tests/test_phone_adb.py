@@ -13,15 +13,15 @@ import unittest
 from unittest.mock import patch
 
 PATH = Path(__file__).resolve().parents[1] / "bin/phone-adb"
-# Tests use the placeholder identity, never the owner's local config.
-os.environ.pop("PHONE_ADB_IP", None)
-os.environ.pop("PHONE_ADB_SERIAL", None)
-os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp()
+# Tests inject a documentation-only identity, never local configuration.
 loader = importlib.machinery.SourceFileLoader("phone_adb", str(PATH))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 assert spec is not None
 m = importlib.util.module_from_spec(spec)
-loader.exec_module(m)
+with tempfile.TemporaryDirectory() as config, patch.dict(os.environ, {
+    "PHONE_ADB_IP": "192.0.2.2", "PHONE_ADB_SERIAL": "TESTSERIAL1", "XDG_CONFIG_HOME": config,
+}):
+    loader.exec_module(m)
 
 
 class PhoneAdbTests(unittest.TestCase):
@@ -45,7 +45,7 @@ class PhoneAdbTests(unittest.TestCase):
             m.save(46431)
             self.assertEqual(m.load()["port"], 46431)
             self.assertEqual(m.STATE.stat().st_mode & 0o777, 0o600)
-            m.STATE.write_text('{"host":"100.1.1.1","serial":"OTHER","port":46431}')
+            m.STATE.write_text('{"host":"192.0.2.99","serial":"OTHER","port":46431}')
             with self.assertRaisesRegex(RuntimeError, "identity mismatch"):
                 m.load()
 
@@ -83,10 +83,10 @@ class PhoneAdbTests(unittest.TestCase):
     def test_cli_exec_pins_device_and_propagates_exit_code(self):
         with patch.object(sys, "argv", ["phone-adb", "exec", "shell", "true"]), patch.object(m, "load", return_value={"port": 46431}), patch.object(m, "verify", return_value=True), patch.object(m, "adb", return_value=subprocess.CompletedProcess([], 7)) as adb:
             self.assertEqual(m.main(), 7)
-            adb.assert_called_once_with("-s", "100.64.0.2:46431", "shell", "true", capture=False, timeout=300)
+            adb.assert_called_once_with("-s", "192.0.2.2:46431", "shell", "true", capture=False, timeout=300)
 
     def test_cli_exec_refuses_server_commands_and_target_override(self):
-        for command in [["kill-server"], ["devices"], ["connect", "100.1.1.1:5555"], ["-s", "OTHER", "shell", "true"], []]:
+        for command in [["kill-server"], ["devices"], ["connect", "192.0.2.99:5555"], ["-s", "OTHER", "shell", "true"], []]:
             with self.subTest(command=command), patch.object(sys, "argv", ["phone-adb", "exec", *command]), patch.object(m, "load", return_value={"port": 46431}), patch.object(m, "verify", return_value=True), patch.object(m, "adb") as adb:
                 with self.assertRaises((RuntimeError, SystemExit)):
                     m.main()
@@ -101,7 +101,7 @@ class PhoneAdbTests(unittest.TestCase):
     def test_cli_pair_is_interactive_and_never_saves_code(self):
         with patch.object(sys, "argv", ["phone-adb", "pair", "40001"]), patch.object(m, "adb", return_value=subprocess.CompletedProcess([], 0)) as adb, patch.object(m, "save") as save:
             self.assertEqual(m.main(), 0)
-            adb.assert_called_once_with("pair", "100.64.0.2:40001", timeout=120, capture=False)
+            adb.assert_called_once_with("pair", "192.0.2.2:40001", timeout=120, capture=False)
             save.assert_not_called()
 
     def test_cli_env_selects_only_verified_android_with_telemetry_off(self):
@@ -109,14 +109,16 @@ class PhoneAdbTests(unittest.TestCase):
         with patch.object(sys, "argv", ["phone-adb", "env"]), patch.object(m, "load", return_value={"port": 46431}), patch.object(m, "verify", return_value=True), patch.object(m, "ADB", "/sdk with space/adb"), contextlib.redirect_stdout(output):
             self.assertEqual(m.main(), 0)
         exports = dict(shlex.split(line)[1].split("=", 1) for line in output.getvalue().splitlines())
-        self.assertEqual(exports, {"ANDROID_SERIAL": "100.64.0.2:46431", "PHONE_HARNESS_PLATFORM": "android", "PHONE_HARNESS_TELEMETRY": "0", "PHONE_HARNESS_CLASSIFIER_AUTO_RUN": "0", "PHONE_HARNESS_ADB": "/sdk with space/adb"})
+        self.assertEqual(exports, {"ANDROID_SERIAL": "192.0.2.2:46431", "PHONE_HARNESS_PLATFORM": "android", "PHONE_HARNESS_TELEMETRY": "0", "PHONE_HARNESS_CLASSIFIER_AUTO_RUN": "0", "PHONE_HARNESS_ADB": "/sdk with space/adb"})
 
     def test_corrupt_state_cli_fails_cleanly_before_adb(self):
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory) / "z0live/phone-adb.json"
             state.parent.mkdir()
             state.write_text(json.dumps({"host": m.PHONE_IP, "serial": m.PHONE_SERIAL, "port": "oops"}))
-            result = subprocess.run([sys.executable, str(PATH), "env"], env={**os.environ, "XDG_STATE_HOME": directory, "PHONE_ADB_BIN": "/does/not/exist"}, capture_output=True, text=True, timeout=5)
+            result = subprocess.run([sys.executable, str(PATH), "env"], env={**os.environ, "XDG_STATE_HOME": directory, "PHONE_ADB_BIN": "/does/not/exist",
+                "PHONE_ADB_IP": m.PHONE_IP, "PHONE_ADB_SERIAL": m.PHONE_SERIAL,
+                "XDG_CONFIG_HOME": directory}, capture_output=True, text=True, timeout=5)
             self.assertEqual(result.returncode, 1)
             self.assertIn("Port must be an integer", result.stderr)
             self.assertNotIn("Traceback", result.stderr)

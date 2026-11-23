@@ -9,7 +9,7 @@ the broker accepts three additive fields, still schema z0live.lanes.v1:
   lanes are `[driver.model] + verifiers`; they audit the blackboard and may correct it.
 - A `voice_plan` binding's `model` may name a z0int role (smol/plan/slow/judge...), so lanes bind to
   roles from the pinned z0int.voice_plan.v1, not to hard-coded models.
-Presets (Kevin 11-05: roles are defaults, chosen at launch): D is E1's winner and the default, B is
+Presets (owner, 11-05: roles are defaults, chosen at launch): D is E1's winner and the default, B is
 his 2/2/2/1 example, A is today's voice + 1 smol. `preset(name)` returns a copy; a call picks one (or a
 spoken topology) at start and may change it mid-call (lane_fanout.Fanout.launch/configure).
 Privacy classes are hard filters on every binding (`allowed`): public -> any, personal -> Claude or
@@ -96,7 +96,7 @@ def preset(name) -> dict | None:
     return copy.deepcopy(PRESETS[key]) if key else None
 
 
-# route "local": the llama-server instances already serving these GGUFs on groot (OpenAI-compatible).
+# route "local": the llama-server instances already serving these GGUFs on the desktop host (OpenAI-compatible).
 # $Z0LIVE_LOCAL_MODELS (JSON {model: base_url}) overrides; an unknown local model is no answer.
 LOCAL = {"qwen3-0.6b-q8": "http://127.0.0.1:15637", "qwen3-1.7b": "http://127.0.0.1:11542",
          "qwen3.5-4b": "http://127.0.0.1:11540"}
@@ -126,6 +126,8 @@ def validate(cfg) -> list[str]:
     if out:
         return out
     for i, b in enumerate(cfg["lanes"]["smol"]["models"]):
+        if b["route"] == "vllm-sr" and not SR_BASE:
+            out.append(f"smol.models[{i}]: vllm-sr requires Z0LIVE_SR_URL to be set")
         if b.get("tier", "small") not in TIERS:
             out.append(f"smol.models[{i}].tier must be fast or small")
         if b["route"] == "voice_plan" and b["model"] not in ROLES:
@@ -144,11 +146,11 @@ def validate(cfg) -> list[str]:
     return out
 
 
-# vLLM Semantic Router (k3s NodePort on groot since 11-15); free models only, public-class turns only.
-SR_BASE = os.environ.get("Z0LIVE_SR_URL", "http://100.113.138.100:30899/v1").rstrip("/")
+# vLLM Semantic Router (k3s NodePort on the desktop host since 11-15); free models only, public-class turns only.
+SR_BASE = os.environ.get("Z0LIVE_SR_URL", "").strip().rstrip("/")
 
 
-# ------------------------------------------------------------------ privacy (Kevin decision 3, 11-05)
+# ------------------------------------------------------------------ privacy (owner decision 3, 11-05)
 PRIVACY = ("public", "personal", "location", "credentials")  # increasing strictness
 _CREDENTIALS = re.compile(r"\b(passwords?|passcodes?|passphrase|api[ -]?keys?|tokens?|secrets?|credentials?|2fa|otp|"
                           r"one[- ]time code|pin( code| number)?|ssh key|private key|card number|credit card|cvv|cvc|"

@@ -2,6 +2,7 @@
 
 import concurrent.futures
 import json
+from ipaddress import IPv4Network
 import os
 from pathlib import Path
 import subprocess
@@ -21,6 +22,7 @@ from z0live_desktop.gestures import adb_launch
 from z0live_desktop.server import Handler, Server
 
 
+@patch("z0live_desktop.tailnet.TAILNET_IPV4", IPv4Network("192.0.2.0/24"))
 class GestureTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR"))
@@ -244,7 +246,7 @@ class GestureTests(unittest.TestCase):
         def fake(argv, **kwargs):
             calls.append(argv)
             out = (
-                "List of devices attached\n100.64.1.2:4567\tdevice\nUSBTEST\tdevice\n"
+                "List of devices attached\n192.0.2.2:4567\tdevice\nUSBTEST\tdevice\n"
                 if argv == ["adb", "devices"]
                 else "Starting: Intent"
             )
@@ -256,7 +258,7 @@ class GestureTests(unittest.TestCase):
             [
                 "adb",
                 "-s",
-                "100.64.1.2:4567",
+                "192.0.2.2:4567",
                 "shell",
                 "am",
                 "start",
@@ -315,7 +317,7 @@ class GestureTests(unittest.TestCase):
             return subprocess.CompletedProcess(
                 argv,
                 0,
-                "List of devices attached\n100.64.1.2:4567\tdevice\n"
+                "List of devices attached\n192.0.2.2:4567\tdevice\n"
                 if len(argv) == 2
                 else "Starting: Intent",
                 "",

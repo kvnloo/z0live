@@ -144,7 +144,7 @@
       g.beginPath(); g.arc(320, 170, 70 + level * 30 + Math.sin(t / 20) * 3, 0, Math.PI * 2);
       g.fillStyle = `rgba(120,170,255,${0.35 + level * 0.5})`; g.fill();
       g.fillStyle = '#e8ecf4'; g.font = '600 44px system-ui, sans-serif'; g.textAlign = 'center'; g.fillText('z0', 320, 186);
-      g.font = '20px system-ui, sans-serif'; g.fillStyle = '#8b93a7'; g.fillText(cfg.name || "Kevin's assistant", 320, 300);
+      g.font = '20px system-ui, sans-serif'; g.fillStyle = '#8b93a7'; g.fillText(cfg.name || "z0 assistant", 320, 300);
     };
     setInterval(draw, 66); draw();
     cam = c.captureStream(15);

@@ -34,9 +34,9 @@ URL = os.environ.get("Z0LIVE_LANE_URL", "http://127.0.0.1:8646/v1/ask")
 SKIP = re.compile(r"(\bSKIP\b|^\W*(model guard|the hook flagged))")
 # v2 (11-19): v1 said "any lookup you cannot do from the text below" and Gemma 4 E4B / Qwen3.5-9B / LFM3 then
 # skipped general knowledge ("What's the capital of Canada?" -> SKIP) while Haiku did not.
-SYSTEM = ("You are the {tier} lane on Kevin's live voice call; what you write may be spoken aloud. Answer in one or "
+SYSTEM = ("You are the {tier} lane on the user's live voice call; what you write may be spoken aloud. Answer in one or "
           "two short spoken sentences, most important fact first. Answer general knowledge, math and reasoning "
-          "yourself. For Kevin's own plans and facts use only the conversation and context below. Reply with exactly "
+          "yourself. For the user's own plans and facts use only the conversation and context below. Reply with exactly "
           "SKIP and nothing else when the request needs his phone, screen, apps, files, messages, email or any "
           "action; needs live data such as weather, news or the state of his builds; or asks a personal fact that "
           "is not in the context. Never say you can't do something; reply SKIP instead (his Hermes chat, which has "
@@ -58,7 +58,7 @@ def load() -> dict:
 
 def snapshot(brief: str, exchanges) -> str:
     """The one context every lane sees: the chat brief, then the call so far."""
-    turns = "\n".join(f"{'Kevin' if role == 'user' else 'You'}: {text}" for role, text in exchanges)
+    turns = "\n".join(f"{'User' if role == 'user' else 'You'}: {text}" for role, text in exchanges)
     return (f"Context from his Hermes chat:\n{brief[-6000:]}\n\n" if brief else "") + \
            (f"This call so far:\n{turns}" if turns else "")
 

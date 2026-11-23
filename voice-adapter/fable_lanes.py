@@ -9,6 +9,8 @@ DIR/<lane>.json as each finishes; DIR/summary.txt collects them. Prints one line
 import argparse, json, os, re, subprocess, sys, threading, time
 from pathlib import Path
 
+from claude_env import child_env
+
 # Host-portable roots: this file lives in <z0live>/voice-adapter; the home repo sits beside the other repos.
 Z0LIVE = os.environ.get('Z0LIVE_REPO', str(Path(__file__).resolve().parents[1]))
 HOME_REPO = os.environ.get('Z0LIVE_HOME_REPO') or next(
@@ -18,11 +20,11 @@ ANGLES = {
     'service': 'Service health: `systemctl --user status z0live.service`, ports 8791 (broker) and 8644 (Hermes API) with `ss -ltnp`, recent errors in `journalctl --user -u z0live.service -n 200 --no-pager`.',
     'session': f'The live call: read-only sqlite on the broker db under $Z0LIVE_DATA (see {Z0LIVE}/desktop and `systemctl --user cat z0live.service` for the data dir). Active sessions, last events, wedged/degenerate calls, inbox items stuck.',
     'transport': f'Voice transport and model lanes: {Z0LIVE}/docs (LIVE-BIDI.md, VOICE-TOOLS.md, API.md), service.env bindings (Z0LIVE_DELEGATE_MODEL etc.), bidi vs realtime errors in the journal.',
-    'relay': f'Relay/delegation into Hermes: {Z0LIVE}/docs/RELAY.md, relay.main_session target, ~/.hermes/profiles/clean/logs/errors.log lines for session.resume / gateway_refused / admission_conflict in the last hour.',
+    'relay': f'Relay/delegation into Hermes: {Z0LIVE}/docs/RELAY.md, relay.main_session target, $HERMES_HOME/logs/errors.log lines for session.resume / gateway_refused / admission_conflict in the last hour.',
     'history': f'What changed recently: `git -C {Z0LIVE} log --oneline -15` and current HEAD/branch, plus known open issues `gh issue list -R kvnloo/z0live --limit 15`. Match the symptom to a known bug.',
 }
 Z0LIVE_ANGLES = dict(ANGLES)
-# Default lanes answer whatever Kevin asked; the z0live-debug angles above apply only when he asks about
+# Default lanes answer whatever the owner asked; the z0live-debug angles above apply only when he asks about
 # the call/voice stack itself (a 15:18 PR question got five z0live health reports otherwise).
 GENERAL = {
     'sessions': 'Live Hermes sessions (the Hermes backend; what every bot/tab is doing now): for each '
@@ -31,18 +33,18 @@ GENERAL = {
                 "where ended_at is null and last_activity_at > strftime('%s','now')-3*3600 "
                 'order by last_activity_at desc limit 15"`; then the latest user message of the top few '
                 '(messages where session_id=ID and role=\'user\' order by timestamp desc limit 1). Report title, age, status.',
-    'github': 'GitHub, as kvnloo: `gh search prs --author kvnloo --sort updated --limit 30` (add --merged/--state), '
+    'github': 'GitHub, as the signed-in gh user: `gh search prs --author @me --sort updated --limit 30` (add --merged/--state), '
               '`gh pr view URL --comments`, `gh api repos/OWNER/REPO/pulls/N/reviews`, `gh api` for who merged/reviewed.',
-    'history': 'Kevin\'s past agent sessions: read-only `sqlite3 -readonly` on each ~/.hermes/profiles/*/state.db '
+    'history': 'The user\'s past agent sessions: read-only `sqlite3 -readonly` on each ~/.hermes/profiles/*/state.db '
                '(messages_fts MATCH keywords; messages has session_id, role, content, timestamp). Newest first. '
                "Add `and coalesce(m.content,'') != ''`: empty-content rows are earlier agents' search calls, not history.",
     'files': f'Local notes and repos: {HOME_REPO}/map/INDEX.md names every repo; Grep/Read the matching ones '
-             'and /mnt/zer0models/workspace/zer0/data/operations for receipts and ledgers.',
+             'and the z0live data dir ($Z0LIVE_DATA) for receipts and ledgers.',
     'answer': 'Answer directly from what you know plus at most one quick read; say what you would need to check.',
     'web': 'Public web: WebSearch/WebFetch for upstream projects, docs or people mentioned.',
 }
 LIVE_WORDS = re.compile(r'\b(z0live|this call|voice|lanes?|relay|latency|glitch\w*|broker|transport)\b', re.I)
-GENERAL_INTRO = ('You are a FAST LANE helping Kevin during his live voice call: answer exactly what he asked, '
+GENERAL_INTRO = ('You are a FAST LANE helping the user during his live voice call: answer exactly what he asked, '
                  'not something adjacent. READ ONLY: never edit, post, comment, merge or restart anything. '
                  'Final reply: <=4 short speech-friendly lines with concrete names/numbers/links, '
                  'or "nothing found on this angle".')
@@ -65,28 +67,27 @@ FAST_STEPS = 'Process: run 1-3 quick reads for your angle, then answer. Do not c
 
 def prompt(q, angle, fable=True):
     if not fable:
-        return (f'You are a FAST LANE on z0live (repo {Z0LIVE}) during Kevin\'s live voice call. READ ONLY.\n{FAST_STEPS}'
-                f'Your angle: {angle}\n\nKevin said: {q}\n\nFinal reply: <=3 short speech-friendly lines with evidence, '
+        return (f'You are a FAST LANE on z0live (repo {Z0LIVE}) during the user\'s live voice call. READ ONLY.\n{FAST_STEPS}'
+                f'Your angle: {angle}\n\nThe user said: {q}\n\nFinal reply: <=3 short speech-friendly lines with evidence, '
                 'or "nothing found on this angle".') if not INTRO else f'{INTRO}\n{FAST_STEPS}Your angle: {angle}\n\nQuestion: {q}'
     if INTRO:
         return (f'{INTRO}\nMANDATORY process: 1) run quick reads for your angle; 2) call the advisor with what you found; '
                 f'3) answer. Do not finish without the advisor call.\nYour angle: {angle}\n\nQuestion: {q}')
-    return (f'You are a FAST LANE troubleshooting z0live (Kevin\'s realtime voice broker, repo {Z0LIVE}) while he is '
+    return (f'You are a FAST LANE troubleshooting z0live (the user\'s realtime voice broker, repo {Z0LIVE}) while he is '
             'on a live voice call. Be quick. READ ONLY: never edit, restart or write anything.\n'
             'MANDATORY process: 1) run 2-5 quick reads for your angle; 2) call the advisor with what you found; '
             '3) answer. Do not finish without the advisor call.\n'
-            f'Your angle: {angle}\n\nKevin said: {q}\n\n'
+            f'Your angle: {angle}\n\nThe user said: {q}\n\n'
             'Final reply: <=5 short lines, plain speech-friendly facts with file/command evidence, or "nothing found on this angle".')
 
 
 def run(name, q, out, timeout, done, fable=True):
     t0 = time.time()
-    env = {**os.environ, 'CLAUDE_CONFIG_DIR': os.path.expanduser('~/.claude-sub2'), 'FAST_LANE_CHILD': '1'}
     cmd = ['claude', '-p', '--model', MODEL, *(['--advisor', 'fable'] if fable else []), '--output-format', 'json',
            '--allowedTools', *TOOLS]
     try:
         p = subprocess.run(cmd, input=prompt(q, ANGLES[name], fable), capture_output=True, text=True, timeout=timeout,
-                           env=env, cwd=CWD)
+                           env=child_env(), cwd=CWD)
         d = json.loads(p.stdout or '{}')
         rec = {'lane': name, 'secs': round(time.time() - t0, 1), 'answer': (d.get('result') or p.stderr[-400:]).strip(),
                'advisor': 'claude-fable-5-2' in (d.get('modelUsage') or {}), 'session_id': d.get('session_id')}

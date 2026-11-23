@@ -1,4 +1,4 @@
-// z0live passthru meeting leg: a browser on the Studio that joins Kevin's other call as "z0".
+// z0live passthru meeting leg: a browser on the Studio that joins the owner's other call as "z0".
 // Usage: node meeting_leg.mjs '{"url":..., "ws":..., "token":..., "name":..., "headless":true}'
 // stdin: JSON lines {"cmd":"share","url":...} | {"cmd":"unshare"} | {"cmd":"leave"} | {"cmd":"status"}
 // stdout: JSON lines {"ev":...} for the adapter's trace.

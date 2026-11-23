@@ -1,27 +1,48 @@
 # Desktop operations
 
+## What this stack does beyond the plugin
+
+The separately installed voice adapter and desktop broker have access beyond
+the Hermes plugin's tools:
+
+- The GPT-Live path reuses the host's existing login by reading
+  `~/.codex/auth.json` without modifying it. It uses the login against
+  `chatgpt.com` with `Codex Desktop` client headers.
+- The stack reads every local Hermes profile's `state.db` in read-only mode to
+  discover sessions and gather context. This is not limited to the profile
+  that enabled the plugin.
+- [`desktop/hermes_relay.py`](../desktop/hermes_relay.py) attaches to Hermes sessions through
+  the gateway. It can steer a running turn (`session.steer`) or submit a
+  prompt (`prompt.submit`) for the next turn. The database access is read-only,
+  but relaying prompts can change what a session does.
+
 ## Host installation
 
-Deployment targets Kevin's desktop `groot`, user `kvn`; the paths in `deploy/*.service` are deliberately
-explicit. Inspect/adapt them for another machine. The broker needs only Python ≥3.10 stdlib. The native
+The units in `deploy/*.service` use placeholders: replace `<repo>` with this checkout, `<data-dir>` with a private data directory outside it (for example `~/.local/share/z0live`), and `<hermes-home>` with the Hermes profile directory. The broker needs only Python ≥3.10 stdlib. The native
 Hermes API host uses `hermes --print-runtime-command` to select the installed interpreter and imports
 `APIServerAdapter` from the installed source (`Z0LIVE_HERMES_SOURCE` can override it).
-It does **not** instantiate GatewayRunner or start messaging/cron/kanban. Clean-profile credentials and
+It does **not** instantiate GatewayRunner or start messaging/cron/kanban. The profile's credentials and
 native session storage are reused; the unique `z0live` session is not another writer for an existing CLI.
 
 ```bash
-cd /mnt/zer0models/workspace/zer0/products/z0live
+cd <repo>
 chmod +x bin/z0live
-install -d -m 700 /mnt/zer0models/workspace/zer0/data/z0live
+install -d -m 700 <data-dir>
 # Refuse/inspect existing targets before replacing any links.
-ln -s "$PWD/deploy/z0live.service" ~/.config/systemd/user/z0live.service
-ln -s "$PWD/deploy/z0live-hermes.service" ~/.config/systemd/user/z0live-hermes.service
+# Copy the units, then fill in <repo>, <data-dir> and <hermes-home>.
+cp deploy/z0live.service deploy/z0live-hermes.service ~/.config/systemd/user/
 ln -s "$PWD/bin/z0live" ~/.local/bin/z0live
 systemctl --user daemon-reload
 systemctl --user enable --now z0live-hermes.service z0live.service
 tailscale serve --bg --https=8791 http://127.0.0.1:8791
-z0live pair s25 --qr
+Z0LIVE_BASE_URL="https://<your-host>:8791" z0live pair s25 --qr
 ```
+
+Set `Z0LIVE_BASE_URL` in both the broker and the pairing CLI environments to the
+phone-accessible URL (for example, `https://<your-host>:8791`, replacing
+`<your-host>` with your host name). There is no default. The broker can run on
+loopback without it. QR pairing requires it; plain pairing prints just a
+device token when no base URL is configured.
 
 Install `qrencode` for QR output (Arch: `sudo pacman -S qrencode`). On the phone open
 **z0live → Scan pairing QR → confirm**; when already paired the button is in Settings.
@@ -41,7 +62,7 @@ is already enabled on this host; services survive terminal logout and restart af
 - `z0live-hermes.service`: `127.0.0.1:8644`, dedicated native API-only host; tools-free streaming liaison inference on loopback `8645` in the same process.
 - Hermes session `z0live`, title `z0live`, locked `anthropic/claude-opus-5-5`, repository cwd.
 - Existing Garden Room services/API port 8643 are not modified or reused as a second cwd.
-- Data: `/mnt/zer0models/workspace/zer0/data/z0live/` (outside the public repository).
+- Data: `<data-dir>` (`Z0LIVE_DATA`, outside the public repository).
   - `devices.json`: hashed device verifiers, names/revocation; 0600.
   - `.hermes-api-key`: local API key; 0600, never shared with phones.
   - `broker.db{,-wal,-shm}`: sessions, events, jobs, inbox, native session pointer.
@@ -49,8 +70,16 @@ is already enabled on this host; services survive terminal logout and restart af
   - `traces/TURN_ID.jsonl`: private layer/model/native-run/usage replay snapshots; SQLite is canonical.
   - `.service.lock`, `.export.lock`, `.devices.lock`: singleton/interprocess serialization.
   - optional `service.env`: non-secret broker settings, loaded by systemd.
-- Hermes transcript/run state remains in the clean profile's native state.db; the broker never writes it.
+- Hermes transcript/run state remains in the host profile's native state.db; the broker never writes it.
 - Journal: `journalctl --user -u z0live.service -u z0live-hermes.service -f`.
+
+Optional remote routes are off unless configured. Set `Z0LIVE_SR_URL` to your
+semantic router's OpenAI-compatible base URL (ending in `/v1`) to enable
+`vllm-sr` lane bindings. `Z0LIVE_SYSTEM_MODEL_URL` is a separate, full chat
+completions URL for phone-system model selection; without it, only the local
+model fallback is used. Set `HERMES_VOICE_PHONE` to the ADB serial to enable
+phone handoff. Passthrough screen mirroring uses local `adb` unless
+`Z0LIVE_PASSTHRU_ADB` supplies another command prefix.
 
 Settings: `Z0LIVE_DATA`, `Z0LIVE_BASE_URL`, `Z0LIVE_PORT`, `Z0LIVE_CODEX_AUTH`,
 `Z0LIVE_SUMMARY_SECONDS` (300), `Z0LIVE_IDLE_SECONDS` (120), `Z0LIVE_CORS_ORIGINS` (exact comma-separated

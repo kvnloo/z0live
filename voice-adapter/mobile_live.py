@@ -18,6 +18,8 @@ import logging
 import os
 import signal
 from pathlib import Path
+
+from claude_env import child_env
 import selectors
 import shutil
 import sqlite3
@@ -49,8 +51,8 @@ from aiortc.contrib.media import MediaRelay  # noqa: E402
 # Z0LIVE_TIERS=on: a delegated request runs the tiers.py lanes (via lane_server.py) beside Hermes, instead of
 # the warm-Haiku/Groq instant lane, the Fable lanes and the core lanes relay.
 TIERS_ON = os.environ.get("Z0LIVE_TIERS", "off") == "on"
-import handoff  # noqa: E402 - sibling module (call continues on z0live when Kevin leaves the screen)
-import passthru  # noqa: E402 - sibling module (z0 joins Kevin's other video call)
+import handoff  # noqa: E402 - sibling module (call continues on z0live when the user leaves the screen)
+import passthru  # noqa: E402 - sibling module (z0 joins the user's other video call)
 CHAT_CONTINUITY = os.environ.get("HERMES_MOBILE_VOICE_CHAT", "1") != "0"
 TTFT_MODEL = os.environ.get("VOICE_TTFT_MODEL", "qwen/qwen3.8-27b")  # Groq: ~0.2 s whole answer (11-15 probe)
 # Children (claude, hermes, lanes) get their own transient scope. Inside this unit's 768M cap they pushed it
@@ -89,24 +91,15 @@ def live_sessions(hours: float = 3.0, limit: int = 12) -> str:
 
 
 def _ttft_key():
-    """GROQ_API_KEY from the process env (a bws-synced env file on hosts without the ttft bot), else the ttft
-    bot's env (bws-deployed on groot); never logged."""
-    if os.environ.get("GROQ_API_KEY"):
-        return os.environ["GROQ_API_KEY"].strip()
-    try:
-        for line in (Path.home() / ".hermes/profiles/ttft/.env").read_text().splitlines():
-            if line.startswith("GROQ_API_KEY="):
-                return line.split("=", 1)[1].strip().strip("'\"")
-    except OSError:
-        pass
-    return ""
+    """Read the key only from the adapter's service environment; never log it."""
+    return os.environ.get("GROQ_API_KEY", "").strip()
 
 
-FAST_SYSTEM = ("You are the instant fast lane ({who}) on Kevin's live voice call; this very answer is the fast lane he "
+FAST_SYSTEM = ("You are the instant fast lane ({who}) on the user's live voice call; this very answer is the fast lane he "
                "hears first. Answer in one or two short spoken sentences from the context. Never guess whether something "
                "worked or what he heard. If the context can't answer it, reply with exactly SKIP (slower lanes are already "
                "checking; never say so yourself). Most important fact first. Never invent numbers. "
-               "Kevin's Hermes chat runs on his PC with adb to his phone: it can screenshot and read his screen, watch logs and run commands. Never say you can't see his screen or aren't connected to the call. Screen, phone and action requests: reply SKIP so the chat does them.")
+               "The user's Hermes chat runs on his PC with adb to his phone: it can screenshot and read his screen, watch logs and run commands. Never say you can't see his screen or aren't connected to the call. Screen, phone and action requests: reply SKIP so the chat does them.")
 
 
 class WarmHaiku:
@@ -117,13 +110,12 @@ class WarmHaiku:
         self.stale = 0  # results still owed to asks that timed out; the next ask must skip them
 
     async def start(self):
-        env = {**os.environ, "CLAUDE_CONFIG_DIR": str(Path.home() / ".claude-sub2"), "FAST_LANE_CHILD": "1"}
         self.proc = await asyncio.create_subprocess_exec(
             *SCOPE, "claude", "-p", "--model", "haiku", "--input-format", "stream-json", "--output-format", "stream-json",
             "--verbose", "--tools", "", "--strict-mcp-config", "--append-system-prompt", self.system,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
-            env=env, cwd=str(Path.home()), limit=1 << 22)
-        await self.ask("Reply with just: ready", 30)  # pays the cold start before Kevin's first question
+            env=child_env(), cwd=str(Path.home()), limit=1 << 22)
+        await self.ask("Reply with just: ready", 30)  # pays the cold start before the user's first question
 
     async def ask(self, text, timeout=8):
         async with self.lock:
@@ -158,7 +150,7 @@ class WarmHaiku:
 LANE_MERGE_WAIT = 20  # seconds after the first lane lands before speaking the merge without the stragglers
 LANE_POLL = 1.0
 FABLE_SCRIPT = os.environ.get("FAST_LANE_FABLE_SCRIPT", str(Path(__file__).with_name("fable_lanes.py")))
-# The dashboard that validates the phone's bearer. groot binds it to loopback; the Studio binds its tailnet IP.
+# The dashboard that validates the phone's bearer. The desktop host binds it to loopback; the Studio binds its tailnet IP.
 UPSTREAM_HOST = os.environ.get("HERMES_DASHBOARD_UPSTREAM", "127.0.0.1:9119")
 UPSTREAM = f"http://{UPSTREAM_HOST}"
 SIGNALING = "https://chatgpt.com/backend-api/codex/realtime/calls?intent=quicksilver&architecture=avas"
@@ -177,7 +169,7 @@ story, acknowledge often with a quick "mm-hm", "yeah" or "right" and let them ke
 answering as soon as the user is clearly done; do not wait for a long silence. Listen while speaking
 and stop immediately when interrupted. Handle greetings and ordinary small talk yourself.
 You have no tools. For facts, lookups or actions, delegate the complete request to the client.
-Kevin's Hermes chat runs on his PC with adb to his phone: it can screenshot and read his screen, watch logs and run commands. Never say you can't see his screen or aren't connected to the call. "Look at my screen" is a delegation, not a refusal.
+The user's Hermes chat runs on his PC with adb to his phone: it can screenshot and read his screen, watch logs and run commands. Never say you can't see his screen or aren't connected to the call. "Look at my screen" is a delegation, not a refusal.
 The client is the user's existing Hermes chat with its chosen model, tools and approvals.
 Do not claim work happened until the client returns its actual result. Progress arriving on
 the commentary channel is silent context, not something to read aloud. Present an Agent
@@ -220,7 +212,7 @@ QUEUED = ("I'm still on {running} earlier requests, so this one is queued as num
 # partials go to the broker's lanes, a delegation gets the lane answer at once, and Hermes' slow
 # answer is spoken only if it changes it. Off without the relay token file or with
 # HERMES_MOBILE_VOICE_LANES=0; then this adapter behaves exactly as before.
-Z0LIVE_DESKTOP = os.environ.get("Z0LIVE_DESKTOP", "/mnt/zer0models/workspace/zer0/products/z0live/desktop")
+Z0LIVE_DESKTOP = os.environ.get("Z0LIVE_DESKTOP", str(Path(__file__).resolve().parents[1] / "desktop"))
 LaneRelay = covered = None
 if os.environ.get("HERMES_MOBILE_VOICE_LANES", "1") != "0":
     sys.path.insert(0, Z0LIVE_DESKTOP)
@@ -294,7 +286,7 @@ def _hermes_once(request: str, profile: str, resume: str, own_lane: bool = False
 def run_hermes(request: str, profile: str, own_lane: bool = False) -> str:
     lock = VOICE_LOCKS[profile]
     if not lock.acquire(blocking=False):
-        # The voice session is busy with an earlier turn. Waiting for it held Kevin's long-run ask for the whole call
+        # The voice session is busy with an earlier turn. Waiting for it held the owner's long-run ask for the whole call
         # (11-22 film call, take 7), so this turn runs now, beside it, in a session of its own.
         return _hermes_once(request, profile, "", own_lane)[0]
     try:
@@ -568,9 +560,14 @@ class Protocol:
         return result
 
 
+def profile_home(profile):
+    """A named Hermes profile's home, or the default ~/.hermes when no profile is set."""
+    return Path.home() / ".hermes" / "profiles" / profile if profile else Path.home() / ".hermes"
+
+
 # Local per-call traces. Read them with trace_report.py.
 TRACE_DIR = Path(os.environ.get("HERMES_MOBILE_VOICE_TRACE_DIR",
-                                "/mnt/zer0models/sft-svlm/data/voice-traces/hermes-mobile-live"))
+                                str(Path.home() / ".local/share/z0live/voice-traces")))
 ADAPTER_REV = hashlib.sha1(Path(__file__).read_bytes()).hexdigest()[:12]
 LEVEL_ON = 800          # s16 peak (~-32 dBFS) that counts as sound
 LEVEL_OFF_SECONDS = 0.3  # quiet this long ends a sound span
@@ -636,7 +633,7 @@ class AudioBridge(MediaStreamTrack):
         if self.direction == "input" and not call.heard_user and self.level.on is not None and not call.muted:
             call.heard_user = True
             call.trace("output.gate_open", gated_frames=call.counts["output_gated"])
-        # The voice must not speak before Kevin does: GPT-Live sometimes starts a turn (a lone "Mm-h", a sniff,
+        # The voice must not speak before the owner does: GPT-Live sometimes starts a turn (a lone "Mm-h", a sniff,
         # "He Hey") ~0.4 s into the session while the persona context lands. Silence its audio until he speaks.
         if (self.direction == "input" and call.muted) or (self.direction == "output" and not call.heard_user):
             if self.direction == "output":
@@ -732,7 +729,7 @@ class GPTGuest:
         self.user_heard_at = float("-inf")  # the latest caller transcript event on either leg
         self.flush_timer: asyncio.TimerHandle | None = None
         identity = "Tek (also Teknium, டெக் or டெக்னியம்)" if config.profile == "tek" else config.name
-        self.persona = (f"You are {identity}, a guest on Kevin's call. When Kevin addresses you or continues "
+        self.persona = (f"You are {identity}, a guest on the user's call. When the user addresses you or continues "
                         "that exchange, answer briefly. Do not reply to other exchanges or backchannels. "
                         "For questions about your work or history, delegate to your own Hermes, then speak "
                         "its answer. Never invent work. Notes about what Hermes said are silent background.")
@@ -877,7 +874,7 @@ class GPTGuest:
                     self.replies.pop(source)
                     if reply.spoken.strip():
                         target: Leg = "guest" if source == "primary" else "primary"
-                        # Only the gist: with the whole reply as context, the other voice re-told it when Kevin
+                        # Only the gist: with the whole reply as context, the other voice re-told it when the owner
                         # came back to it (11-21 probe). Its first sentence keeps it oriented.
                         gist = re.match(r"\s*(.{1,200}?[.!?])(?=\s|$)", reply.spoken)
                         gist = (gist.group(1) if gist else reply.spoken.strip()[:200]).strip()
@@ -885,7 +882,7 @@ class GPTGuest:
                         if length:
                             self.note_budget[target] -= length
                             name = self.config.name if source == "guest" else "Hermes"
-                            note = (f"{name} said (Kevin heard it; silent context, never repeat or summarize it), "
+                            note = (f"{name} said (the user heard it; silent context, never repeat or summarize it), "
                                     f"starting: {gist[:length]}")
                             (self.note if target == "guest" else self.call.guest_note)(note)
                     if allowed:
@@ -940,8 +937,8 @@ class GPTGuest:
         return bool(reply and reply.allowed and not reply.cut and self.floor.owner == leg)
 
     def may_delegate(self, leg: Leg, did: str) -> bool:
-        """A voice's delegation runs only while that voice holds the floor (a request to Tek never runs in Kevin's
-        Hermes, and Tek never acts on Kevin's requests to Hermes)."""
+        """A voice's delegation runs only while that voice holds the floor (a request to Tek never runs in the user's
+        Hermes, and Tek never acts on the user's requests to Hermes)."""
         if self.floor.owner == leg:
             return True
         self.call.trace("floor.delegation_dropped", speaker=leg, did=did, owner=self.floor.owner)
@@ -1003,7 +1000,7 @@ class GPTGuest:
             answer = queue.popleft()
             if answer.lane and getattr(self.call, "latest_did", answer.delegation_id) != answer.delegation_id:
                 self.call.trace("floor.answer_dropped", speaker=source, did=answer.delegation_id, reason="stale")
-                continue  # a lane's guess for a question Kevin has moved on from
+                continue  # a lane's guess for a question the user has moved on from
             did = hand(answer.delegation_id, answer.text)
             self.ledger.sent(source, answer.delegation_id, answer.text, now, lane=answer.lane)
             self.call.trace("floor.answer_sent", speaker=source, did=did)
@@ -1442,7 +1439,7 @@ class Call:
                         break
                     await asyncio.sleep(0.05)
                 if brief:
-                    await guest.note("Background on Kevin's chat (do not read aloud):\n" + brief[:6000])
+                    await guest.note("Background on the user's chat (do not read aloud):\n" + brief[:6000])
         except Exception as exc:  # noqa: BLE001 - the call goes on with one voice
             if isinstance(guest, GPTGuest):
                 guest.failed("setup_" + type(exc).__name__)
@@ -1493,7 +1490,7 @@ class Call:
             p.floor.user_said(text, now)
             found = passthru.command(text, active=p.active)
             if found:
-                # Kevin's own phone leg was loud during this turn; otherwise the words came from the meeting.
+                # The owner's own phone leg was loud during this turn; otherwise the words came from the meeting.
                 from_kevin = not p.active or (now - self.input_loud_at < 10 and not self.muted)
                 self.trace("passthru.command", action=found[0], arg=found[1][:80], from_kevin=from_kevin)
                 self.spawn(passthru.run_command(self, *found, from_kevin=from_kevin))
@@ -1528,7 +1525,7 @@ class Call:
     async def host_delegate(self, did, request):
         """One fast-lane system (L2, 11-11): the driver starts at once and the z0live lanes race it: smol
         for chat and simple turns, the tool-using gather lane (the liaison's engine) for questions about
-        Kevin's own work. The first lane answer is spoken once; the driver is spoken only if it adds to it."""
+        the user's own work. The first lane answer is spoken once; the driver is spoken only if it adds to it."""
         self.counts["host_delegations"] += 1
         began = time.monotonic()
         self.trace("delegation.start", did=did, request=(request or "")[:4000])
@@ -1653,7 +1650,7 @@ class Call:
 
     async def relay_turn_for(self, request, wait=2.0):
         """The relay's latest final, once it is THIS request. delegation.created can beat the user's turn.done,
-        and the previous turn's lane answer ("Hey Kevin! Not much...") was spoken for a new question (11-16)."""
+        and the previous turn's lane answer ("Hey there! Not much...") was spoken for a new question (11-16)."""
         deadline = time.monotonic() + wait
         while True:
             turn = self.relay.turn
@@ -1718,7 +1715,7 @@ class Call:
 
     async def run_fable_lanes(self, did, request):
         """Start the Haiku+Fable lanes here: the chat's plugin hook does not fire for dashboard turns."""
-        root = Path.home() / ".hermes" / "profiles" / (self.profile or "clean") / "cache" / "fast-lane"
+        root = profile_home(self.profile) / "cache" / "fast-lane"
         if not (root / "fable-on").exists():
             return
         try:
@@ -1735,8 +1732,8 @@ class Call:
 
     async def fable_lanes(self, did, since, request=""):
         """Collect this question's helper lanes silently, then speak ONE merged update. Speaking each lane
-        made a 22 s monologue (11-16 call); Kevin wants the most important fact first and little else."""
-        root = Path.home() / ".hermes" / "profiles" / (self.profile or "clean") / "cache" / "fast-lane" / "fable"
+        made a 22 s monologue (11-16 call); the user wants the most important fact first and little else."""
+        root = profile_home(self.profile) / "cache" / "fast-lane" / "fable"
         heard, answers, first = set(), [], None
         want = self.__dict__.get("lane_n", {}).get(did, 5)
         while not self.closed and getattr(self, "latest_did", did) == did:
@@ -1770,7 +1767,7 @@ class Call:
         before = self.__dict__.get("first_said", {}).get(did, "")
         found = "\n".join(f"- {name}: {text}" for name, text in answers)
         text = await self.groq(
-            "Merge helper findings into what Kevin hears on a live voice call: at most two short spoken sentences, "
+            "Merge helper findings into what the user hears on a live voice call: at most two short spoken sentences, "
             "the single most important fact first, no lane names, no plumbing. If the findings add nothing to what "
             "he already heard, reply exactly SKIP.",
             f"He asked: {request}\nAlready said: {before or '(nothing)'}\nFindings:\n{found}", 160)
@@ -1851,9 +1848,9 @@ class Call:
 
     def side_request(self, request):
         """A background agent's prompt: it starts fresh, so it gets the call's recent words with the request."""
-        said = "\n".join(f"{'Kevin' if role == 'user' else 'Voice'}: {text[:400]}"
+        said = "\n".join(f"{'User' if role == 'user' else 'Voice'}: {text[:400]}"
                          for role, text in list(self.protocol.exchanges)[-6:])
-        return (f"Kevin asked this on a live voice call while another request runs in this chat. Answer it on its "
+        return (f"The user asked this on a live voice call while another request runs in this chat. Answer it on its "
                 f"own, in a few short spoken sentences.\n\nRecent call:\n{said or '(none)'}\n\nRequest: {request}")
 
     async def sleep(self, seconds):  # the replay runs this on its own clock
@@ -1942,7 +1939,7 @@ class Call:
                     or candidate.peer.connectionState != "connected" or candidate.channel.readyState != "open"):
                 raise RuntimeError("Replacement voice transport disconnected")
             recent = "\n".join(f"{role}: {' '.join(text.split())[:400]}" for role, text in protocol.exchanges)
-            summary = ("Continuing the same call. This is a recap, not a new request. Stay silent until Kevin "
+            summary = ("Continuing the same call. This is a recap, not a new request. Stay silent until the user "
                        "speaks again; do not repeat prior actions or answers.\n" + recent)
             opening = self.brief_events(guest.persona) if guest else self.opening_context
             if not guest and duplex and duplex.floor.available:
@@ -1985,11 +1982,14 @@ class Call:
         await self.close("duration_limit")
 
     async def maybe_handoff(self, reason):
-        """Kevin left the call screen: hand the conversation to z0live on the phone (opt-out: HERMES_VOICE_HANDOFF=off)."""
+        """The user left the call screen: hand the conversation to z0live on the phone (opt-out: HERMES_VOICE_HANDOFF=off)."""
         how = handoff.mode()
         if how == "off" or reason not in handoff.PHONE_CLOSES or not self.protocol.exchanges:
             return
-        serial = os.environ.get("HERMES_VOICE_PHONE", "192.168.1.2:40059")
+        serial = os.environ.get("HERMES_VOICE_PHONE", "").strip()
+        if not serial:
+            self.trace("handoff.skipped", reason="HERMES_VOICE_PHONE not configured", mode=how)
+            return
         try:
             front = await asyncio.to_thread(handoff.foreground, serial)  # traced only
             if not handoff.decide(reason, front, how):

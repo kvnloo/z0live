@@ -19,7 +19,7 @@ class HandoffContext(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = self.write(d)
             ctx = handoff_context(path)
-            self.assertIn("Kevin: what sessions are running", ctx)
+            self.assertIn("User: what sessions are running", ctx)
             self.assertIn("do not greet", ctx)
             self.assertIn("what sessions are running", persona([], ctx))
             self.assertFalse(path.exists())

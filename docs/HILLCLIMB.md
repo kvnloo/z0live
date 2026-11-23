@@ -57,10 +57,10 @@ Never edit `suite-v1.json` after its baseline. New cases go in `suite-v2.json` w
 | Device | Role in the climb |
 |---|---|
 | Mac Studio | Runs the bench, both provider logins, the voice stack and this loop |
-| groot | Local lane models (llama-servers 11530/15637, down 11-19) and k3s worker (NotReady since 11-17) |
-| MBP | Build node once its disk (96 %) is cleaned; k3s worker |
+| the desktop host | Local lane models (llama-servers 11530/15637, down 11-19) and k3s worker (NotReady since 11-17) |
+| Laptop | Build node once its disk (96 %) is cleaned; k3s worker |
 | S25 Ultra | Physical stratum: real Hermes-app calls, physical onset/silence timing (adb, tailnet port changes on restart) |
-| S22 / tablet | Play spoken test prompts aloud next to the S25 for physical-audio cases (adb via groot) |
+| S22 / tablet | Play spoken test prompts aloud next to the S25 for physical-audio cases (adb via the desktop host) |
 
 The physical stratum (suite-v2) and the on-device models (Dessa doc slices B-E) start after the synthetic
 loop's first plateau.

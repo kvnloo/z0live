@@ -1,4 +1,4 @@
-"""Where does a Grok floor-take's gap go? (HILLCLIMB-OVERNIGHT backlog 0d)
+"""Where does a Grok floor-take's gap go? (overnight hill-climb backlog 0d)
 
 For every floor-take dessa_score finds in a Dessa-replay run (recorder WAVs), this lines up the call's trace and splits
 the gap the phone hears into stages:

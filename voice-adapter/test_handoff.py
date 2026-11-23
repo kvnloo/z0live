@@ -14,7 +14,7 @@ class Decide(unittest.TestCase):
         self.assertTrue(handoff.decide("transport_closed", "app.lawnchair.play.debug", "auto"))
 
     def test_hanging_up_inside_hermes_switches(self):
-        # the app has no back button: ending the call in-app is how Kevin leaves it (11-16)
+        # the app has no back button: ending the call in-app is how the owner leaves it (11-16)
         self.assertTrue(handoff.decide("client_closed", handoff.HERMES_APP, "auto"))
         self.assertTrue(handoff.decide("client_closed", None, "auto"))
 
@@ -40,7 +40,7 @@ class Phone(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "handoff.json"
             ex = [("user", f"q{i}") for i in range(12)]
-            handoff.record("chat1", "clean", ex, "call1", path)
+            handoff.record("chat1", "main", ex, "call1", path)
             data = json.loads(path.read_text())
             self.assertEqual(data["chat"], "chat1")
             self.assertEqual(len(data["exchanges"]), 8)

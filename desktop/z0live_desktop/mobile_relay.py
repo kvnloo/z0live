@@ -3,7 +3,7 @@
 The Hermes app's Live voice is GPT-Live in our adapter (hermes-mobile/subscription-voice/mobile_live.py).
 GPT-Live has no tool slot, so it cannot call read_context: this relay is its lane path instead.
 - `transcript(text, final)`: STT partials and finals go to the broker (POST /v1/lanes/turn), so the
-  blackboard fills while Kevin talks (preset D: heartbeat speculation on partials).
+  blackboard fills while the user talks (preset D: heartbeat speculation on partials).
 - `answer(request)`: when GPT-Live delegates, the latest final's lane answer is returned at once if it
   may be spoken (not held by the pre-speak gate, or already verified); a held answer is awaited until a
   large lane releases it.

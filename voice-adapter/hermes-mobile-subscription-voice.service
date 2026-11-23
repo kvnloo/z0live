@@ -1,3 +1,5 @@
+# systemd --user unit. Replace <adapter-dir> with the absolute path of this voice-adapter directory
+# (its virtualenv lives at <adapter-dir>/.venv).
 [Unit]
 Description=Hermes mobile subscription voice compatibility adapter
 After=network-online.target hermes-web.service
@@ -5,8 +7,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/mnt/zer0models/project-artifacts/hermes-mobile/subscription-voice
-ExecStart=/mnt/zer0models/project-artifacts/hermes-mobile/subscription-voice/.venv/bin/python /mnt/zer0models/project-artifacts/hermes-mobile/subscription-voice/mobile_live.py
+WorkingDirectory=<adapter-dir>
+ExecStart=<adapter-dir>/.venv/bin/python <adapter-dir>/mobile_live.py
 Restart=on-failure
 RestartSec=3
 UMask=0077

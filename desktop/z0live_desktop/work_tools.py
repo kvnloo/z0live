@@ -299,7 +299,7 @@ Return concise actual evidence, not an invented task ID.\n""" + dumps(args)
         path = (
             sources.Path(
                 os.environ.get(
-                    "Z0LIVE_HERMES_HOME", "/workspace/hermes-home/profiles/clean"
+                    "Z0LIVE_HERMES_HOME", os.environ.get("HERMES_HOME", str(sources.Path.home() / ".hermes"))
                 )
             )
             / "state.db"

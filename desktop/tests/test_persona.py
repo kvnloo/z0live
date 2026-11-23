@@ -61,7 +61,7 @@ class PersonaTests(unittest.TestCase):
     def test_self_knowledge_and_safety_are_in_mint(self):
         instructions = self.mint_payload([])["instructions"]
         for phrase in (
-            "z0live, Kevin's phone-wide voice assistant",
+            "z0live, the user's phone-wide voice assistant",
             "OpenAI ChatGPT Realtime gpt-realtime",
             "marin",
             "WebRTC",
@@ -73,7 +73,7 @@ class PersonaTests(unittest.TestCase):
             "summaries",
             "phone inbox",
             "short, natural answers",
-            "Use ask_z0 for every question or request about Kevin's computer",
+            "Use ask_z0 for every question or request about the user's computer",
             "Queued/sent is not completed",
             "success only when confirmed",
             "ambiguous means unconfirmed",

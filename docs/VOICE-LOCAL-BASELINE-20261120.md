@@ -27,7 +27,7 @@ As an untimed check, the same model in ASR mode recovered every normalized word 
 
 ### What the comparison means
 
-[HILLCLIMB-OVERNIGHT.md, Track A](HILLCLIMB-OVERNIGHT.md#track-a-conversation-studio-real-calls) reports GPT-Live at 0.94 s and 0.96 s median in later live replay runs (historical measurements, about 0.95 s), versus 1.30 s for the original baseline (historical measurement). Liquid's 68 ms measures a smaller segment on different input: finalized WAV submission to PCM delivery. GPT-Live's gap is a replay turn-taking metric. Endpoint detection, input buffering, output buffering, and first voiced playback can change the result. The numbers do not establish a live speedup. The local result supports testing an isolated live adapter before changing model weights. Neither Android speed nor live turn-taking was measured here.
+The private overnight log (Track A) reports GPT-Live at 0.94 s and 0.96 s median in later live replay runs (historical measurements, about 0.95 s), versus 1.30 s for the original baseline (historical measurement). Liquid's 68 ms measures a smaller segment on different input: finalized WAV submission to PCM delivery. GPT-Live's gap is a replay turn-taking metric. Endpoint detection, input buffering, output buffering, and first voiced playback can change the result. The numbers do not establish a live speedup. The local result supports testing an isolated live adapter before changing model weights. Neither Android speed nor live turn-taking was measured here.
 
 ## Run it again
 

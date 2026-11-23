@@ -58,7 +58,7 @@ def main():
     progress.add_argument("--turn", required=True)
     progress.add_argument("text")
     relay_cmd = sub.add_parser(
-        "relay", help="Send a message into one of Kevin's Hermes sessions via its gateway"
+        "relay", help="Send a message into one of the user's Hermes sessions via its gateway"
     )
     relay_cmd.add_argument(
         "--to", default="", help="session id/prefix or title words; default: his main session"
@@ -133,6 +133,8 @@ def main():
         print(dumps({"status": "queued", "turn_id": args.turn}))
     elif args.command == "pair":
         qr_mode = args.qr or args.qr_png is not None
+        if qr_mode and not BASE:
+            parser.error("QR pairing requires Z0LIVE_BASE_URL to be set to the phone-accessible broker URL")
         encoder = shutil.which("qrencode") if qr_mode else None
         if qr_mode and not encoder:
             parser.error(
@@ -148,7 +150,7 @@ def main():
                     "wb",
                 )
             token = store.pair(args.name)
-            link = "z0live://pair?" + urlencode({"url": BASE, "token": token})
+            link = "z0live://pair?" + urlencode({"url": BASE, "token": token}) if BASE else None
             if args.qr:
                 result = subprocess.run(
                     [encoder, "-t", "ANSIUTF8"],
@@ -173,7 +175,8 @@ def main():
                 print("Keep the QR private. It grants device access until revoked.")
             else:
                 print("Device token: " + token)
-                print("Pairing link: " + link)
+                if link:
+                    print("Pairing link: " + link)
                 print(
                     "Keep this token private. It is only printed once; server stores its SHA-256 verifier."
                 )

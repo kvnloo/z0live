@@ -1,6 +1,6 @@
 # End-to-end encrypted collab calls
 
-Kevin hosts a call that friends can join by link. The relay forwards encrypted media and events. The AI appears in the participant list and holds keys like any other endpoint. The relay never gets those keys.
+The owner hosts a call that friends can join by link. The relay forwards encrypted media and events. The AI appears in the participant list and holds keys like any other endpoint. The relay never gets those keys.
 
 The [Oh My Pi collab flow](https://omp.sh/docs/collab) is the model for bearer invites, full and view-only permissions, and `/collab stop`. The [loopback prototype](../collab/README.md) implements the event path only. It has no audio, AI, room administration, or production compatibility claims.
 

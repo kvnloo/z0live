@@ -4,7 +4,7 @@ z0live connects the Hermes mobile client to GPT-Live or Grok Voice. The Hermes p
 
 ## Demos
 
-Real recorded test calls (caller lines are Kevin's own words read by TTS; timings come from the call trace and the lane
+Real recorded test calls (caller lines are the owner's own words read by TTS; timings come from the call trace and the lane
 server log). Click a poster to download the video from the [demos release](https://github.com/kvnloo/z0live/releases/tag/demos-2026-11-21).
 
 | | |
@@ -45,6 +45,22 @@ To opt in to `z0live_say`, provide the same random `Z0LIVE_PROGRESS_TOKEN` secre
 - The voice stack streams audio and context to OpenAI or xAI, depending on the call engine and guest settings. Model lanes can send context to their configured providers. The legacy Groq lane can send Hermes session excerpts when enabled. Do not run it on profiles with private history. The adapter's local traces can contain transcripts, delegation requests, and responses.
 - `z0live_say` accepts only [stock lines](voice-adapter/progress_lines.json). The adapter sends the selected line to the call's voice provider. It does not send the local shared token, Hermes session ID, caller-supplied text, Telegram data, or chat history through this route.
 
+## What this stack does beyond the plugin
+
+The separately installed voice adapter and desktop broker have access beyond
+the Hermes plugin's tools:
+
+- The GPT-Live path reuses the host's existing login by reading
+  `~/.codex/auth.json` without modifying it. It uses the login against
+  `chatgpt.com` with `Codex Desktop` client headers.
+- The stack reads every local Hermes profile's `state.db` in read-only mode to
+  discover sessions and gather context. This is not limited to the profile
+  that enabled the plugin.
+- [`desktop/hermes_relay.py`](desktop/hermes_relay.py) attaches to Hermes sessions through
+  the gateway. It can steer a running turn (`session.steer`) or submit a
+  prompt (`prompt.submit`) for the next turn. The database access is read-only,
+  but relaying prompts can change what a session does.
+
 z0live is licensed under the GNU GPL v3 ([LICENSE](LICENSE)).
 
 ## Existing portable runtime work
@@ -82,7 +98,7 @@ Android / web ── HTTPS tailnet /v1 ── z0live desktop broker
 
 ```bash
 # Host CLI (does not overwrite the future portable Python package)
-./bin/z0live pair phone-name
+Z0LIVE_BASE_URL="https://<your-host>:8791" ./bin/z0live pair phone-name
 ./bin/z0live devices
 ./bin/z0live serve
 

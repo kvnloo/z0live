@@ -75,7 +75,7 @@ class FloorTest(unittest.TestCase):
                 self.assertEqual(floor.owner, expected)
 
     def test_with_people_on_the_call_a_bot_gets_the_floor_by_name_or_a_follow_up_request(self):
-        # 11-22 film call, take 7: Kevin and a friend at one phone; their talk to each other ran Hermes and got speech.
+        # 11-22 film call, take 7: The owner and a friend at one phone; their talk to each other ran Hermes and got speech.
         floor = Floor(0, lambda *a, **k: None, available=True, people=2)
         floor.change("people", "people_on_call", 0)
         floor.user_turn(None, "Is the glass theme on your phone yet?", 1, 2, final=True)
@@ -102,14 +102,14 @@ class FloorTest(unittest.TestCase):
         self.assertEqual((floor.owner, floor.reason), ("primary", "answer_ready"))
 
     def test_with_people_on_the_call_a_request_that_cut_off_the_bot_stays_with_it(self):
-        # Take 8: Kevin began his next request as Hermes finished; Hermes then began "Actually," and Kevin's barge-in
+        # Take 8: The owner began his next request as Hermes finished; Hermes then began "Actually," and the owner's barge-in
         # cut it. Measured against that last reply (begun after him), his request was taken for people talk and
         # never reached Hermes.
         floor = Floor(0, lambda *a, **k: None, available=True, people=2)
         floor.user_turn(Address.OTHER, "Hermes, what's on my phone versus staging?", 1, 2, final=True)
         floor.reply_started("primary", 3)
         floor.reply_finished("primary", 17, 3)
-        floor.reply_started("primary", 23)  # "Actually," while Kevin (since 20) is already talking
+        floor.reply_started("primary", 23)  # "Actually," while the user (since 20) is already talking
         floor.reply_finished("primary", 24, 23)  # the barge-in
         floor.user_turn(None, "Yeah. Merged isn't done. Get all of it onto my S25", 20, 28, final=True)
         self.assertEqual(floor.owner, "primary")
@@ -165,7 +165,7 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_suppressed_reply_never_leaks_audio_text_or_context(self):
         self.guest.observe("guest", turn("done", "Tek, what shipped?"))
-        self.assertFalse(self.guest.observe("primary", output("Not for Kevin.")))
+        self.assertFalse(self.guest.observe("primary", output("Not for the user.")))
         self.guest.message(json.dumps(output("A release.")))
         self.guest.audio.extend(b"\xe8\x03" * 960)
         self.assertTrue((self.guest.output(frame()).to_ndarray() == 1000).all())
@@ -173,10 +173,10 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
         self.guest.observe("primary", turn("done", "Hermes, take over", 2000, 2600, tid="redirect"))
         self.assertFalse(self.guest.observe("primary", output("Still the same hidden reply.")))
         self.assertFalse(self.guest.output(frame()).to_ndarray().any())
-        self.guest.observe("primary", turn("done", "Not for Kevin.", role="assistant", tid="hidden"))
+        self.guest.observe("primary", turn("done", "Not for the user.", role="assistant", tid="hidden"))
         self.assertTrue(self.guest.observe("primary", output("New reply.")))
         self.assertTrue((self.guest.output(frame()).to_ndarray() == 7).all())
-        self.assertFalse(any("Not for Kevin" in str(msg) for msg in self.call.sent))
+        self.assertFalse(any("Not for the user" in str(msg) for msg in self.call.sent))
 
     async def test_cumulative_final_does_not_reclaim_old_address(self):
         g = self.guest
@@ -287,7 +287,7 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(guest_voice.configured().engine, "grok")
                 path.write_text('{"guest":{"engine":"gpt-live","profile":"tek","name":"tek","voice":"ember"}}')
                 self.assertEqual(guest_voice.configured(), self.guest.config)
-                path.write_text('{"guest":{"engine":"gpt-live","profile":"../poteto","name":"tek","voice":"ember"}}')
+                path.write_text('{"guest":{"engine":"gpt-live","profile":"../primary","name":"tek","voice":"ember"}}')
                 self.assertIsNone(guest_voice.configured())
 
     async def test_people_talk_is_neither_heard_nor_delegated_and_both_voices_are_told(self):
@@ -347,7 +347,7 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
             keys = Path(home) / ".config/z0live/guest-hosts"
             keys.mkdir(parents=True)
             (keys / "tek.key").write_text("tek-key")
-            (keys / "poteto.key").write_text("primary-key")
+            (keys / "primary.key").write_text("primary-key")
             with patch.object(Path, "home", return_value=Path(home)), patch.dict(
                     live.os.environ, {"Z0LIVE_GUEST_HOST_PORT": str(runner.addresses[0][1])}):
                 async with ClientSession() as http:
@@ -562,7 +562,7 @@ FILM_CHAT = [{"role": "user", "content": [{"type": "input_text", "text": "status
 
 
 class GuestContextTest(unittest.IsolatedAsyncioTestCase):
-    """Take 7: Jules asked Tek "what caused the glass crash in PR twenty eight?". Tek's Hermes got only those words,
+    """Take 7: Sam asked Tek "what caused the glass crash in PR twenty eight?". Tek's Hermes got only those words,
     searched the wrong repo and said "I can't find any glass crash in PR 28"; the call's chat said hermes-android."""
 
     async def call(self):
@@ -666,7 +666,7 @@ class PrimaryDelegationTest(unittest.IsolatedAsyncioTestCase):
     @patch.object(live, "HOST_DELEGATION", True)
     async def test_words_said_to_tek_never_join_the_next_request_to_hermes(self):
         # 11-21 two-voice probe: after "Tek, what did you work on today?" and Tek's answer, "Hermes, back to you"
-        # delegated "Tek, what did you work on today Thanks, Tek. Hermes, back to you" to Kevin's Hermes.
+        # delegated "Tek, what did you work on today Thanks, Tek. Hermes, back to you" to the owner's Hermes.
         config = guest_voice.GuestConfig("gpt-live", "tek", "ember", "tek")
         with patch.dict(live.os.environ, {"HERMES_VOICE_ENGINE": "gpt-live"}), \
                 patch.object(live.guest_voice, "configured", return_value=config):

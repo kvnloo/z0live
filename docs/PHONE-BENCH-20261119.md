@@ -2,8 +2,8 @@
 
 llama.cpp b12527 `llama-bench`, lane-shaped: `-p 1024` (lane prompt + call brief is about 1k tokens) and `-n 64`
 (one spoken answer), 3 repetitions, 4 threads. Time to first word is estimated as 1024 / prompt speed.
-Script: `voice-adapter/bench/phone_bench.sh` (runs on groot over adb). Receipts on groot:
-`/mnt/zer0models/workspace/zer0/data/z0live/phone-bench-20261119-{2137,2155,2223}`.
+Script: `voice-adapter/bench/phone_bench.sh` (runs on the desktop host over adb). Receipts stay in the
+private data dir (`<data-dir>/phone-bench-20261119-{2137,2155,2223}`).
 
 | Device | Model | Backend | Prompt tok/s | Reply tok/s | First word (est.) |
 |---|---|---|---|---|---|
@@ -27,6 +27,6 @@ lanes (Haiku 5.5 warm about 0.87 s on the Studio), with Gemma 4 E2B on the GPU o
 scored 25/30 on slm-v1 (Qwen3-1.7B 22/30), so it is the first on-phone candidate. The tablet is too slow for a
 call lane.
 
-Update 11-20 (Track B, docs/HILLCLIMB-OVERNIGHT.md B10-B15): with a ~300-token brief held in the prompt cache and
+Update 11-20 (Track B, B10-B15 in the private overnight log): with a ~300-token brief held in the prompt cache and
 prefilled at call start, the tab's Qwen3-1.7B CPU lane answers in ~1.1 s warm. Its Mali GPU runs once patched
 (`voice-adapter/bench/ggml-vulkan-mali-vk11.patch`) but is 9.6x slower than its CPU at prefill.

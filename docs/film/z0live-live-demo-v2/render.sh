@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Full render in 5 s GPU pieces (exact frame count each, retried), joined, encoded to H.264 with the real call audio (out/mix.wav).
-# Run on groot from the crate dir. Usage: bash render.sh NAME   ->  out/NAME.mp4
+# Run on the desktop host from the crate dir. Usage: bash render.sh NAME   ->  out/NAME.mp4
 # (After glide-hackathon-v3/src/tools/render-pieces.sh.)
 set -e
 cd "$(dirname "$0")"
 export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
-B=${B:-/mnt/zer0models/workspace/zer0/data/operations/hermes-tern-showcase/target/release/z0live-live-demo-v2}
+B=${B:?set B to the built renderer binary (<tern-showcase>/target/release/z0live-live-demo-v2)}
 NAME=${1:?Usage: bash render.sh NAME}; D=out/p-$NAME
 [ -e out/$NAME.mp4 ] && { echo "refusing: out/$NAME.mp4 exists"; exit 1; }
 mkdir -p "$D" out/tmp; : > "$D/list.txt"

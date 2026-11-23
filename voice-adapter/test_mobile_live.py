@@ -185,7 +185,7 @@ class SpeakFirstGateTests(unittest.IsolatedAsyncioTestCase):
             await live.AudioBridge(Source(0), call, "input").recv()
             self.assertEqual(peak(await voice.recv()), 0)  # phone silence does not open it
             await live.AudioBridge(Source(5000), call, "input").recv()
-            self.assertGreater(peak(await voice.recv()), 0)  # Kevin spoke: the voice is heard from now on
+            self.assertGreater(peak(await voice.recv()), 0)  # the user spoke: the voice is heard from now on
             call.message(said, True)
             self.assertTrue(any("output_transcript" in str(m.get("type")) for m in call.to_mobile))
         finally:
@@ -211,31 +211,31 @@ class VoiceSessionContinuityTests(unittest.TestCase):
     def test_second_turn_resumes_first_session(self):
         calls, run = self.fake([(0, 'ok\nsession_id: s1'), (0, 'yes\nsession_id: s1')])
         with patch.object(live.subprocess, 'run', side_effect=run):
-            self.assertEqual(live.run_hermes('remember X', 'clean'), 'ok')
-            self.assertEqual(live.run_hermes('yes', 'clean'), 'yes')
+            self.assertEqual(live.run_hermes('remember X', 'main'), 'ok')
+            self.assertEqual(live.run_hermes('yes', 'main'), 'yes')
         self.assertNotIn('--resume', calls[0])
         self.assertEqual(calls[1][-2:], ['--resume', 's1'])
         self.assertEqual(calls[0][calls[0].index('--source') + 1], 'oneshot')  # no --source -> invalid_params
 
     def test_idle_session_starts_fresh(self):
-        live.VOICE_SESSIONS['clean'] = ('old', live.time.monotonic() - live.VOICE_SESSION_IDLE_SECONDS - 1)
+        live.VOICE_SESSIONS['main'] = ('old', live.time.monotonic() - live.VOICE_SESSION_IDLE_SECONDS - 1)
         calls, run = self.fake([(0, 'hi\nsession_id: s2')])
         with patch.object(live.subprocess, 'run', side_effect=run):
-            live.run_hermes('hello', 'clean')
+            live.run_hermes('hello', 'main')
         self.assertNotIn('--resume', calls[0])
-        self.assertEqual(live.VOICE_SESSIONS['clean'][0], 's2')
+        self.assertEqual(live.VOICE_SESSIONS['main'][0], 's2')
 
     def test_failed_resume_does_not_repeat_a_possibly_executed_request(self):
-        live.VOICE_SESSIONS['clean'] = ('old', live.time.monotonic())
+        live.VOICE_SESSIONS['main'] = ('old', live.time.monotonic())
         calls, run = self.fake([(1, '')])
         with patch.object(live.subprocess, 'run', side_effect=run), self.assertRaises(RuntimeError):
-            live.run_hermes('run this once', 'clean')
+            live.run_hermes('run this once', 'main')
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][-2:], ['--resume', 'old'])
 
 
 class ConcurrentHostTurnTests(unittest.IsolatedAsyncioTestCase):
-    """Take 7 of the 11-22 film call: Kevin's long-run ask never reached Hermes during the call. It waited behind the
+    """Take 7 of the 11-22 film call: The user's long-run ask never reached Hermes during the call. It waited behind the
     call's running request (one turn at a time per call), while the voice said "Got it, I'll handle that"."""
 
     def setUp(self):
@@ -251,7 +251,7 @@ class ConcurrentHostTurnTests(unittest.IsolatedAsyncioTestCase):
         return type('P', (), {'returncode': 0, 'stdout': f'answer {n}', 'stderr': f'session_id: s{n}'})()
 
     async def call(self):
-        call = live.Call(live.Manager(None), profile='clean')
+        call = live.Call(live.Manager(None), profile='main')
         sent = []
         call.send = lambda event, to_provider=False, **kw: sent.append(event)
         self.addAsyncCleanup(call.close, 'test')
@@ -276,7 +276,7 @@ class ConcurrentHostTurnTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(any('answer 2' in str(e) for e in sent))
             self.release.set()
             await asyncio.wait_for(first, 5)
-        self.assertEqual(live.VOICE_SESSIONS['clean'][0], 's1', "the voice session stays the first request's")
+        self.assertEqual(live.VOICE_SESSIONS['main'][0], 's1', "the voice session stays the first request's")
 
     async def test_past_the_bound_a_request_is_queued_and_the_voice_says_so(self):
         call, sent = await self.call()
@@ -583,7 +583,7 @@ class OneFastLaneTests(unittest.IsolatedAsyncioTestCase):
             flags.append(own_lane)
             live.time.sleep(driver_s)
             return answer
-        call = live.Call(live.Manager(None), profile='clean')
+        call = live.Call(live.Manager(None), profile='main')
         call.relay = relay
         call.protocol.seen.append('d1')
         call.send = lambda event, to_provider=False: event.get('content') and sent.append(
@@ -650,8 +650,8 @@ class OneFastLaneTests(unittest.IsolatedAsyncioTestCase):
             seen.append(kw.get('env'))
             return type('P', (), {'returncode': 0, 'stdout': 'ok', 'stderr': 'session_id: s'})()
         with patch.object(live.subprocess, 'run', side_effect=run):
-            live._hermes_once('q', 'clean', '', True)
-            live._hermes_once('q', 'clean', '', False)
+            live._hermes_once('q', 'main', '', True)
+            live._hermes_once('q', 'main', '', False)
         self.assertEqual(seen[0]['FAST_LANE_OFF'], '1')
         self.assertIsNone(seen[1])
 

@@ -7,6 +7,8 @@ import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 const root=path.resolve(import.meta.dirname,'../..');
 const base=process.env.Z0LIVE_TEST_BASE;
+const checkout=process.env.Z0LIVE_TEST_CHECKOUT;  // the broker's own checkout path, as Hermes sees it
+if(!checkout){console.log('SKIP: set Z0LIVE_TEST_CHECKOUT to the broker checkout path to run this live check');process.exit(0);}
 assert.ok(base?.startsWith('http://127.0.0.1:'),'isolated loopback broker required');
 const pairing=execFileSync(path.join(root,'bin/z0live'),['pair','quiet-turn-qualification'],{encoding:'utf8'});
 const token=pairing.match(/Device token: ([^\n]+)/)[1];
@@ -23,7 +25,7 @@ try {
  const page=await browser.newPage();
  await page.route(base+'/quiet-qualification',r=>r.fulfill({contentType:'text/html',body:'<!doctype html><title>Quiet voice qualification</title>'}));
  await page.goto(base+'/quiet-qualification');
- const result=await page.evaluate(async({base,token,session})=>{
+ const result=await page.evaluate(async({base,token,session,checkout})=>{
   const sid=session.session_id;
   const req=async(p,b)=>{const r=await fetch(base+p,{method:b===undefined?'GET':'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:b===undefined?undefined:JSON.stringify(b)});if(!r.ok)throw new Error(p+' HTTP '+r.status);return r.json();};
   let seq=0,current=null,active=false,creating=false,pending=0,continuation=false,cursor=0;
@@ -76,7 +78,7 @@ try {
   };
   try {
    const quick=await turn('Hi. Keep it short.');
-   const work=await turn('[test] Please use ask_z0 to ask Hermes to check the broker checkout working directory with a read-only terminal pwd in /mnt/zer0models/workspace/zer0/products/z0live, then give me that directory in one short sentence. No edits or fanout needed.');
+   const work=await turn('[test] Please use ask_z0 to ask Hermes to check the broker checkout working directory with a read-only terminal pwd in '+checkout+', then give me that directory in one short sentence. No edits or fanout needed.');
    const id=work.calls.find(c=>c.result.turn_id)?.result.turn_id;
    if(!id)throw new Error('no work tool dispatch');
    const deadline=Date.now()+180000;
@@ -94,7 +96,7 @@ try {
    const trace=(await req('/v1/trace?turn_id='+id)).events;
    return {session_id:sid,persona:session.instructions_version,models:session.voice_plan?.roles,quick,work,answer,spoken,trace,inbox,errors};
   } finally {clearInterval(heartbeat);pc.close();}
- },{base,token,session});
+ },{base,token,session,checkout});
  if(process.env.Z0LIVE_TEST_OUTPUT)fs.writeFileSync(process.env.Z0LIVE_TEST_OUTPUT,JSON.stringify(result,null,2),{mode:0o600});
  assert.deepEqual(result.errors,[]);
  assert.equal(result.quick.calls.length,0,'ordinary conversation must stay fast/direct');
@@ -106,7 +108,7 @@ try {
  assert.equal(speech.length,1,'only actual completion is delivered');
  assert.ok(result.trace.some(e=>e.layer==='L2'&&e.event==='completed'),'real native meta completion');
  assert.ok(result.trace.some(e=>e.layer==='L1'&&e.event==='condensed'),'real liaison condensation');
- assert.ok(result.spoken.outputs.some(t=>t.includes('/mnt/zer0models/workspace/zer0/products/z0live')),'real directory result reaches voice');
+ assert.ok(result.spoken.outputs.some(t=>t.includes(checkout)),'real directory result reaches voice');
  console.log('PASS real quiet layered turn',JSON.stringify({persona:result.persona,quick_ms:result.quick.ms,dispatch_ms:result.work.ms,acknowledgement:result.work.outputs,result:result.spoken.outputs,spoken_inbox_count:speech.length,session_id:sid}));
 } finally {
  if(browser)await browser.close();

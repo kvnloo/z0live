@@ -1,6 +1,6 @@
 # Desktop broker verification receipts
 
-Verified on groot through **https://0.taila30dc.ts.net:8791**, with real host ChatGPT OAuth,
+Verified on the desktop host through **https://<your-host>:8791**, with real host ChatGPT OAuth,
 OpenAI WebRTC and the native Hermes API adapter. No provider credentials are printed or committed.
 This deployment adapter leaves the portable z0live v0 runtime/fixtures and z0evals certification work intact.
 
@@ -83,7 +83,7 @@ No backend contract rename was made to accommodate an older parser.
   All preexisting device records remained exactly equivalent after JSON decoding, including
   the owner's pairing. No phone driving, Android changes, owner messages or Telegram delivery.
 - Sanitized logs and cleanup/job/inbox receipts:
-  `/mnt/zer0models/project-artifacts/z0live/2026-10-19/backend/`.
+  kept in the private artifacts directory, not in this repository.
 - This run registered the three then-live builtins plus `local_test`; concurrent new backend tools
   and Android tools were not yet deployed and are not claimed as live-verified here. Dynamic unit
   assertions compare against `TOOLS` so later builtin additions are included automatically.

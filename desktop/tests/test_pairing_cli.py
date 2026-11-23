@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT / "desktop"))
 from z0live_desktop.core import Store  # noqa: E402
 
 CLI = runpy.run_path(str(ROOT / "bin/z0live"))["main"]
+TEST_BASE = "https://broker.example.invalid:8791"
 TOKEN = "deterministic-test-pairing-secret"
 
 
@@ -29,10 +30,10 @@ class PairingCliTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def invoke(self, *args):
+    def invoke(self, *args, base=TEST_BASE):
         out, err = io.StringIO(), io.StringIO()
         with (
-            patch.dict(CLI.__globals__, Store=lambda: self.store),
+            patch.dict(CLI.__globals__, Store=lambda: self.store, BASE=base),
             patch.object(sys, "argv", ["z0live", "pair", "test device", *args]),
             contextlib.redirect_stdout(out),
             contextlib.redirect_stderr(err),
@@ -98,7 +99,7 @@ class PairingCliTests(unittest.TestCase):
             )
             self.assertEqual(
                 decoded,
-                "z0live://pair?url=https%3A%2F%2F0.taila30dc.ts.net%3A8791&token="
+                "z0live://pair?url=https%3A%2F%2Fbroker.example.invalid%3A8791&token="
                 + TOKEN,
             )
 
@@ -119,6 +120,22 @@ class PairingCliTests(unittest.TestCase):
         self.assertEqual(path.read_bytes(), original)
         devices = json.loads((self.store.directory / "devices.json").read_text())
         self.assertEqual(len(devices), 1)
+
+    def test_missing_base_does_not_mint_token(self):
+        with patch.object(self.store, "pair") as pair:
+            status, out, err = self.invoke("--qr", base="")
+        self.assertEqual(status, 2)
+        self.assertIn("Z0LIVE_BASE_URL", err)
+        pair.assert_not_called()
+        self.assert_private(out + err)
+
+    def test_local_token_only_pairing_without_base(self):
+        with patch("z0live_desktop.core.secrets.token_urlsafe", return_value=TOKEN):
+            status, out, err = self.invoke(base="")
+        self.assertEqual((status, err), (0, ""))
+        self.assertIn("Device token: " + TOKEN, out)
+        self.assertNotIn("Pairing link:", out)
+        self.assertIsNotNone(self.store.authenticate(TOKEN))
 
     def test_missing_encoder_does_not_mint_or_leak(self):
         with (

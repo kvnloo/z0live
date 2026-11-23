@@ -36,14 +36,14 @@ class GrokLegTests(unittest.IsolatedAsyncioTestCase):
                    {"type": "response.output_audio_transcript.delta", "delta": "Checking."},
                    {"type": "response.output_audio_transcript.done", "transcript": "Checking."},
                    {"type": "response.function_call_arguments.done", "name": "ask_hermes", "call_id": "c1",
-                    "arguments": json.dumps({"request": "Kevin's calendar today"})}]:
+                    "arguments": json.dumps({"request": "The user's calendar today"})}]:
             leg.on_event(ev)
         self.assertEqual([e["type"] for e in leg.call.got],
                          ["session.started", "input_transcript.added", "turn.done", "output_transcript.added",
                           "turn.done", "delegation.created"])
         self.assertEqual(leg.call.got[2]["turn"], {"role": "user", "transcript": "what's on my calendar"})
         self.assertEqual(leg.call.got[-1]["item"], {"id": "c1", "target": "client",
-                                                    "content": [{"type": "text", "text": "Kevin's calendar today"}]})
+                                                    "content": [{"type": "text", "text": "The user's calendar today"}]})
 
     async def test_first_answer_is_the_tool_result_and_a_second_is_an_update(self):
         leg = Leg()
@@ -63,10 +63,10 @@ class GrokLegTests(unittest.IsolatedAsyncioTestCase):
     async def test_background_context_is_a_silent_system_item(self):
         leg = Leg()
         leg.outbound({"type": "session.context.append", "channel": "developer",
-                      "content": [{"type": "input_text", "text": "Call brief: Kevin approved adb."}]})
+                      "content": [{"type": "input_text", "text": "Call brief: The user approved adb."}]})
         await asyncio.sleep(0.01)
         self.assertEqual(leg.sent, [{"type": "conversation.item.create", "item": {
-            "type": "message", "role": "system", "content": [{"type": "input_text", "text": "Call brief: Kevin approved adb."}]}}])
+            "type": "message", "role": "system", "content": [{"type": "input_text", "text": "Call brief: The user approved adb."}]}}])
 
     def test_barge_in_drops_queued_speech(self):
         leg = Leg()

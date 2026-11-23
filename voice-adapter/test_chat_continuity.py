@@ -70,7 +70,7 @@ class AskChat(unittest.IsolatedAsyncioTestCase):
         cc.WS = f"ws://127.0.0.1:{port}/api/ws"
         try:
             async with ClientSession() as http:
-                text = await asyncio.wait_for(cc.ask_chat(http, "tok", "clean", "gui1c", "is it up?", 10), 10)
+                text = await asyncio.wait_for(cc.ask_chat(http, "tok", "main", "gui1c", "is it up?", 10), 10)
         finally:
             await runner.cleanup()
         return text, seen
@@ -80,8 +80,8 @@ class AskChat(unittest.IsolatedAsyncioTestCase):
                                                  ("message.complete", "live1", " done ")])
         self.assertEqual(text, "done")
         self.assertEqual(seen[0], ("token", "tok"))
-        self.assertEqual((seen[1][1]["session_id"], seen[1][1]["profile"]), ("gui1c", "clean"))
-        self.assertEqual(seen[2], ("prompt.submit", {"session_id": "live1", "text": "is it up?", "profile": "clean"}))
+        self.assertEqual((seen[1][1]["session_id"], seen[1][1]["profile"]), ("gui1c", "main"))
+        self.assertEqual(seen[2], ("prompt.submit", {"session_id": "live1", "text": "is it up?", "profile": "main"}))
 
     async def test_a_request_that_joins_the_running_turn_has_no_answer_of_its_own(self):
         # The running turn's message.complete belongs to the request that started it (11-20: one final x 11).

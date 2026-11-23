@@ -16,7 +16,7 @@ import mobile_live
 class FableLanes(unittest.IsolatedAsyncioTestCase):
     async def test_each_new_lane_is_spoken_once_and_older_runs_never(self):
         with tempfile.TemporaryDirectory() as home:
-            root = Path(home) / ".hermes/profiles/clean/cache/fast-lane/fable/voice-d1"
+            root = Path(home) / ".hermes/profiles/main/cache/fast-lane/fable/voice-d1"
             other = root.parent / "voice-d2"  # another open question's lanes must not be spoken here
             root.mkdir(parents=True)
             other.mkdir()
@@ -29,7 +29,7 @@ class FableLanes(unittest.IsolatedAsyncioTestCase):
             async def merge(did, request, answers):
                 merged.append(answers)
                 return "Broker is up."
-            call = SimpleNamespace(closed=False, profile="clean", counts=Counter(), trace=lambda *a, **k: None,
+            call = SimpleNamespace(closed=False, profile="main", counts=Counter(), trace=lambda *a, **k: None,
                                    lane_n={"d1": 2}, merge_lanes=merge,
                                    speak_for=lambda did, text, lane=False: said.append((did, text)))
             with mock.patch.object(Path, "home", return_value=Path(home)), \
@@ -47,17 +47,17 @@ class FableLanes(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(said, [("d1", "Broker is up.")])
 
     async def test_an_older_question_goes_quiet_once_a_newer_one_starts(self):
-        """18:41 call: Q1's 45 s lane spoke over Kevin's follow-up "did you listen to anything I asked"."""
+        """18:41 call: Q1's 45 s lane spoke over the user's follow-up "did you listen to anything I asked"."""
         with tempfile.TemporaryDirectory() as home:
-            root = Path(home) / ".hermes/profiles/clean/cache/fast-lane/fable/voice-d1"
+            root = Path(home) / ".hermes/profiles/main/cache/fast-lane/fable/voice-d1"
             root.mkdir(parents=True)
             said = []
-            call = SimpleNamespace(closed=False, profile="clean", counts=Counter(), trace=lambda *a, **k: None,
+            call = SimpleNamespace(closed=False, profile="main", counts=Counter(), trace=lambda *a, **k: None,
                                    latest_did="d1", speak_for=lambda did, text, lane=False: said.append(text))
             with mock.patch.object(Path, "home", return_value=Path(home)):
                 task = asyncio.ensure_future(mobile_live.Call.fable_lanes(call, "d1", time.time() - 1))
                 await asyncio.sleep(0.1)
-                call.latest_did = "d2"  # Kevin asked something new
+                call.latest_did = "d2"  # the user asked something new
                 (root / "history.json").write_text(json.dumps({"lane": "history", "answer": "late and off-topic"}))
                 await asyncio.wait_for(task, 5)  # the speaker exits instead of waiting for the call to close
         self.assertEqual(said, [])
@@ -105,7 +105,7 @@ class OneVoice(unittest.IsolatedAsyncioTestCase):
     def test_live_sessions_lists_open_titled_sessions_newest_first(self):
         import sqlite3
         with tempfile.TemporaryDirectory() as home:
-            db = Path(home) / ".hermes/profiles/clean/state.db"
+            db = Path(home) / ".hermes/profiles/main/state.db"
             db.parent.mkdir(parents=True)
             con = sqlite3.connect(db)
             con.executescript("create table sessions(id, title, last_activity_at, last_activity_description, ended_at);"

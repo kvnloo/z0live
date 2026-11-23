@@ -123,11 +123,12 @@ class ConfigTests(Base):
         cfg = lanes_intent.parse("make the large lanes Opus and Sonnet")
         self.assertEqual([b["model"] for b in lanes.large(cfg)], ["claude-opus-5-5", "claude-sonnet-5"])
         self.assertEqual(lanes.tier(cfg, "fast"), lanes.tier(lanes.DEFAULT, "fast"))
-        cfg = lanes_intent.parse("gimme one fast lane, three small, 1 large and no council", cfg)
-        self.assertEqual(lanes_intent.counts(cfg), {"fast": 1, "small": 3, "large": 1, "council": 0})
-        self.assertEqual(lanes.validate(cfg), [])
+        with patch.object(lanes, "SR_BASE", "http://router.example.invalid/v1"):
+            cfg = lanes_intent.parse("gimme one fast lane, three small, 1 large and no council", cfg)
+            self.assertEqual(lanes_intent.counts(cfg), {"fast": 1, "small": 3, "large": 1, "council": 0})
+            self.assertEqual(lanes.validate(cfg), [])
         with self.assertRaises(ValueError):
-            lanes_intent.parse("gimme 6 fast lanes")  # pool has 3
+            lanes_intent.parse("gimme 6 fast lanes")
         with self.assertRaises(ValueError):
             lanes_intent.parse("what's the weather")
 
@@ -206,7 +207,7 @@ class FanoutTests(Base):
         self.assertEqual(len(spoken), 1)
 
     def test_agreeing_verifier_marks_verified_and_meta_is_no_answer(self):
-        out, _ = self.fanout({"claude-haiku-4-5": (0, '{"route":"answer","answer":"Hi Kevin."}'),
+        out, _ = self.fanout({"claude-haiku-4-5": (0, '{"route":"answer","answer":"Hi there."}'),
                               "claude-opus-5-5": (0, '{"verdict":"agree","answer":""}'),
                               "claude-sonnet-5": (0, '{"verdict":"agree","answer":""}')}, [])
         receipt = out.on_final(self.sid, "hey")

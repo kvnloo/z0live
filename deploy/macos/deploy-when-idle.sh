@@ -30,7 +30,7 @@ while open_call; do sleep 5; done
 sleep 3; open_call && exec "$0" "${ORIG[@]}"   # a new call started in the gap: wait again
 [ -n "${1:-}" ] && { cp "$VOICES" "$VOICES.bak-$(date +%Y%m%d-%H%M%S)" 2>/dev/null; printf '%s\n' "$1" > "$VOICES"; }
 if [ "$INSTALL" = 1 ]; then
-  Z0LIVE_PRIMARY_HOST_PROFILE=poteto "$(dirname "$0")/install.sh" >> "$LOG" 2>&1 || echo "$(date '+%F %T') install.sh exited $?" | tee -a "$LOG"
+  Z0LIVE_PRIMARY_HOST_PROFILE="${Z0LIVE_PRIMARY_HOST_PROFILE:?export the named primary Hermes profile}" "$(dirname "$0")/install.sh" >> "$LOG" 2>&1 || echo "$(date '+%F %T') install.sh exited $?" | tee -a "$LOG"
 else
   launchctl kickstart -k "gui/$(id -u)/com.zer0.z0live.voice"
 fi

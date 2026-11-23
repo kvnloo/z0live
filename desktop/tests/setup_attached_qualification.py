@@ -11,7 +11,7 @@ import uuid
 if "--native" not in sys.argv:
     runtime = json.loads(subprocess.check_output([str(Path.home() / ".local/bin/hermes"), "--print-runtime-command"], text=True))
     os.execv(runtime[0], [runtime[0], "-I", str(Path(__file__).resolve()), "--native", sys.argv[1]])
-sys.path.insert(0, os.environ.get("Z0LIVE_HERMES_SOURCE", "/workspace/hermes-home/hermes-agent"))
+sys.path.insert(0, os.environ.get("Z0LIVE_HERMES_SOURCE", str(Path.home() / ".hermes/hermes-agent")))
 import hermes_bootstrap  # noqa: E402,F401
 from hermes_cli.gateway_client import connect_gateway  # noqa: E402
 from hermes_cli.gateway_runtime import attachable, discover_gateway_endpoint  # noqa: E402
@@ -33,7 +33,7 @@ async def main():
         out.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w") as stream:
-            json.dump({"profile": "clean", "session": snap["stored_session_id"]}, stream)
+            json.dump({"profile": "main", "session": snap["stored_session_id"]}, stream)
         print(json.dumps({"qualification_target_created": True, "exact_binding_written_privately": True}))
 
 

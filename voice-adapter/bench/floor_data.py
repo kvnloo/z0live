@@ -1,4 +1,4 @@
-"""Floor decision points from the Dessa reference calls (Track C in docs/HILLCLIMB-OVERNIGHT.md).
+"""Floor decision points from the Dessa reference calls (Track C of the overnight hill-climb).
 
 Every 20 ms the policy decides from the human audio heard so far; its sound reaches the ear DELAY later. A frame's
 label is what Dessa's own AI track did there, by dessa_timing's rules: a floor-take (an AI talkspurt that starts after

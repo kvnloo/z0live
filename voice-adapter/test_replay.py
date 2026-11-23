@@ -234,20 +234,20 @@ def guest_speech(t0, t1, text, tid):
     return [{**row, "src": "guest"} for row in speech(t0, t1, text, tid)]
 
 
-# Two people at one phone (Kevin and a friend) and two bots (Hermes, Tek). Take 7 of the 11-22 film call: timing and
+# Two people at one phone (the owner and a friend) and two bots (Hermes, Tek). Take 7 of the 11-22 film call: timing and
 # event order from its trace, words made up.
 PEOPLE = [{"role": "user", "content": [{"type": "input_text", "text": "status on the laptop beta?"}]},
           {"role": "assistant", "content": [{"type": "output_text", "text": "This call has two people at the desk, "
-                                             "Kevin and his friend Sam, and two bots: Hermes and Tek. When Kevin and "
+                                             "The user and his friend Sam, and two bots: Hermes and Tek. When the user and "
                                              "Sam talk to each other, stay quiet."}]}]
 
 
 class PeopleOnTheCall(unittest.TestCase):
     def test_bots_stay_quiet_while_the_people_talk_to_each_other(self):
-        # Take 7: the friend's "Is the glass theme on your phone yet?" (to Kevin) ran a Hermes job that checked the
-        # phone, Tek drafted a reply, and Kevin's "No, I think it's still last night's build" got bot speech too.
+        # Take 7: the friend's "Is the glass theme on your phone yet?" (to the owner) ran a Hermes job that checked the
+        # phone, Tek drafted a reply, and the owner's "No, I think it's still last night's build" got bot speech too.
         rows = (GUEST
-                # 0. friend -> Kevin
+                # 0. friend -> the owner
                 + heard(6.2, 12.3, "Hey, wait, is the dark mode on your laptop yet? I don't see it on mine", "g0", "guest")
                 + heard(6.8, 12.9, "Hey, wait, is the dark mode on your laptop yet? I don't see it on mine", "p0")
                 + guest_delegation(11.75, "gd0", "Hey, wait, is the dark mode on your laptop yet?")
@@ -255,13 +255,13 @@ class PeopleOnTheCall(unittest.TestCase):
                 + hermes("d0", 40, "Your laptop is on last night's build.")
                 + guest_speech(12.0, 14.6, "Yeah, let me check that quickly.", "ga0")
                 + speech(12.95, 14.7, "I'll check your laptop quickly.", "a0")
-                # 1. Kevin -> friend
+                # 1. The owner -> friend
                 + heard(13.4, 17.8, "No. I think it's still last night's build", "p1")
                 + heard(13.0, 19.0, "No. I think it's still last night's build", "g1", "guest")
                 + guest_delegation(18.7, "gd1", ". I think it's still last night's build")
                 + speech(17.9, 23.6, "Mm-hm. Yeah, it's still on the older build.", "a1")
                 + guest_speech(19.1, 22.0, "Thanks, checking that now.", "ga1")
-                # 2. Kevin -> Hermes, by name
+                # 2. The owner -> Hermes, by name
                 + heard(23.2, 27.8, "Hermes, what's actually on my laptop right now versus the beta", "p2")
                 + heard(22.6, 27.9, "Hermes, what's actually on my laptop right now versus the beta", "g2", "guest")
                 + delegation(27.0, "d2", "Hermes, what's actually on my laptop right now versus the beta")
@@ -269,7 +269,7 @@ class PeopleOnTheCall(unittest.TestCase):
                 + hermes("d2", 12, "Your laptop runs build 9. The beta has twenty newer changes.")
                 + speech(28.0, 40.9, "I'll take a quick look. Your laptop runs build 9. The beta has twenty newer "
                                      "changes.", "a2")
-                # 3. Kevin -> Hermes, the next request in that exchange (no name)
+                # 3. The owner -> Hermes, the next request in that exchange (no name)
                 + heard(40.2, 52.6, "Yeah. Shipped isn't done. Get all of it onto my laptop, prove each one, and "
                                     "make it update itself. Take as long as you need, just send receipts", "p3")
                 + heard(41.6, 52.7, "Yeah. Shipped isn't done. Get all of it onto my laptop, prove each one, and "

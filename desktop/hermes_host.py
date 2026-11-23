@@ -65,7 +65,7 @@ if not args.native:
                          "--port", str(PORT), *launch])
 
 sys.path.insert(
-    0, os.environ.get("Z0LIVE_HERMES_SOURCE", "/workspace/hermes-home/hermes-agent")
+    0, os.environ.get("Z0LIVE_HERMES_SOURCE", str(Path.home() / ".hermes/hermes-agent"))
 )
 import hermes_bootstrap  # noqa: E402,F401 - initializes the installed Hermes runtime
 from gateway.config import PlatformConfig  # noqa: E402

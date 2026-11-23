@@ -3,7 +3,7 @@ version: "0.2.0"
 manifest_version: 1
 kind: standalone
 description: "Hermes tools for a separately installed z0live voice stack: inspect status, change the engine and model tiers, edit the desktop helper-lane board, or send stock progress lines to a live call. The stack can send audio and context to hosted providers and retain transcripts locally. See the README privacy disclosure."
-author: "Kevin Rajan"
+author: "kvnloo"
 license: GPL-3.0-only
 homepage: "https://github.com/kvnloo/z0live"
 tags: ["voice", "realtime", "gpt-live", "grok", "lanes", "z0live"]
