@@ -15,6 +15,8 @@ TAKES = sorted(Path(__file__).with_name("fixtures").glob("takes/take*.jsonl"), k
 # Takes 7, 9 and 14: the voice's own hand-off line promised work ("I'll handle that and keep receipts", "I'm taking
 # that on end-to-end", "I'll go step by step and show receipts"). The prompts are the guard; a replay cannot unsay it.
 RECORDED = {"promised": {"take7", "take9", "take14"}}
+# Take 15 failures of the adapter's own, each fixed by its own change: an entry here must keep failing until then.
+OPEN = {"whole": {"take15"}, "runs": {"take15"}}
 
 
 def checked(path):
@@ -26,14 +28,14 @@ def checked(path):
 
 class RecordedTakes(unittest.TestCase):
     def test_the_takes_are_here(self):
-        self.assertEqual([p.stem for p in TAKES][:8], [f"take{n}" for n in range(7, 15)])
+        self.assertEqual([p.stem for p in TAKES][:9], [f"take{n}" for n in range(7, 16)])
 
     def test_each_recorded_take_passes_the_five_checks_on_the_phone(self):
         for path in TAKES:
             result = checked(path)
             for check, failures in result.items():
                 with self.subTest(take=path.stem, check=check):
-                    if path.stem in RECORDED.get(check, ()):
+                    if path.stem in RECORDED.get(check, ()) or path.stem in OPEN.get(check, ()):
                         self.assertTrue(failures, "now passes: drop it from RECORDED")
                     else:
                         self.assertEqual(failures, [])

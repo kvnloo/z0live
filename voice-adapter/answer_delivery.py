@@ -58,22 +58,35 @@ def content(text: str) -> set[str]:
     return {w for w in words(text) if (len(w) >= 3 or w.isdigit()) and w not in _STOP}
 
 
+def sentences(text: str) -> list[str]:
+    return [s for s in re.split(r"(?<=[.!?])\s+", text.strip()) if s]
+
+
 @dataclass
 class Piece:
     text: str
     new: frozenset[str]  # its content words the call had not heard when it was sent
     lane: bool
+    late: bool = False  # handed while the voice's reply was already playing
     hits: set[str] = field(default_factory=set)
     spoken: bool = False
 
     def hear(self, said: set[str]) -> None:
         self.hits |= self.new & said
-        if self.new and len(self.hits) >= needed(len(self.new)):
+        if self.new and len(self.hits) >= needed(len(self.new)) and self.read():
             self.spoken = True
 
+    def read(self) -> bool:
+        """Whether the words the voice said were this piece's. A reply already playing when the piece came was made
+        for the request before it, and says that request's words: take 15's line-3 answer, handed 9 s into the reply
+        to line 3, was credited from "The update run is still going, no new receipts yet", 3 of its 37 new words,
+        each from a different sentence. So a late piece is read only once the voice says one of its sentences."""
+        return not self.late or any(len(own & self.hits) >= needed(len(own))
+                                    for s in sentences(self.text) if (own := content(s) & self.new))
 
-def sentences(text: str) -> list[str]:
-    return [s for s in re.split(r"(?<=[.!?])\s+", text.strip()) if s]
+    @property
+    def begun(self) -> bool:
+        return self.spoken or (bool(self.hits) and len(self.hits) >= min(STARTED_HITS, len(self.new)) and self.read())
 
 
 @dataclass
@@ -87,7 +100,7 @@ class Entry:
 
     @property
     def started(self) -> bool:
-        return any(p.spoken or (p.hits and len(p.hits) >= min(STARTED_HITS, len(p.new))) for p in self.pieces)
+        return any(p.begun for p in self.pieces)
 
     def rest(self) -> str:
         """The sentences after the last one the voice said (half the words it adds to the ones before it). Speech
@@ -123,7 +136,7 @@ class Ledger:
     def pending(self, leg: str) -> list[Entry]:
         return [e for e in self.entries if e.leg == leg]
 
-    def sent(self, leg: str, did: str | None, text: str, now: float, *, lane: bool = False) -> Entry:
+    def sent(self, leg: str, did: str | None, text: str, now: float, *, lane: bool = False, late: bool = False) -> Entry:
         """A new answer went to the voice: one more piece of its delegation's entry."""
         entry = next((e for e in self.entries if e.leg == leg and e.did == did and did is not None), None)
         if entry is None:
@@ -133,7 +146,7 @@ class Ledger:
             entry.sent_at = now
         if not lane:  # Hermes's own answer supersedes a lane guess the voice has not said
             entry.pieces = [p for p in entry.pieces if p.spoken or not p.lane]
-        entry.pieces.append(Piece(text, frozenset(content(text) - self.said), lane))
+        entry.pieces.append(Piece(text, frozenset(content(text) - self.said), lane, late))
         return entry
 
     def resent(self, entry: Entry, now: float) -> None:

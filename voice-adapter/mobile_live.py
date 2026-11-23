@@ -1135,7 +1135,7 @@ class GPTGuest:
                     continue
                 did = hand(entry.did, text)
                 self.ledger.resent(entry, now)
-                self.call.trace("floor.answer_resent", speaker=source, did=did, sends=entry.sends)
+                self.call.trace("floor.answer_resent", speaker=source, did=did, of=entry.did, sends=entry.sends)
         # New answers wait only for their floor. On it, they go out at once, even mid-reply: the voice merges them.
         while queue:
             answer = queue.popleft()
@@ -1146,7 +1146,7 @@ class GPTGuest:
             self.ledger.sent(source, answer.delegation_id, answer.text, now, lane=answer.lane)
             if answer.rest:
                 self.call.trace("floor.answer_resumed", speaker=source, did=answer.delegation_id)
-            self.call.trace("floor.answer_sent", speaker=source, did=did)
+            self.call.trace("floor.answer_sent", speaker=source, did=did, of=answer.delegation_id)  # did: the voice's id
         due = self.ledger.next_due(source, self.quiet_since[source]) if source not in self.replies else None
         if due is not None:  # a reply still open on this leg flushes again when it ends (observe)
             self.flush_timer = self.later(max(0.05, due - now) if quiet else 0.25, self.flush_answers)
