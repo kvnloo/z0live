@@ -66,7 +66,7 @@ def run_one(seed, rho, m, trials, extra):
 def sweep_seed(seed, m, trials, extra, rhos=RHOS):
     runs = {rho: run_one(seed, rho, m, trials, extra) for rho in rhos}
     base = runs[rhos[0]][1]
-    shared = ("A", "B") + tuple(a for a in ("D", "E", "E2", "F", "F2", "G", "G2")
+    shared = ("A", "B") + tuple(a for a in ("D", "E", "E2", "F", "F2", "G", "G2", "H")
                                 if a in base["arms"])  # D, E (opt-in) do not depend on rho
     ab_same = all(json.dumps(r[1]["arms"][a], sort_keys=True) == json.dumps(base["arms"][a], sort_keys=True)
                   for r in runs.values() for a in shared)
@@ -119,6 +119,9 @@ def main():
     p.add_argument("--resid-threshold", type=float, default=480.0)
     p.add_argument("--resid-arm-db", type=float, default=6.0)
     p.add_argument("--resid-nlp-db", type=float, default=3.0)
+    p.add_argument("--arm-h", action="store_true", help="also run arm H (two-path NLMS + residual gate, bargein_replay/11)")
+    p.add_argument("--twopath-copy-db", type=float, default=1.0)
+    p.add_argument("--twopath-copy-packets", type=int, default=2)
     p.add_argument("--bot-render", choices=("periodic", "recorded"), default="periodic")
     p.add_argument("--rhos", default=",".join(map(str, RHOS)), help="arm C rho values, e.g. 0.9 (default 0.7,0.9)")
     p.add_argument("--arm-d", action="store_true", help="also run arm D (energy-ratio gate, bargein_replay/4)")
@@ -154,7 +157,7 @@ def main():
     if a.arm_e2:
         extra += ["--arm-e2", "--erl2-margin-db=" + str(a.erl2_margin_db), "--erl2-prior-db=" + str(a.erl2_prior_db),
                   "--erl2-min-updates", str(a.erl2_min_updates), "--erl2-min-speech-ms", str(a.erl2_min_speech_ms)]
-    if a.arm_f or a.arm_f2 or a.arm_g or a.arm_g2:
+    if a.arm_f or a.arm_f2 or a.arm_g or a.arm_g2 or a.arm_h:
         if not a.arm_d:
             extra += ["--energy-k-db=" + str(a.energy_k_db), "--energy-min-speech-ms", str(a.energy_min_speech_ms)]
         extra += (["--arm-f"] if a.arm_f else []) + (["--arm-f2"] if a.arm_f2 else [])
@@ -162,10 +165,13 @@ def main():
                   "--nlms-post-ms", str(a.nlms_post_ms), "--nlms-geigel", str(a.nlms_geigel),
                   "--nlms-hang-ms", str(a.nlms_hang_ms), "--nlms-min-updates", str(a.nlms_min_updates),
                   "--nlms-margin-db=" + str(a.nlms_margin_db), "--nlms-converged-db=" + str(a.nlms_converged_db)]
-    if a.arm_g or a.arm_g2:
+    if a.arm_g or a.arm_g2 or a.arm_h:
         extra += (["--arm-g"] if a.arm_g else []) + (["--arm-g2"] if a.arm_g2 else [])
         extra += ["--resid-threshold", str(a.resid_threshold), "--resid-arm-db=" + str(a.resid_arm_db),
                   "--resid-nlp-db=" + str(a.resid_nlp_db)]
+    if a.arm_h:  # bargein_replay/11 (A-bargein-N)
+        extra += ["--arm-h", "--twopath-copy-db=" + str(a.twopath_copy_db),
+                  "--twopath-copy-packets", str(a.twopath_copy_packets)]
     if a.caller_level_db_range:
         extra += ["--caller-level-db-range=" + a.caller_level_db_range]  # "=": the value starts with "-"
     if a.erl_db_range:

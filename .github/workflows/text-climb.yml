@@ -1,16 +1,16 @@
-name: z0live barge-in residual-only gate after the NLMS canceller, raw continuous echo, arms D / F / G / G2 (CPU, stdlib)
-# A-bargein-M: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml
+name: z0live barge-in two-path (double-talk-robust) NLMS canceller + residual gate, raw continuous echo, arms D / G / H (CPU, stdlib)
+# A-bargein-N: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml
 # --ref <branch>` can dispatch it (a new workflow file is not dispatchable until it is on the default branch).
 # It runs voice-adapter/bench/bargein_sweep.py with --echo-model residual --echo-continuous (raw echo, NO
-# --echo-erle-db) --bot-render recorded --rhos none (no arm C) --arm-d --arm-f --arm-g --arm-g2 (bargein_replay/10,
-# offline virtual-time sim, Python stdlib only, no network, no secrets) on holdout seed 57 and fresh seeds
-# 10000-10039, one seed per shard, with the three conditions run as parallel processes on the runner: S0
+# --echo-erle-db) --bot-render recorded --rhos none (no arm C) --arm-d --arm-g --arm-h (bargein_replay/11,
+# offline virtual-time sim, Python stdlib only, no network, no secrets) on holdout seed 59 and fresh seeds
+# 11000-11039, one seed per shard, with the three conditions run as parallel processes on the runner: S0
 # unstressed -> out/s0, S1 caller-only (--caller-level-db-range -10,0) -> out/s1, FULL (caller -10,0 and
 # --erl-db-range 0,6) -> out/full.
-# Arms A, B (always run by the sweep), D frozen (k -12 dB, M 30 ms), F = NLMS canceller + D's gate on the residual
-# (L's arm, unchanged), G = the same canceller + a residual-only gate (residual RMS >= 1360, M 30 ms, armed once
-# the canceller's ERLE monitor reached 6 dB, NO render-referenced veto), G2 = G + a residual echo suppressor (NLP,
-# 3 dB over-subtraction of the canceller's own residual-echo estimate).
+# Arms A, B (always run by the sweep), D frozen (k -12 dB, M 30 ms), G = A-bargein-M's arm (NLMS canceller with the
+# Geigel 0.5 double-talk freeze + residual-only gate, residual RMS >= 1360, M 30 ms, armed at monitored ERLE 6 dB),
+# H = the same residual-only gate after a two-path NLMS canceller (background adapts on every render-active packet,
+# no Geigel freeze; the foreground copies it when its residual is >= 0.5 dB lower for 2 consecutive packets).
 on:
   workflow_dispatch:
     inputs:
@@ -29,9 +29,9 @@ jobs:
       fail-fast: false
       max-parallel: 10
       matrix:
-        seed: [57, 10000, 10001, 10002, 10003, 10004, 10005, 10006, 10007, 10008, 10009, 10010, 10011, 10012, 10013,
-               10014, 10015, 10016, 10017, 10018, 10019, 10020, 10021, 10022, 10023, 10024, 10025, 10026, 10027,
-               10028, 10029, 10030, 10031, 10032, 10033, 10034, 10035, 10036, 10037, 10038, 10039]
+        seed: [59, 11000, 11001, 11002, 11003, 11004, 11005, 11006, 11007, 11008, 11009, 11010, 11011, 11012, 11013,
+               11014, 11015, 11016, 11017, 11018, 11019, 11020, 11021, 11022, 11023, 11024, 11025, 11026, 11027,
+               11028, 11029, 11030, 11031, 11032, 11033, 11034, 11035, 11036, 11037, 11038, 11039]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,7 +52,7 @@ jobs:
           cd voice-adapter
           common=(--seeds "$SEED" --jobs 1 --echo-model residual --echo-continuous
                   --bot-render recorded --rhos none --arm-d --energy-k-db -12 --energy-min-speech-ms 30
-                  --arm-f --arm-g --arm-g2 --resid-threshold 1360)
+                  --arm-g --resid-threshold 1360 --arm-h --twopath-copy-db 0.5 --twopath-copy-packets 2)
           t0=$(date +%s)
           python -B bench/bargein_sweep.py "${common[@]}" --out ../out/s0 > ../s0.log &
           p0=$!

@@ -975,9 +975,10 @@ class NlmsGateTest(unittest.TestCase):
                        'nlms_geigel': 0.5, 'nlms_hang_ms': 30, 'nlms_min_updates': 10,
                        'nlms_margin_db': 6.0, 'nlms_converged_db': 6.0} | overrides))
 
-    def synthetic(self, gate, lag_ms=130, gain_db=-10.0, caller_from=None, caller_amp=3000, ms=2000):
+    def synthetic(self, gate, lag_ms=130, gain_db=-10.0, caller_from=None, caller_amp=3000, ms=2000, caller_to=None):
         """Render = the fixture clip tiled; near = sparse 13-tap echo of the render (lag_ms bulk), + noise,
-        + an optional square-ish caller from caller_from ms. Returns the first fire time or None."""
+        + an optional square-ish caller from caller_from ms (until caller_to ms if given). Returns the first fire
+        time or None."""
         n = replay.SAMPLES_MS * replay.CAPTURE_MS
         total = ms * replay.SAMPLES_MS
         sent = array('h', (self.render[i % len(self.render)] for i in range(total)))
@@ -994,7 +995,7 @@ class NlmsGateTest(unittest.TestCase):
                 i = end * replay.SAMPLES_MS - n + j
                 echo = sum(h * sent[i - bulk - d] for d, h in taps if i - bulk - d >= 0)
                 v = g * echo + rng.gauss(0, 50)
-                if caller_from is not None and end - 10 >= caller_from:
+                if caller_from is not None and end - 10 >= caller_from and (caller_to is None or end <= caller_to):
                     v += caller_amp * (1 if (i // 20) % 2 else -1)
                 packet[j] = max(-32768, min(32767, round(v)))
             if gate.observe(end, packet) and fired is None:
@@ -1201,6 +1202,137 @@ class ResidualGateTest(unittest.TestCase):
             self.assertEqual(sorted(res['arms']), ['A', 'B', 'D', 'F', 'G'])
             self.assertEqual(list(res['full_output_sha256']), ['no-arm-c'])
             self.assertEqual(res['arms']['G']['valid_trials_with_veto'], 0)
+            self.assertTrue(res['ab_identical_across_rho_runs'])
+
+
+# bargein_replay/10 bytes of CONT_J_ARGS + --arm-f --arm-f2 --arm-g --arm-g2 (pinned at 413516b, before arm H existed)
+G10_SHA256 = '6f1daa34d45050b40deee7a1e6e0624ac042b82640d8f6d0e58916abc9e707a8'
+
+
+class TwoPathGateTest(unittest.TestCase):
+    """bargein_replay/11: opt-in arm H, arm G's residual-only gate after a double-talk-robust two-path NLMS
+    canceller: a background filter adapts on every render-active packet (no Geigel freeze), the foreground filter
+    (whose residual the gate reads) never adapts itself and only copies the background when the background's
+    residual beat it by twopath_copy_db for twopath_copy_packets consecutive packets."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nlms = NlmsGateTest('test_harness_id')
+        cls.nlms.setUpClass()
+
+    def h_cfg(self, **overrides):
+        return self.nlms.f_cfg(**({'resid_threshold': 1360.0, 'resid_arm_db': 6.0, 'resid_nlp_db': 3.0,
+                                   'twopath_copy_db': 1.0, 'twopath_copy_packets': 2} | overrides))
+
+    @staticmethod
+    def late_erle(gate, t0, t1=10 ** 9):
+        late = [10 * replay.log10(c / r) for t, c, r in gate.log if t0 < t <= t1 and r > 0]
+        return replay.median(late), len(late)
+
+    def test_harness_id(self):
+        self.assertEqual(replay.HARNESS_TWOPATH, 'bargein_replay/11')
+        self.assertEqual(replay.HARNESS_RESID, 'bargein_replay/10')
+
+    def test_h_never_reads_labels(self):
+        import ast
+        import inspect
+        tree = ast.parse(inspect.getsource(replay.TwoPathGate))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                self.assertNotIn(node.id, ArmCTest.FORBIDDEN, node.id)
+            elif isinstance(node, ast.Attribute):
+                self.assertNotIn(node.attr, ArmCTest.FORBIDDEN | {'erl_db', 'gain', 'caller_gain_db', 'erle_db',
+                                                                  'taps', 'delay_ms_true'}, node.attr)
+                if isinstance(node.value, ast.Name) and node.value.id == 'cfg':
+                    self.assertTrue(node.attr.startswith(('nlms_', 'energy_', 'resid_', 'twopath_')), node.attr)
+        self.assertTrue(issubclass(replay.TwoPathGate, replay.ResidualGate))
+        self.assertEqual(list(inspect.signature(replay.TwoPathGate.observe).parameters), ['self', 't', 'packet'])
+
+    def test_h_cancels_echo_and_finds_delay(self):
+        gate = replay.TwoPathGate(self.h_cfg(), 2100)
+        self.assertIsNone(self.nlms.synthetic(gate))
+        self.assertLessEqual(abs(gate.delay_ms - 130), 3)
+        erle, n = self.late_erle(gate, 1500)
+        self.assertGreater(n, 20)
+        self.assertGreaterEqual(erle, 15.0)
+        self.assertGreater(gate.copies, 0)
+        self.assertEqual(gate.dt_packets, 0)  # no Geigel detector in H
+
+    def test_h_adapts_at_low_erl_where_geigel_freezes(self):
+        # ERL 3 dB: Geigel (0.5 x render peak) flags the loud echo itself as double talk, so arm G's canceller
+        # barely adapts; H's background keeps adapting and the foreground copies it
+        g = replay.ResidualGate(self.h_cfg(resid_threshold=10 ** 6), 2100, 'residual')
+        h = replay.TwoPathGate(self.h_cfg(resid_threshold=10 ** 6), 2100)
+        self.assertIsNone(self.nlms.synthetic(g, gain_db=-3.0))
+        self.assertIsNone(self.nlms.synthetic(h, gain_db=-3.0))
+        self.assertGreater(g.dt_packets, 0)
+        erle_g, _ = self.late_erle(g, 1500)
+        erle_h, _ = self.late_erle(h, 1500)
+        self.assertGreaterEqual(erle_h, 15.0)
+        self.assertGreater(erle_h, erle_g + 6.0)
+
+    def test_h_foreground_survives_double_talk(self):
+        # a loud caller burst after convergence: the background is disturbed, the foreground does not copy it,
+        # so cancellation right after the burst is still converged (gate kept from firing by a huge threshold)
+        h = replay.TwoPathGate(self.h_cfg(resid_threshold=10 ** 6), 2100)
+        self.assertIsNone(self.nlms.synthetic(h, caller_from=1200, caller_to=1400, caller_amp=15000, ms=1700))
+        after, n = self.late_erle(h, 1410, 1700)
+        self.assertGreater(n, 10)
+        self.assertGreaterEqual(after, 12.0)
+
+    def test_h_fires_on_quiet_caller(self):
+        h = replay.TwoPathGate(self.h_cfg(), 2100)
+        fired = self.nlms.synthetic(h, caller_from=1500, caller_amp=2400, ms=1800)
+        self.assertIsNotNone(fired)
+        self.assertLessEqual(fired, 1560)
+
+    def test_h_copy_margin_is_the_knob(self):
+        # an unreachable copy margin never copies: the foreground stays at zero weights and never arms
+        h = replay.TwoPathGate(self.h_cfg(twopath_copy_db=60.0), 2100)
+        self.assertIsNone(self.nlms.synthetic(h, caller_from=1500, caller_amp=2400, ms=1800))
+        self.assertEqual(h.copies, 0)
+        self.assertFalse(h.armed)
+
+    def test_cli_arm_h_leaves_other_arms_unchanged(self):
+        proc, g10 = run_cli(*CONT_J_ARGS, *F_ARGS[:2], *G_ARGS)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sha256(g10).hexdigest(), G10_SHA256)  # bargein_replay/10 bytes unchanged
+        proc, data = run_cli(*CONT_J_ARGS, *F_ARGS[:2], *G_ARGS, '--arm-h', '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        p, o = json.loads(g10), json.loads(data)
+        self.assertEqual(o['harness'], 'bargein_replay/11')
+        self.assertEqual(sorted(o['arms']), ['A', 'B', 'C', 'D', 'E', 'F', 'F2', 'G', 'G2', 'H'])
+        for arm in ('A', 'B', 'C', 'D', 'E', 'F', 'F2', 'G', 'G2'):
+            self.assertEqual(canonical(o['arms'][arm]), canonical(p['arms'][arm]), arm)
+        self.assertEqual(o['parameters']['twopath_copy_db'], 1.0)
+        self.assertFalse(any(k.startswith('twopath_') for k in p['parameters']))
+        s = json.loads(proc.stdout)
+        self.assertIs(s['aa_identical'], True)
+        h = s['arms']['H']
+        self.assertEqual(sorted(h['erle_db']), ['n', 'p10', 'p50', 'p90'])
+        self.assertEqual(h['valid_trials_with_veto'], 0)
+        self.assertIn('copies_per_trial', h)
+        self.assertIn('nlms_copies', o['arms']['H']['trials'][0]['trace'])
+        # H alone needs only the canceller flags; twopath flags without --arm-h change nothing
+        proc, data = run_cli(*CONT_J_ARGS, '--arm-h')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sorted(json.loads(data)['arms']), ['A', 'B', 'C', 'D', 'E', 'H'])
+        proc, data = run_cli(*CONT_J_ARGS, '--twopath-copy-db', '3')
+        self.assertEqual(sha256(data).hexdigest(), CONT_J_SHA256)
+
+    def test_sweep_passes_arm_h(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([sys.executable, '-B', str(BENCH_DIR / 'bargein_sweep.py'), '--seeds', '39', '--trials', '10',
+                            '--echo-model', 'residual', '--echo-continuous', '--bot-render', 'recorded', '--rhos',
+                            'none', '--arm-d', '--energy-k-db', '-12', '--energy-min-speech-ms', '30', '--arm-g',
+                            '--arm-h', '--resid-threshold', '1360', '--twopath-copy-db', '2', '--out', tmp],
+                           check=True, capture_output=True, timeout=900)
+            res = json.loads(Path(tmp, 'seed-39.json').read_text())
+            self.assertEqual(res['harness'], 'bargein_replay/11')
+            self.assertIn('--arm-h', res['extra_args'])
+            self.assertIn('--twopath-copy-db=2.0', res['extra_args'])
+            self.assertEqual(sorted(res['arms']), ['A', 'B', 'D', 'G', 'H'])
+            self.assertEqual(res['arms']['H']['valid_trials_with_veto'], 0)
             self.assertTrue(res['ab_identical_across_rho_runs'])
 
 

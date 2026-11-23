@@ -84,6 +84,11 @@ Arms G / G2 (--arm-g / --arm-g2, opt-in, output marked bargein_replay/10; arms A
   the residual energy minus the canceller's estimate of its residual echo (echo-estimate energy x 10^(-monitored
   ERLE/10), over-subtracted by --resid-nlp-db). See ResidualGate.
 
+Arm H (--arm-h, opt-in, output marked bargein_replay/11; arms A-G2 unchanged): arm G's residual-only gate after a
+  double-talk-robust two-path NLMS canceller instead of the Geigel freeze: a background filter adapts on every
+  render-active packet, the foreground filter (read by the gate) copies it when the background residual beats the
+  foreground's by --twopath-copy-db for --twopath-copy-packets consecutive packets. See TwoPathGate.
+
 Stress flags (opt-in, output marked bargein_replay/5; without them nothing changes):
   --caller-level-db-range LO,HI  per valid trial, caller gain g ~ U(LO, HI) dB
             relative to the fixture level (bot render stays at its level), drawn
@@ -145,6 +150,7 @@ HARNESS_CONTINUOUS = "bargein_replay/7"  # only with --echo-continuous
 HARNESS_AEC = "bargein_replay/8"  # only with --echo-erle-db or --arm-e2
 HARNESS_NLMS = "bargein_replay/9"  # only with --arm-f or --arm-f2
 HARNESS_RESID = "bargein_replay/10"  # only with --arm-g or --arm-g2
+HARNESS_TWOPATH = "bargein_replay/11"  # only with --arm-h
 ERL_DB_RANGE = (6, 20)
 REFLECTIONS = 12
 
@@ -750,6 +756,100 @@ class ResidualGate(NlmsGate):
         return level >= n * self.level2
 
 
+class TwoPathGate(ResidualGate):
+    """Arm H (bargein_replay/11): arm G's residual-only gate after a double-talk-robust two-path NLMS canceller.
+
+    Same adapter-only inputs as NlmsGate; the 4 kHz front end, delay estimator, filter span, step size and
+    regularisation are NlmsGate's. The one change is the adaptation control (no Geigel detector at all):
+    (1) Background filter wb: NLMS (mu, delta) on EVERY render-active packet, double talk or not; its residual
+        is never used for the decision.
+    (2) Foreground filter w: never adapts itself. Its residual feeds the gate, the ERLE monitor and the log.
+        After each render-active packet (filter placed), if the background residual energy is at least
+        twopath_copy_db below the foreground's AND below the capture energy, a counter increments (else it resets);
+        after twopath_copy_packets consecutive such packets the background is copied into the foreground.
+        Double talk disturbs the background, which then loses to the foreground and is not copied.
+    (3) The delay estimator updates on every render-active packet (no double-talk freeze).
+    (4) The ERLE monitor (arming) is the EWMA 0.1 of capture/foreground-residual dB over render-active packets.
+    Gate: ResidualGate's (armed once placed and the monitor reached resid_arm_db; residual RMS >= resid_threshold
+    for energy_min_speech_ms).
+    """
+
+    def __init__(self, cfg, span_ms):
+        super().__init__(cfg, span_ms, "residual")
+        self.copy_ratio = 10 ** (-cfg.twopath_copy_db / 10)
+        self.copy_packets = cfg.twopath_copy_packets
+        self.wb = [0.0] * self.length
+        self.better = 0
+        self.copies = 0
+
+    def estimate(self, q0, q1):
+        before = self.delay_ms
+        super().estimate(q0, q1)  # shifts the foreground w with a delay move
+        if before is not None and self.delay_ms != before:
+            shift = (self.delay_ms - before) * 4
+            old = self.wb
+            self.wb = [old[j - shift] if 0 <= j - shift < self.length else 0.0 for j in range(self.length)]
+
+    def observe(self, t, packet):
+        if self.fired:
+            return False
+        end = t * SAMPLES_MS
+        self.near[end - len(packet):end] = packet
+        self.advance(end)
+        m1 = end // 4
+        m0 = m1 - len(packet) // 4
+        n = m1 - m0
+        r4, d4, p4 = self.r4, self.d4, self.p4
+        lag4 = self.lag_ms * 4
+        top = max((p4[e] - p4[e - n] for e in range(max(n, m1 - lag4), m1 + 1)), default=0.0)
+        active = top >= n * THRESHOLD ** 2
+        ee = ey = eb = 0.0
+        if self.delay_ms is None:
+            for m in range(m0, m1):
+                ee += d4[m] * d4[m]
+        else:
+            s0 = max(0, self.delay_ms * 4 - self.pre)
+            taps, mu, delta = self.length, self.mu, self.delta
+            w = self.w
+            for m in range(m0, m1):
+                hi = m - s0 + 1
+                lo = hi - taps
+                x = r4[lo:hi] if lo >= 0 else [0.0] * (-lo) + r4[0:hi] if hi > 0 else [0.0] * taps
+                y = sum(map(mul, w, x))
+                e = d4[m] - y
+                ee += e * e
+                ey += y * y
+                wb = self.wb
+                b = d4[m] - sum(map(mul, wb, x))
+                eb += b * b
+                if active:
+                    norm = p4[max(0, hi)] - p4[max(0, lo)]
+                    if norm:
+                        g = mu * b / (norm + delta)
+                        self.wb = [a + g * v for a, v in zip(wb, x)]
+                        self.updates += 1
+        if active:
+            q1 = end // SAMPLES_MS
+            self.estimate(q1 - len(packet) // SAMPLES_MS, q1)
+        ed = sum(d4[m] * d4[m] for m in range(m0, m1))
+        if active:
+            self.log.append((t, ed, ee))
+            if self.delay_ms is not None and ed and ee:
+                self.erle_hat_db = 0.9 * self.erle_hat_db + 0.1 * 10 * log10(ed / ee)
+        speech = self.decide(n, ee, ed, ey, top)
+        if active and self.delay_ms is not None:  # copy-on-better, after this packet's decision
+            self.better = self.better + 1 if eb <= self.copy_ratio * ee and eb < ed else 0
+            if self.better >= self.copy_packets:
+                self.w = list(self.wb)
+                self.copies += 1
+                self.better = 0
+        self.run = self.run + CAPTURE_MS if speech else 0
+        if self.run >= self.minimum:
+            self.fired = True
+            return True
+        return False
+
+
 def residual_echo(seed, index, kind, erl_db_range=None):
     """bargein_replay/2 per-trial echo path, drawn from its own RNG (erl_db_range: bargein_replay/5)."""
     rng = Random(f"{HARNESS_RESIDUAL}:{seed}:{index}")
@@ -944,7 +1044,8 @@ def replay(trial, arm, cfg, bot):
     ngate = (NlmsGate(cfg, len(speaker) // SAMPLES_MS, "render" if arm == "F" else "echo")
              if arm in ("F", "F2") else
              ResidualGate(cfg, len(speaker) // SAMPLES_MS, "residual" if arm == "G" else "nlp")
-             if arm in ("G", "G2") else None)
+             if arm in ("G", "G2") else
+             TwoPathGate(cfg, len(speaker) // SAMPLES_MS) if arm == "H" else None)
 
     def post(t, priority, label, payload=None):
         heappush(future, (t, priority, next(order), label, payload))
@@ -1034,7 +1135,8 @@ def replay(trial, arm, cfg, bot):
                 flush(t, "erl2_gated_local_vad")
             if ngate and ngate.observe(t, payload):
                 trace["nlms_fire_ms"] = t
-                flush(t, "residual_gated_local_vad" if arm in ("G", "G2") else "nlms_gated_local_vad")
+                flush(t, "residual_gated_local_vad" if arm in ("G", "G2") else
+                      "twopath_residual_gated_local_vad" if arm == "H" else "nlms_gated_local_vad")
             # PCM keeps flowing upstream even if bot audio has been muted.
             post(t + trial["ws_up"], 3, "server_pcm", payload)
         elif event == "server_pcm":
@@ -1103,6 +1205,8 @@ def replay(trial, arm, cfg, bot):
             trial["residual"]["delay_ms"] if "residual" in trial else 35)  # direct-path lag, scoring only
         trace["nlms_erle_db"] = median(erle) if erle else None
         trace["nlms_erle_packets"] = len(erle)
+        if arm == "H":
+            trace["nlms_copies"] = ngate.copies
     row = dict(trial=trial["id"], kind=kind, latency_ms=latency,
                residual_ms=residual, false_barge_in=kind != "valid" and muted,
                missed_valid=kind == "valid" and not muted,
@@ -1158,15 +1262,17 @@ def run(n, seed, cfg, bot):
     arm_f2 = getattr(cfg, "arm_f2", False)
     arm_g = getattr(cfg, "arm_g", False)
     arm_g2 = getattr(cfg, "arm_g2", False)
-    nlms = arm_f or arm_f2 or arm_g or arm_g2
+    arm_h = getattr(cfg, "arm_h", False)
+    nlms = arm_f or arm_f2 or arm_g or arm_g2 or arm_h
     result = dict(seed=seed, trials_per_arm=n, parameters={
         k: v for k, v in vars(cfg).items()
         if k not in ("aa", "output", "seed", "trials", "arm_c", "arm_d", "arm_e", "arm_e2", "arm_f", "arm_f2",
-                     "arm_g", "arm_g2")
+                     "arm_g", "arm_g2", "arm_h")
         and (arm_c or not k.startswith("gate_"))  # default run keeps the frozen bytes
         and (arm_d or arm_e or arm_e2 or nlms or not k.startswith("energy_"))
         and (nlms or not k.startswith("nlms_"))  # bargein_replay/9 only with --arm-f / --arm-f2 (/10: G, G2)
-        and (arm_g or arm_g2 or not k.startswith("resid_"))  # bargein_replay/10 only with --arm-g / --arm-g2
+        and (arm_g or arm_g2 or arm_h or not k.startswith("resid_"))  # bargein_replay/10 only with G / G2 (/11: H)
+        and (arm_h or not k.startswith("twopath_"))  # bargein_replay/11 only with --arm-h
         and (arm_e2 or not k.startswith("erl2_"))  # bargein_replay/8 only with --arm-e2
         and (arm_e or not k.startswith("erl_") or k == "erl_db_range")  # erl_db_range: bargein_replay/5 stress
         and (k != "echo_model" or echo_model != "copy")
@@ -1193,10 +1299,12 @@ def run(n, seed, cfg, bot):
         result["harness"] = HARNESS_NLMS
     if arm_g or arm_g2:
         result["harness"] = HARNESS_RESID
+    if arm_h:
+        result["harness"] = HARNESS_TWOPATH
     arms = ("A", "B", "C") if arm_c else ("A", "B")
     arms += (("D",) if arm_d else ()) + (("E",) if arm_e else ()) + (("E2",) if arm_e2 else ())
     arms += (("F",) if arm_f else ()) + (("F2",) if arm_f2 else ())
-    for arm in arms + (("G",) if arm_g else ()) + (("G2",) if arm_g2 else ()):
+    for arm in arms + (("G",) if arm_g else ()) + (("G2",) if arm_g2 else ()) + (("H",) if arm_h else ()):
         rows = [replay(case, arm, cfg, bot) for case in cases]
         pooled = [v for row in rows for v in row.pop("_erle", ())]
         valid = [row for row in rows if row["kind"] == "valid"]
@@ -1250,7 +1358,7 @@ def run(n, seed, cfg, bot):
                 [row["latency_ms"] for row in valid if row.get("echo_path", {}).get("double_talk")])
             summary["valid_trials_with_veto"] = sum(row["trace"]["erl2_vetoes"] > 0 for row in valid)
             summary["final_est_db"] = quantiles([row["trace"]["erl2_final_est_db"] for row in rows])
-        if arm in ("F", "F2", "G", "G2"):
+        if arm in ("F", "F2", "G", "G2", "H"):
             summary = result["arms"][arm]
             summary["double_talk_latency_ms"] = percentiles(
                 [row["latency_ms"] for row in valid if row.get("echo_path", {}).get("double_talk")])
@@ -1263,6 +1371,8 @@ def run(n, seed, cfg, bot):
             summary["dt_packet_fraction"] = round(dtp / act, 4) if act else None
             summary["delay_error_ms"] = quantiles([row["trace"]["nlms_delay_ms"] - row["trace"]["nlms_delay_true_ms"]
                                                    for row in rows if row["trace"]["nlms_delay_ms"] is not None])
+            if arm == "H":
+                summary["copies_per_trial"] = quantiles([row["trace"]["nlms_copies"] for row in rows])
     return result
 
 
@@ -1349,6 +1459,12 @@ def main():
                         help="arms G/G2: armed (latched) once the filter is placed and its ERLE monitor >= this")
     parser.add_argument("--resid-nlp-db", type=float, default=3.0,
                         help="arm G2: over-subtraction of the estimated residual echo energy, dB")
+    parser.add_argument("--arm-h", action="store_true",
+                        help="add arm H (bargein_replay/11): arm G's gate after a two-path (copy-on-better) NLMS canceller")
+    parser.add_argument("--twopath-copy-db", type=float, default=1.0,
+                        help="arm H: copy background to foreground when its residual is >= this many dB lower")
+    parser.add_argument("--twopath-copy-packets", type=int, default=2,
+                        help="arm H: consecutive better packets before a copy")
     parser.add_argument("--echo-erle-db", type=float, default=None,
                         help="bargein_replay/8 (needs --echo-continuous): linear-AEC residual, echo attenuated X dB")
     parser.add_argument("--echo-model", choices=("copy", "residual"), default="copy",
@@ -1406,6 +1522,9 @@ def main():
 
     if cfg.resid_threshold <= 0 or not -100 <= cfg.resid_arm_db <= 60 or not -60 <= cfg.resid_nlp_db <= 60:
         parser.error("resid: threshold > 0, arm dB in [-100, 60], NLP dB in [-60, 60]")
+
+    if not -20 <= cfg.twopath_copy_db <= 60 or cfg.twopath_copy_packets < 1:
+        parser.error("twopath: copy dB in [-20, 60], copy packets >= 1")
 
     bot = voice(BOT_MS, 142, 11000, 115)
     result = run(cfg.trials, cfg.seed, cfg, bot)
