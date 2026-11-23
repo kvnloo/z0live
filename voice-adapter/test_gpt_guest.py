@@ -867,6 +867,28 @@ class Take16FloorTest(TimedGuestTest):
         self.speak(did, "The laptop is on build four.")
         self.assertTrue(g.observe("primary", output(" The laptop is on build four.")), "its answer is heard")
 
+    async def test_a_reply_that_began_its_promise_muted_stays_muted_at_the_hand_off(self):
+        # Take 19, 53.599 s: the reply to line 3 said " I'll" before the utterance ended, the floor unmuted it at
+        # 53.627, and the phone heard "get the full picture". Take 12: a reply with no promise in it is unmuted.
+        for held, heard in ((" Understood, I'll", False), (" Understood,", True)):
+            with self.subTest(held=held):
+                await self.asyncSetUp()
+                g = self.guest
+                g.set_people(2)
+                g.floor.change("primary", "redirected", 100)
+                self.at(101)
+                g.observe("primary", turn("done", "Can you get it onto my laptop?", 1000, 2000, tid="u3"))
+                self.assertFalse(g.observe("primary", turn("created", "", role="assistant", tid="r1")))
+                self.assertFalse(g.observe("primary", output(held)), "mid-utterance: muted")
+                utterance_ends(g)
+                await asyncio.sleep(0)
+                self.assertEqual(g.observe("primary", output(" get the full picture.")), heard)
+                self.assertEqual("floor.promise_muted" in self.call.traces, not heard)
+                [(did, _)] = self.call.delegated
+                self.speak(did, "The laptop is on build four.")
+                self.assertTrue(g.observe("primary", output(" The laptop is on build four.")), "its answer is heard")
+                await g.close()
+
     def test_a_muted_line_never_reaches_the_phone_at_its_turn_done(self):
         # 55.151 s: unmuted before it ended, the reply's turn.done put "Okay, I'll take that" in the phone's transcript.
         protocol = live.Protocol(host_delegation=True)

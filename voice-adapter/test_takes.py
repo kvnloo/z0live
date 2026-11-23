@@ -158,9 +158,24 @@ class Take18(unittest.TestCase):
                          "only the sentence naming the card")
 
 
+class Take19(unittest.TestCase):
+    """Take 19, line 3 (words scrambled; ids and short words kept)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.r = take("take19")
+
+    def test_a_hand_off_line_that_began_its_promise_muted_stays_muted(self):
+        # 53.599 s: " I'll" came while the utterance was open; the floor unmuted the reply at 53.627 and the phone heard
+        # "get the full picture" until 55.335.
+        self.assertIn("floor.promise_muted", [ev for t, ev, _ in self.r.floor if 53.5 < t < 54])
+        self.assertNotIn("floor.reply_unmuted", [ev for t, ev, _ in self.r.floor if 53.5 < t < 60])
+        self.assertEqual("".join(text for t, text in self.r.heard if 52 < t < 60), "")
+
+
 class RecordedTakes(unittest.TestCase):
     def test_the_takes_are_here(self):
-        self.assertEqual([p.stem for p in TAKES][:12], [f"take{n}" for n in range(7, 19)])
+        self.assertEqual([p.stem for p in TAKES][:13], [f"take{n}" for n in range(7, 20)])
 
     def test_each_recorded_take_passes_the_five_checks_on_the_phone(self):
         for path in TAKES:
