@@ -56,7 +56,10 @@ class HandoffPreambleTests(unittest.TestCase):
         for line in ("Got it, I'll handle that and keep receipts.",
                      "Got it, I\u2019m taking that on end-to-end. I\u2019ll be back with receipts once it\u2019s all "
                      "buttoned up.", "On it.", "Understood, I'll handle it end-to-end and show results when it's done.",
-                     "Got it\u2014I\u2019ll go step by step and show receipts."):  # take 14
+                     "Got it\u2014I\u2019ll go step by step and show receipts.",  # take 14
+                     "Mm-hm. I'll take that. You're right, staging's moved on.", "I\u2019ll take it.",  # take 15
+                     "Still working on that in Hermes. I'll tell you as soon as it's done; ask anything else meanwhile.",
+                     "I'll let you know when it's done."):
             self.assertTrue(live.promises_new_work(line), line)
         for line in ("Let me check.", "Checking now.", "I'll take a quick look.", "Mm-hm.",
                      "I'll check your laptop quickly.", live.RECEIPT, live.QUEUED.format(running=3, position=1)):

@@ -195,13 +195,22 @@ class Replay:
         self.call = None
         self.floor: list[tuple[float, str, dict]] = []  # the adapter's floor.* trace events
         self.lanes = {}
+        began = {}
         for r in self.rows:
             if r.get("cost") == "lane":
                 self.lanes.setdefault(r["did"], {})[r["tier"]] = (r["s"] or 0.0, r["text"])
+            if r.get("cost") in ("hermes", "lane"):
+                at = r["t"] - ((r["work"] if r["cost"] == "hermes" else r["s"]) or 0.0)
+                began[r["did"]] = min(began.get(r["did"], at), at)
+        # A delegation the adapter opened itself (people on the call) has a fresh id on each replay: the n-th one
+        # stands for the n-th recorded one, with its lanes and Hermes answer (take 15 replayed "answer for ...").
+        self.unclaimed = [did for did in sorted(began, key=began.get) if did.startswith("z0live-")]
         self.submitted: list[tuple[float, str, str]] = []  # (t, did, text) sent to Hermes
         self.sent: list[tuple[float, dict]] = []  # events sent to the voice provider
         self.sent_guest: list[tuple[float, dict]] = []  # events sent to the guest voice's session
         self.heard: list[tuple[float, str]] = []  # voice transcript the phone received (audible replies only)
+        self.heard_from: list[str] = []  # the voice each of `heard` came from ("primary" or "guest")
+        self.leg = "primary"  # the voice whose event the adapter is handling
         self.guest = any(r.get("src") == "guest" for r in self.rows)
         self.started: dict[str, float] = {}
         self.requests: list[tuple[str, str]] = []  # (did, request) as host_delegate received them
@@ -279,6 +288,12 @@ class Replay:
         original = live.Call.host_delegate
 
         async def host_delegate(call, did, request):
+            if did not in self.hermes and did not in self.lanes and did.startswith("z0live-") and self.unclaimed:
+                recorded = self.unclaimed.pop(0)
+                if recorded in self.hermes:
+                    self.hermes[did] = self.hermes[recorded]
+                if recorded in self.lanes:
+                    self.lanes[did] = self.lanes[recorded]
             _did.set(did)
             self.started[did] = self.now
             self.requests.append((did, request))
@@ -291,6 +306,14 @@ class Replay:
             return await replay.later(work, answer)
 
         trace = live.Trace.__call__
+        guest_message = live.GPTGuest.message
+
+        def from_guest(guest, raw):  # what the adapter sends while handling the guest's event is the guest's
+            replay.leg = "guest"  # not a ContextVar: a timer set meanwhile (floor_sim's voices) would inherit it
+            try:
+                return guest_message(guest, raw)
+            finally:
+                replay.leg = "primary"
 
         def floor_trace(tr, ev, **data):
             if ev.startswith("floor."):
@@ -313,6 +336,7 @@ class Replay:
                 patch.object(tiers, "load", return_value=cfg), patch.object(live.Call, "host_delegate", host_delegate), \
                 patch.object(live.guest_voice, "configured", return_value=guest), patch.object(live, "time", Clock()), \
                 patch.object(live, "ask_guest_host", ask_guest_host), patch.object(live.Trace, "__call__", floor_trace), \
+                patch.object(live.GPTGuest, "message", from_guest), \
                 patch.object(live.GPTGuest, "later", lambda _, seconds, callback: self.call_later(seconds, callback)), \
                 patch.object(live.Call, "sleep", lambda call, seconds: replay.later(seconds, None), create=True):
             http = ClientSession()
@@ -327,6 +351,7 @@ class Replay:
                     self.react("primary", event)
                 elif event.get("type") == "session.output_transcript.delta":
                     self.heard.append((self.now, event.get("delta") or ""))
+                    self.heard_from.append(self.leg)
 
             call.send = send
             if isinstance(call.guest, live.GPTGuest):
@@ -515,24 +540,52 @@ def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
     """Per voice: answers handed again after the recorded voice had already said them (repeats), and answers it
     never said that were never handed again (lost). "Said" is answer_delivery's measure, on the transcript the phone
     received: enough of a piece's words that the call had not heard before it was sent."""
-    from answer_delivery import content, needed
+    from answer_delivery import RESUME_PREFIX, content, needed, sentences
+    import mobile_live
 
     repeats, lost = [], []
     speech = replay.heard  # what reached the phone from either voice (a muted reply never does)
     rx = [(r["t"], r["rx"], r["src"]) for r in replay.events if "rx" in r]
     for leg, sent in (("primary", replay.sent), ("guest", replay.sent_guest)):
-        handings: dict[str | None, list[tuple[float, str]]] = {}
+        src = "guest" if leg == "guest" else "provider"
+        # What this voice said that reached the phone: what its own answers are judged by (the ledger hears one leg).
+        own = [x for x, by in zip(speech, replay.heard_from) if by == leg]
+        replies = []  # (opened, done) of this voice's replies
+        for t, e, s in rx:
+            if s == src and (e.get("turn") or {}).get("role") == "assistant":
+                if e.get("type") == "turn.created":
+                    replies.append([t, float("inf")])
+                elif e.get("type") == "turn.done" and replies:
+                    replies[-1][1] = t
+
+        def playing(t):  # the reply the phone was hearing at t (its audio drains for about a second after turn.done)
+            return next((opened for opened, done in reversed(replies) if opened <= t <= done + 1.0), None)
+
+        # did -> [(t, text, late)]: late when handed while one of this voice's replies was open (answer_delivery.Piece).
+        # The resume cue ("To finish what I was saying:") is the adapter's, not the answer's: the voice may drop it.
+        # A hand-off is the delegation's the floor traced it for (`of`): the voice's id is None for the adapter's own.
+        handings: dict[str | None, list[tuple[float, str, bool]]] = {}
+        owners = [(t, data["of"]) for t, ev, data in replay.floor if ev in ("floor.answer_sent", "floor.answer_resent")
+                  and data.get("speaker") == leg and "of" in data]
         last = None
         for t, e in sent:
             if e.get("channel") != "speakable":
                 continue
             did, text = e.get("delegation_item_id"), "".join(c.get("text", "") for c in e.get("content", []))
-            if text.startswith(FINAL) or last is None or last[:2] != (t, did):
-                handings.setdefault(did, []).append((t, text[len(FINAL):] if text.startswith(FINAL) else text))
+            if text.startswith(FINAL) or last is None or last[1] != t:
+                at = next((i for i, (ot, _) in enumerate(owners) if ot >= t - 1e-6), None)
+                if at is not None and owners[at][0] <= t + 1e-6:
+                    did = owners.pop(at)[1]
+            elif last is not None:
+                did = last[0]
+            if text.startswith(FINAL) or last is None or last != (did, t):
+                body = text[len(FINAL):] if text.startswith(FINAL) else text
+                late = any(opened < t < done for opened, done in replies)
+                handings.setdefault(did, []).append((t, body.strip().removeprefix(RESUME_PREFIX), late))
             else:  # the next 500-byte piece of the same hand-off
-                at, prior = handings[did][-1]
-                handings[did][-1] = (at, prior + text)
-            last = (t, did)
+                at, prior, late = handings[did][-1]
+                handings[did][-1] = (at, prior + text, late)
+            last = (did, t)
 
         def said(words, since, until):
             heard = set().union(*(content(x) for t, x in speech if since <= t <= until))
@@ -547,50 +600,40 @@ def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
         pieces_of: dict[str | None, list[dict]] = {}
         for did, items in handings.items():
             pieces = pieces_of[did] = []  # each distinct piece of this answer: first sent, its new words, handed again
-            for t, text in items:
+            for t, text, late in items:
                 words = content(text)
                 again = [p for p in pieces if p["all"] <= words]  # a resend carries whole pieces
                 if again and words <= set().union(*(p["all"] for p in pieces)):  # a resend of earlier pieces
-                    if any(said(p["words"], p["t"], t) for p in again):
+                    if any(ledger_entry([(p["t"], p["text"], p["late"])], own, t).pieces[0].spoken for p in again):
                         repeats.append({"leg": leg, "did": did, "t": t})
                     for p in again:
                         p["resent"] = True
                 else:
-                    pieces.append({"t": t, "all": words, "words": words - heard_before(t), "resent": False})
+                    pieces.append({"t": t, "text": text, "late": late, "all": words, "words": words - heard_before(t),
+                                   "resent": False})
         # What this leg's voice said (its recorded transcript), heard or not. A piece it said that the phone never
         # heard went into a muted reply: lost however often it was sent (take 12: line 3's answer was resent, read
         # into a reply the floor had muted, then dropped as unspoken). A resend the recording never had is judged
         # only by the phone: the recorded voice never had the chance to answer it.
-        voice = [(t, (e.get("item") or {}).get("text", "")) for t, e, src in rx
-                 if src == ("guest" if leg == "guest" else "provider") and e.get("type") == "output_transcript.added"]
+        voice = [(t, (e.get("item") or {}).get("text", "")) for t, e, s in rx
+                 if s == src and e.get("type") == "output_transcript.added"]
 
         def voiced(words, since):
             spoken = set().union(*(content(x) for t, x in voice if t >= since))
             return bool(words) and len(words & spoken) >= needed(len(words))
 
-        # Playback stopped under a reply saying an answer: the provider ended the reply because the caller started
-        # talking over it (take 14), the adapter cut it (floor.barge_in), or the floor left the leg. What the phone had
-        # not heard of the answer by then (answer_delivery's rest) must reach it afterwards or be handed back to the
-        # voice (floor.answer_resumed: the recorded voice never had that hand-back to say), unless the caller's next
-        # request superseded it. This is judged from the phone's side, not from the adapter's own floor.answer_cut,
-        # and not from floor.answer_spoken (take 14 credited line 3 at 83.86 s and lost its tail at 93.95 s).
-        src = "guest" if leg == "guest" else "provider"
-        replies = []  # (opened, done) of this voice's replies
-        for t, e, s in rx:
-            if s == src and (e.get("turn") or {}).get("role") == "assistant":
-                if e.get("type") == "turn.created":
-                    replies.append([t, float("inf")])
-                elif e.get("type") == "turn.done" and replies:
-                    replies[-1][1] = t
-
-        def playing(t):  # the reply the phone was hearing at t (its audio drains for about a second after turn.done)
-            return next((opened for opened, done in reversed(replies) if opened <= t <= done + 1.0), None)
-
+        # Playback stopped under a reply: the provider ended it because the caller started talking over it (take
+        # 14), the adapter cut it (floor.barge_in), or the floor left the leg. What the phone had not heard by then of
+        # each answer that reply was saying (answer_delivery's rest), or the whole of an answer handed into that reply
+        # that it never began (take 15, line 3), is owed. This is judged from the phone's side, not from the adapter's
+        # own floor.answer_cut, floor.answer_spoken (take 14 credited line 3 at 83.86 s and lost its tail at 93.95 s)
+        # or floor.answer_resumed (take 15 resumed line 3 from its third paragraph).
         stops = talked_over(rx, src) + [
             (playing(t), t) for t, ev, data in replay.floor if playing(t) is not None
             and ((ev == "floor.barge_in" and data.get("speaker") == leg and data.get("by") != "provider")
                  or (ev == "floor.changed" and data.get("previous") == leg))]
-        cuts: dict[str | None, float] = {}
+        receipt = getattr(mobile_live, "RECEIPT", None)
+        owed: dict[str | None, tuple[float, str]] = {}
         for opened, t in stops:
             # An answer was being said when the reply said two new words of it that no answer it said more of
             # covers (takes 7 and 13: an earlier answer shared its words with the one being said).
@@ -599,26 +642,32 @@ def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
                     if any(p["t"] < t for p in pieces)}
             for did, mine in hits.items():
                 more = set().union(*(theirs for theirs in hits.values() if len(theirs) > len(mine)))
-                said_of = [(at, text) for at, text in handings[did]  # the pieces it began (ledger STARTED_HITS)
-                           if at < t and len((content(text) - heard_before(at)) & heard_between(at, t)) >= 2]
-                if len(mine - more) >= 2 and said_of and unheard_rest(said_of, speech, t):
-                    cuts[did] = max(t, cuts.get(did, t))
-        events = sorted([(t, ev, data) for t, ev, data in replay.floor if data.get("speaker") == leg]
-                        + [(t, "cut", {"did": did}) for did, t in cuts.items()], key=lambda x: x[0])
-        cuts, was_cut = {}, set()
-        for t, ev, data in events:
-            if ev == "cut":
-                cuts[data["did"]] = t
-                was_cut.add(data["did"])
-            elif ev == "floor.answer_resumed" or (ev == "floor.answer_dropped" and data.get("reason") == "new_request"):
-                cuts.pop(data.get("did") if data.get("did") in handings else None, None)  # an id the voice never had
-        for did, t in cuts.items():
-            rest = content(unheard_rest([(at, x) for at, x in handings[did] if at < t], speech, t))
-            if rest and not said(rest, t, float("inf")):
-                lost.append({"leg": leg, "did": did, "t": t, "cut": True})
+                items = [(at, x, late) for at, x, late in handings[did] if at < t]
+                entry = ledger_entry(items, own, t)
+                if entry.started and len(mine - more) >= 2:
+                    rest = entry.rest()
+                else:  # handed into this reply and never begun: all of it (its latest words: a receipt is overtaken)
+                    into = [x for at, x, late in items if late and opened <= at and not (receipt and receipt in x)
+                            and content(x) - heard_before(at)]  # with no new words it has nothing left to hear
+                    rest = into[-1] if into else ""
+                if rest and not (receipt and rest in receipt):  # a status line's rest: the answer overtakes it
+                    owed[did] = (t, rest)
+        for t, ev, data in sorted(replay.floor, key=lambda x: x[0]):
+            if (data.get("speaker") == leg and ev == "floor.answer_dropped" and data.get("reason") == "new_request"
+                    and data.get("did") in owed and owed[data["did"]][0] <= t):
+                del owed[data["did"]]  # the caller moved on: the adapter chose not to finish it
+        for did, (t, rest) in owed.items():
+            # Each owed sentence must reach the phone, or be handed to the voice again (the recorded voice never had
+            # that hand-back to say: a replay judges that hand-back by its own pieces).
+            heard, handed = heard_between(t, float("inf")), set().union(
+                *(content(x) for items in handings.values() for at, x, _ in items if at > t))
+            unsaid = [s for s in sentences(rest) if (own := content(s))
+                      and len(own & heard) < needed(len(own)) and len(own & handed) < needed(len(own))]
+            if unsaid:
+                lost.append({"leg": leg, "did": did, "t": t, "cut": True, "unsaid": unsaid[0][:80]})
         for did, items in handings.items():
             for i, p in enumerate(pieces_of[did]):
-                if did in was_cut or said(p["words"], p["t"], float("inf")):  # a cut answer is judged by its rest
+                if did in owed or said(p["words"], p["t"], float("inf")):  # a stopped answer is judged by its rest
                     continue
                 if any(said(q["words"], q["t"], float("inf")) for q in pieces_of[did][i + 1:]):
                     continue  # a receipt the answer overtook (take 9's "Still working on that in Hermes")
@@ -631,17 +680,19 @@ def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
     return repeats, lost
 
 
-def unheard_rest(items: list[tuple[float, str]], speech: list[tuple[float, str]], t: float) -> str:
-    """What the adapter's ledger would park for this answer at a cut at t (answer_delivery.Entry.rest), from what the
-    phone heard since it was first handed over."""
+def ledger_entry(items: list[tuple[float, str, bool]], speech: list[tuple[float, str]], t: float):
+    """The adapter's ledger entry for this answer at a stop at t (answer_delivery.Entry), from what the phone heard
+    since it was first handed over."""
     from answer_delivery import Entry, Piece, content
 
-    entry = Entry("", None, 0, [Piece(text, frozenset(content(text)), False) for at, text in items if at < t])
+    entry = Entry("", None, 0, [Piece(text, frozenset(content(text) - set().union(*(content(x) for t_, x in speech
+                                                                                       if t_ < at))), False, late)
+                                for at, text, late in items])
     if entry.pieces:
         entry.said = set().union(*(content(x) for at, x in speech if items[0][0] <= at <= t))
         for piece in entry.pieces:
             piece.hear(entry.said)
-    return entry.rest()
+    return entry
 
 
 def talked_over(rx: list, src: str) -> list[tuple[float, float]]:

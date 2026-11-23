@@ -167,9 +167,13 @@ class Sim(replay.Replay):
             self.cut(row["src"], self.now + self.rng.uniform(0.2, 0.6))  # the voice stops under the caller's words
         if self.heard and self.heard[-1][0] >= self.now - 0.01:
             self.last_audible = self.now
-        self.loud = self.now - self.last_audible < 0.5
-        if self.loud and self.call:
-            self.call.output_loud_at = self.now
+        self.keep_loud()
+
+    def keep_loud(self):
+        """The phone's output is loud for 0.5 s after the last word it heard, between rows too: with no row after a
+        reply, the call's output stayed loud and the floor never saw the voice quiet (seed 9)."""
+        self.loud = self.now - getattr(self, "last_audible", float("-inf")) < 0.5
+        super().keep_loud()
 
 
 class Seeded(dict):

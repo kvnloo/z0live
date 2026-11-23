@@ -17,6 +17,27 @@ class LedgerTest(unittest.TestCase):
         self.assertEqual([entry.did for entry in done], ["d1"])
         self.assertEqual(self.ledger.due("primary", 99, quiet_since=20), [])
 
+    def test_an_answer_handed_into_a_playing_reply_counts_only_once_it_says_one_of_its_sentences(self):
+        # Take 15, line 3: the answer came 9 s into the reply to the request, which went on with "The update run is
+        # still going, no new receipts yet". Three of the answer's words, each from another sentence, credited it.
+        answer = ("That job is already running as card seven, so I won't start another. The last receipts are from "
+                  "midnight. Nothing new is planted yet. The shed run keeps landing receipts on the card.")
+        self.ledger.sent("primary", "d1", answer, 10, late=True)
+        self.assertEqual(self.ledger.heard("primary", " The garden run is still going, no new receipts yet."), [])
+        self.assertEqual(self.ledger.cut("primary"), [], "never begun: the whole answer stays pending")
+        [(entry, text)] = self.ledger.due("primary", 30, quiet_since=None)
+        self.assertEqual(text, answer)
+        self.assertEqual([e.did for e in self.ledger.heard("primary", "It's already running as card seven, so "
+                                                                         "I won't start another.")], ["d1"])
+
+    def test_a_late_answer_the_voice_began_from_its_start_is_cut_with_its_unheard_rest(self):
+        # floor_sim seed 49: the voice merged the answer into its open reply and said "That run is already" before
+        # the caller cut in. A voice reads a merged answer from its start, so that is having begun it.
+        answer = "That job is already running as card seven, so I won't start another. Oil it twice a year."
+        self.ledger.sent("primary", "d1", answer, 10, late=True)
+        self.ledger.heard("primary", " That job is already")
+        self.assertEqual(self.ledger.cut("primary"), [("d1", answer)])
+
     def test_a_reply_that_never_says_it_does_not_deliver_it(self):
         # Any allowed reply starting used to mark every pending answer delivered ("Mm-hm." included).
         self.ledger.sent("primary", "d1", "The bike chain is fixed and the brakes need new pads.", 10)
@@ -62,6 +83,16 @@ class LedgerTest(unittest.TestCase):
         self.ledger.sent("primary", "d1", "The bike chain is fixed and the brakes need new pads.", 10)
         self.assertEqual(self.ledger.heard("guest", "The bike chain is fixed, the brakes need pads."), [])
         self.assertEqual(len(self.ledger.pending("primary")), 1)
+
+    def test_an_answer_after_a_resent_status_line_gets_its_own_resend(self):
+        # floor_sim seed 9: the receipt was resent once, Hermes's answer replaced it in the same entry, and the answer
+        # was dropped as unspoken without one resend of its own.
+        self.ledger.sent("primary", "d1", "Still working on the kettle.", 10, lane=True)
+        [(entry, _)] = self.ledger.due("primary", 13, quiet_since=None)
+        self.ledger.resent(entry, 13)
+        self.ledger.sent("primary", "d1", "The kettle fuse blew; a spare is in the drawer.", 14)
+        [(entry, text)] = self.ledger.due("primary", 17, quiet_since=None)
+        self.assertEqual(text, "The kettle fuse blew; a spare is in the drawer.")
 
     def test_hermes_answer_supersedes_an_unspoken_lane_guess(self):
         self.ledger.sent("primary", "d1", "Probably the kettle is broken.", 10, lane=True)
