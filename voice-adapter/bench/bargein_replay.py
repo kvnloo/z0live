@@ -77,6 +77,13 @@ Arms F / F2 (--arm-f / --arm-f2, opt-in, output marked bargein_replay/9; arms A-
   energy_min_speech_ms). F vetoes against the render energy (D's rule); F2 against the capture once the
   canceller's own ERLE monitor says it has converged. Per-trial ERLE (scoring only) is logged. See NlmsGate.
 
+Arms G / G2 (--arm-g / --arm-g2, opt-in, output marked bargein_replay/10; arms A-F2 unchanged): arm F's NLMS
+  canceller followed by a residual-only gate: a packet is speech when the residual RMS >= --resid-threshold, with
+  NO render-referenced veto; flush after energy_min_speech_ms. The gate is armed (latched) once the canceller has
+  placed its filter and its own ERLE monitor reached --resid-arm-db. G2 adds a residual echo suppressor (NLP):
+  the residual energy minus the canceller's estimate of its residual echo (echo-estimate energy x 10^(-monitored
+  ERLE/10), over-subtracted by --resid-nlp-db). See ResidualGate.
+
 Stress flags (opt-in, output marked bargein_replay/5; without them nothing changes):
   --caller-level-db-range LO,HI  per valid trial, caller gain g ~ U(LO, HI) dB
             relative to the fixture level (bot render stays at its level), drawn
@@ -137,6 +144,7 @@ HARNESS_ERL = "bargein_replay/6"  # only with --arm-e
 HARNESS_CONTINUOUS = "bargein_replay/7"  # only with --echo-continuous
 HARNESS_AEC = "bargein_replay/8"  # only with --echo-erle-db or --arm-e2
 HARNESS_NLMS = "bargein_replay/9"  # only with --arm-f or --arm-f2
+HARNESS_RESID = "bargein_replay/10"  # only with --arm-g or --arm-g2
 ERL_DB_RANGE = (6, 20)
 REFLECTIONS = 12
 
@@ -686,6 +694,16 @@ class NlmsGate:
             self.log.append((t, ed, ee))
         if adapt and self.delay_ms is not None and ed and ee:  # the canceller's own ERLE monitor
             self.erle_hat_db = 0.9 * self.erle_hat_db + 0.1 * 10 * log10(ed / ee)
+        speech = self.decide(n, ee, ed, ey, top)
+        self.run = self.run + CAPTURE_MS if speech else 0
+        if self.run >= self.minimum:
+            self.fired = True
+            return True
+        return False
+
+    def decide(self, n, ee, ed, ey, top):
+        """Is this packet unexplained speech? n samples, residual / capture / echo-estimate energies (4 kHz) and
+        the max render-window energy over the lag window."""
         speech = ee >= n * THRESHOLD ** 2
         if speech:
             if self.ref == "echo" and self.erle_hat_db >= self.converged_db:
@@ -695,11 +713,41 @@ class NlmsGate:
             if explained:
                 speech = False
                 self.vetoes += 1
-        self.run = self.run + CAPTURE_MS if speech else 0
-        if self.run >= self.minimum:
-            self.fired = True
-            return True
-        return False
+        return speech
+
+
+class ResidualGate(NlmsGate):
+    """Arms G / G2 (bargein_replay/10): arm F's NLMS canceller (inherited unchanged) + a residual-only gate.
+
+    No veto of any kind: the decision reads only the canceller residual (and, for G2, the canceller's own echo
+    estimate and ERLE monitor), never the render energy. Same adapter-only inputs as NlmsGate.
+    (1) Arming: the gate cannot fire until the canceller has placed its filter (delay estimate) AND its own ERLE
+        monitor has reached resid_arm_db once; then it stays armed (latched) for the rest of the call.
+    (2) G ("residual"): a packet is speech when the residual RMS (4 kHz) >= resid_threshold.
+    (3) G2 ("nlp"): residual echo suppressor first: level = residual energy - 10^(resid_nlp_db/10) x echo-estimate
+        energy x 10^(-monitored ERLE/10) (the canceller's estimate of the echo it left behind); speech when
+        level >= resid_threshold^2 per sample.
+    Flush after energy_min_speech_ms of consecutive speech packets (inherited).
+    """
+
+    def __init__(self, cfg, span_ms, ref):
+        assert ref in ("residual", "nlp")
+        super().__init__(cfg, span_ms, "render")
+        self.ref = ref
+        self.level2 = cfg.resid_threshold ** 2
+        self.arm_db = cfg.resid_arm_db
+        self.nlp = 10 ** (cfg.resid_nlp_db / 10)
+        self.armed = False
+
+    def decide(self, n, ee, ed, ey, top):
+        if not self.armed:
+            self.armed = self.delay_ms is not None and self.erle_hat_db >= self.arm_db
+            if not self.armed:
+                return False
+        level = ee
+        if self.ref == "nlp":
+            level = ee - self.nlp * ey * 10 ** (-self.erle_hat_db / 10)
+        return level >= n * self.level2
 
 
 def residual_echo(seed, index, kind, erl_db_range=None):
@@ -894,7 +942,9 @@ def replay(trial, arm, cfg, bot):
     lgate = ErlGate(cfg, len(speaker) // SAMPLES_MS) if arm == "E" else None
     fgate = ErlFitGate(cfg, len(speaker) // SAMPLES_MS) if arm == "E2" else None
     ngate = (NlmsGate(cfg, len(speaker) // SAMPLES_MS, "render" if arm == "F" else "echo")
-             if arm in ("F", "F2") else None)
+             if arm in ("F", "F2") else
+             ResidualGate(cfg, len(speaker) // SAMPLES_MS, "residual" if arm == "G" else "nlp")
+             if arm in ("G", "G2") else None)
 
     def post(t, priority, label, payload=None):
         heappush(future, (t, priority, next(order), label, payload))
@@ -984,7 +1034,7 @@ def replay(trial, arm, cfg, bot):
                 flush(t, "erl2_gated_local_vad")
             if ngate and ngate.observe(t, payload):
                 trace["nlms_fire_ms"] = t
-                flush(t, "nlms_gated_local_vad")
+                flush(t, "residual_gated_local_vad" if arm in ("G", "G2") else "nlms_gated_local_vad")
             # PCM keeps flowing upstream even if bot audio has been muted.
             post(t + trial["ws_up"], 3, "server_pcm", payload)
         elif event == "server_pcm":
@@ -1106,12 +1156,17 @@ def run(n, seed, cfg, bot):
     arm_e2 = getattr(cfg, "arm_e2", False)
     arm_f = getattr(cfg, "arm_f", False)
     arm_f2 = getattr(cfg, "arm_f2", False)
+    arm_g = getattr(cfg, "arm_g", False)
+    arm_g2 = getattr(cfg, "arm_g2", False)
+    nlms = arm_f or arm_f2 or arm_g or arm_g2
     result = dict(seed=seed, trials_per_arm=n, parameters={
         k: v for k, v in vars(cfg).items()
-        if k not in ("aa", "output", "seed", "trials", "arm_c", "arm_d", "arm_e", "arm_e2", "arm_f", "arm_f2")
+        if k not in ("aa", "output", "seed", "trials", "arm_c", "arm_d", "arm_e", "arm_e2", "arm_f", "arm_f2",
+                     "arm_g", "arm_g2")
         and (arm_c or not k.startswith("gate_"))  # default run keeps the frozen bytes
-        and (arm_d or arm_e or arm_e2 or arm_f or arm_f2 or not k.startswith("energy_"))
-        and (arm_f or arm_f2 or not k.startswith("nlms_"))  # bargein_replay/9 only with --arm-f / --arm-f2
+        and (arm_d or arm_e or arm_e2 or nlms or not k.startswith("energy_"))
+        and (nlms or not k.startswith("nlms_"))  # bargein_replay/9 only with --arm-f / --arm-f2 (/10: G, G2)
+        and (arm_g or arm_g2 or not k.startswith("resid_"))  # bargein_replay/10 only with --arm-g / --arm-g2
         and (arm_e2 or not k.startswith("erl2_"))  # bargein_replay/8 only with --arm-e2
         and (arm_e or not k.startswith("erl_") or k == "erl_db_range")  # erl_db_range: bargein_replay/5 stress
         and (k != "echo_model" or echo_model != "copy")
@@ -1136,9 +1191,12 @@ def run(n, seed, cfg, bot):
         result["harness"] = HARNESS_AEC
     if arm_f or arm_f2:
         result["harness"] = HARNESS_NLMS
+    if arm_g or arm_g2:
+        result["harness"] = HARNESS_RESID
     arms = ("A", "B", "C") if arm_c else ("A", "B")
     arms += (("D",) if arm_d else ()) + (("E",) if arm_e else ()) + (("E2",) if arm_e2 else ())
-    for arm in arms + (("F",) if arm_f else ()) + (("F2",) if arm_f2 else ()):
+    arms += (("F",) if arm_f else ()) + (("F2",) if arm_f2 else ())
+    for arm in arms + (("G",) if arm_g else ()) + (("G2",) if arm_g2 else ()):
         rows = [replay(case, arm, cfg, bot) for case in cases]
         pooled = [v for row in rows for v in row.pop("_erle", ())]
         valid = [row for row in rows if row["kind"] == "valid"]
@@ -1192,7 +1250,7 @@ def run(n, seed, cfg, bot):
                 [row["latency_ms"] for row in valid if row.get("echo_path", {}).get("double_talk")])
             summary["valid_trials_with_veto"] = sum(row["trace"]["erl2_vetoes"] > 0 for row in valid)
             summary["final_est_db"] = quantiles([row["trace"]["erl2_final_est_db"] for row in rows])
-        if arm in ("F", "F2"):
+        if arm in ("F", "F2", "G", "G2"):
             summary = result["arms"][arm]
             summary["double_talk_latency_ms"] = percentiles(
                 [row["latency_ms"] for row in valid if row.get("echo_path", {}).get("double_talk")])
@@ -1281,6 +1339,16 @@ def main():
                         help="arm F2 (once converged): veto when the residual is >= this many dB below the capture")
     parser.add_argument("--nlms-converged-db", type=float, default=6.0,
                         help="arm F2: monitored ERLE (EWMA 0.1 over adapting packets) that switches from D's rule")
+    parser.add_argument("--arm-g", action="store_true",
+                        help="add arm G (bargein_replay/10): NLMS canceller, then a residual-only gate (no veto)")
+    parser.add_argument("--arm-g2", action="store_true",
+                        help="add arm G2 (bargein_replay/10): arm G with a residual echo suppressor (NLP)")
+    parser.add_argument("--resid-threshold", type=float, default=480.0,
+                        help="arms G/G2: speech when the 4 kHz residual RMS (G2: after the NLP) >= this")
+    parser.add_argument("--resid-arm-db", type=float, default=6.0,
+                        help="arms G/G2: armed (latched) once the filter is placed and its ERLE monitor >= this")
+    parser.add_argument("--resid-nlp-db", type=float, default=3.0,
+                        help="arm G2: over-subtraction of the estimated residual echo energy, dB")
     parser.add_argument("--echo-erle-db", type=float, default=None,
                         help="bargein_replay/8 (needs --echo-continuous): linear-AEC residual, echo attenuated X dB")
     parser.add_argument("--echo-model", choices=("copy", "residual"), default="copy",
@@ -1335,6 +1403,9 @@ def main():
             or cfg.nlms_min_updates < 1):
         parser.error("nlms: mu in (0, 2), delta > 0, pre 0..100 ms, post 10..200 ms, geigel in (0, 1], "
                      "hang >= 0, min updates >= 1")
+
+    if cfg.resid_threshold <= 0 or not -100 <= cfg.resid_arm_db <= 60 or not -60 <= cfg.resid_nlp_db <= 60:
+        parser.error("resid: threshold > 0, arm dB in [-100, 60], NLP dB in [-60, 60]")
 
     bot = voice(BOT_MS, 142, 11000, 115)
     result = run(cfg.trials, cfg.seed, cfg, bot)

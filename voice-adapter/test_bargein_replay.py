@@ -1092,5 +1092,117 @@ class NlmsGateTest(unittest.TestCase):
             self.assertTrue(res['ab_identical_across_rho_runs'])
 
 
+# bargein_replay/9 bytes of CONT_J_ARGS + --arm-f --arm-f2 (pinned at 38749e1, before arm G existed)
+F9_SHA256 = '032e7b64f6f737f23230c17bc6322ae7050abdafa55175d7e516642f51feed91'
+G_ARGS = ('--arm-g', '--arm-g2')
+
+
+class ResidualGateTest(unittest.TestCase):
+    """bargein_replay/10: opt-in arms G / G2, the same NLMS canceller as arm F followed by a residual-only gate
+    (local energy onset on the canceller residual, minimum speech energy_min_speech_ms, NO render-referenced
+    veto). G2 adds a residual echo suppressor (NLP): the residual energy minus the canceller's own estimate of
+    the residual echo (echo estimate energy x 10^(-monitored ERLE/10), over-subtracted by resid_nlp_db)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nlms = NlmsGateTest('test_harness_id')
+        cls.nlms.setUpClass()
+
+    def g_cfg(self, **overrides):
+        # 1360 = the dev-tuned residual threshold; at 480 the synthetic's not-yet-converged echo fires G at 220 ms
+        return self.nlms.f_cfg(**({'resid_threshold': 1360.0, 'resid_arm_db': 6.0, 'resid_nlp_db': 3.0}
+                                  | overrides))
+
+    def test_harness_id(self):
+        self.assertEqual(replay.HARNESS_RESID, 'bargein_replay/10')
+        self.assertEqual(replay.HARNESS_NLMS, 'bargein_replay/9')
+
+    def test_g_never_reads_labels(self):
+        import ast
+        import inspect
+        tree = ast.parse(inspect.getsource(replay.ResidualGate))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                self.assertNotIn(node.id, ArmCTest.FORBIDDEN, node.id)
+            elif isinstance(node, ast.Attribute):
+                self.assertNotIn(node.attr, ArmCTest.FORBIDDEN | {'erl_db', 'gain', 'caller_gain_db', 'erle_db',
+                                                                  'taps', 'delay_ms_true', 'sent', 'r4', 'r1',
+                                                                  'ratio2'}, node.attr)
+                if isinstance(node.value, ast.Name) and node.value.id == 'cfg':
+                    self.assertTrue(node.attr.startswith(('nlms_', 'energy_', 'resid_')), node.attr)
+        self.assertTrue(issubclass(replay.ResidualGate, replay.NlmsGate))
+
+    def test_g_ignores_echo_only(self):
+        for ref in ('residual', 'nlp'):
+            gate = replay.ResidualGate(self.g_cfg(), 2100, ref)
+            self.assertIsNone(self.nlms.synthetic(gate), ref)
+            self.assertLessEqual(abs(gate.delay_ms - 130), 3, ref)
+            self.assertEqual(gate.vetoes, 0, ref)  # no veto exists in G / G2
+
+    def test_g_fires_on_quiet_caller_before_f(self):
+        # caller ~ -8 dB under the render peak: G (residual only, no veto) fires before arm F (render veto)
+        f = replay.NlmsGate(self.nlms.f_cfg(), 2100, 'render')
+        fired_f = self.nlms.synthetic(f, caller_from=1500, caller_amp=2400, ms=1800)
+        for ref in ('residual', 'nlp'):
+            g = replay.ResidualGate(self.g_cfg(), 2100, ref)
+            fired_g = self.nlms.synthetic(g, caller_from=1500, caller_amp=2400, ms=1800)
+            self.assertIsNotNone(fired_g, ref)
+            self.assertTrue(fired_f is None or fired_f > fired_g, (ref, fired_f, fired_g))
+
+    def test_g_threshold_is_the_knob(self):
+        low = replay.ResidualGate(self.g_cfg(), 2100, 'residual')
+        high = replay.ResidualGate(self.g_cfg(resid_threshold=5000.0), 2100, 'residual')
+        self.assertIsNotNone(self.nlms.synthetic(low, caller_from=1500, caller_amp=2400, ms=1800))
+        self.assertIsNone(self.nlms.synthetic(high, caller_from=1500, caller_amp=2400, ms=1800))
+
+    def test_g_not_armed_before_canceller_converges(self):
+        # a caller from t=0 (before any filter exists) cannot fire G until the canceller is placed and converged
+        g = replay.ResidualGate(self.g_cfg(), 2100, 'residual')
+        fired = self.nlms.synthetic(g, caller_from=0, caller_amp=1200, ms=300)
+        self.assertIsNone(fired)
+
+    def test_cli_arm_g_leaves_other_arms_unchanged(self):
+        proc, f9 = run_cli(*CONT_J_ARGS, *F_ARGS[:2])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sha256(f9).hexdigest(), F9_SHA256)  # bargein_replay/9 bytes unchanged
+        proc, data = run_cli(*CONT_J_ARGS, *F_ARGS[:2], *G_ARGS, '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        p, o = json.loads(f9), json.loads(data)
+        self.assertEqual(o['harness'], 'bargein_replay/10')
+        self.assertEqual(sorted(o['arms']), ['A', 'B', 'C', 'D', 'E', 'F', 'F2', 'G', 'G2'])
+        for arm in ('A', 'B', 'C', 'D', 'E', 'F', 'F2'):
+            self.assertEqual(canonical(o['arms'][arm]), canonical(p['arms'][arm]), arm)
+        self.assertEqual(o['parameters']['resid_threshold'], 480.0)
+        self.assertFalse(any(k.startswith('resid_') for k in p['parameters']))
+        self.assertIs(json.loads(proc.stdout)['aa_identical'], True)
+        for arm in ('G', 'G2'):
+            s = json.loads(proc.stdout)['arms'][arm]
+            self.assertEqual(sorted(s['erle_db']), ['n', 'p10', 'p50', 'p90'])
+            self.assertEqual(s['valid_trials_with_veto'], 0)
+        # G alone (no F) needs only the canceller flags; resid flags without --arm-g / --arm-g2 change nothing
+        proc, data = run_cli(*CONT_J_ARGS, '--arm-g')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sorted(json.loads(data)['arms']), ['A', 'B', 'C', 'D', 'E', 'G'])
+        proc, data = run_cli(*CONT_J_ARGS, '--resid-threshold', '300')
+        self.assertEqual(sha256(data).hexdigest(), CONT_J_SHA256)
+
+    def test_sweep_passes_arm_g_without_arm_c(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([sys.executable, '-B', str(BENCH_DIR / 'bargein_sweep.py'), '--seeds', '39', '--trials', '10',
+                            '--echo-model', 'residual', '--echo-continuous', '--bot-render', 'recorded', '--rhos',
+                            'none', '--arm-d', '--energy-k-db', '-12', '--energy-min-speech-ms', '30', '--arm-f',
+                            '--arm-g', '--resid-threshold', '400', '--out', tmp], check=True, capture_output=True,
+                           timeout=900)
+            res = json.loads(Path(tmp, 'seed-39.json').read_text())
+            self.assertEqual(res['harness'], 'bargein_replay/10')
+            self.assertIn('--arm-g', res['extra_args'])
+            self.assertIn('--resid-threshold', res['extra_args'])
+            self.assertNotIn('--arm-c', res['extra_args'])
+            self.assertEqual(sorted(res['arms']), ['A', 'B', 'D', 'F', 'G'])
+            self.assertEqual(list(res['full_output_sha256']), ['no-arm-c'])
+            self.assertEqual(res['arms']['G']['valid_trials_with_veto'], 0)
+            self.assertTrue(res['ab_identical_across_rho_runs'])
+
+
 if __name__ == '__main__':
     unittest.main()

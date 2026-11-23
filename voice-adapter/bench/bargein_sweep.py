@@ -53,11 +53,12 @@ def arm_summary(arm):
 
 
 def run_one(seed, rho, m, trials, extra):
+    # rho None (--rhos none, A-bargein-M): one run without arm C, so the costly correlation gate is skipped
+    arm_c = [] if rho is None else ["--arm-c", "--gate-echo-rho", str(rho), "--gate-min-speech-ms", str(m)]
     with tempfile.TemporaryDirectory() as tmp:
         full = Path(tmp) / "full.json"
         subprocess.run([sys.executable, "-B", str(HARNESS), "--seed", str(seed), "--trials", str(trials),
-                        "--arm-c", "--gate-echo-rho", str(rho), "--gate-min-speech-ms", str(m),
-                        *extra, "--output", str(full)], check=True, stdout=subprocess.DEVNULL)
+                        *arm_c, *extra, "--output", str(full)], check=True, stdout=subprocess.DEVNULL)
         data = full.read_bytes()
     return sha256(data).hexdigest(), json.loads(data)
 
@@ -65,19 +66,21 @@ def run_one(seed, rho, m, trials, extra):
 def sweep_seed(seed, m, trials, extra, rhos=RHOS):
     runs = {rho: run_one(seed, rho, m, trials, extra) for rho in rhos}
     base = runs[rhos[0]][1]
-    shared = ("A", "B") + tuple(a for a in ("D", "E", "E2", "F", "F2") if a in base["arms"])  # D, E (opt-in) do not depend on rho
+    shared = ("A", "B") + tuple(a for a in ("D", "E", "E2", "F", "F2", "G", "G2")
+                                if a in base["arms"])  # D, E (opt-in) do not depend on rho
     ab_same = all(json.dumps(r[1]["arms"][a], sort_keys=True) == json.dumps(base["arms"][a], sort_keys=True)
                   for r in runs.values() for a in shared)
     arms = {a: arm_summary(base["arms"][a]) for a in shared}
     for rho, (_, res) in runs.items():
-        arms["C%s" % rho] = arm_summary(res["arms"]["C"])
+        if rho is not None:
+            arms["C%s" % rho] = arm_summary(res["arms"]["C"])
     result = {
         "harness": base.get("harness", "bargein_replay/1"),
         "seed": seed,
         "trials_per_arm": trials,
         "gate_min_speech_ms": m,
         "ab_identical_across_rho_runs": ab_same,
-        "full_output_sha256": {"rho%s" % rho: runs[rho][0] for rho in rhos},
+        "full_output_sha256": {"no-arm-c" if rho is None else "rho%s" % rho: runs[rho][0] for rho in rhos},
         "arms": arms,
     }
     if extra:
@@ -111,6 +114,11 @@ def main():
     p.add_argument("--nlms-min-updates", type=int, default=10)
     p.add_argument("--nlms-margin-db", type=float, default=6.0)
     p.add_argument("--nlms-converged-db", type=float, default=6.0)
+    p.add_argument("--arm-g", action="store_true", help="also run arm G (NLMS + residual-only gate, bargein_replay/10)")
+    p.add_argument("--arm-g2", action="store_true", help="also run arm G2 (arm G + residual echo suppressor)")
+    p.add_argument("--resid-threshold", type=float, default=480.0)
+    p.add_argument("--resid-arm-db", type=float, default=6.0)
+    p.add_argument("--resid-nlp-db", type=float, default=3.0)
     p.add_argument("--bot-render", choices=("periodic", "recorded"), default="periodic")
     p.add_argument("--rhos", default=",".join(map(str, RHOS)), help="arm C rho values, e.g. 0.9 (default 0.7,0.9)")
     p.add_argument("--arm-d", action="store_true", help="also run arm D (energy-ratio gate, bargein_replay/4)")
@@ -127,7 +135,7 @@ def main():
     a = p.parse_args()
     a.out.mkdir(parents=True, exist_ok=True)
     seeds = parse_seeds(a.seeds)
-    rhos = tuple(float(r) for r in a.rhos.split(","))
+    rhos = (None,) if a.rhos == "none" else tuple(float(r) for r in a.rhos.split(","))
     extra = []  # defaults add no flags, so GH16-style bargein_replay/1 sweeps keep their exact bytes
     if a.echo_model != "copy":
         extra += ["--echo-model", a.echo_model]
@@ -146,7 +154,7 @@ def main():
     if a.arm_e2:
         extra += ["--arm-e2", "--erl2-margin-db=" + str(a.erl2_margin_db), "--erl2-prior-db=" + str(a.erl2_prior_db),
                   "--erl2-min-updates", str(a.erl2_min_updates), "--erl2-min-speech-ms", str(a.erl2_min_speech_ms)]
-    if a.arm_f or a.arm_f2:
+    if a.arm_f or a.arm_f2 or a.arm_g or a.arm_g2:
         if not a.arm_d:
             extra += ["--energy-k-db=" + str(a.energy_k_db), "--energy-min-speech-ms", str(a.energy_min_speech_ms)]
         extra += (["--arm-f"] if a.arm_f else []) + (["--arm-f2"] if a.arm_f2 else [])
@@ -154,6 +162,10 @@ def main():
                   "--nlms-post-ms", str(a.nlms_post_ms), "--nlms-geigel", str(a.nlms_geigel),
                   "--nlms-hang-ms", str(a.nlms_hang_ms), "--nlms-min-updates", str(a.nlms_min_updates),
                   "--nlms-margin-db=" + str(a.nlms_margin_db), "--nlms-converged-db=" + str(a.nlms_converged_db)]
+    if a.arm_g or a.arm_g2:
+        extra += (["--arm-g"] if a.arm_g else []) + (["--arm-g2"] if a.arm_g2 else [])
+        extra += ["--resid-threshold", str(a.resid_threshold), "--resid-arm-db=" + str(a.resid_arm_db),
+                  "--resid-nlp-db=" + str(a.resid_nlp_db)]
     if a.caller_level_db_range:
         extra += ["--caller-level-db-range=" + a.caller_level_db_range]  # "=": the value starts with "-"
     if a.erl_db_range:

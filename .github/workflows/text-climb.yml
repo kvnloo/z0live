@@ -1,14 +1,16 @@
-name: z0live barge-in NLMS echo canceller before the energy gate, raw continuous echo, arms D / F / F2 (CPU, stdlib)
-# A-bargein-L: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml
+name: z0live barge-in residual-only gate after the NLMS canceller, raw continuous echo, arms D / F / G / G2 (CPU, stdlib)
+# A-bargein-M: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml
 # --ref <branch>` can dispatch it (a new workflow file is not dispatchable until it is on the default branch).
 # It runs voice-adapter/bench/bargein_sweep.py with --echo-model residual --echo-continuous (raw echo, NO
-# --echo-erle-db) --bot-render recorded --arm-d --arm-f --arm-f2 (bargein_replay/9, offline virtual-time sim, Python
-# stdlib only, no network, no secrets) on holdout seed 55 and fresh seeds 9000-9039, one seed per shard, with the
-# three conditions run as parallel processes on the runner: S0 unstressed -> out/s0, S1 caller-only
-# (--caller-level-db-range -10,0) -> out/s1, FULL (caller -10,0 and --erl-db-range 0,6) -> out/full.
-# Arms A, B, C rho 0.9 at M 40 ms (always run by the sweep), D frozen (k -12 dB, M 30 ms), F = NLMS canceller
-# (mu 0.5, delta 1000/tap, 80 ms FIR at 4 kHz, Geigel 0.5 / 30 ms hangover) + D's gate on the residual, F2 = the
-# same canceller with the capture-referenced veto once converged (margin 6 dB, converged 6 dB).
+# --echo-erle-db) --bot-render recorded --rhos none (no arm C) --arm-d --arm-f --arm-g --arm-g2 (bargein_replay/10,
+# offline virtual-time sim, Python stdlib only, no network, no secrets) on holdout seed 57 and fresh seeds
+# 10000-10039, one seed per shard, with the three conditions run as parallel processes on the runner: S0
+# unstressed -> out/s0, S1 caller-only (--caller-level-db-range -10,0) -> out/s1, FULL (caller -10,0 and
+# --erl-db-range 0,6) -> out/full.
+# Arms A, B (always run by the sweep), D frozen (k -12 dB, M 30 ms), F = NLMS canceller + D's gate on the residual
+# (L's arm, unchanged), G = the same canceller + a residual-only gate (residual RMS >= 1360, M 30 ms, armed once
+# the canceller's ERLE monitor reached 6 dB, NO render-referenced veto), G2 = G + a residual echo suppressor (NLP,
+# 3 dB over-subtraction of the canceller's own residual-echo estimate).
 on:
   workflow_dispatch:
     inputs:
@@ -22,14 +24,14 @@ jobs:
   sweep:
     name: seed ${{ matrix.seed }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 70
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       max-parallel: 10
       matrix:
-        seed: [55, 9000, 9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009, 9010, 9011, 9012, 9013, 9014, 9015,
-               9016, 9017, 9018, 9019, 9020, 9021, 9022, 9023, 9024, 9025, 9026, 9027, 9028, 9029, 9030, 9031,
-               9032, 9033, 9034, 9035, 9036, 9037, 9038, 9039]
+        seed: [57, 10000, 10001, 10002, 10003, 10004, 10005, 10006, 10007, 10008, 10009, 10010, 10011, 10012, 10013,
+               10014, 10015, 10016, 10017, 10018, 10019, 10020, 10021, 10022, 10023, 10024, 10025, 10026, 10027,
+               10028, 10029, 10030, 10031, 10032, 10033, 10034, 10035, 10036, 10037, 10038, 10039]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -42,15 +44,15 @@ jobs:
           cpu=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)
           echo "runner CPU: ${cpu:-unknown} ($(uname -m), $(nproc) cpus), $(python --version)" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Sweep
-        timeout-minutes: 60
+        timeout-minutes: 30
         env:
           SEED: ${{ matrix.seed }}
         run: |
           set -euo pipefail
           cd voice-adapter
           common=(--seeds "$SEED" --jobs 1 --echo-model residual --echo-continuous
-                  --bot-render recorded --rhos 0.9 --arm-d --energy-k-db -12 --energy-min-speech-ms 30
-                  --arm-f --arm-f2)
+                  --bot-render recorded --rhos none --arm-d --energy-k-db -12 --energy-min-speech-ms 30
+                  --arm-f --arm-g --arm-g2 --resid-threshold 1360)
           t0=$(date +%s)
           python -B bench/bargein_sweep.py "${common[@]}" --out ../out/s0 > ../s0.log &
           p0=$!
