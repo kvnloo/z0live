@@ -6,8 +6,8 @@
 #   com.zer0.z0live.voice and .voice-next  voice-adapter/mobile_live.py on 127.0.0.1:9168 or :9169
 #   com.zer0.z0live.proxy  voice-adapter/dashboard_proxy.py on 127.0.0.1:9165; voice-live paths -> active slot,
 #                          everything else -> the dashboard on 127.0.0.1:9119
-#   tailscale serve        https://<this-host>.<tailnet>.ts.net:9119 (tailnet only) -> 127.0.0.1:9165
-# Same layout as groot: the Hermes app uses the https URL, Tailscale holds the certificate, and every call
+#   tailscale serve        https://<your-host>:9119 (tailnet only) -> 127.0.0.1:9165
+# Same layout as the desktop host: the Hermes app uses the https URL, Tailscale holds the certificate, and every call
 # goes through the adapter (and its event trace). The dashboard must bind loopback (docs/STUDIO.md "Front door").
 #   com.zer0.z0live.lanes  voice-adapter/lane_server.py on 127.0.0.1:8646 under the Hermes runtime: fast/medium/
 #                          slow model lanes (tiers.py) as plain model calls through the poteto profile's logins
@@ -125,7 +125,7 @@ for label in "${labels[@]}"; do
   for _ in $(seq 40); do launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1 || break; sleep 0.5; done
   launchctl bootstrap "gui/$(id -u)" "$AGENTS/$label.plist"
 done
-# TLS front door (tailnet only), as on groot. The proxy says https to the dashboard, which then marks its
+# TLS front door (tailnet only), as on the desktop host. The proxy says https to the dashboard, which then marks its
 # session cookies Secure; a plain-http front door would lose them (no_cookie on every ws-ticket, 11-19).
 TS=/opt/homebrew/bin/tailscale
 "$TS" serve --bg --https=9119 http://127.0.0.1:9165 >/dev/null

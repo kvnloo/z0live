@@ -426,8 +426,8 @@ class Passthru:
 
 # ---------------------------------------------------------------------------- phone screen
 def adb_prefix() -> list[str]:
-    """How the Studio reaches Kevin's phone. The S25 sits on groot's adb (the Studio has no route to it)."""
-    return (os.environ.get("Z0LIVE_PASSTHRU_ADB") or "ssh -o ConnectTimeout=4 -o BatchMode=yes groot adb").split()
+    """Use local adb unless a deployment explicitly configures a command prefix."""
+    return (os.environ.get("Z0LIVE_PASSTHRU_ADB") or "adb").split()
 
 
 def phone_serial(run=subprocess.run) -> str:

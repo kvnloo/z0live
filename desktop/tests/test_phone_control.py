@@ -62,7 +62,7 @@ class NoRoute:
 
 
 class FixedTier:
-    def __init__(self, id_, confidence, tier="groot"):
+    def __init__(self, id_, confidence, tier="local"):
         self.id, self.confidence, self.tier, self.calls = id_, confidence, tier, []
 
     def choose(self, goal, cands):
@@ -162,7 +162,7 @@ class PhoneControlTests(unittest.TestCase):
         while time.time() < end and "final" not in delegator.trace(self.sid)[0]["marks"]:
             time.sleep(0.02)  # finish() speaks first, then records
         marks = delegator.trace(self.sid)[0]["marks"]
-        self.assertEqual(marks["decided"]["tier"], "groot")
+        self.assertEqual(marks["decided"]["tier"], "local")
         self.assertEqual(marks["tier0"]["tier"], "phone_lexical")
 
     def test_low_confidence_everywhere_asks_the_owner_instead_of_guessing(self):
@@ -170,7 +170,7 @@ class PhoneControlTests(unittest.TestCase):
         _, phone, _, final = self.run_delegation(
             lambda a, p: CHOOSE, "click on the menu button", tier1=FixedTier("sb1", 0.5), tier2=tier2)
         self.assertEqual([a for a, _ in phone.seen], ["phone_do"], "no tap on a guess")
-        self.assertEqual(len(tier2.calls), 1, "jev consulted after groot was unsure")
+        self.assertEqual(len(tier2.calls), 1, "jev consulted after the desktop host was unsure")
         self.assertIn("Open sidebar", final)
         self.assertIn("More options", final)
         self.assertTrue(final.endswith("?"))

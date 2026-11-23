@@ -96,7 +96,7 @@ def preset(name) -> dict | None:
     return copy.deepcopy(PRESETS[key]) if key else None
 
 
-# route "local": the llama-server instances already serving these GGUFs on groot (OpenAI-compatible).
+# route "local": the llama-server instances already serving these GGUFs on the desktop host (OpenAI-compatible).
 # $Z0LIVE_LOCAL_MODELS (JSON {model: base_url}) overrides; an unknown local model is no answer.
 LOCAL = {"qwen3-0.6b-q8": "http://127.0.0.1:15637", "qwen3-1.7b": "http://127.0.0.1:11542",
          "qwen3.5-4b": "http://127.0.0.1:11540"}
@@ -126,6 +126,8 @@ def validate(cfg) -> list[str]:
     if out:
         return out
     for i, b in enumerate(cfg["lanes"]["smol"]["models"]):
+        if b["route"] == "vllm-sr" and not SR_BASE:
+            out.append(f"smol.models[{i}]: vllm-sr requires Z0LIVE_SR_URL to be set")
         if b.get("tier", "small") not in TIERS:
             out.append(f"smol.models[{i}].tier must be fast or small")
         if b["route"] == "voice_plan" and b["model"] not in ROLES:
@@ -144,8 +146,8 @@ def validate(cfg) -> list[str]:
     return out
 
 
-# vLLM Semantic Router (k3s NodePort on groot since 11-15); free models only, public-class turns only.
-SR_BASE = os.environ.get("Z0LIVE_SR_URL", "http://100.113.138.100:30899/v1").rstrip("/")
+# vLLM Semantic Router (k3s NodePort on the desktop host since 11-15); free models only, public-class turns only.
+SR_BASE = os.environ.get("Z0LIVE_SR_URL", "").strip().rstrip("/")
 
 
 # ------------------------------------------------------------------ privacy (Kevin decision 3, 11-05)

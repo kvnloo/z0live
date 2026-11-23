@@ -23,7 +23,7 @@ const MONO: &str = "IBM Plex Mono";
 const SERIF: &str = "Instrument Serif";
 const LEN: f32 = 34.0;
 
-// groot-baseline palette (glide-hackathon-v3/src/theme.json)
+// the desktop host-baseline palette (glide-hackathon-v3/src/theme.json)
 const GROUND: &str = "#181f23";
 const PIT: &str = "#12171a";
 const LIFT: &str = "#252c30";

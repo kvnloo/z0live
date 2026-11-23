@@ -16,14 +16,14 @@ VOICE_PATHS = {
 }
 VOICE_SLOTS = web.AppKey("voice_slots", Slots)
 
-# HERMES_DASHBOARD_UPSTREAM: where the real dashboard listens. groot binds it to loopback; the Studio
-# binds it to its tailnet address (100.100.77.46:9119), so this proxy sits on another port there.
+# HERMES_DASHBOARD_UPSTREAM: where the real dashboard listens. The desktop host binds it to loopback; the Studio
+# binds it to its tailnet address, so this proxy sits on another port there.
 UPSTREAM_HOST = os.environ.get("HERMES_DASHBOARD_UPSTREAM", "127.0.0.1:9119")
 UPSTREAM_HTTP = f"http://{UPSTREAM_HOST}"
 UPSTREAM_WS = f"ws://{UPSTREAM_HOST}"
 # HERMES_PROXY_FORWARDED_PROTO: the scheme the app really uses. The dashboard trusts loopback proxies and
 # marks session cookies Secure when this says https; an http:// client (the Studio front door) then never
-# returns them and every /api/auth/ws-ticket fails with no_cookie. groot sits behind tailscale serve TLS.
+# returns them and every /api/auth/ws-ticket fails with no_cookie. The desktop host sits behind tailscale serve TLS.
 FORWARDED_PROTO = os.environ.get("HERMES_PROXY_FORWARDED_PROTO", "https")
 HOP_HEADERS = {
     "connection",
@@ -163,8 +163,8 @@ def make_app(slots=None):
 def main() -> None:
     directory = os.environ.get("Z0LIVE_VOICE_SLOTS")
     app = make_app(Slots(directory) if directory else None)
-    # HERMES_PROXY_HOSTS: comma list of bind addresses; add the k3s cni0 gateway (10.42.0.1) so the
-    # Tailscale operator's ingress pod on groot can reach this proxy. Default stays loopback-only.
+    # HERMES_PROXY_HOSTS: comma list of bind addresses; add the k3s cni0 gateway so the
+    # Tailscale operator's ingress pod on the desktop host can reach this proxy. Default stays loopback-only.
     hosts = [h for h in os.environ.get("HERMES_PROXY_HOSTS", "127.0.0.1").split(",") if h]
     web.run_app(app, host=hosts, port=int(os.environ.get("HERMES_PROXY_PORT", "9165")), access_log=None)
 

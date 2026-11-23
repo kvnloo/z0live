@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run on groot: llama-bench for lane-candidate GGUFs on every attached Android, all devices in parallel.
+# Run on the desktop host: llama-bench for lane-candidate GGUFs on every attached Android, all devices in parallel.
 # Lane-shaped: -p 1024 (lane prompt + brief is ~1k tokens, so ttft ~ 1024 / prefill tok/s), -n 64 (a spoken answer).
 # Per run "model:set". all = CPU+OpenCL+Hexagon NPU; nohex = CPU+OpenCL (NPU libs not pushed);
 # generic = the CPU-only generic build, libs beside the binary (it loads backends from its own directory).

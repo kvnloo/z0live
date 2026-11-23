@@ -11,6 +11,9 @@ import urllib.request
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from z0live_desktop.core import BASE, ROOT, Store
 
+if not BASE:
+    raise SystemExit("set Z0LIVE_BASE_URL to run the live inbox check")
+
 store = Store()
 token = store.pair("headless-inbox-" + str(time.time_ns()))
 device = store.authenticate(token)

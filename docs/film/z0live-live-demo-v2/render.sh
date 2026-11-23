@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Full render in 5 s GPU pieces (exact frame count each, retried), joined, encoded to H.264 with the real call audio (out/mix.wav).
-# Run on groot from the crate dir. Usage: bash render.sh NAME   ->  out/NAME.mp4
+# Run on the desktop host from the crate dir. Usage: bash render.sh NAME   ->  out/NAME.mp4
 # (After glide-hackathon-v3/src/tools/render-pieces.sh.)
 set -e
 cd "$(dirname "$0")"

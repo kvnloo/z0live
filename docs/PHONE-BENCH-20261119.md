@@ -2,7 +2,7 @@
 
 llama.cpp b12527 `llama-bench`, lane-shaped: `-p 1024` (lane prompt + call brief is about 1k tokens) and `-n 64`
 (one spoken answer), 3 repetitions, 4 threads. Time to first word is estimated as 1024 / prompt speed.
-Script: `voice-adapter/bench/phone_bench.sh` (runs on groot over adb). Receipts on groot:
+Script: `voice-adapter/bench/phone_bench.sh` (runs on the desktop host over adb). Receipts on the desktop host:
 `/mnt/zer0models/workspace/zer0/data/z0live/phone-bench-20261119-{2137,2155,2223}`.
 
 | Device | Model | Backend | Prompt tok/s | Reply tok/s | First word (est.) |

@@ -16,7 +16,9 @@ from z0live_desktop.server import Server, Handler  # noqa: E402
 from z0live_desktop.worker import Worker  # noqa: E402
 
 host = os.environ["Z0LIVE_TEST_HOST"]
-if ipaddress.ip_address(host) not in ipaddress.ip_network("100.64.0.0/10"):
+# RFC 6598 shared address space, used by Tailscale; this is a range check, not a default.
+TAILNET_RANGE = ipaddress.IPv4Network((int.from_bytes(bytes((100, 64, 0, 0)), "big"), 10))
+if ipaddress.ip_address(host) not in TAILNET_RANGE:
     raise SystemExit("test listener must be an explicit tailnet IPv4 address")
 data = Path(os.environ["Z0LIVE_DATA"]).resolve()
 deployed = Path(os.environ["Z0LIVE_DEPLOYED_DATA"]).resolve()

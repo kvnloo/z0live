@@ -1,6 +1,6 @@
 # Desktop broker verification receipts
 
-Verified on groot through **https://0.taila30dc.ts.net:8791**, with real host ChatGPT OAuth,
+Verified on the desktop host through **https://<your-host>:8791**, with real host ChatGPT OAuth,
 OpenAI WebRTC and the native Hermes API adapter. No provider credentials are printed or committed.
 This deployment adapter leaves the portable z0live v0 runtime/fixtures and z0evals certification work intact.
 

@@ -6,10 +6,10 @@ Default input: the whole trace store (HERMES_MOBILE_VOICE_TRACE_DIR or the mobil
 Per user turn (provider `turn.done` role=user):
   eos_to_commit   end of user sound (mic energy) -> provider commits the user turn
   commit_to_audio provider commit -> first assistant audio frame back from the provider
-  eos_to_audio    end of user sound -> first assistant audio  (headline "felt" latency, groot-side)
+  eos_to_audio    end of user sound -> first assistant audio  (headline "felt" latency, the desktop host-side)
 Per delegation: start -> first lane answer, start -> Hermes answer, answers dropped after hang-up.
 Barge-ins: user sound starting while assistant audio plays, and how long the assistant kept talking.
-Times are measured on groot; phone<->groot network and phone playout buffers are NOT included.
+Times are measured on the desktop host; phone<->the desktop host network and phone playout buffers are NOT included.
 """
 import json
 import os

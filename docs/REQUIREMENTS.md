@@ -16,7 +16,7 @@ Sources: owner messages in Hermes `clean`, `ayo`, `poteto` state.db, mined 11-19
 |---|---|---|
 | N1 | GPT-Live stays the **default** engine (already supported); Grok Voice selectable to test, because it leads on task completion and reasoning | 11-19 |
 | N2 | z0live becomes an **official Hermes plugin** (catalog entry) | 11-19 |
-| N3 | **Continuous hill-climb** on z0live using every device (Studio, groot, MBP, S25, S22, tablet) | 11-19 |
+| N3 | **Continuous hill-climb** on z0live using every device (Studio, the desktop host, MBP, S25, S22, tablet) | 11-19 |
 | N4 | Change z0live config **before or during a call**: lanes, and the voice model (GPT-Live, STT+TTS chain, Claude, Grok) | 11-19 |
 | N5 | Runs on the Mac Studio, durable and documented in the home repo; k3s control plane on the Studio | 11-19 |
 | N6 | Claude voice: Claude as the brain behind STT/TTS (Anthropic has no voice API); Claude-app connector path is a separate decision | 11-19 |
@@ -82,7 +82,7 @@ session. Replay, permission-boundary, cancellation or self-interruption regressi
 
 ## Known gaps (measured 11-19)
 
-- groot k3s node NotReady since 11-17; MBP control plane disk 96%; semantic router scaled to 0.
-- Local lane models (groot llama-servers on 11530/15637) are down, so the core's local fast lanes answer nothing.
+- the desktop host k3s node NotReady since 11-17; MBP control plane disk 96%; semantic router scaled to 0.
+- Local lane models (the desktop host llama-servers on 11530/15637) are down, so the core's local fast lanes answer nothing.
 - S25 wireless-debugging port changes on every restart; Studio adb reaches it over the tailnet once told the port.
 - The phone app must point at the Studio proxy `:9165`; calls to `:9119` reach stock Hermes voice, not z0live.

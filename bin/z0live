@@ -132,6 +132,8 @@ def main():
         store.voice.journal.trace(args.turn, "L2", "partial_finding")
         print(dumps({"status": "queued", "turn_id": args.turn}))
     elif args.command == "pair":
+        if not BASE:
+            parser.error("pair requires Z0LIVE_BASE_URL to be set to the phone-accessible broker URL")
         qr_mode = args.qr or args.qr_png is not None
         encoder = shutil.which("qrencode") if qr_mode else None
         if qr_mode and not encoder:

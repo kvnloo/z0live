@@ -149,7 +149,7 @@ class WarmHaiku:
 LANE_MERGE_WAIT = 20  # seconds after the first lane lands before speaking the merge without the stragglers
 LANE_POLL = 1.0
 FABLE_SCRIPT = os.environ.get("FAST_LANE_FABLE_SCRIPT", str(Path(__file__).with_name("fable_lanes.py")))
-# The dashboard that validates the phone's bearer. groot binds it to loopback; the Studio binds its tailnet IP.
+# The dashboard that validates the phone's bearer. the desktop host binds it to loopback; the Studio binds its tailnet IP.
 UPSTREAM_HOST = os.environ.get("HERMES_DASHBOARD_UPSTREAM", "127.0.0.1:9119")
 UPSTREAM = f"http://{UPSTREAM_HOST}"
 SIGNALING = "https://chatgpt.com/backend-api/codex/realtime/calls?intent=quicksilver&architecture=avas"
@@ -1980,7 +1980,10 @@ class Call:
         how = handoff.mode()
         if how == "off" or reason not in handoff.PHONE_CLOSES or not self.protocol.exchanges:
             return
-        serial = os.environ.get("HERMES_VOICE_PHONE", "192.168.1.2:40059")
+        serial = os.environ.get("HERMES_VOICE_PHONE", "").strip()
+        if not serial:
+            self.trace("handoff.skipped", reason="HERMES_VOICE_PHONE not configured", mode=how)
+            return
         try:
             front = await asyncio.to_thread(handoff.foreground, serial)  # traced only
             if not handoff.decide(reason, front, how):

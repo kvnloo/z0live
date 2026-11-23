@@ -108,8 +108,8 @@ def main():
         tier = pc.Tier1(model=model, timeout=60)
         tier.choose("warm up", [{"id": "a", "label": "OK", "role": "button"}, {"id": "b", "label": "Cancel", "role": "button"}])
         rows = run(tier, pc.TIER1_FLOOR, data)
-        report["tiers"].append(summary("groot:" + model, rows))
-        report["rows"]["groot:" + model] = rows
+        report["tiers"].append(summary("local:" + model, rows))
+        report["rows"]["local:" + model] = rows
         print(json.dumps(report["tiers"][-1]))
     if args.jev:
         rows = run(pc.Tier2(timeout=5.0), None, data)

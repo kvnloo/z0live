@@ -36,7 +36,7 @@ Score per engine: D = |median - 0.43| + max(0, waits>1s - 13.2)/100 + |backchann
 (lower is better; seconds-equivalent; every component is reported too). Keep a change when D drops by more than the
 noise band (first iteration: re-run the baseline once to measure it) and no engine's D rises past noise, `spoke_first`
 stays 0, the 65 adapter tests pass (`cd voice-adapter && Z0LIVE_DESKTOP=$PWD/../desktop env -u PYTHONPATH
-.venv/bin/python -m unittest test_*` module names; without Z0LIVE_DESKTOP two lane tests fail on the groot default), and the replay WAVs show no garbled or doubled speech (listen to one per change:
+.venv/bin/python -m unittest test_*` module names; without Z0LIVE_DESKTOP two lane tests fail on the the desktop host default), and the replay WAVs show no garbled or doubled speech (listen to one per change:
 spectrogram or ASR check).
 
 Stop predicate: an engine is "Dessa-level" when D <= 0.15, median within 0.43 +- 0.15 s, waits > 1 s <= 20 %,
@@ -209,7 +209,7 @@ The spoken breakdown was facts 4/6, reasoning 5/6, brief context 6/6, follow-ups
 All 30 cases played an answer, with no execution errors. Private receipts are at
 `~/.local/share/z0live/bench/localvoice-final-1795198489-spoken/`.
 
-## Track B: phone lanes (S22, Lenovo tab, S25; via groot adb)
+## Track B: phone lanes (S22, Lenovo tab, S25; via the desktop host adb)
 
 Harness: `voice-adapter/bench/phone_bench.sh` (llama-bench, 1k-token prompt, 64-token reply) for raw speed, plus a
 lane-latency probe to add first: llama-server on the phone, one warm request carrying the call brief, then 5 turns that
@@ -221,13 +221,13 @@ tab CPU 26.7-32.8 s; tab Vulkan (custom NDK build of b12527) segfaults right aft
 
 Hypothesis backlog:
 1. Prefix cache: keep the brief in the KV cache (llama-server cache_prompt + a fixed slot). Expected S22 ~16 s -> < 1 s.
-   PROBE 11-20 (B2): `bench/phone_lane_probe.sh SERIAL MODEL` (run on groot) is the lane-latency harness. S22 was off
+   PROBE 11-20 (B2): `bench/phone_lane_probe.sh SERIAL MODEL` (run on the desktop host) is the lane-latency harness. S22 was off
    adb (wireless debugging off), so it ran on the tab, Qwen3-1.7B CPU: no-cache control 42.3 s -> warm median 2.80 s
    (5 turns, 23-25 new tokens each; cold brief 37.8 s / 1,168 tokens). TTFT == server prompt_ms, so adb adds ~0.
    Warm turns are bimodal 2.5 / 5.2 s and decode is 3.8 tok/s vs 9.5 in llama-bench: the 4 GB tab was swapping (1.6 of
    2.1 GB swap used, hre-slm's embed server also resident; inferred). Run the S22 when it is back on adb. The probe's
    server must stay in its own session (setsid): a wireless-adb drop kills adbd's children, hre-slm's server included.
-   KEPT 11-20 (B7, measurement): S22 still off, S25 back on groot adb, so hyp 1 ran on the S25 (qwen3-1.7b, android
+   KEPT 11-20 (B7, measurement): S22 still off, S25 back on the desktop host adb, so hyp 1 ran on the S25 (qwen3-1.7b, android
    build, `-dev GPUOpenCL -ngl 99`, KEEP_MODEL=0): no-cache control 2.92 s (1,437 tok) -> warm median 0.18 s
    [0.166..0.181], cold brief 2.33 s / 1,144 tok, thermal 0. The cache makes the S25 a sub-200 ms lane once the brief
    is warm, so the brief should be prefilled at call start, before the first question (next: wire it, hyp 8 role split).
@@ -258,7 +258,7 @@ Hypothesis backlog:
    So model compression, not truncation, is the way to a ~300-token phone lane context. Next: render the compressed
    facts as chat-style sentences (or say in the lane header that general knowledge is still answered) and re-score
    v2-model; then the tab warm TTFT at that size (B10 fit predicts ~0.9 s, inferred). Run the probe
-   from a file on groot (`scp`, then `bash /tmp/probe.sh ... < /dev/null`). Piped over `ssh bash -s` it does nothing,
+   from a file on the desktop host (`scp`, then `bash /tmp/probe.sh ... < /dev/null`). Piped over `ssh bash -s` it does nothing,
    because `adb shell` eats the rest of the script from stdin. The first B11 attempt dropped the tab's wireless adb at
    78 s cold. That killed hre-slm's :8081 embed supervisor, which was restored with `hre_slm_server.sh` and the args
    in `docs/fleet/hre-phone-sweep.md` (k3s-hre-phone-sweep worktree).

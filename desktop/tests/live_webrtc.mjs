@@ -6,7 +6,8 @@ import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 
 const root=path.resolve(import.meta.dirname,'../..');
-const base=process.env.Z0LIVE_TEST_BASE||'https://0.taila30dc.ts.net:8791';
+const base=process.env.Z0LIVE_TEST_BASE;
+if (!base) throw new Error('Set Z0LIVE_TEST_BASE before running this live check');
 const pairing=execFileSync(path.join(root,'bin/z0live'),['pair','headless-live-'+Date.now()],{encoding:'utf8'});
 const token=pairing.match(/Device token: ([^\n]+)/)[1];
 const request=async(p,body)=>{

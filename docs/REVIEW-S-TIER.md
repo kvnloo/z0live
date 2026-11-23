@@ -153,7 +153,7 @@ re-review. The S-tier shape:
 - A failing validator, and a README install command that 404s.
 - Impersonating "Codex Desktop" after reading another tool's `auth.json`.
 - Personal paths and hosts as code defaults: `/mnt/zer0models` at `mobile_live.py:196,493` and `handoff.py:21`;
-  phone `192.168.1.2:40059` at `mobile_live.py:1168`; `~/.claude-sub2` at `:111`; "Kevin" in 13 prompt lines of
+  phone `<phone-ip>:<port>` at `mobile_live.py:1168`; `~/.claude-sub2` at `:111`; "Kevin" in 13 prompt lines of
   `mobile_live.py`.
 
 ---
@@ -169,7 +169,7 @@ On a stock checkout, 69 tests run with 2 failures:
 With `Z0LIVE_DESKTOP=$PWD/../desktop`, **all 69 pass**. I reproduced both outcomes.
 
 Mechanism:
-- `mobile_live.py:196` defaults `Z0LIVE_DESKTOP` to the groot path
+- `mobile_live.py:196` defaults `Z0LIVE_DESKTOP` to the the desktop host path
   `/mnt/zer0models/workspace/zer0/products/z0live/desktop`.
 - The import of `covered` from `z0live_desktop.mobile_relay` (`:197-209`) fails, and the failure is swallowed
   (`except ImportError: pass`), so `covered` becomes `None`.
@@ -542,7 +542,7 @@ state, and the dead `HERMES_VOICE_BRIEF_CHUNK` knob.
 
 | Claim | Grade | Basis |
 |---|---|---|
-| 2 test failures are caused by the groot default | established | Reproduced both ways. |
+| 2 test failures are caused by the the desktop host default | established | Reproduced both ways. |
 | H1 (subprocess spawn) causes the 40 s | **disconfirmed** for these traces | 88/0 path split; 0.7 s spawn. |
 | H2 (agent work) causes the 40 s | strongly_supported | Correlation, not a controlled run. Item 12's A/B is the falsifier. |
 | H3 (transport) causes the 40 s | unknown, likely small | A per-turn WebSocket connect is sub-second, but I did not measure it separately. |

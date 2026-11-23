@@ -108,7 +108,8 @@ def parse(utterance, base=None) -> dict:
             cfg["lanes"]["council"]["invoke"]["max_per_call"] = min(n, 3) if n else 0
         else:
             have = _bindings(cfg, tier)
-            pool = [b for b in POOLS[tier] if all(b["model"] != h["model"] for h in have)]
+            pool = [b for b in POOLS[tier] if (lanes.SR_BASE or b["route"] != "vllm-sr")
+                    and all(b["model"] != h["model"] for h in have)]
             if n > len(have) + len(pool):
                 raise ValueError(f"only {len(have) + len(pool)} {tier} lanes are available")
             _set_tier(cfg, tier, [{k: v for k, v in b.items() if k != "tier"} for b in (have + pool)[:n]])

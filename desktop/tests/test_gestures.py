@@ -244,7 +244,7 @@ class GestureTests(unittest.TestCase):
         def fake(argv, **kwargs):
             calls.append(argv)
             out = (
-                "List of devices attached\n100.64.1.2:4567\tdevice\nUSBTEST\tdevice\n"
+                "List of devices attached\n192.0.2.2:4567\tdevice\nUSBTEST\tdevice\n"
                 if argv == ["adb", "devices"]
                 else "Starting: Intent"
             )
@@ -256,7 +256,7 @@ class GestureTests(unittest.TestCase):
             [
                 "adb",
                 "-s",
-                "100.64.1.2:4567",
+                "192.0.2.2:4567",
                 "shell",
                 "am",
                 "start",
@@ -315,7 +315,7 @@ class GestureTests(unittest.TestCase):
             return subprocess.CompletedProcess(
                 argv,
                 0,
-                "List of devices attached\n100.64.1.2:4567\tdevice\n"
+                "List of devices attached\n192.0.2.2:4567\tdevice\n"
                 if len(argv) == 2
                 else "Starting: Intent",
                 "",

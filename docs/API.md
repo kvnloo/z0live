@@ -1,6 +1,6 @@
 # z0live desktop API v1
 
-Base URL: **https://0.taila30dc.ts.net:8791** (Tailscale Serve → `127.0.0.1:8791`, tailnet only).
+Base URL: **https://<your-host>:8791** (Tailscale Serve → `127.0.0.1:8791`, tailnet only).
 All routes, including health and SSE, require `Authorization: Bearer DEVICE_TOKEN`.
 JSON POST bodies require `Content-Type: application/json`. Never put tokens in URL queries except the
 one-time pairing deeplink; never log that link. HTTPS uses the normal Tailscale certificate.
@@ -10,7 +10,7 @@ one-time pairing deeplink; never log that link. HTTPS uses the normal Tailscale 
 On the desktop, run `z0live pair NAME --qr` for a terminal QR, or
 `z0live pair NAME --qr-png PATH` for a new **0600** PNG (requires `qrencode`). These
 flags can be combined; neither mode prints the plaintext token or link. The QR contains
-`z0live://pair?url=https%3A%2F%2F0.taila30dc.ts.net%3A8791&token=...`.
+`z0live://pair?url=https%3A%2F%2Fbroker.example.invalid%3A8791&token=...`.
 Open **z0live → Scan pairing QR** on Lawnchair, scan, then confirm the backend origin.
 QR and deeplink input share validation and confirmation before encrypted storage; scanning
 uses Google Play services, not a Lawnchair CAMERA permission. A missing scanner module
@@ -362,6 +362,6 @@ A future Garden Room adapter can pair as `web`, mint via `/v1/realtime/session` 
 `get_app_state`, `app_action`, layouts and AR tools, and keep executing these locally in `voice.js`.
 Use this broker's builtin tell_hermes/context/summary dispatch, normalized batched events and inbox/SSE;
 retain Garden Room's mic/audio gesture and turn-continuation handling. Allowlist its exact HTTPS origin
-in `data/z0live/service.env` as `Z0LIVE_CORS_ORIGINS=https://0.taila30dc.ts.net:8790` before testing.
+in `data/z0live/service.env` as `Z0LIVE_CORS_ORIGINS=https://<your-host>:8790` before testing.
 Do not embed a permanent token in public JS; obtain it via pairing and keep it in an authenticated client
 store. This is a separate adapter, not a change to the portable v0 WebSocket/VoicePlan protocol in PRs #6/#7.

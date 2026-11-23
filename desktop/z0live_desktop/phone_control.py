@@ -4,7 +4,7 @@ The phone does tier 0 itself (`phone_do`: on-phone lexical/synonym match over th
 accessibility tree, sub-millisecond). When it is unsure it returns `status: choose` with
 ranked candidates, and the broker escalates:
 
-* tier 1 - a small model on groot's llama-server router (tailnet, ~15-50 ms warm), one
+* tier 1 - a small model on the desktop host's llama-server router (tailnet, ~15-50 ms warm), one
   grammar-constrained letter, confidence from the renormalised letter probabilities;
 * tier 2 - Jev's action chooser (~0.5 s), through the hermes-jev plugin's jevkit, only
   with labels that pass Jev's own privacy check.
@@ -145,7 +145,7 @@ def tier1_prompt(goal: str, cands: list[dict]) -> str:
 
 
 class Tier1:
-    """Grammar-constrained one-letter choice on groot's llama-server router."""
+    """Grammar-constrained one-letter choice on the desktop host's llama-server router."""
 
     def __init__(self, url=TIER1_URL, model=TIER1_MODEL, timeout=TIER1_TIMEOUT, opener=None):
         self.url, self.model, self.timeout = url, model, timeout
@@ -192,8 +192,8 @@ class Tier1:
         total = sum(probs.values())
         confidence = probs.get(picked, 0.0) / total if total else 0.0
         if picked not in letters:
-            return {"tier": "groot", "id": None, "confidence": 0.0, "ms": round(ms, 1), "model": self.model}
-        return {"tier": "groot", "id": cands[letters.index(picked)]["id"], "confidence": round(confidence, 3),
+            return {"tier": "local", "id": None, "confidence": 0.0, "ms": round(ms, 1), "model": self.model}
+        return {"tier": "local", "id": cands[letters.index(picked)]["id"], "confidence": round(confidence, 3),
                 "ms": round(ms, 1), "model": self.model}
 
 

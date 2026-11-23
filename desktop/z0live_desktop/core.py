@@ -23,7 +23,7 @@ from .work_schema import TOOLS as WORK_TOOLS
 
 ROOT = Path(__file__).resolve().parents[2]
 DATA = Path(os.environ.get("Z0LIVE_DATA", str(ROOT.parents[1] / "data/z0live")))
-BASE = os.environ.get("Z0LIVE_BASE_URL", "https://0.taila30dc.ts.net:8791")
+BASE = os.environ.get("Z0LIVE_BASE_URL", "").strip().rstrip("/")
 VERSION = "1.0.0"
 LOG = logging.getLogger("z0live.core")
 INSTRUCTIONS_VERSION = "z0live.persona.v4"

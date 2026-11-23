@@ -2,7 +2,7 @@
 
 ## Host installation
 
-Deployment targets Kevin's desktop `groot`, user `kvn`; the paths in `deploy/*.service` are deliberately
+Deployment targets Kevin's desktop `the desktop host`, user `kvn`; the paths in `deploy/*.service` are deliberately
 explicit. Inspect/adapt them for another machine. The broker needs only Python ≥3.10 stdlib. The native
 Hermes API host uses `hermes --print-runtime-command` to select the installed interpreter and imports
 `APIServerAdapter` from the installed source (`Z0LIVE_HERMES_SOURCE` can override it).
@@ -22,6 +22,11 @@ systemctl --user enable --now z0live-hermes.service z0live.service
 tailscale serve --bg --https=8791 http://127.0.0.1:8791
 z0live pair s25 --qr
 ```
+
+Set `Z0LIVE_BASE_URL` in both the broker and the pairing CLI environments to the
+phone-accessible URL (for example, `https://<your-host>:8791`, replacing
+`<your-host>` with your host name). There is no default. The broker can run on
+loopback without it, but pairing requires it.
 
 Install `qrencode` for QR output (Arch: `sudo pacman -S qrencode`). On the phone open
 **z0live → Scan pairing QR → confirm**; when already paired the button is in Settings.
@@ -51,6 +56,14 @@ is already enabled on this host; services survive terminal logout and restart af
   - optional `service.env`: non-secret broker settings, loaded by systemd.
 - Hermes transcript/run state remains in the clean profile's native state.db; the broker never writes it.
 - Journal: `journalctl --user -u z0live.service -u z0live-hermes.service -f`.
+
+Optional remote routes are off unless configured. Set `Z0LIVE_SR_URL` to your
+semantic router's OpenAI-compatible base URL (ending in `/v1`) to enable
+`vllm-sr` lane bindings. `Z0LIVE_SYSTEM_MODEL_URL` is a separate, full chat
+completions URL for phone-system model selection; without it, only the local
+model fallback is used. Set `HERMES_VOICE_PHONE` to the ADB serial to enable
+phone handoff. Passthrough screen mirroring uses local `adb` unless
+`Z0LIVE_PASSTHRU_ADB` supplies another command prefix.
 
 Settings: `Z0LIVE_DATA`, `Z0LIVE_BASE_URL`, `Z0LIVE_PORT`, `Z0LIVE_CODEX_AUTH`,
 `Z0LIVE_SUMMARY_SECONDS` (300), `Z0LIVE_IDLE_SECONDS` (120), `Z0LIVE_CORS_ORIGINS` (exact comma-separated

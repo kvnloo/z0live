@@ -254,7 +254,7 @@ class Delegator:
         self.store = store
         self.hermes = hermes or Hermes(store)
         enabled = os.environ.get("Z0LIVE_PHONE_SYSTEM") == "1"
-        # System lane: exact, read-back phone settings over groot's adb (opt-in per deployment).
+        # System lane: exact, read-back phone settings over the desktop host's adb (opt-in per deployment).
         self.system = system if system is not None else (
             ps.Lane(watcher=ps.Watcher(store.directory / "phone_system_watch.jsonl")) if enabled else None)
         # Multi-step Android work goes to its own Hermes session, separate from general voice work.

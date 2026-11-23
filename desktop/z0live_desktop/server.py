@@ -267,9 +267,7 @@ def serve():
     server = Server(("127.0.0.1", int(os.environ.get("Z0LIVE_PORT", "8791"))), Handler)
     server.store = store
     server.stop = stop
-    server.origins = {BASE} | set(
-        filter(None, os.environ.get("Z0LIVE_CORS_ORIGINS", "").split(","))
-    )
+    server.origins = set(filter(None, [BASE, *os.environ.get("Z0LIVE_CORS_ORIGINS", "").split(",")]))
     server.sse_clients = 0
     server.sse_lock = threading.Lock()
     worker = threading.Thread(

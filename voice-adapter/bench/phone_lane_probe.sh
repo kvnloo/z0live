@@ -1,12 +1,12 @@
 #!/bin/bash
-# Run on groot: lane-latency probe for one phone (Track B harness, docs/HILLCLIMB-OVERNIGHT.md).
+# Run on the desktop host: lane-latency probe for one phone (Track B harness, docs/HILLCLIMB-OVERNIGHT.md).
 # llama-server on the phone, one cold request carrying a ~1k-token call brief, then 5 turns that each append ~50
 # new tokens (previous reply + a new user line). Metric: median time to first token of the 5 warm turns, which is
 # the real lane cost when the brief stays in the KV cache. A final turn with cache_prompt=false is the no-cache
 # control in the same harness.
 # Usage: phone_lane_probe.sh SERIAL MODEL [set=generic|android|vulkan] [extra llama-server args...]
 #   set=vulkan pushes the static Vulkan llama-server built with bench/ggml-vulkan-mali-vk11.patch (B14).
-#   BRIEF_FILE=path (on groot): lane mode. The file is the exact lane system text (tiers.SYSTEM + tiers.snapshot(brief, []),
+#   BRIEF_FILE=path (on the desktop host): lane mode. The file is the exact lane system text (tiers.SYSTEM + tiers.snapshot(brief, []),
 #   written by the caller); each turn is a stateless lane request [system + "This call so far", ask] rendered by
 #   the model's own chat template (/apply-template), as tiers.race sends it. Unset: the frozen ChatML brief.
 set -u
