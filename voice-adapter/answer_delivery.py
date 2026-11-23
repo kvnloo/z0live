@@ -73,7 +73,8 @@ class Piece:
 
 
 def sentences(text: str) -> list[str]:
-    return [s for s in re.split(r"(?<=[.!?])\s+", text.strip()) if s]
+    """Sentences and their clauses ("... ordering bug: the blur ran ..."): what a cut can leave unheard."""
+    return [s for s in re.split(r"(?<=[.!?:;])\s+", text.strip()) if s]
 
 
 @dataclass
@@ -90,16 +91,17 @@ class Entry:
         return any(p.spoken or (p.hits and len(p.hits) >= min(STARTED_HITS, len(p.new))) for p in self.pieces)
 
     def rest(self) -> str:
-        """The sentences after the last one the voice said (`needed` of the words it adds to the ones before it).
-        Speech runs in order, so what comes before that sentence, or before the piece the voice was saying (a
-        receipt the answer overtook, take 13), is not owed."""
+        """The sentences after the last one the voice said (half the words it adds to the ones before it: the sim
+        cut a one-sentence answer three words in, and `needed` called it said). Speech runs in order, so what comes
+        before that sentence, or before the piece the voice was saying (a receipt the answer overtook, take 13), is
+        not owed."""
         begun = [i for i, p in enumerate(self.pieces) if p.hits or p.spoken]
         pieces = self.pieces[begun[-1] if begun else 0:]
         parts, last, before = [s for p in pieces for s in sentences(p.text)], -1, set()
         for i, sentence in enumerate(parts):
             own = content(sentence) - before
             before |= own
-            if own and len(own & self.said) >= needed(len(own)):
+            if own and 2 * len(own & self.said) >= len(own):
                 last = i
         return " ".join(parts[last + 1:])
 

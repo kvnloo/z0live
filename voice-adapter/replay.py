@@ -67,8 +67,8 @@ def fixture(trace: Path) -> list[dict]:
     out, started, free_at, guest_started = [], {}, 0.0, {}
     for r in rows:
         ev = r.get("ev")
-        if ev in ("audio.on", "audio.off") and r.get("dir") == "output":
-            out.append({"t": r.get("at", r["t"]), "output_loud": ev == "audio.on"})
+        if ev in ("audio.on", "audio.off") and r.get("dir") in ("output", "input"):
+            out.append({"t": r.get("at", r["t"]), r["dir"] + "_loud": ev == "audio.on"})
         elif ev == "guest.delegation.start":
             guest_started[r.get("did")] = r["t"]
         elif ev == "guest.delegation.done" and r.get("answer") and r.get("did") in guest_started:
@@ -190,6 +190,8 @@ class Replay:
         self.hermes = {r["did"]: (r["work"], r["answer"]) for r in self.rows if r.get("cost") == "hermes"}
         self.guest_answers = [(r["work"], r["answer"]) for r in self.rows if r.get("cost") == "guest"]  # in order
         self.loud = False  # the phone's output is loud (the recorded audio.on/off spans)
+        self.mic = False  # the caller's mic is loud (input spans: mic quiet ends an utterance)
+        self.extra: list[dict] = []  # provider events fed mid-call (floor_sim's voices), judged with the rows
         self.call = None
         self.floor: list[tuple[float, str, dict]] = []  # the adapter's floor.* trace events
         self.lanes = {}
@@ -243,9 +245,21 @@ class Replay:
         self.now = t
         self.keep_loud()
 
+    @property
+    def events(self) -> list[dict]:
+        return sorted(self.rows + self.extra, key=lambda r: r["t"]) if self.extra else self.rows
+
+    def react(self, leg, event):
+        """An event the adapter sent to a voice's session. The recorded voice never answers it (floor_sim's does)."""
+
+    def after(self, row):
+        """A row has been fed to the adapter."""
+
     def keep_loud(self):
         if self.loud and self.call:
             self.call.output_loud_at = self.now
+        if self.mic and self.call:
+            self.call.input_loud_at = self.now
 
     async def run(self):
         import mobile_live as live
@@ -310,17 +324,21 @@ class Replay:
             def send(event, to_provider=False, **_):
                 if to_provider:
                     self.sent.append((self.now, event))
+                    self.react("primary", event)
                 elif event.get("type") == "session.output_transcript.delta":
                     self.heard.append((self.now, event.get("delta") or ""))
 
             call.send = send
             if isinstance(call.guest, live.GPTGuest):
-                call.guest.send = lambda event: self.sent_guest.append((self.now, event))
+                call.guest.send = lambda event: (self.sent_guest.append((self.now, event)), self.react("guest", event))
             for row in self.rows:
                 await self.advance(row["t"], chat)
                 if "output_loud" in row:
                     self.loud = row["output_loud"]
                     call.output_loud_at = self.now
+                elif "input_loud" in row:
+                    self.mic = row["input_loud"]
+                    call.input_loud_at = self.now
                 elif "rx" in row and row["src"] == "guest":
                     if call.guest:
                         call.guest.message(json.dumps(row["rx"]))
@@ -328,6 +346,7 @@ class Replay:
                 elif "rx" in row:
                     call.message(json.dumps(row["rx"]), row["src"] == "provider")
                     await self.pump()
+                self.after(row)
             await self.advance(self.rows[-1]["t"] + 900, chat)
             self.counts = dict(call.counts)
             call.closed = True
@@ -345,7 +364,7 @@ def words(text):
 
 def report(replay: Replay) -> dict:
     """The adapter's side of the Dessa contract, from what it sent."""
-    rx = [(r["t"], r["rx"]) for r in replay.rows if "rx" in r]
+    rx = [(r["t"], r["rx"]) for r in replay.events if "rx" in r]
     user_turns = [(t, (e.get("turn") or {}).get("transcript") or "") for t, e in rx
                   if e.get("type") == "turn.done" and (e.get("turn") or {}).get("role") == "user"]
     replies, open_at = [], None  # (created, done) of the voice's replies
@@ -403,7 +422,7 @@ def report(replay: Replay) -> dict:
         if e.get("type") == "delegation.created":
             created.setdefault((e.get("item") or {}).get("id"), t)
     said, open_at = [], None
-    for r in replay.rows:
+    for r in replay.events:
         e, turn_ = r.get("rx") or {}, (r.get("rx") or {}).get("turn") or {}
         if r.get("src") != "provider" or turn_.get("role") != "assistant":
             continue
@@ -412,13 +431,14 @@ def report(replay: Replay) -> dict:
         elif e.get("type") == "turn.done":
             said.append((r["t"] if open_at is None else open_at, turn_.get("transcript") or ""))
             open_at = None
-    promised = [{"did": did, "said": text[:160]} for did in replay.started if did in created
-                for at, text in said if created[did] - 1.5 <= at < own.get(did, float("inf"))
+    # A run the adapter started on its own (people on the call) has no delegation of the provider's: its start.
+    promised = [{"did": did, "said": text[:160]} for did, began in replay.started.items()
+                for at, text in said if created.get(did, began) - 1.5 <= at < own.get(did, float("inf"))
                 and mobile_live.promises_new_work(text)]
     # Unasked: the caller named Tek (as the transcriber hears it: "Hey, Tech, ...", takes 9 and 14) and Tek's own
     # Hermes was not asked between the turn's first words and 15 s after it closed.
     unasked, seen = [], {}
-    for r in replay.rows:
+    for r in replay.events:
         e, turn_ = r.get("rx") or {}, (r.get("rx") or {}).get("turn") or {}
         key = (r.get("src"), turn_.get("id") or e.get("turn_id"))
         seen.setdefault(key, r["t"])  # a leg can close a turn 10 s after its words (take 9)
@@ -439,6 +459,58 @@ def report(replay: Replay) -> dict:
             "repeats": repeats, "lost": lost, "promised": promised, "unasked": unasked}
 
 
+REACH_SECONDS = 5.0  # a request to a bot reaches its Hermes this soon after the caller's line ends (check 2)
+
+
+def checks(replay: Replay) -> dict[str, list]:
+    """Film call 1's five checks, judged on what the phone got (replay.heard) and on which Hermes runs started, for
+    a fixture with `line` rows (bench/take_fixture.py). Each value lists what broke the check; [] passes.
+      quiet    lines 0-1 and 5 (the people talking to each other) get no bot speech: nothing reaches the phone
+               from line 0 until line 2, and after line 5 only the words of answers the caller asked for
+      whole    every answer is heard in full, or its unheard rest is handed back (report lost)
+      promised no hand-off line promises work before Hermes says what happened (report promised)
+      reached  each line to a bot reaches that bot's Hermes within REACH_SECONDS of the line's end
+      runs     no Hermes run for words nobody said to a bot: a run is what can write to a board"""
+    from answer_delivery import RESUME_PREFIX, content
+
+    lines = [r for r in replay.events if "line" in r]
+    by = {r["line"]: r for r in lines}
+    report_ = report(replay)
+    out = {"quiet": [], "whole": report_["lost"], "promised": report_["promised"], "reached": [], "runs": []}
+    if 2 in by:
+        early = "".join(text for t, text in replay.heard if by[0]["t"] <= t < by[2]["t"]).strip()
+        if early:
+            out["quiet"].append({"line": "0-1", "heard": early[:120]})
+    if 5 in by:
+        handed = set(content(RESUME_PREFIX)).union(*(content("".join(c.get("text", "") for c in e.get("content", [])))
+                                                    for _, e in replay.sent + replay.sent_guest))
+        # Each reply begun after line 5 starts: a draft to it says words of its own; a reply reading an answer the
+        # caller asked for says that answer's words (a third or more of what it says) along with its own.
+        opened, replies = {}, []
+        for r in replay.events:
+            e = r.get("rx") or {}
+            if (e.get("turn") or {}).get("role") == "assistant" and e.get("type") in ("turn.created", "turn.done"):
+                if e["type"] == "turn.created":
+                    opened[r["src"]] = r["t"]
+                elif r["src"] in opened:
+                    replies.append((opened.pop(r["src"]), r["t"]))
+        replies += [(t, float("inf")) for t in opened.values()]
+        before = set().union(*(content(x) for t, x in replay.heard if t < by[5]["t"]))
+        for a, b in replies:
+            said = set().union(*(content(x) for t, x in replay.heard if a <= t <= b + 1.0)) - before
+            if a >= by[5]["t"] and len(said - handed) > 2 and 3 * len(said & handed) < len(said):
+                out["quiet"].append({"line": 5, "heard": sorted(said - handed)[:12]})
+    runs = {"hermes": sorted(replay.started.values()), "tek": [t for t, _ in replay.guest_asked]}
+    for line in lines:
+        if line["to"] in runs and not any(line["t"] <= t <= line["end"] + REACH_SECONDS for t in runs[line["to"]]):
+            out["reached"].append({"line": line["line"], "to": line["to"]})
+    for bot, starts in runs.items():
+        for t in starts:
+            if not any(line["to"] == bot and line["t"] <= t <= line["end"] + 2 * REACH_SECONDS for line in lines):
+                out["runs"].append({"bot": bot, "t": round(t, 3)})
+    return out
+
+
 def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
     """Per voice: answers handed again after the recorded voice had already said them (repeats), and answers it
     never said that were never handed again (lost). "Said" is answer_delivery's measure, on the transcript the phone
@@ -447,7 +519,7 @@ def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
 
     repeats, lost = [], []
     speech = replay.heard  # what reached the phone from either voice (a muted reply never does)
-    rx = [(r["t"], r["rx"], r["src"]) for r in replay.rows if "rx" in r]
+    rx = [(r["t"], r["rx"], r["src"]) for r in replay.events if "rx" in r]
     for leg, sent in (("primary", replay.sent), ("guest", replay.sent_guest)):
         handings: dict[str | None, list[tuple[float, str]]] = {}
         last = None
@@ -539,7 +611,7 @@ def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
                 cuts[data["did"]] = t
                 was_cut.add(data["did"])
             elif ev == "floor.answer_resumed" or (ev == "floor.answer_dropped" and data.get("reason") == "new_request"):
-                cuts.pop(data.get("did"), None)
+                cuts.pop(data.get("did") if data.get("did") in handings else None, None)  # an id the voice never had
         for did, t in cuts.items():
             rest = content(unheard_rest([(at, x) for at, x in handings[did] if at < t], speech, t))
             if rest and not said(rest, t, float("inf")):
@@ -550,6 +622,8 @@ def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
                     continue
                 if any(said(q["words"], q["t"], float("inf")) for q in pieces_of[did][i + 1:]):
                     continue  # a receipt the answer overtook (take 9's "Still working on that in Hermes")
+                if not p["resent"] and not any(t >= p["t"] for t, _ in voice):
+                    continue  # sent after the recorded voice's last words: the recording cannot say (floor_sim can)
                 if not p["resent"]:
                     lost.append({"leg": leg, "did": did, "t": p["t"]})
                 elif voiced(p["words"], p["t"]):
@@ -596,10 +670,11 @@ def main(argv):
         Path(argv[2]).write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
         os.chmod(argv[2], 0o600)
         return 0
-    if argv[:1] == ["run"] and len(argv) > 1:
+    if argv[:1] in (["run"], ["check"]) and len(argv) > 1:
         for path in argv[1:]:
-            rows = [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()]
-            print(Path(path).name, json.dumps(asyncio.run(Replay(rows).run()), ensure_ascii=False))
+            replayed = Replay([json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()])
+            result = asyncio.run(replayed.run())
+            print(Path(path).name, json.dumps(checks(replayed) if argv[0] == "check" else result, ensure_ascii=False))
         return 0
     print(__doc__)
     return 2

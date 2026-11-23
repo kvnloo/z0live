@@ -411,7 +411,9 @@ class PeopleOnTheCall(unittest.TestCase):
                 + delegation(52.1, "d3", ask)
                 + [{"t": 52.3, "src": "provider", "rx": {"type": "turn.done", "turn": {
                     "id": "p3", "role": "user", "transcript": ask, "start_ms": 41800, "end_ms": 51400}}}]
-                + hermes("d3", 20, "That run is already going as card 7."))
+                + hermes("d3", 20, "That run is already going as card 7.")
+                # Kevin's mic stayed loud through his ask while its words trailed (the trace's input spans)
+                + [{"t": 42.4, "input_loud": True}, {"t": 51.4, "input_loud": False}])
         r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows, history=PEOPLE)
         import asyncio
         asyncio.run(r.run())
@@ -575,7 +577,8 @@ class PeopleOnTheCall(unittest.TestCase):
                 {"t": 71.9, "ev": "guest.delegation.start", "did": "gd4"},
                 {"t": 90.6, "ev": "guest.delegation.done", "did": "gd4", "answer": "A startup timing bug."}]))
             rows = replay.fixture(trace)
-        self.assertEqual(rows, [{"t": 61.919, "output_loud": True}, {"t": 66.704, "output_loud": False},
+        self.assertEqual(rows, [{"t": 61.919, "output_loud": True}, {"t": 62.2, "input_loud": True},
+                                {"t": 66.704, "output_loud": False},
                                 {"t": 90.6, "cost": "guest", "work": 18.7, "answer": "A startup timing bug."}])
 
     def test_a_fixture_keeps_the_calls_people_count(self):
