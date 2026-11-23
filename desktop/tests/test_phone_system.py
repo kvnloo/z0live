@@ -5,6 +5,7 @@ brightness, a media session) and answers the exact commands the lane sends, so e
 `landed` claim is checked against state the fake actually changed.
 """
 
+from ipaddress import IPv4Network
 import os
 from pathlib import Path
 import re
@@ -195,6 +196,7 @@ class SystemTests(unittest.TestCase):
         self.assertEqual((out["ok"], out["status"]), (False, "adb_unavailable"))
 
 
+@patch("z0live_desktop.tailnet.TAILNET_IPV4", IPv4Network("192.0.2.0/24"))
 class AdbTransportTests(unittest.TestCase):
     def runner(self, devices, serials):
         calls = []
@@ -208,7 +210,7 @@ class AdbTransportTests(unittest.TestCase):
     def test_pinned_serial_prefers_the_tailnet_transport(self):
         devices = ("List of devices attached\nRFC123 device usb:1\nadb-R5C-x._adb-tls-connect._tcp device\n"
                    "192.0.2.3:39057 device\n")
-        run, _ = self.runner(devices, {"RFC123": "RFC123", "adb-R5C-x._adb-tls-connect._tcp": "R5C",
+        run, _ = self.runner(devices, {"RFC123": "R5C", "adb-R5C-x._adb-tls-connect._tcp": "R5C",
                                        "192.0.2.3:39057": "R5C"})
         self.assertEqual(ps.Adb("R5C", run).transport(), "192.0.2.3:39057")
 

@@ -27,6 +27,8 @@ import subprocess
 import threading
 import time
 import urllib.request
+
+from .tailnet import is_tailnet_transport
 from pathlib import Path
 
 STREAMS = {"media": 3, "music": 3, "ring": 2, "ringer": 2, "notification": 5,
@@ -193,7 +195,7 @@ class Adb:
     """Run shell commands on the owner's phone, resolved by its hardware serial number.
 
     `Z0LIVE_PHONE_SERIALNO` pins the phone (ro.serialno). Among transports that reach it,
-    the tailnet one is preferred. Without the pin, exactly one 100.x transport is required,
+    the tailnet one is preferred. Without the pin, exactly one tailnet transport is required,
     the same rule the gesture fallback uses; several candidates are never guessed between.
     """
 
@@ -225,10 +227,10 @@ class Adb:
                         continue
                     if got == self.serialno:
                         matches.append(t)
-                matches.sort(key=lambda t: (not t.startswith("100."), t))
+                matches.sort(key=lambda t: (not is_tailnet_transport(t), t))
                 serial = matches[0] if matches else None
             else:
-                tailnet = [t for t in ready if t.startswith("100.") and ":" in t]
+                tailnet = [t for t in ready if is_tailnet_transport(t)]
                 serial = tailnet[0] if len(tailnet) == 1 else None
             self.cache = (time.monotonic(), serial)
             return serial

@@ -2,6 +2,7 @@
 
 import concurrent.futures
 import json
+from ipaddress import IPv4Network
 import os
 from pathlib import Path
 import subprocess
@@ -21,6 +22,7 @@ from z0live_desktop.gestures import adb_launch
 from z0live_desktop.server import Handler, Server
 
 
+@patch("z0live_desktop.tailnet.TAILNET_IPV4", IPv4Network("192.0.2.0/24"))
 class GestureTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR"))

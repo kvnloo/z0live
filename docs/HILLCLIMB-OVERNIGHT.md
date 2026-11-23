@@ -36,7 +36,7 @@ Score per engine: D = |median - 0.43| + max(0, waits>1s - 13.2)/100 + |backchann
 (lower is better; seconds-equivalent; every component is reported too). Keep a change when D drops by more than the
 noise band (first iteration: re-run the baseline once to measure it) and no engine's D rises past noise, `spoke_first`
 stays 0, the 65 adapter tests pass (`cd voice-adapter && Z0LIVE_DESKTOP=$PWD/../desktop env -u PYTHONPATH
-.venv/bin/python -m unittest test_*` module names; without Z0LIVE_DESKTOP two lane tests fail on the the desktop host default), and the replay WAVs show no garbled or doubled speech (listen to one per change:
+.venv/bin/python -m unittest test_*` module names; without Z0LIVE_DESKTOP two lane tests fail on the desktop host default), and the replay WAVs show no garbled or doubled speech (listen to one per change:
 spectrogram or ASR check).
 
 Stop predicate: an engine is "Dessa-level" when D <= 0.15, median within 0.43 +- 0.15 s, waits > 1 s <= 20 %,

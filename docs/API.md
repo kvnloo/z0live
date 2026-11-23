@@ -1,6 +1,6 @@
 # z0live desktop API v1
 
-Base URL: **https://<your-host>:8791** (Tailscale Serve → `127.0.0.1:8791`, tailnet only).
+Set `Z0LIVE_BASE_URL` to your broker URL, for example `https://<your-host>:8791` (Tailscale Serve → `127.0.0.1:8791`, tailnet only).
 All routes, including health and SSE, require `Authorization: Bearer DEVICE_TOKEN`.
 JSON POST bodies require `Content-Type: application/json`. Never put tokens in URL queries except the
 one-time pairing deeplink; never log that link. HTTPS uses the normal Tailscale certificate.

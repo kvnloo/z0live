@@ -7,6 +7,8 @@ import subprocess
 import time
 import uuid
 
+from .tailnet import is_tailnet_transport
+
 COMPONENT = "app.lawnchair.play.debug/app.lawnchair.zer0.voice.z0live.Z0LiveActivity"
 # A session whose telemetry moved within this window counts as live (the inbox staleness rule).
 ADB_LIVE_SESSION_SECONDS = 120
@@ -27,8 +29,7 @@ def adb_launch(gesture, runner=subprocess.run):
             for line in result.stdout.splitlines()[1:]
             if len(line.split()) >= 2
             and line.split()[1] == "device"
-            and line.split()[0].startswith("100.")
-            and ":" in line.split()[0]
+            and is_tailnet_transport(line.split()[0])
         ]
         if result.returncode or len(serials) != 1:
             return {"ok": False, "status": "adb_unavailable"}

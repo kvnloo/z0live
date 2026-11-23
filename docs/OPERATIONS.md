@@ -18,8 +18,7 @@ the Hermes plugin's tools:
 
 ## Host installation
 
-Deployment targets Kevin's desktop `the desktop host`, user `kvn`; the paths in `deploy/*.service` are deliberately
-explicit. Inspect/adapt them for another machine. The broker needs only Python ≥3.10 stdlib. The native
+The paths in `deploy/*.service` are deliberately explicit. Adapt them to your machine. The broker needs only Python ≥3.10 stdlib. The native
 Hermes API host uses `hermes --print-runtime-command` to select the installed interpreter and imports
 `APIServerAdapter` from the installed source (`Z0LIVE_HERMES_SOURCE` can override it).
 It does **not** instantiate GatewayRunner or start messaging/cron/kanban. Clean-profile credentials and
@@ -36,13 +35,14 @@ ln -s "$PWD/bin/z0live" ~/.local/bin/z0live
 systemctl --user daemon-reload
 systemctl --user enable --now z0live-hermes.service z0live.service
 tailscale serve --bg --https=8791 http://127.0.0.1:8791
-z0live pair s25 --qr
+Z0LIVE_BASE_URL="https://<your-host>:8791" z0live pair s25 --qr
 ```
 
 Set `Z0LIVE_BASE_URL` in both the broker and the pairing CLI environments to the
 phone-accessible URL (for example, `https://<your-host>:8791`, replacing
 `<your-host>` with your host name). There is no default. The broker can run on
-loopback without it, but pairing requires it.
+loopback without it. QR pairing requires it; plain pairing prints just a
+device token when no base URL is configured.
 
 Install `qrencode` for QR output (Arch: `sudo pacman -S qrencode`). On the phone open
 **z0live → Scan pairing QR → confirm**; when already paired the button is in Settings.

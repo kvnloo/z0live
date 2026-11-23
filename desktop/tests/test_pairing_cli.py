@@ -123,11 +123,19 @@ class PairingCliTests(unittest.TestCase):
 
     def test_missing_base_does_not_mint_token(self):
         with patch.object(self.store, "pair") as pair:
-            status, out, err = self.invoke(base="")
+            status, out, err = self.invoke("--qr", base="")
         self.assertEqual(status, 2)
         self.assertIn("Z0LIVE_BASE_URL", err)
         pair.assert_not_called()
         self.assert_private(out + err)
+
+    def test_local_token_only_pairing_without_base(self):
+        with patch("z0live_desktop.core.secrets.token_urlsafe", return_value=TOKEN):
+            status, out, err = self.invoke(base="")
+        self.assertEqual((status, err), (0, ""))
+        self.assertIn("Device token: " + TOKEN, out)
+        self.assertNotIn("Pairing link:", out)
+        self.assertIsNotNone(self.store.authenticate(TOKEN))
 
     def test_missing_encoder_does_not_mint_or_leak(self):
         with (

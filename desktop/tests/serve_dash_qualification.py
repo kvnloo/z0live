@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Private, disposable tailnet broker for MBP synthetic-media tests. Not production."""
-import ipaddress
 import json
 import os
 from pathlib import Path
@@ -14,11 +13,10 @@ sys.path.insert(0, str(root / "desktop"))
 from z0live_desktop.core import Store, dumps  # noqa: E402
 from z0live_desktop.server import Server, Handler  # noqa: E402
 from z0live_desktop.worker import Worker  # noqa: E402
+from z0live_desktop.tailnet import is_tailnet_ipv4  # noqa: E402
 
 host = os.environ["Z0LIVE_TEST_HOST"]
-# RFC 6598 shared address space, used by Tailscale; this is a range check, not a default.
-TAILNET_RANGE = ipaddress.IPv4Network((int.from_bytes(bytes((100, 64, 0, 0)), "big"), 10))
-if ipaddress.ip_address(host) not in TAILNET_RANGE:
+if not is_tailnet_ipv4(host):
     raise SystemExit("test listener must be an explicit tailnet IPv4 address")
 data = Path(os.environ["Z0LIVE_DATA"]).resolve()
 deployed = Path(os.environ["Z0LIVE_DEPLOYED_DATA"]).resolve()

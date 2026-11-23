@@ -116,7 +116,9 @@ class PhoneAdbTests(unittest.TestCase):
             state = Path(directory) / "z0live/phone-adb.json"
             state.parent.mkdir()
             state.write_text(json.dumps({"host": m.PHONE_IP, "serial": m.PHONE_SERIAL, "port": "oops"}))
-            result = subprocess.run([sys.executable, str(PATH), "env"], env={**os.environ, "XDG_STATE_HOME": directory, "PHONE_ADB_BIN": "/does/not/exist"}, capture_output=True, text=True, timeout=5)
+            result = subprocess.run([sys.executable, str(PATH), "env"], env={**os.environ, "XDG_STATE_HOME": directory, "PHONE_ADB_BIN": "/does/not/exist",
+                "PHONE_ADB_IP": m.PHONE_IP, "PHONE_ADB_SERIAL": m.PHONE_SERIAL,
+                "XDG_CONFIG_HOME": directory}, capture_output=True, text=True, timeout=5)
             self.assertEqual(result.returncode, 1)
             self.assertIn("Port must be an integer", result.stderr)
             self.assertNotIn("Traceback", result.stderr)
