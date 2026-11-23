@@ -761,6 +761,7 @@ class GPTGuest:
         self.note_budget = {"primary": 12000, "guest": 12000}
         # Answers handed to a voice, delivered once the voice has said them (answer_delivery).
         self.ledger = answer_delivery.Ledger()
+        self.superseded: set[str] = set()  # delegations whose stopped answer the caller moved on from
         self.quiet_since: dict[Leg, float | None] = {"primary": None, "guest": None}  # last reply or caller turn end
         self.user_heard_at = float("-inf")  # the latest caller transcript event on either leg
         self.flush_timer: asyncio.TimerHandle | None = None
@@ -829,11 +830,14 @@ class GPTGuest:
             self.call.trace("floor.answer_cut", speaker=leg, did=did)
 
     def supersede(self, leg: str):
-        """The caller asked this voice something new: the rest of a stopped answer is not coming back."""
+        """The caller asked this voice something new: a stopped answer is not coming back, its rest or any of its
+        words still to come (take 15: line 2's whole answer went out as the reply to line 3, 83 ms after its rest
+        was dropped)."""
         if leg == "people":
             return
         queue = self.floor.answers[leg]
-        for answer in [a for a in queue if a.rest]:
+        self.superseded |= {a.delegation_id for a in queue if a.rest and a.delegation_id is not None}
+        for answer in [a for a in queue if a.rest or a.delegation_id in self.superseded]:
             queue.remove(answer)
             self.call.trace("floor.answer_dropped", speaker=leg, did=answer.delegation_id, reason="new_request")
 
@@ -1142,6 +1146,9 @@ class GPTGuest:
             if answer.lane and getattr(self.call, "latest_did", answer.delegation_id) != answer.delegation_id:
                 self.call.trace("floor.answer_dropped", speaker=source, did=answer.delegation_id, reason="stale")
                 continue  # a lane's guess for a question Kevin has moved on from
+            if answer.delegation_id in self.superseded:
+                self.call.trace("floor.answer_dropped", speaker=source, did=answer.delegation_id, reason="new_request")
+                continue
             did = hand(answer.delegation_id, answer.text)
             # Into a reply already playing: that reply was made before this answer existed (take 15, line 3).
             self.ledger.sent(source, answer.delegation_id, answer.text, now, lane=answer.lane, late=source in self.replies)

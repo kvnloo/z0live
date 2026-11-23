@@ -63,6 +63,16 @@ class Take15(unittest.TestCase):
                          "the answer overtook the receipt")
 
 
+    def test_an_answer_dropped_for_the_next_request_is_never_sent_after(self):
+        # 52.62 s: floor.answer_dropped (new_request) for line 2, and 83 ms later line 2's whole answer went out as the
+        # reply to line 3.
+        floor = self.r.floor
+        dropped = {d["did"]: t for t, ev, d in floor if ev == "floor.answer_dropped" and d["reason"] == "new_request"}
+        self.assertTrue(dropped, "fixture: line 3 drops line 2's stopped answer")
+        sent = [(d["of"], t) for t, ev, d in floor if ev in ("floor.answer_sent", "floor.answer_resent")]
+        self.assertEqual([(did, t) for did, t in sent if did in dropped and t >= dropped[did]], [])
+
+
 class RecordedTakes(unittest.TestCase):
     def test_the_takes_are_here(self):
         self.assertEqual([p.stem for p in TAKES][:9], [f"take{n}" for n in range(7, 16)])

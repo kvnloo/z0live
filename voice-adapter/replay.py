@@ -53,6 +53,7 @@ TEK = re.compile(r"(?:^|(?:hey|hi|ok|okay)[\s,]+)\W*(?:tek|tech|teck|tec|teknium
                  re.I)
 QUEUED = re.compile(r"queued as number \d+")  # the adapter's queued notice (mobile_live.QUEUED)
 _did = contextvars.ContextVar("replay_did", default=None)
+_leg = contextvars.ContextVar("replay_leg", default="primary")  # the voice whose event the adapter is handling
 
 
 def fixture(trace: Path) -> list[dict]:
@@ -209,6 +210,7 @@ class Replay:
         self.sent: list[tuple[float, dict]] = []  # events sent to the voice provider
         self.sent_guest: list[tuple[float, dict]] = []  # events sent to the guest voice's session
         self.heard: list[tuple[float, str]] = []  # voice transcript the phone received (audible replies only)
+        self.heard_from: list[str] = []  # the voice each of `heard` came from ("primary" or "guest")
         self.guest = any(r.get("src") == "guest" for r in self.rows)
         self.started: dict[str, float] = {}
         self.requests: list[tuple[str, str]] = []  # (did, request) as host_delegate received them
@@ -304,6 +306,14 @@ class Replay:
             return await replay.later(work, answer)
 
         trace = live.Trace.__call__
+        guest_message = live.GPTGuest.message
+
+        def from_guest(guest, raw):  # what the adapter sends while handling the guest's event is the guest's
+            token = _leg.set("guest")
+            try:
+                return guest_message(guest, raw)
+            finally:
+                _leg.reset(token)
 
         def floor_trace(tr, ev, **data):
             if ev.startswith("floor."):
@@ -326,6 +336,7 @@ class Replay:
                 patch.object(tiers, "load", return_value=cfg), patch.object(live.Call, "host_delegate", host_delegate), \
                 patch.object(live.guest_voice, "configured", return_value=guest), patch.object(live, "time", Clock()), \
                 patch.object(live, "ask_guest_host", ask_guest_host), patch.object(live.Trace, "__call__", floor_trace), \
+                patch.object(live.GPTGuest, "message", from_guest), \
                 patch.object(live.GPTGuest, "later", lambda _, seconds, callback: self.call_later(seconds, callback)), \
                 patch.object(live.Call, "sleep", lambda call, seconds: replay.later(seconds, None), create=True):
             http = ClientSession()
@@ -340,6 +351,7 @@ class Replay:
                     self.react("primary", event)
                 elif event.get("type") == "session.output_transcript.delta":
                     self.heard.append((self.now, event.get("delta") or ""))
+                    self.heard_from.append(_leg.get())
 
             call.send = send
             if isinstance(call.guest, live.GPTGuest):
@@ -536,6 +548,8 @@ def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
     rx = [(r["t"], r["rx"], r["src"]) for r in replay.events if "rx" in r]
     for leg, sent in (("primary", replay.sent), ("guest", replay.sent_guest)):
         src = "guest" if leg == "guest" else "provider"
+        # What this voice said that reached the phone: what its own answers are judged by (the ledger hears one leg).
+        own = [x for x, by in zip(speech, replay.heard_from) if by == leg]
         replies = []  # (opened, done) of this voice's replies
         for t, e, s in rx:
             if s == src and (e.get("turn") or {}).get("role") == "assistant":
@@ -586,16 +600,17 @@ def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
         pieces_of: dict[str | None, list[dict]] = {}
         for did, items in handings.items():
             pieces = pieces_of[did] = []  # each distinct piece of this answer: first sent, its new words, handed again
-            for t, text, _ in items:
+            for t, text, late in items:
                 words = content(text)
                 again = [p for p in pieces if p["all"] <= words]  # a resend carries whole pieces
                 if again and words <= set().union(*(p["all"] for p in pieces)):  # a resend of earlier pieces
-                    if any(said(p["words"], p["t"], t) for p in again):
+                    if any(ledger_entry([(p["t"], p["text"], p["late"])], own, t).pieces[0].spoken for p in again):
                         repeats.append({"leg": leg, "did": did, "t": t})
                     for p in again:
                         p["resent"] = True
                 else:
-                    pieces.append({"t": t, "all": words, "words": words - heard_before(t), "resent": False})
+                    pieces.append({"t": t, "text": text, "late": late, "all": words, "words": words - heard_before(t),
+                                   "resent": False})
         # What this leg's voice said (its recorded transcript), heard or not. A piece it said that the phone never
         # heard went into a muted reply: lost however often it was sent (take 12: line 3's answer was resent, read
         # into a reply the floor had muted, then dropped as unspoken). A resend the recording never had is judged
@@ -628,7 +643,7 @@ def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
             for did, mine in hits.items():
                 more = set().union(*(theirs for theirs in hits.values() if len(theirs) > len(mine)))
                 items = [(at, x, late) for at, x, late in handings[did] if at < t]
-                entry = ledger_entry(items, speech, t)
+                entry = ledger_entry(items, own, t)
                 if entry.started and len(mine - more) >= 2:
                     rest = entry.rest()
                 else:  # handed into this reply and never begun: all of it (its latest words: a receipt is overtaken)
