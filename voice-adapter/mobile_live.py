@@ -18,6 +18,8 @@ import logging
 import os
 import signal
 from pathlib import Path
+
+from claude_env import child_env
 import selectors
 import shutil
 import sqlite3
@@ -108,12 +110,11 @@ class WarmHaiku:
         self.stale = 0  # results still owed to asks that timed out; the next ask must skip them
 
     async def start(self):
-        env = {**os.environ, "CLAUDE_CONFIG_DIR": str(Path.home() / ".claude-sub2"), "FAST_LANE_CHILD": "1"}
         self.proc = await asyncio.create_subprocess_exec(
             *SCOPE, "claude", "-p", "--model", "haiku", "--input-format", "stream-json", "--output-format", "stream-json",
             "--verbose", "--tools", "", "--strict-mcp-config", "--append-system-prompt", self.system,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
-            env=env, cwd=str(Path.home()), limit=1 << 22)
+            env=child_env(), cwd=str(Path.home()), limit=1 << 22)
         await self.ask("Reply with just: ready", 30)  # pays the cold start before Kevin's first question
 
     async def ask(self, text, timeout=8):

@@ -9,6 +9,8 @@ DIR/<lane>.json as each finishes; DIR/summary.txt collects them. Prints one line
 import argparse, json, os, re, subprocess, sys, threading, time
 from pathlib import Path
 
+from claude_env import child_env
+
 # Host-portable roots: this file lives in <z0live>/voice-adapter; the home repo sits beside the other repos.
 Z0LIVE = os.environ.get('Z0LIVE_REPO', str(Path(__file__).resolve().parents[1]))
 HOME_REPO = os.environ.get('Z0LIVE_HOME_REPO') or next(
@@ -81,12 +83,11 @@ def prompt(q, angle, fable=True):
 
 def run(name, q, out, timeout, done, fable=True):
     t0 = time.time()
-    env = {**os.environ, 'CLAUDE_CONFIG_DIR': os.path.expanduser('~/.claude-sub2'), 'FAST_LANE_CHILD': '1'}
     cmd = ['claude', '-p', '--model', MODEL, *(['--advisor', 'fable'] if fable else []), '--output-format', 'json',
            '--allowedTools', *TOOLS]
     try:
         p = subprocess.run(cmd, input=prompt(q, ANGLES[name], fable), capture_output=True, text=True, timeout=timeout,
-                           env=env, cwd=CWD)
+                           env=child_env(), cwd=CWD)
         d = json.loads(p.stdout or '{}')
         rec = {'lane': name, 'secs': round(time.time() - t0, 1), 'answer': (d.get('result') or p.stderr[-400:]).strip(),
                'advisor': 'claude-fable-5-2' in (d.get('modelUsage') or {}), 'session_id': d.get('session_id')}

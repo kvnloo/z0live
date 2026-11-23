@@ -47,6 +47,7 @@ Run `install.sh` only in an idle maintenance window. It builds `voice-adapter/.v
 - Data: `~/.local/share/z0live/` (`core/` broker DB and `.hermes-api-key`, `voice-traces/`, `call-briefs/`, `handoff.json`). Mode 700.
 - Relay token: `~/.config/z0live/hermes-mobile-relay.token` (0600). The core stores only its SHA-256. Lost: `z0live revoke` the old device, delete the file, rerun install.
 - Optional `~/.config/z0live/voice.env` (0600, bws-synced), read by `run.sh`. `GROQ_API_KEY` there turns on the Groq instant lane; without it the instant lane is warm Haiku.
+  Set `Z0LIVE_CLAUDE_CONFIG_DIR` there to select another Claude CLI config directory. When unset, Claude CLI uses its normal lookup; the adapter does not forward an inherited `CLAUDE_CONFIG_DIR` or service secrets to its fast-lane Claude children.
 - adb: `~/.local/bin/adb` (Google platform-tools). Phone needs Wireless debugging on.
 
 ## Change the lanes live
