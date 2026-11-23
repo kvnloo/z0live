@@ -595,5 +595,134 @@ class StressFlagsTest(unittest.TestCase):
             self.assertEqual(sorted(res['arms']), ['A', 'B', 'C0.9', 'D'])
 
 
+E_ARGS = ('--arm-e', '--erl-estimator', 'vetoed', '--erl-alpha', '0.1', '--erl-margin-db', '6',
+          '--erl-min-speech-ms', '30')
+
+
+class ArmEErlAdaptiveTest(unittest.TestCase):
+    """bargein_replay/6: opt-in arm E, energy-ratio gate with an online echo-gain (ERL) estimate."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.bot = replay.voice(replay.BOT_MS, 142, 11000, 115)
+        cls.trials = list(replay.stimuli(40, 39, echo_model='residual', bot_render='recorded',
+                                         caller_level_db_range=(-10.0, 0.0)))
+
+    def erl_cfg(self, **overrides):
+        return cfg(**({'echo_model': 'residual', 'bot_render': 'recorded', 'energy_k_db': -12.0,
+                       'energy_min_speech_ms': 30, 'energy_lag_max_ms': 250, 'erl_estimator': 'quiet',
+                       'erl_alpha': 0.1, 'erl_prior_db': -12.0, 'erl_margin_db': 0.0,
+                       'erl_min_speech_ms': 30} | overrides))
+
+    def test_harness_id(self):
+        self.assertEqual(replay.HARNESS_ERL, 'bargein_replay/6')
+
+    def test_gate_never_reads_labels(self):
+        import ast
+        import inspect
+        tree = ast.parse(inspect.getsource(replay.ErlGate))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                self.assertNotIn(node.id, ArmCTest.FORBIDDEN, node.id)
+            elif isinstance(node, ast.Attribute):
+                self.assertNotIn(node.attr, ArmCTest.FORBIDDEN | {'erl_db', 'gain', 'caller_gain_db'}, node.attr)
+                if isinstance(node.value, ast.Name) and node.value.id == 'cfg':
+                    self.assertTrue(node.attr.startswith('erl_') or node.attr == 'energy_lag_max_ms', node.attr)
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                self.assertNotIn(node.value, ArmCTest.FORBIDDEN, node.value)
+        self.assertEqual(list(inspect.signature(replay.ErlGate.observe).parameters), ['self', 't', 'packet'])
+        self.assertEqual(list(inspect.signature(replay.ErlGate.render).parameters), ['self', 't', 'frame'])
+
+    def test_frozen_estimate_matches_d(self):
+        # alpha 0 keeps the estimate at the prior; prior -12 margin 0 M30 is exactly arm D k -12 M30
+        frozen = self.erl_cfg(erl_alpha=0.0)
+        for trial in self.trials:
+            d = replay.replay(trial, 'D', frozen, self.bot)
+            e = replay.replay(trial, 'E', frozen, self.bot)
+            self.assertEqual(d['latency_ms'], e['latency_ms'])
+            self.assertEqual(d['false_barge_in'], e['false_barge_in'])
+            self.assertEqual(d['trace'].get('adapter_flush_ms'), e['trace'].get('adapter_flush_ms'))
+            self.assertEqual(d['trace']['energy_vetoes'], e['trace']['erl_vetoes'])
+
+    def test_estimate_adapts_from_bot_only_windows(self):
+        gate = replay.ErlGate(self.erl_cfg(erl_alpha=0.5, erl_min_speech_ms=20), 800)
+        loud = array('h', [8000, -8000] * (replay.FRAME_MS * replay.SAMPLES_MS // 2))
+        for t in range(100, 400, 20):
+            gate.render(t, loud)
+        faint = array('h', [400, -400] * (replay.CAPTURE_MS * replay.SAMPLES_MS // 2))  # -26 dB, below VAD
+        for t in range(150, 250, 10):
+            self.assertFalse(gate.observe(t, faint))
+        self.assertLess(gate.est_db, -20)
+        self.assertEqual(gate.vetoes, 0)
+        # a -12 dB hot packet is vetoed by D's fixed k -12 but is unexplained against the learned -26 dB
+        caller = array('h', [2000, -2000] * (replay.CAPTURE_MS * replay.SAMPLES_MS // 2))
+        self.assertFalse(gate.observe(250, caller))
+        self.assertTrue(gate.observe(260, caller))
+        self.assertEqual(gate.vetoes, 0)
+        # without adaptation the same packets are vetoed
+        fixed = replay.ErlGate(self.erl_cfg(erl_alpha=0.0, erl_min_speech_ms=20), 800)
+        for t in range(100, 400, 20):
+            fixed.render(t, loud)
+        self.assertFalse(fixed.observe(250, caller))
+        self.assertFalse(fixed.observe(260, caller))
+        self.assertEqual(fixed.vetoes, 2)
+
+    def test_vetoed_estimator_learns_from_vetoed_packets(self):
+        loud = array('h', [8000, -8000] * (replay.FRAME_MS * replay.SAMPLES_MS // 2))
+        echo = array('h', [2000, -2000] * (replay.CAPTURE_MS * replay.SAMPLES_MS // 2))  # -12 dB, hot
+        ests = {}
+        for name in ('quiet', 'vetoed'):
+            gate = replay.ErlGate(self.erl_cfg(erl_estimator=name, erl_prior_db=-6.0, erl_alpha=0.5), 800)
+            for t in range(100, 400, 20):
+                gate.render(t, loud)
+            gate.observe(200, echo)
+            self.assertEqual(gate.vetoes, 1)
+            ests[name] = gate.est_db
+        self.assertEqual(ests['quiet'], -6.0)
+        self.assertLess(ests['vetoed'], -6.0)
+
+    def test_cli_arm_e_marks_v6_and_leaves_abcd_unchanged(self):
+        proc, without = run_cli(*ARM_D_F_ARGS)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        proc, with_e = run_cli(*ARM_D_F_ARGS, *E_ARGS, '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        plain, out = json.loads(without), json.loads(with_e)
+        self.assertEqual(sha256(without).hexdigest(), ARM_D_F_SHA256)
+        self.assertEqual(out['harness'], 'bargein_replay/6')
+        self.assertEqual(sorted(out['arms']), ['A', 'B', 'C', 'D', 'E'])
+        for arm in ('A', 'B', 'C', 'D'):
+            self.assertEqual(canonical(out['arms'][arm]), canonical(plain['arms'][arm]), arm)
+        self.assertEqual(out['parameters']['erl_margin_db'], 6.0)
+        self.assertEqual(out['parameters']['erl_estimator'], 'vetoed')
+        self.assertNotIn('arm_e', out['parameters'])
+        self.assertFalse(any(k.startswith('erl_') for k in plain['parameters']))
+        summary = json.loads(proc.stdout)
+        self.assertIs(summary['aa_identical'], True)
+        e = summary['arms']['E']
+        self.assertIn('valid_trials_with_veto', e)
+        self.assertEqual(sorted(e['final_est_db']), ['n', 'p10', 'p50', 'p90'])
+        _, again = run_cli(*ARM_D_F_ARGS, *E_ARGS)
+        self.assertEqual(sha256(with_e).hexdigest(), sha256(again).hexdigest())
+        bad, _ = run_cli('--trials', '10', '--arm-e', '--erl-min-speech-ms', '25')
+        self.assertNotEqual(bad.returncode, 0)
+
+    def test_erl_flags_without_arm_e_change_nothing(self):
+        proc, data = run_cli(*ARM_D_F_ARGS, *E_ARGS[1:])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sha256(data).hexdigest(), ARM_D_F_SHA256)
+
+    def test_sweep_passes_arm_e(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([sys.executable, '-B', str(BENCH_DIR / 'bargein_sweep.py'), '--seeds', '39', '--trials', '20',
+                            '--echo-model', 'residual', '--bot-render', 'recorded', '--rhos', '0.9', '--arm-d',
+                            '--energy-k-db', '-12', '--energy-min-speech-ms', '30', *E_ARGS, STRESS[0],
+                            '--out', tmp], check=True, capture_output=True, timeout=900)
+            res = json.loads(Path(tmp, 'seed-39.json').read_text())
+            self.assertEqual(res['harness'], 'bargein_replay/6')
+            self.assertEqual(sorted(res['arms']), ['A', 'B', 'C0.9', 'D', 'E'])
+            self.assertIn('valid_trials_with_veto', res['arms']['E'])
+            self.assertTrue(res['ab_identical_across_rho_runs'])
+
+
 if __name__ == '__main__':
     unittest.main()

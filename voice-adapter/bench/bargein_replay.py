@@ -47,6 +47,13 @@ Arm D (--arm-d, opt-in, output marked bargein_replay/4; arms A/B/C unchanged):
   log (--energy-k-db k); flush after --energy-min-speech-ms of consecutive
   unvetoed hot packets. Same adapter-only inputs as arm C, no spectral match.
 
+Arm E (--arm-e, opt-in, output marked bargein_replay/6; arms A-D unchanged):
+  arm D's energy-ratio gate with an online per-call echo-gain estimate (EWMA in dB of near/render over
+  render-active, non-speech packets; --erl-estimator quiet|vetoed, --erl-alpha, --erl-prior-db); a hot
+  packet is vetoed when near/render dB <= estimate + --erl-margin-db; flush after --erl-min-speech-ms.
+  CAVEAT: the residual echo model only puts echo in the uplink inside a trial's echo window (from onset),
+  so bot-only windows carry noise, not echo: in this sim the estimate tracks noise/render, not the ERL.
+
 Stress flags (opt-in, output marked bargein_replay/5; without them nothing changes):
   --caller-level-db-range LO,HI  per valid trial, caller gain g ~ U(LO, HI) dB
             relative to the fixture level (bot render stays at its level), drawn
@@ -103,6 +110,7 @@ HARNESS_RESIDUAL = "bargein_replay/2"  # only with --echo-model residual
 HARNESS_RECORDED = "bargein_replay/3"  # only with --bot-render recorded
 HARNESS_ENERGY = "bargein_replay/4"  # only with --arm-d
 HARNESS_STRESS = "bargein_replay/5"  # only with --caller-level-db-range / --erl-db-range
+HARNESS_ERL = "bargein_replay/6"  # only with --arm-e
 ERL_DB_RANGE = (6, 20)
 REFLECTIONS = 12
 
@@ -278,6 +286,91 @@ class EnergyGate:
         return False
 
 
+class ErlGate:
+    """Arm E flush decision (bargein_replay/6): energy-ratio echo gate with an online echo-gain estimate.
+
+    Same inputs as EnergyGate: uplink PCM packets at adapter receive time (observe) and the bot PCM frames
+    this adapter sent (render). Nothing else: the sim's ERL, echo path, labels and onset are never read.
+
+    Reference: exactly EnergyGate.reference (max sum of squares over packet-length render windows ending
+    0..energy_lag_max_ms before the packet end), kept incrementally with a monotonic deque. Render samples
+    before the packet end are final (frames are written at their send time, never earlier).
+    Estimate est_db (starts at erl_prior_db) of the near/render ratio in dB, EWMA with erl_alpha, updated
+    from render-active packets (reference RMS >= VAD threshold) that are not counted as speech, while the
+    gate has not fired: estimator "quiet" uses only packets whose uplink is below the VAD threshold (bot-only
+    windows); "vetoed" also uses hot packets this gate vetoed.
+    (a) Echo gate: a hot packet is vetoed when near <= 10^((est_db + erl_margin_db) / 10) x reference.
+    (b) Minimum speech: flush after erl_min_speech_ms of consecutive hot, unexplained packets.
+    With erl_alpha 0, prior k and margin 0 the decisions equal EnergyGate with energy_k_db k.
+    """
+
+    def __init__(self, cfg, span_ms):
+        self.estimator = cfg.erl_estimator
+        self.alpha = cfg.erl_alpha
+        self.est_db = cfg.erl_prior_db
+        self.margin_db = cfg.erl_margin_db
+        self.minimum = cfg.erl_min_speech_ms
+        self.lag_max = cfg.energy_lag_max_ms * SAMPLES_MS
+        self.sent = pcm(span_ms)
+        self.prefix = [0]  # prefix[i] = sum of squares of sent[:i]
+        self.windows = deque()  # (window end, energy), energies strictly decreasing
+        self.n = None
+        self.run = 0
+        self.fired = False
+        self.vetoes = 0
+        self.updates = 0
+        self.max_ratio2 = None  # max near/render energy ratio over hot packets (reporting only)
+
+    def render(self, t, frame):
+        pos = t * SAMPLES_MS
+        self.sent[pos:pos + len(frame)] = frame
+
+    def reference(self, end, n):
+        """Same value as EnergyGate.reference(end, n); ends must not decrease, n is fixed."""
+        if self.n is None:
+            self.n = n
+        assert n == self.n
+        sent, prefix, windows = self.sent, self.prefix, self.windows
+        while len(prefix) <= end:
+            v = sent[len(prefix) - 1]
+            prefix.append(prefix[-1] + v * v)
+            p = len(prefix) - 1
+            if p >= n:
+                w = prefix[p] - prefix[p - n]
+                while windows and windows[-1][1] <= w:
+                    windows.pop()
+                windows.append((p, w))
+        first = max(n, end - self.lag_max)
+        while windows and windows[0][0] < first:
+            windows.popleft()
+        return windows[0][1] if windows else 0
+
+    def observe(self, t, packet):
+        end = t * SAMPLES_MS
+        n = len(packet)
+        ref = self.reference(end, n)
+        near = sum(x * x for x in packet)
+        loud = hot(packet, THRESHOLD)
+        speech = loud
+        vetoed = False
+        if speech and ref:
+            ratio2 = near / ref
+            self.max_ratio2 = ratio2 if self.max_ratio2 is None else max(self.max_ratio2, ratio2)
+            if near <= 10 ** ((self.est_db + self.margin_db) / 10) * ref:
+                speech = False
+                vetoed = True
+                self.vetoes += 1
+        if (not self.fired and near and ref >= n * THRESHOLD ** 2
+                and (not loud or (vetoed and self.estimator == "vetoed"))):
+            self.est_db = (1 - self.alpha) * self.est_db + self.alpha * 10 * log10(near / ref)
+            self.updates += 1
+        self.run = self.run + CAPTURE_MS if speech else 0
+        if not self.fired and self.run >= self.minimum:
+            self.fired = True
+            return True
+        return False
+
+
 def residual_echo(seed, index, kind, erl_db_range=None):
     """bargein_replay/2 per-trial echo path, drawn from its own RNG (erl_db_range: bargein_replay/5)."""
     rng = Random(f"{HARNESS_RESIDUAL}:{seed}:{index}")
@@ -443,6 +536,7 @@ def replay(trial, arm, cfg, bot):
     dropped = 0
     gate = FlushGate(cfg, len(speaker) // SAMPLES_MS) if arm == "C" else None
     egate = EnergyGate(cfg, len(speaker) // SAMPLES_MS) if arm == "D" else None
+    lgate = ErlGate(cfg, len(speaker) // SAMPLES_MS) if arm == "E" else None
 
     def post(t, priority, label, payload=None):
         heappush(future, (t, priority, next(order), label, payload))
@@ -498,6 +592,8 @@ def replay(trial, arm, cfg, bot):
                     gate.render(t, bot[first:first + size])  # what the adapter sent, at its send time
                 if egate:
                     egate.render(t, bot[first:first + size])
+                if lgate:
+                    lgate.render(t, bot[first:first + size])
         elif event == "capture":
             packet = capture(trial, speaker, (t - CAPTURE_MS) * SAMPLES_MS, CAPTURE_MS * SAMPLES_MS, cfg)
             if t - CAPTURE_MS <= onset < t:
@@ -518,6 +614,9 @@ def replay(trial, arm, cfg, bot):
             if egate and egate.observe(t, payload):
                 trace["energy_fire_ms"] = t
                 flush(t, "energy_gated_local_vad")
+            if lgate and lgate.observe(t, payload):
+                trace["erl_fire_ms"] = t
+                flush(t, "erl_gated_local_vad")
             # PCM keeps flowing upstream even if bot audio has been muted.
             post(t + trial["ws_up"], 3, "server_pcm", payload)
         elif event == "server_pcm":
@@ -557,6 +656,12 @@ def replay(trial, arm, cfg, bot):
         trace["energy_vetoes"] = egate.vetoes
         trace["energy_max_ratio_db"] = (None if egate.max_ratio2 is None
                                         else round(10 * log10(egate.max_ratio2), 2))
+    if lgate:
+        trace["erl_vetoes"] = lgate.vetoes
+        trace["erl_updates"] = lgate.updates
+        trace["erl_final_est_db"] = round(lgate.est_db, 2)
+        trace["energy_max_ratio_db"] = (None if lgate.max_ratio2 is None
+                                        else round(10 * log10(lgate.max_ratio2), 2))
     row = dict(trial=trial["id"], kind=kind, latency_ms=latency,
                residual_ms=residual, false_barge_in=kind != "valid" and muted,
                missed_valid=kind == "valid" and not muted,
@@ -602,10 +707,12 @@ def run(n, seed, cfg, bot):
         cases = list(stimuli(n, seed, echo_model, bot_render)) if recorded else list(stimuli(n, seed, echo_model))
     arm_c = getattr(cfg, "arm_c", False)
     arm_d = getattr(cfg, "arm_d", False)
+    arm_e = getattr(cfg, "arm_e", False)
     result = dict(seed=seed, trials_per_arm=n, parameters={
-        k: v for k, v in vars(cfg).items() if k not in ("aa", "output", "seed", "trials", "arm_c", "arm_d")
+        k: v for k, v in vars(cfg).items() if k not in ("aa", "output", "seed", "trials", "arm_c", "arm_d", "arm_e")
         and (arm_c or not k.startswith("gate_"))  # default run keeps the frozen bytes
-        and (arm_d or not k.startswith("energy_"))
+        and (arm_d or arm_e or not k.startswith("energy_"))
+        and (arm_e or not k.startswith("erl_") or k == "erl_db_range")  # erl_db_range: bargein_replay/5 stress
         and (k != "echo_model" or echo_model != "copy")
         and (k != "bot_render" or recorded)
         and (k not in ("caller_level_db_range", "erl_db_range") or v is not None)
@@ -618,8 +725,10 @@ def run(n, seed, cfg, bot):
         result["harness"] = HARNESS_ENERGY
     if stress:
         result["harness"] = HARNESS_STRESS
+    if arm_e:
+        result["harness"] = HARNESS_ERL
     arms = ("A", "B", "C") if arm_c else ("A", "B")
-    for arm in arms + ("D",) if arm_d else arms:
+    for arm in arms + (("D",) if arm_d else ()) + (("E",) if arm_e else ()):
         rows = [replay(case, arm, cfg, bot) for case in cases]
         valid = [row for row in rows if row["kind"] == "valid"]
         result["arms"][arm] = dict(
@@ -657,6 +766,15 @@ def run(n, seed, cfg, bot):
                                   if row["trace"]["energy_max_ratio_db"] is not None])
             summary["echo_trial_max_ratio_db"] = ratios([row for row in rows if row["kind"] == "echo"])
             summary["valid_trial_max_ratio_db"] = ratios(valid)
+        if arm == "E":
+            summary = result["arms"][arm]
+            summary["double_talk_latency_ms"] = percentiles(
+                [row["latency_ms"] for row in valid if row.get("echo_path", {}).get("double_talk")])
+            summary["valid_trials_with_veto"] = sum(row["trace"]["erl_vetoes"] > 0 for row in valid)
+            summary["final_est_db"] = quantiles([row["trace"]["erl_final_est_db"] for row in rows])
+            summary["echo_trial_max_ratio_db"] = quantiles([row["trace"]["energy_max_ratio_db"] for row in rows
+                                                            if row["kind"] == "echo"
+                                                            and row["trace"]["energy_max_ratio_db"] is not None])
     return result
 
 
@@ -698,6 +816,16 @@ def main():
     parser.add_argument("--energy-min-speech-ms", type=int, default=40,
                         help="arm D: consecutive unvetoed hot speech before flush")
     parser.add_argument("--energy-lag-max-ms", type=int, default=250, help="arm D: render lag window 0..N ms")
+    parser.add_argument("--arm-e", action="store_true",
+                        help="add arm E (bargein_replay/6): energy-ratio gate with an online echo-gain estimate")
+    parser.add_argument("--erl-estimator", choices=("quiet", "vetoed"), default="quiet",
+                        help="arm E: update from bot-only packets (quiet) or also from vetoed hot packets")
+    parser.add_argument("--erl-alpha", type=float, default=.1, help="arm E: EWMA weight of each update (0 = frozen)")
+    parser.add_argument("--erl-prior-db", type=float, default=-12.0, help="arm E: initial near/render estimate dB")
+    parser.add_argument("--erl-margin-db", type=float, default=6.0,
+                        help="arm E: veto a hot packet when near/render dB <= estimate + margin")
+    parser.add_argument("--erl-min-speech-ms", type=int, default=30,
+                        help="arm E: consecutive unvetoed hot speech before flush")
     parser.add_argument("--echo-model", choices=("copy", "residual"), default="copy",
                         help="residual: bargein_replay/2 filtered, attenuated, clipped, noisy echo plus double-talk")
     parser.add_argument("--bot-render", choices=("periodic", "recorded"), default="periodic",
@@ -723,6 +851,10 @@ def main():
         parser.error("energy minimum speech must be a positive multiple of 10 ms; k in [-200, 40] dB")
     if not 0 <= cfg.energy_lag_max_ms <= 1000:
         parser.error("energy lag max must be 0..1000 ms")
+    if (cfg.erl_min_speech_ms <= 0 or cfg.erl_min_speech_ms % CAPTURE_MS or not 0 <= cfg.erl_alpha <= 1
+            or not -60 <= cfg.erl_margin_db <= 60 or not -100 <= cfg.erl_prior_db <= 40):
+        parser.error("erl minimum speech must be a positive multiple of 10 ms; alpha in [0, 1]; "
+                     "margin in [-60, 60] dB; prior in [-100, 40] dB")
     if cfg.caller_level_db_range and not -60 <= cfg.caller_level_db_range[0] <= cfg.caller_level_db_range[1] <= 20:
         parser.error("caller level range must be LO,HI with -60 <= LO <= HI <= 20 dB")
     if cfg.erl_db_range and (cfg.echo_model != "residual" or not 0 <= cfg.erl_db_range[0] <= cfg.erl_db_range[1] <= 60):

@@ -1,11 +1,12 @@
-name: z0live barge-in one-flag stress split (CPU, stdlib)
-# A-bargein-H: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml
+name: z0live barge-in ERL-adaptive arm E (CPU, stdlib)
+# A-bargein-I: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml
 # --ref <branch>` can dispatch it (a new workflow file is not dispatchable until it is on the default branch).
-# It runs voice-adapter/bench/bargein_sweep.py with --echo-model residual --bot-render recorded --arm-d
-# (bargein_replay/5, offline virtual-time sim, Python stdlib only, no network, no secrets) on holdout seed 47
-# and fresh seeds 5000-5039 under two one-flag stress conditions: S1 caller-only (--caller-level-db-range
-# -10,0, default ERL) -> out/s1, and S2 ERL-only (--erl-db-range 0,6, caller at 0 dB) -> out/s2. Arms A, B,
-# C rho 0.9 at M 40 ms, D frozen (k -12 dB, M 30 ms). No harness code change.
+# It runs voice-adapter/bench/bargein_sweep.py with --echo-model residual --bot-render recorded --arm-d --arm-e
+# (bargein_replay/6, offline virtual-time sim, Python stdlib only, no network, no secrets) on holdout seed 49
+# and fresh seeds 6000-6039 under three conditions: S0 unstressed -> out/s0, S1 caller-only
+# (--caller-level-db-range -10,0) -> out/s1, FULL (caller -10,0 and --erl-db-range 0,6) -> out/full.
+# Arms A, B, C rho 0.9 at M 40 ms, D frozen (k -12 dB, M 30 ms), E frozen from dev seed 48 tuning
+# (estimator quiet, alpha 0.1, prior -12 dB, margin 18 dB, M 30 ms).
 on:
   workflow_dispatch:
     inputs:
@@ -19,13 +20,13 @@ jobs:
   sweep:
     name: seeds ${{ matrix.seeds }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        seeds: ["47", 5000-5001, 5002-5003, 5004-5005, 5006-5007, 5008-5009, 5010-5011, 5012-5013, 5014-5015,
-                5016-5017, 5018-5019, 5020-5021, 5022-5023, 5024-5025, 5026-5027, 5028-5029, 5030-5031,
-                5032-5033, 5034-5035, 5036-5037, 5038-5039]
+        seeds: ["49", 6000-6001, 6002-6003, 6004-6005, 6006-6007, 6008-6009, 6010-6011, 6012-6013, 6014-6015,
+                6016-6017, 6018-6019, 6020-6021, 6022-6023, 6024-6025, 6026-6027, 6028-6029, 6030-6031,
+                6032-6033, 6034-6035, 6036-6037, 6038-6039]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,20 +39,21 @@ jobs:
           cpu=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)
           echo "runner CPU: ${cpu:-unknown} ($(uname -m), $(nproc) cpus), $(python --version)" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Sweep
-        timeout-minutes: 36
+        timeout-minutes: 40
         env:
           SEEDS: ${{ matrix.seeds }}
         run: |
           set -euo pipefail
           cd voice-adapter
-          python -B bench/bargein_sweep.py --seeds "$SEEDS" --out ../out/s1 --jobs "$(nproc)" \
-            --echo-model residual --bot-render recorded --rhos 0.9 \
-            --arm-d --energy-k-db -12 --energy-min-speech-ms 30 \
+          common=(--seeds "$SEEDS" --jobs "$(nproc)" --echo-model residual --bot-render recorded --rhos 0.9
+                  --arm-d --energy-k-db -12 --energy-min-speech-ms 30
+                  --arm-e --erl-estimator quiet --erl-alpha 0.1 --erl-prior-db=-12 --erl-margin-db=18
+                  --erl-min-speech-ms 30)
+          python -B bench/bargein_sweep.py "${common[@]}" --out ../out/s0 | sed 's/^/s0 /' | tee -a "$GITHUB_STEP_SUMMARY"
+          python -B bench/bargein_sweep.py "${common[@]}" --out ../out/s1 \
             --caller-level-db-range=-10,0 | sed 's/^/s1 /' | tee -a "$GITHUB_STEP_SUMMARY"
-          python -B bench/bargein_sweep.py --seeds "$SEEDS" --out ../out/s2 --jobs "$(nproc)" \
-            --echo-model residual --bot-render recorded --rhos 0.9 \
-            --arm-d --energy-k-db -12 --energy-min-speech-ms 30 \
-            --erl-db-range=0,6 | sed 's/^/s2 /' | tee -a "$GITHUB_STEP_SUMMARY"
+          python -B bench/bargein_sweep.py "${common[@]}" --out ../out/full \
+            --caller-level-db-range=-10,0 --erl-db-range=0,6 | sed 's/^/full /' | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -75,5 +77,5 @@ jobs:
           NOTE: ${{ inputs.note }}
         run: |
           set -euo pipefail
-          { [ -n "${NOTE}" ] && echo "note: ${NOTE}"; echo '```'; (cd results && ls s1/seed-*.json s2/seed-*.json | wc -l && sha256sum s1/seed-*.json s2/seed-*.json); echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          (cd results && sha256sum s1/seed-*.json s2/seed-*.json)
+          { [ -n "${NOTE}" ] && echo "note: ${NOTE}"; echo '```'; (cd results && ls s0/seed-*.json s1/seed-*.json full/seed-*.json | wc -l && sha256sum s0/seed-*.json s1/seed-*.json full/seed-*.json); echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          (cd results && sha256sum s0/seed-*.json s1/seed-*.json full/seed-*.json)

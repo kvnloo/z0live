@@ -43,6 +43,8 @@ def arm_summary(arm):
         out["valid_trials_with_veto"] = sum(t["trace"].get("gate_echo_vetoes", 0) > 0 for t in valid)
     if any("energy_vetoes" in t["trace"] for t in arm["trials"]):  # arm D (bargein_replay/4)
         out["valid_trials_with_veto"] = sum(t["trace"].get("energy_vetoes", 0) > 0 for t in valid)
+    if any("erl_vetoes" in t["trace"] for t in arm["trials"]):  # arm E (bargein_replay/6)
+        out["valid_trials_with_veto"] = sum(t["trace"].get("erl_vetoes", 0) > 0 for t in valid)
     return out
 
 
@@ -59,7 +61,7 @@ def run_one(seed, rho, m, trials, extra):
 def sweep_seed(seed, m, trials, extra, rhos=RHOS):
     runs = {rho: run_one(seed, rho, m, trials, extra) for rho in rhos}
     base = runs[rhos[0]][1]
-    shared = ("A", "B", "D") if "D" in base["arms"] else ("A", "B")  # D (opt-in) does not depend on rho
+    shared = ("A", "B") + tuple(a for a in ("D", "E") if a in base["arms"])  # D, E (opt-in) do not depend on rho
     ab_same = all(json.dumps(r[1]["arms"][a], sort_keys=True) == json.dumps(base["arms"][a], sort_keys=True)
                   for r in runs.values() for a in shared)
     arms = {a: arm_summary(base["arms"][a]) for a in shared}
@@ -92,6 +94,12 @@ def main():
     p.add_argument("--arm-d", action="store_true", help="also run arm D (energy-ratio gate, bargein_replay/4)")
     p.add_argument("--energy-k-db", type=float, default=-6.0)
     p.add_argument("--energy-min-speech-ms", type=int, default=40)
+    p.add_argument("--arm-e", action="store_true", help="also run arm E (ERL-adaptive energy gate, bargein_replay/6)")
+    p.add_argument("--erl-estimator", choices=("quiet", "vetoed"), default="quiet")
+    p.add_argument("--erl-alpha", type=float, default=.1)
+    p.add_argument("--erl-prior-db", type=float, default=-12.0)
+    p.add_argument("--erl-margin-db", type=float, default=6.0)
+    p.add_argument("--erl-min-speech-ms", type=int, default=30)
     p.add_argument("--caller-level-db-range", help="bargein_replay/5 stress pass-through, e.g. -10,0")
     p.add_argument("--erl-db-range", help="bargein_replay/5 stress pass-through, e.g. 0,6")
     a = p.parse_args()
@@ -105,6 +113,10 @@ def main():
         extra += ["--bot-render", a.bot_render]
     if a.arm_d:
         extra += ["--arm-d", "--energy-k-db", str(a.energy_k_db), "--energy-min-speech-ms", str(a.energy_min_speech_ms)]
+    if a.arm_e:
+        extra += ["--arm-e", "--erl-estimator", a.erl_estimator, "--erl-alpha", str(a.erl_alpha),
+                  "--erl-prior-db=" + str(a.erl_prior_db), "--erl-margin-db=" + str(a.erl_margin_db),
+                  "--erl-min-speech-ms", str(a.erl_min_speech_ms)]
     if a.caller_level_db_range:
         extra += ["--caller-level-db-range=" + a.caller_level_db_range]  # "=": the value starts with "-"
     if a.erl_db_range:
