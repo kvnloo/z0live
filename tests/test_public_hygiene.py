@@ -2,7 +2,8 @@
 dirs, emails or the owner's name. Runs over every tracked file (LICENSE excluded).
 
 The pattern is base64-encoded so this guard does not itself publish the strings it forbids.
-`claude-subscription-directsdk-experimental` is allowed: it is a built-in Hermes provider id, not a personal config.
+The Hermes catalog provider id of the Claude subscription plugin (PROVIDER below) is allowed: it is public, not a
+personal config dir.
 """
 
 import base64
@@ -25,6 +26,7 @@ KNOWN_LEAKS = [base64.b64decode(s).decode() for s in (
     "S2V2aW4ncyBwaG9uZQ==",
 )]
 EXCLUDED = {"LICENSE"}
+PROVIDER = "-".join(("claude", "subscription", "directsdk", "experimental"))
 
 
 def tracked_files():
@@ -36,7 +38,7 @@ class PublicHygiene(unittest.TestCase):
     def test_pattern_catches_the_known_leaks(self):
         for leak in KNOWN_LEAKS + [".".join(("100", "101", "2", "3")), ".".join(("192", "168", "1", "5"))]:
             self.assertRegex(leak, PERSONAL)
-        for fine in ("claude-subscription-directsdk-experimental", "100.0.0.1", "192.0.2.3", "groots", "~/.hermes"):
+        for fine in (PROVIDER, "100.0.0.1", "192.0.2.3", "groots", "~/.hermes"):
             self.assertNotRegex(fine, PERSONAL)
 
     def test_tracked_files_carry_no_personal_data(self):
