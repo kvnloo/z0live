@@ -139,7 +139,7 @@ async def working(*_, **__):
 
 def utterance_ends(guest):
     """The caller's mic and transcript have been quiet for EOU_SECONDS: the floor's one decision on the utterance."""
-    guest.user_heard_at -= live.OPEN_TURN_SECONDS + 0.1
+    guest.user_heard_at -= live.EOU_SECONDS + 0.1
     guest.end_of_utterance()
 
 

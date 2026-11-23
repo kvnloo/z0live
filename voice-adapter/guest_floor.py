@@ -125,12 +125,10 @@ class Floor:
     def follow_up(self, text: str, began: float) -> bool:
         """With people on the call: an unnamed turn is the next request to the bot that holds the floor when it is a
         request that began while one of that bot's replies played or within FOLLOW_UP_SECONDS after one ended. A
-        reply the bot began after the caller started (and the caller cut off) does not count against it (take 8).
-        A bot named with no reply yet (its Hermes is still working) holds the exchange from when it was named."""
-        named = self.since if self.reason in ("redirected", "guest_addressed") and not self.heard else None
+        reply the bot began after the caller started does not count (take 8); a bot named holds it from its name."""
+        named = self.reason in ("redirected", "guest_addressed") and not self.heard and began >= self.since
         return self.owner != "people" and request(text) and (
-            (named is not None and 0 <= began - named <= FOLLOW_UP_SECONDS)
-            or any(start <= began and (end is None or began - end <= FOLLOW_UP_SECONDS) for start, end in self.heard))
+            (named and began - self.since <= FOLLOW_UP_SECONDS) or any(start <= began and (end is None or began - end <= FOLLOW_UP_SECONDS) for start, end in self.heard))
 
     def reply_started(self, leg: Leg, now: float) -> None:
         if leg == self.owner:
