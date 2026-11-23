@@ -28,7 +28,8 @@ A report's own_answer_s is request -> first final carrying that request's id (a 
 requests with none (folded into another request's turn); receipt_s is request -> spoken receipt. promised lists the
 voice's own hand-off lines that promised new work or said it was handled before that request's own answer, queued
 notice or refusal reached it (mobile_live.promises_new_work), in the words of it that reached the phone: the replayed
-speech is the recorded one, muted where the replayed floor mutes it. unasked lists caller turns that named Tek when Tek's own Hermes was not asked for them.
+speech is the recorded one, muted where the replayed floor mutes it. A line the floor unmuted before anything reached
+the voice promised too when its muted start opened a promise (mobile_live.opens_promise) and the phone heard the rest. unasked lists caller turns that named Tek when Tek's own Hermes was not asked for them.
 """
 from __future__ import annotations
 
@@ -450,22 +451,43 @@ def report(replay: Replay) -> dict:
             created.setdefault((e.get("item") or {}).get("id"), t)
     # What each of the voice's replies said that reached the phone: a line the floor muted promised nothing to anyone
     # (take 16's "Okay, I'll take that" went into a muted reply).
+    # A reply the floor unmuted is heard from there on, but it opened muted: take 19's hand-off ack said " I'll"
+    # muted, and the phone heard "get the full picture". What it said by its unmute is what the heard rest promises.
     heard = [(t, x) for (t, x), by in zip(replay.heard, replay.heard_from) if by == "primary"]
-    said, open_at = [], None
+    unmuted = {d.get("turn"): t for t, ev, d in replay.floor
+               if ev == "floor.reply_unmuted" and d.get("speaker") == "primary"}
+    handed = sorted(t for t, e in replay.sent
+                    if "".join(c.get("text", "") for c in e.get("content", [])).startswith(FINAL))
+    said, open_at, line = [], None, []
     for r in replay.events:
         e, turn_ = r.get("rx") or {}, (r.get("rx") or {}).get("turn") or {}
-        if r.get("src") != "provider" or turn_.get("role") != "assistant":
+        if r.get("src") != "provider":
+            continue
+        if e.get("type") == "output_transcript.added":
+            line.append((r["t"], (e.get("item") or {}).get("text") or ""))
+        if turn_.get("role") != "assistant":
             continue
         if e.get("type") == "turn.created":
-            open_at = r["t"]
+            open_at, line = r["t"], []
         elif e.get("type") == "turn.done":
             at = r["t"] if open_at is None else open_at
-            said.append((at, "".join(x for t, x in heard if at <= t <= r["t"])))
-            open_at = None
+            said.append((at, [(t, x) for t, x in heard if at <= t <= r["t"]], line, unmuted.get(turn_.get("id"))))
+            open_at, line = None, []
+
+    def promises(heard_, line, unmuted_at, began):
+        if mobile_live.promises_new_work("".join(x for _, x in heard_)):
+            return True
+        # Unmuted before anything reached the voice for this request, with a promise begun muted, and heard.
+        answered = next((t for t in handed if t >= began), float("inf"))
+        return (unmuted_at is not None and unmuted_at < answered
+                and mobile_live.opens_promise("".join(x for t, x in line if t <= unmuted_at))
+                and bool("".join(x for t, x in heard_ if t < answered).strip()))
+
     # A run the adapter started on its own (people on the call) has no delegation of the provider's: its start.
-    promised = [{"did": did, "said": text[:160]} for did, began in replay.started.items()
-                for at, text in said if created.get(did, began) - 1.5 <= at < own.get(did, float("inf"))
-                and mobile_live.promises_new_work(text)]
+    promised = [{"did": did, "said": "".join(x for _, x in heard_)[:160]} for did, began in replay.started.items()
+                for at, heard_, line, unmuted_at in said
+                if created.get(did, began) - 1.5 <= at < own.get(did, float("inf"))
+                and promises(heard_, line, unmuted_at, began)]
     # Unasked: the caller named Tek (as the transcriber hears it: "Hey, Tech, ...", takes 9 and 14) and Tek's own
     # Hermes was not asked between the turn's first words and 15 s after it closed.
     unasked, seen = [], {}

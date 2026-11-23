@@ -375,7 +375,8 @@ class PeopleOnTheCall(unittest.TestCase):
         self.assertEqual(replay.report(replayed(take7(line)))["promised"], [], "the floor mutes it at the promise")
         with patch.object(mobile_live, "opens_promise", lambda text: False):  # heard, it is caught
             promised = replayed(take7(line))
-        self.assertEqual([p["did"] for p in replay.report(promised)["promised"]], ["d3"])
+        # d2 too: its reply said "I'll" muted, and once unmuted the phone heard "take a quick look" (take 19).
+        self.assertEqual([p["did"] for p in replay.report(promised)["promised"]], ["d2", "d3"])
         neutral = replayed(take7("Let me check."))
         report = replay.report(neutral)
         self.assertEqual(report["promised"], [])

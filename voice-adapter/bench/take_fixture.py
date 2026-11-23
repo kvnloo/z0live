@@ -42,7 +42,11 @@ class Scrambler:
 
     def word(self, w: str) -> str:
         low = w.lower()
-        if low in KEEP or (low.isdigit() and int(low) <= 20):
+        # An identifier (letters and digits: S25, the 0a96e2de of card t_0a96e2de) stays, and so do letters and
+        # two-letter words: the floor spells an id and matches the voice's spelling or split transcript (" z", "0") to
+        # it (answer_delivery.anchors), and a made-up word for "PR" or "CI" would count as content where theirs does not
+        # (answer_delivery.content). Take 19's voice said "t, zero a nine six e two d e": a scrambled id is never heard.
+        if low in KEEP or len(low) <= 2 or (low.isdigit() and int(low) <= 20) or answer_delivery._named(low):
             return w
         if low not in self.made:
             n, out = len(self.made), ""
