@@ -34,6 +34,10 @@ SETTLE_SECONDS = 2.5
 MAX_SENDS = 2
 STARTED_HITS = 2  # new words said before a barge-in that show the voice had begun this answer (one can be chance)
 RESUME_PREFIX = "To finish what I was saying: "
+MAX_RETELLS = 2  # hand-backs per answer of the sentences that name what the voice never said (take 18)
+# A hand-back that spells an id (spelled) opens with this. The voice paraphrases an opaque id away: take 18's
+# line-3 answer said "a card" for card t_0a96e2de in the reply and again in the verbatim hand-back.
+SAY_EXACTLY = "(Say each id exactly, as its quoted spelling.) "
 
 _NUMBERS = dict(enumerate("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen "
                           "fifteen sixteen seventeen eighteen nineteen twenty".split()))

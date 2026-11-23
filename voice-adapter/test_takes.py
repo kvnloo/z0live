@@ -9,6 +9,7 @@ from pathlib import Path
 import unittest
 
 os.environ.setdefault("HERMES_VOICE_ENGINE", "gpt-live")  # never the owner's lanes config
+import answer_delivery  # noqa: E402
 import replay  # noqa: E402
 
 FIXTURES = Path(__file__).with_name("fixtures") / "takes"
@@ -128,19 +129,38 @@ class Take17(unittest.TestCase):
     def setUpClass(cls):
         cls.r = take("take17")
 
-    def test_the_sentence_a_paraphrase_jumped_comes_back_with_the_cuts_rest_once(self):
+    def test_the_sentence_a_paraphrase_jumped_comes_back_with_the_cuts_rest(self):
         # 59.7-66.9 s: the voice said sentences 1 and 3 in its own words ("I won't start another one"); "Hey Tek" cut
         # it, and the rest resumed at 99.561 from sentence 4. Sentence 2 (card t_0a96e2de) was never said.
         rested = [t for t, ev, d in self.r.floor if ev == "floor.answer_resumed" and d["speaker"] == "primary"]
         self.assertTrue(rested, "line 3's rest is resumed")
-        card = [t for t, text in handed(self.r, 67) if "t_zqby" in text]
-        self.assertEqual(len(card), 1, "sentence 2 goes back once")
-        self.assertIn(card[0], rested, "with the cut's rest")
+        card = [t for t, text in handed(self.r, 67) if "t_zqby" in text and answer_delivery.RESUME_PREFIX in text]
+        self.assertEqual(card[0], rested[0], "with the cut's rest")
+        self.assertEqual(len(card), answer_delivery.MAX_RETELLS, "and once more: the recorded reply skipped it again")
+
+
+class Take18(unittest.TestCase):
+    """Take 18, line 3 (words scrambled; the scrambled line-3 answer names card t_zqct)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.r = take("take18")
+
+    def test_an_id_the_voice_dropped_twice_goes_back_once_more_spelled(self):
+        # 61.2-66.7 s: "covered by a card Poteto has been running"; "Hey Tek" cut it at 66.326. The verbatim hand-back
+        # at 98.553 was said as "there's already a card for this" and ran its course at 123.177: t_0a96e2de unheard.
+        card = [(t, text) for t, text in handed(self.r, 67) if "t_zqct" in text and answer_delivery.RESUME_PREFIX in text]
+        self.assertEqual([round(t) for t, _ in card], [99, 150], "the cut's rest, then after Tek's answer")
+        for _, text in card:
+            self.assertIn('t_zqct (say: "t, z q c t")', text)
+            self.assertIn(answer_delivery.SAY_EXACTLY + answer_delivery.RESUME_PREFIX, text)
+        self.assertEqual(len(answer_delivery.sentences(card[1][1].split(answer_delivery.RESUME_PREFIX)[1])), 1,
+                         "only the sentence naming the card")
 
 
 class RecordedTakes(unittest.TestCase):
     def test_the_takes_are_here(self):
-        self.assertEqual([p.stem for p in TAKES][:11], [f"take{n}" for n in range(7, 18)])
+        self.assertEqual([p.stem for p in TAKES][:12], [f"take{n}" for n in range(7, 19)])
 
     def test_each_recorded_take_passes_the_five_checks_on_the_phone(self):
         for path in TAKES:
