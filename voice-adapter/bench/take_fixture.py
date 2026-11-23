@@ -32,6 +32,7 @@ KEEP = (answer_delivery._STOP | NUMBERS | set(re.findall(r"[a-z]+", " ".join((
     "i me my mine i'm i'll ll m t re ve d isn don can won haven couldn wasn didn doesn aren wouldn shouldn",
     "taking handling handle take care go going step posted updated receipts receipt report follow circle end consider",
     "handled taken finish saying working tell soon done meanwhile else anything started queued number earlier requests",
+    "know",
     "requests running waiting haven't one them finishes again line", "phone call while")).lower())))
 
 

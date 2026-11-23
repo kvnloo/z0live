@@ -172,11 +172,13 @@ MAX_CALLS = 2
 DRAIN_SECONDS = int(os.environ.get("HERMES_MOBILE_VOICE_DRAIN", str(MAX_CALL_SECONDS)))
 # A fast-lane "I found nothing" is not a first answer; saying it then being contradicted is worse than silence.
 UNHELPFUL = re.compile(r"^\W*(not found|nothing found|no (local )?(evidence|results|record)|i (couldn.?t|could not|can.?t) find)", re.I)
-# A hand-off line that promises new work or claims it is handled, before Hermes said what happened (takes 7, 9 and 14:
-# "Got it, I'll handle that and keep receipts", "I'm taking that on end-to-end", "Got it—I'll go step by step and
-# show receipts"). replay.py reports these.
+# A hand-off line that promises new work or claims it is handled, before Hermes said what happened (takes 7, 9, 14 and
+# 15: "Got it, I'll handle that and keep receipts", "I'm taking that on end-to-end", "Got it—I'll go step by step and
+# show receipts", "Mm-hm. I'll take that."), or promises a follow-up ("I'll tell you as soon as it's done").
+# replay.py reports these.
 PROMISE = re.compile(r"\b(i'?m|i am) (taking|handling|on) (that|it|this)\b|\b(take|taking) (that|it|this) on\b"
-                     r"|\bi'?ll (handle|take care of|get (that|it|this) (done|going)|be back|go step by step"
+                     r"|\bi'?ll (handle|take care of|take (that|it|this)\b|get (that|it|this) (done|going)|be back"
+                     r"|go step by step|tell you (as soon as|when|once)|let you know"
                      r"|keep (you )?(posted|updated)|(keep|send|show)( you)?( the)? receipts"
                      r"|report back|follow up|circle back)|\bend[- ]to[- ]end\b|\bon it\b|\bconsider it done\b"
                      r"|\b(it'?s|that'?s) (handled|taken care of)\b", re.I)
@@ -224,7 +226,7 @@ DELEGATION_TIMEOUT_SECONDS = 600
 # never submitted into the busy chat: the dashboard redirects the running turn, so the request had no answer of its
 # own and the running request was answered with the redirect's words.
 RECEIPT_SECONDS = float(os.environ.get("Z0LIVE_RECEIPT_SECONDS", "8"))
-RECEIPT = "Still working on that in Hermes. I'll tell you as soon as it's done; ask anything else meanwhile."
+RECEIPT = "Still working on that in Hermes; ask anything else meanwhile."  # says what runs, promises nothing
 SIDE_MAX = 3
 # The background a Hermes run gets when it does not run in the call's own chat (Tek's Hermes, the oneshot path).
 CALL_CONTEXT = ("This request comes from a live voice call; answer in a few short spoken sentences. Below is the call's "

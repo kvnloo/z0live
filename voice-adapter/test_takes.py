@@ -13,9 +13,10 @@ import replay  # noqa: E402
 
 FIXTURES = Path(__file__).with_name("fixtures") / "takes"
 TAKES = sorted(FIXTURES.glob("take*.jsonl"), key=lambda p: int(p.stem[4:]))
-# Takes 7, 9 and 14: the voice's own hand-off line promised work ("I'll handle that and keep receipts", "I'm taking
-# that on end-to-end", "I'll go step by step and show receipts"). The prompts are the guard; a replay cannot unsay it.
-RECORDED = {"promised": {"take7", "take9", "take14"}}
+# Takes 7, 9, 14 and 15: the voice's own hand-off line promised work ("I'll handle that and keep receipts", "I'm
+# taking that on end-to-end", "I'll go step by step and show receipts", "I'll take that"). The prompts are the guard;
+# a replay cannot unsay it.
+RECORDED = {"promised": {"take7", "take9", "take14", "take15"}}
 # Take 15 failures of the adapter's own, each fixed by its own change: an entry here must keep failing until then.
 OPEN = {"runs": {"take15"}}
 

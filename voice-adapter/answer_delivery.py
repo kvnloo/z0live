@@ -146,8 +146,8 @@ class Ledger:
         if entry is None:
             entry = Entry(leg, did, now)
             self.entries.append(entry)
-        else:
-            entry.sent_at = now
+        else:  # new words: the voice gets its own chances at them (a resent receipt cost Hermes's answer its resend)
+            entry.sent_at, entry.sends = now, 1
         if not lane:  # Hermes's own answer supersedes a lane guess the voice has not said
             entry.pieces = [p for p in entry.pieces if p.spoken or not p.lane]
         entry.pieces.append(Piece(text, frozenset(content(text) - self.said), lane, late))

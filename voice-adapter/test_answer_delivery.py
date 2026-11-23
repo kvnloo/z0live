@@ -84,6 +84,16 @@ class LedgerTest(unittest.TestCase):
         self.assertEqual(self.ledger.heard("guest", "The bike chain is fixed, the brakes need pads."), [])
         self.assertEqual(len(self.ledger.pending("primary")), 1)
 
+    def test_an_answer_after_a_resent_status_line_gets_its_own_resend(self):
+        # floor_sim seed 9: the receipt was resent once, Hermes's answer replaced it in the same entry, and the answer
+        # was dropped as unspoken without one resend of its own.
+        self.ledger.sent("primary", "d1", "Still working on the kettle.", 10, lane=True)
+        [(entry, _)] = self.ledger.due("primary", 13, quiet_since=None)
+        self.ledger.resent(entry, 13)
+        self.ledger.sent("primary", "d1", "The kettle fuse blew; a spare is in the drawer.", 14)
+        [(entry, text)] = self.ledger.due("primary", 17, quiet_since=None)
+        self.assertEqual(text, "The kettle fuse blew; a spare is in the drawer.")
+
     def test_hermes_answer_supersedes_an_unspoken_lane_guess(self):
         self.ledger.sent("primary", "d1", "Probably the kettle is broken.", 10, lane=True)
         self.ledger.sent("primary", "d1", "The kettle fuse blew; a spare is in the drawer.", 11)
