@@ -66,7 +66,7 @@ def run_one(seed, rho, m, trials, extra):
 def sweep_seed(seed, m, trials, extra, rhos=RHOS):
     runs = {rho: run_one(seed, rho, m, trials, extra) for rho in rhos}
     base = runs[rhos[0]][1]
-    shared = ("A", "B") + tuple(a for a in ("D", "E", "E2", "F", "F2", "G", "G2", "H", "O", "Q")
+    shared = ("A", "B") + tuple(a for a in ("D", "E", "E2", "F", "F2", "G", "G2", "H", "O", "Q", "R")
                                 if a in base["arms"])  # D, E (opt-in) do not depend on rho
     ab_same = all(json.dumps(r[1]["arms"][a], sort_keys=True) == json.dumps(base["arms"][a], sort_keys=True)
                   for r in runs.values() for a in shared)
@@ -129,6 +129,8 @@ def main():
     p.add_argument("--arm-q", action="store_true", help="also run arm Q (O + duck/commit split, bargein_replay/14)")
     p.add_argument("--duck-commit-ms", type=int, default=100)
     p.add_argument("--duck-window-ms", type=int, default=200)
+    p.add_argument("--arm-r", action="store_true", help="also run arm R (Q + separate duck threshold, bargein_replay/15)")
+    p.add_argument("--split-duck-rms", type=float, default=None)
     p.add_argument("--bot-render", choices=("periodic", "recorded"), default="periodic")
     p.add_argument("--rhos", default=",".join(map(str, RHOS)), help="arm C rho values, e.g. 0.9 (default 0.7,0.9)")
     p.add_argument("--arm-d", action="store_true", help="also run arm D (energy-ratio gate, bargein_replay/4)")
@@ -184,6 +186,8 @@ def main():
                   "--guard-packets", str(a.guard_packets)]
     if a.arm_q:  # bargein_replay/14 (A-bargein-Q)
         extra += ["--arm-q", "--duck-commit-ms", str(a.duck_commit_ms), "--duck-window-ms", str(a.duck_window_ms)]
+    if a.arm_r:  # bargein_replay/15 (A-bargein-R)
+        extra += ["--arm-r", "--split-duck-rms", str(a.split_duck_rms)]
     if a.caller_level_db_range:
         extra += ["--caller-level-db-range=" + a.caller_level_db_range]  # "=": the value starts with "-"
     if a.erl_db_range:

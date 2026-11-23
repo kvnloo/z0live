@@ -1642,5 +1642,172 @@ class DuckConfirmGateTest(unittest.TestCase):
             self.assertTrue(res['ab_identical_across_rho_runs'])
 
 
+# bargein_replay/14 bytes of CONT_J_ARGS + F_ARGS[:2] + G_ARGS + --arm-h --arm-o --arm-q --duck-commit-ms 100
+# --duck-window-ms 200 (pinned at 7c7d178, before arm R)
+Q14_SHA256 = '33176769bdc722342a7ee4a33ec485b13879346386bcc394fd18b949da0f4558'
+Q14_ARGS = (*CONT_J_ARGS, *F_ARGS[:2], *G_ARGS, '--arm-h', '--arm-o', '--arm-q', '--duck-commit-ms', '100',
+            '--duck-window-ms', '200')
+
+
+class SplitDuckGateTest(unittest.TestCase):
+    """bargein_replay/15: opt-in arm R, arm Q unchanged (arm O's canceller, onset run, duck/commit/un-duck) except
+    that the DUCK (onset) decision uses a lower residual RMS threshold --split-duck-rms; the COMMIT still counts only
+    packets with residual RMS >= --resid-threshold (1360)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nlms = NlmsGateTest('test_harness_id')
+        cls.nlms.setUpClass()
+
+    def r_cfg(self, **overrides):
+        return self.nlms.f_cfg(**({'resid_threshold': 1360.0, 'resid_arm_db': 6.0, 'resid_nlp_db': 3.0,
+                                   'guard_erle_db': 6.0, 'guard_margin_db': 3.0, 'guard_packets': 5,
+                                   'duck_commit_ms': 100, 'duck_window_ms': 200, 'split_duck_rms': 900.0}
+                                  | overrides))
+
+    def test_harness_id(self):
+        self.assertEqual(replay.HARNESS_SPLIT, 'bargein_replay/15')
+        self.assertEqual(replay.HARNESS_DUCK, 'bargein_replay/14')
+
+    def test_r_is_q_with_duck_threshold_only(self):
+        import ast
+        import inspect
+        self.assertTrue(issubclass(replay.SplitDuckGate, replay.DuckConfirmGate))
+        tree = ast.parse(inspect.getsource(replay.SplitDuckGate))
+        cfg_attrs = {n.attr for n in ast.walk(tree)
+                     if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == 'cfg'}
+        self.assertEqual(cfg_attrs, {'split_duck_rms'})
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                self.assertNotIn(node.id, ArmCTest.FORBIDDEN, node.id)
+
+    def test_step_weak_speech_ducks_but_never_commits(self):
+        # 30 ms of duck-level (weak) speech ducks; weak speech alone never reaches the commit; the window un-ducks
+        r = replay.SplitDuckGate(self.r_cfg(duck_window_ms=100), 2100)
+        events = [(t, e) for t in range(1000, 1200, 10) if (e := r.step(t, False, True))]
+        self.assertEqual(events[:2], [(1020, 'duck'), (1120, 'unduck')])
+        self.assertFalse(r.fired)
+
+    def test_step_commit_counts_only_strong_speech(self):
+        # onset: weak, strong, strong (duck at 1020 with 20 ms strong); then strong x 8 -> 100 ms strong at 1100;
+        # weak packets after the duck add nothing
+        r = replay.SplitDuckGate(self.r_cfg(duck_window_ms=300), 2100)
+        pattern = [(0, 1), (1, 1), (1, 1), (0, 1), (0, 1)] + [(1, 1)] * 8
+        events = [(t, e) for t, (s, d) in zip(range(1000, 1200, 10), pattern) if (e := r.step(t, bool(s), bool(d)))]
+        self.assertEqual(events, [(1020, 'duck'), (1120, 'commit')])
+        self.assertTrue(r.fired)
+
+    def test_step_gap_in_duck_speech_resets_the_onset(self):
+        r = replay.SplitDuckGate(self.r_cfg(), 2100)
+        pattern = [1, 1, 0, 1, 1, 1]
+        events = [(t, e) for t, d in zip(range(1000, 1100, 10), pattern) if (e := r.step(t, False, bool(d)))]
+        self.assertEqual(events, [(1050, 'duck')])
+
+    def test_r_equals_q_at_the_commit_threshold(self):
+        for kw in ({}, {'gain_db': -3.0}, {'caller_from': 1500, 'caller_amp': 2400, 'ms': 1800},
+                   {'caller_from': 1500, 'caller_to': 1560, 'caller_amp': 4000, 'ms': 1800},
+                   {'caller_from': 1500, 'caller_amp': 6000, 'ms': 1800}):
+            q = Recorder(replay.DuckConfirmGate(self.r_cfg(), 2100))
+            r = Recorder(replay.SplitDuckGate(self.r_cfg(split_duck_rms=1360.0), 2100))
+            self.nlms.synthetic(q, **kw)
+            self.nlms.synthetic(r, **kw)
+            self.assertEqual(r.events, q.events, kw)
+            self.assertEqual((q.gate.log, q.gate.swaps), (r.gate.log, r.gate.swaps), kw)
+
+    def test_r_ducks_no_later_than_q(self):
+        for kw in ({}, {'gain_db': -3.0}, {'caller_from': 1500, 'caller_amp': 2400, 'ms': 1800},
+                   {'caller_from': 1500, 'caller_amp': 6000, 'ms': 1800}):
+            q = Recorder(replay.DuckConfirmGate(self.r_cfg(), 2100))
+            r = Recorder(replay.SplitDuckGate(self.r_cfg(), 2100))
+            self.nlms.synthetic(q, **kw)
+            self.nlms.synthetic(r, **kw)
+            if q.events:
+                self.assertTrue(r.events, kw)
+                self.assertLessEqual(r.events[0][0], q.events[0][0], kw)
+            k = min(len(q.gate.log), len(r.gate.log))  # canceller untouched (each stops at its own commit)
+            self.assertGreater(k, 0, kw)
+            self.assertEqual(q.gate.log[:k], r.gate.log[:k], kw)
+
+    def test_r_ducks_a_caller_too_weak_for_q(self):
+        found = []
+        for amp in (500, 700, 900, 1100, 1300, 1600, 2000):
+            kw = {'caller_from': 1500, 'caller_amp': amp, 'ms': 1800}
+            q = Recorder(replay.DuckConfirmGate(self.r_cfg(), 2100))
+            r = Recorder(replay.SplitDuckGate(self.r_cfg(split_duck_rms=700.0), 2100))
+            self.nlms.synthetic(q, **kw)
+            self.nlms.synthetic(r, **kw)
+            if not q.events and r.events:
+                found.append(amp)
+        self.assertTrue(found)
+
+    def test_cli_arm_r_leaves_other_arms_unchanged(self):
+        proc, q14 = run_cli(*Q14_ARGS)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sha256(q14).hexdigest(), Q14_SHA256)  # bargein_replay/14 bytes unchanged
+        # Q14_ARGS leave --resid-threshold at its default (480): the duck threshold equal to it is arm Q
+        proc, data = run_cli(*Q14_ARGS, '--arm-r', '--split-duck-rms', '480', '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        b, r = json.loads(q14), json.loads(data)
+        self.assertEqual(r['harness'], 'bargein_replay/15')
+        self.assertEqual(sorted(r['arms']), ['A', 'B', 'C', 'D', 'E', 'F', 'F2', 'G', 'G2', 'H', 'O', 'Q', 'R'])
+        for arm in ('A', 'B', 'C', 'D', 'E', 'F', 'F2', 'G', 'G2', 'H', 'O', 'Q'):
+            self.assertEqual(canonical(r['arms'][arm]), canonical(b['arms'][arm]), arm)
+        self.assertIs(json.loads(proc.stdout)['aa_identical'], True)
+        self.assertEqual(r['parameters']['split_duck_rms'], 480.0)
+        self.assertFalse(any(k.startswith('split_') for k in b['parameters']))
+        # duck threshold == commit threshold: arm R is arm Q trial by trial (whole arm summary and every row)
+        self.assertEqual(canonical(r['arms']['R']), canonical(r['arms']['Q']))
+        # the slot's commit threshold 1360: duck_rms 1360 is arm Q trial by trial
+        proc, data = run_cli(*CONT_J_ARGS, '--arm-o', '--resid-threshold', '1360', '--guard-packets', '5',
+                             '--arm-q', '--arm-r', '--split-duck-rms', '1360')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        r1360 = json.loads(data)['arms']
+        self.assertEqual(canonical(r1360['R']), canonical(r1360['Q']))
+        # a lower duck threshold: ducks no later than Q; commits only on strong speech
+        proc, data = run_cli(*Q14_ARGS, '--arm-r', '--split-duck-rms', '300')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        arms = json.loads(data)['arms']
+        ra, qa = arms['R'], arms['Q']
+        self.assertEqual(ra['latency_definition'], 'time_to_ducked_or_silent')
+        self.assertGreaterEqual(ra['ducks'], qa['ducks'])
+        for tr, tq in zip(ra['trials'], qa['trials']):
+            dr, dq = tr['trace'].get('duck_ms', []), tq['trace'].get('duck_ms', [])
+            if dq:
+                self.assertTrue(dr, tr['trial'])
+                self.assertLessEqual(dr[0], dq[0], tr['trial'])
+            if not tr['false_barge_in'] and tr['kind'] != 'valid':
+                self.assertEqual(tr['queue_dropped_frames'], 0, tr['trial'])
+        # split flags without --arm-r change nothing; --arm-r needs --arm-q; duck threshold <= commit threshold
+        proc, data = run_cli(*Q14_ARGS, '--split-duck-rms', '300')
+        self.assertEqual(sha256(data).hexdigest(), Q14_SHA256)
+        proc, _ = run_cli(*CONT_J_ARGS, *F_ARGS[:2], *G_ARGS, '--arm-o', '--arm-r', '--split-duck-rms', '300')
+        self.assertNotEqual(proc.returncode, 0)
+        proc, _ = run_cli(*Q14_ARGS, '--arm-r', '--split-duck-rms', '600')  # above the commit threshold
+        self.assertNotEqual(proc.returncode, 0)
+        proc, _ = run_cli(*Q14_ARGS, '--arm-r')  # the duck threshold has no default
+        self.assertNotEqual(proc.returncode, 0)
+
+    def test_default_and_cont_j_bytes_unchanged(self):
+        proc, data = run_cli('--seed', '39')
+        self.assertEqual(sha256(data).hexdigest(), REFERENCE_SHA256)
+        proc, data = run_cli(*CONT_J_ARGS, '--split-duck-rms', '900')
+        self.assertEqual(sha256(data).hexdigest(), CONT_J_SHA256)
+
+    def test_sweep_passes_arm_r(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([sys.executable, '-B', str(BENCH_DIR / 'bargein_sweep.py'), '--seeds', '39', '--trials', '10',
+                            '--echo-model', 'residual', '--echo-continuous', '--bot-render', 'recorded', '--rhos',
+                            'none', '--arm-d', '--energy-k-db', '-12', '--energy-min-speech-ms', '30',
+                            '--arm-o', '--resid-threshold', '1360', '--guard-packets', '5', '--guard-margin-db', '3',
+                            '--arm-q', '--duck-commit-ms', '90', '--duck-window-ms', '150', '--arm-r',
+                            '--split-duck-rms', '1000', '--out', tmp],
+                           check=True, capture_output=True, timeout=900)
+            res = json.loads(Path(tmp, 'seed-39.json').read_text())
+            self.assertEqual(res['harness'], 'bargein_replay/15')
+            self.assertEqual(res['extra_args'][-3:], ['--arm-r', '--split-duck-rms', '1000.0'])
+            self.assertEqual(sorted(res['arms']), ['A', 'B', 'D', 'O', 'Q', 'R'])
+            self.assertTrue(res['ab_identical_across_rho_runs'])
+
+
 if __name__ == '__main__':
     unittest.main()

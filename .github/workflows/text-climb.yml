@@ -1,16 +1,18 @@
-name: z0live barge-in arm Q (arm O + duck-then-confirm), raw continuous echo, arms D / O / Q (CPU, stdlib)
-# A-bargein-Q: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml
+name: z0live barge-in arm R (arm Q + separate lower duck threshold), raw continuous echo, arms D / O / Q / R (CPU, stdlib)
+# A-bargein-R: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml
 # --ref <branch>` can dispatch it (a new workflow file is not dispatchable until it is on the default branch).
 # It runs voice-adapter/bench/bargein_sweep.py with --echo-model residual --echo-continuous (raw echo, NO
-# --echo-erle-db) --bot-render recorded --rhos none (no arm C) --arm-d --arm-o --arm-q (bargein_replay/14,
-# offline virtual-time sim, Python stdlib only, no network, no secrets) on holdout seed 65 and fresh seeds
-# 14000-14039, one seed per shard, with the three conditions run as parallel processes on the runner: S0
+# --echo-erle-db) --bot-render recorded --rhos none (no arm C) --arm-d --arm-o --arm-q --arm-r (bargein_replay/15,
+# offline virtual-time sim, Python stdlib only, no network, no secrets) on holdout seed 67 and fresh seeds
+# 15000-15039, one seed per shard, with the three conditions run as parallel processes on the runner: S0
 # unstressed -> out/s0, S1 caller-only (--caller-level-db-range -10,0) -> out/s1, FULL (caller -10,0 and
 # --erl-db-range 0,6) -> out/full.
 # Arms A, B (always run by the sweep), D frozen (k -12 dB, M 30 ms), O = A-bargein-O's arm (NLMS canceller with the
 # Geigel 0.5 freeze + Geigel-free shadow stall guard 5 pkt / 3 dB / 6 dB, residual RMS >= 1360, 30 ms onset run,
 # armed at monitored ERLE 6 dB; the control), Q = arm O whose 30 ms onset only ducks (pauses) playout; the flush is
-# committed after 100 ms of cumulative residual speech within 300 ms of the duck, else playout resumes.
+# committed after 100 ms of cumulative residual speech within 300 ms of the duck, else playout resumes
+# (A-bargein-Q; reference), R = arm Q whose onset/duck run uses residual RMS >= 1280 (split_duck_rms, tuned on
+# dev seed 66) while the commit still counts residual RMS >= 1360 (candidate).
 on:
   workflow_dispatch:
     inputs:
@@ -29,9 +31,9 @@ jobs:
       fail-fast: false
       max-parallel: 10
       matrix:
-        seed: [65, 14000, 14001, 14002, 14003, 14004, 14005, 14006, 14007, 14008, 14009, 14010, 14011, 14012, 14013,
-               14014, 14015, 14016, 14017, 14018, 14019, 14020, 14021, 14022, 14023, 14024, 14025, 14026, 14027,
-               14028, 14029, 14030, 14031, 14032, 14033, 14034, 14035, 14036, 14037, 14038, 14039]
+        seed: [67, 15000, 15001, 15002, 15003, 15004, 15005, 15006, 15007, 15008, 15009, 15010, 15011, 15012, 15013,
+               15014, 15015, 15016, 15017, 15018, 15019, 15020, 15021, 15022, 15023, 15024, 15025, 15026, 15027,
+               15028, 15029, 15030, 15031, 15032, 15033, 15034, 15035, 15036, 15037, 15038, 15039]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -53,7 +55,7 @@ jobs:
           common=(--seeds "$SEED" --jobs 1 --echo-model residual --echo-continuous
                   --bot-render recorded --rhos none --arm-d --energy-k-db -12 --energy-min-speech-ms 30
                   --resid-threshold 1360 --arm-o --guard-erle-db 6 --guard-margin-db 3 --guard-packets 5
-                  --arm-q --duck-commit-ms 100 --duck-window-ms 300)
+                  --arm-q --duck-commit-ms 100 --duck-window-ms 300 --arm-r --split-duck-rms 1280)
           t0=$(date +%s)
           python -B bench/bargein_sweep.py "${common[@]}" --out ../out/s0 > ../s0.log &
           p0=$!
