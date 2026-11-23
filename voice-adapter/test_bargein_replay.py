@@ -1463,5 +1463,112 @@ class ShadowGuardGateTest(unittest.TestCase):
             self.assertTrue(res['ab_identical_across_rho_runs'])
 
 
+# bargein_replay/12 bytes of CONT_J_ARGS + F_ARGS[:2] + G_ARGS + --arm-h --arm-o (pinned at b7a2ce2, before arm P)
+O12_SHA256 = 'a7ff9cbb879fd4dd0d98bd90423501688f7b9f67b0bd62f520050c51bb4ad563'
+
+
+class MinDurationGateTest(unittest.TestCase):
+    """bargein_replay/13: opt-in arm P, arm O unchanged (Geigel-frozen NLMS + shadow stall guard + residual-only
+    gate) except for ONE knob: P flushes playout only after --mindur-ms of consecutive residual-speech packets
+    (O: energy_min_speech_ms). A minimum-duration / backchannel rule: short no-turn bursts never flush."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nlms = NlmsGateTest('test_harness_id')
+        cls.nlms.setUpClass()
+
+    def p_cfg(self, **overrides):
+        return self.nlms.f_cfg(**({'resid_threshold': 1360.0, 'resid_arm_db': 6.0, 'resid_nlp_db': 3.0,
+                                   'guard_erle_db': 6.0, 'guard_margin_db': 3.0, 'guard_packets': 5,
+                                   'mindur_ms': 100} | overrides))
+
+    def test_harness_id(self):
+        self.assertEqual(replay.HARNESS_MINDUR, 'bargein_replay/13')
+        self.assertEqual(replay.HARNESS_SHADOW, 'bargein_replay/12')
+
+    def test_p_is_o_with_one_knob(self):
+        import ast
+        import inspect
+        self.assertTrue(issubclass(replay.MinDurationGate, replay.ShadowGuardGate))
+        tree = ast.parse(inspect.getsource(replay.MinDurationGate))
+        cfg_attrs = {n.attr for n in ast.walk(tree)
+                     if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == 'cfg'}
+        self.assertEqual(cfg_attrs, {'mindur_ms'})
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                self.assertNotIn(node.id, ArmCTest.FORBIDDEN, node.id)
+        p = replay.MinDurationGate(self.p_cfg(mindur_ms=70), 2100)
+        self.assertEqual(p.minimum, 70)
+
+    def test_p_equals_o_at_the_same_duration(self):
+        for kw in ({}, {'gain_db': -3.0}, {'caller_from': 1500, 'caller_amp': 2400, 'ms': 1800}):
+            o = replay.ShadowGuardGate(self.p_cfg(), 2100)
+            p = replay.MinDurationGate(self.p_cfg(mindur_ms=30), 2100)
+            self.assertEqual(self.nlms.synthetic(o, **kw), self.nlms.synthetic(p, **kw), kw)
+            self.assertEqual((o.log, o.swaps, o.erle_hat_db), (p.log, p.swaps, p.erle_hat_db), kw)
+
+    def test_p_ignores_a_short_burst_that_fires_o(self):
+        # a 60 ms near-end burst over converged echo: O (30 ms) flushes, P (100 ms) does not
+        kw = {'caller_from': 1500, 'caller_to': 1560, 'caller_amp': 4000, 'ms': 1800}
+        o = replay.ShadowGuardGate(self.p_cfg(), 2100)
+        p = replay.MinDurationGate(self.p_cfg(mindur_ms=100), 2100)
+        self.assertIsNotNone(self.nlms.synthetic(o, **kw))
+        self.assertIsNone(self.nlms.synthetic(p, **kw))
+
+    def test_p_fires_on_sustained_speech_later_by_the_extra_duration(self):
+        kw = {'caller_from': 1500, 'caller_amp': 6000, 'ms': 1800}
+        o = replay.ShadowGuardGate(self.p_cfg(), 2100)
+        p = replay.MinDurationGate(self.p_cfg(mindur_ms=100), 2100)
+        fired_o, fired_p = self.nlms.synthetic(o, **kw), self.nlms.synthetic(p, **kw)
+        self.assertIsNotNone(fired_o)
+        self.assertEqual(fired_p, fired_o + 70)
+
+    def test_cli_arm_p_leaves_other_arms_unchanged(self):
+        args = (*CONT_J_ARGS, *F_ARGS[:2], *G_ARGS, '--arm-h', '--arm-o')
+        proc, o12 = run_cli(*args)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sha256(o12).hexdigest(), O12_SHA256)  # bargein_replay/12 bytes unchanged
+        proc, data = run_cli(*args, '--arm-p', '--mindur-ms', '30', '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        b, p = json.loads(o12), json.loads(data)
+        self.assertEqual(p['harness'], 'bargein_replay/13')
+        self.assertEqual(sorted(p['arms']), ['A', 'B', 'C', 'D', 'E', 'F', 'F2', 'G', 'G2', 'H', 'O', 'P'])
+        for arm in ('A', 'B', 'C', 'D', 'E', 'F', 'F2', 'G', 'G2', 'H', 'O'):
+            self.assertEqual(canonical(p['arms'][arm]), canonical(b['arms'][arm]), arm)
+        self.assertIs(json.loads(proc.stdout)['aa_identical'], True)
+        self.assertEqual(p['parameters']['mindur_ms'], 30)
+        self.assertFalse(any(k.startswith('mindur_') for k in b['parameters']))
+        # at O's own duration (30 ms) arm P is arm O, trial by trial
+        self.assertEqual(canonical(p['arms']['P']), canonical(p['arms']['O']))
+        # a longer minimum duration only removes or delays flushes
+        proc, data = run_cli(*args, '--arm-p', '--mindur-ms', '100')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        q = json.loads(data)['arms']
+        for tp, to in zip(q['P']['trials'], q['O']['trials']):
+            if 'adapter_flush_ms' in tp['trace']:
+                self.assertIn('adapter_flush_ms', to['trace'], tp['trial'])
+                self.assertGreaterEqual(tp['trace']['adapter_flush_ms'], to['trace']['adapter_flush_ms'])
+        self.assertLessEqual(q['P']['false_barge_ins'], q['O']['false_barge_ins'])
+        self.assertIn('swaps_per_trial', q['P'])
+        # mindur flags without --arm-p change nothing; --arm-p needs --arm-o
+        proc, data = run_cli(*CONT_J_ARGS, '--mindur-ms', '70')
+        self.assertEqual(sha256(data).hexdigest(), CONT_J_SHA256)
+        proc, _ = run_cli(*CONT_J_ARGS, '--arm-p')
+        self.assertNotEqual(proc.returncode, 0)
+
+    def test_sweep_passes_arm_p(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([sys.executable, '-B', str(BENCH_DIR / 'bargein_sweep.py'), '--seeds', '39', '--trials', '10',
+                            '--echo-model', 'residual', '--echo-continuous', '--bot-render', 'recorded', '--rhos',
+                            'none', '--arm-d', '--energy-k-db', '-12', '--energy-min-speech-ms', '30', '--arm-g',
+                            '--arm-o', '--resid-threshold', '1360', '--guard-packets', '5', '--guard-margin-db', '3',
+                            '--arm-p', '--mindur-ms', '70', '--out', tmp], check=True, capture_output=True, timeout=900)
+            res = json.loads(Path(tmp, 'seed-39.json').read_text())
+            self.assertEqual(res['harness'], 'bargein_replay/13')
+            self.assertEqual(res['extra_args'][-3:], ['--arm-p', '--mindur-ms', '70'])
+            self.assertEqual(sorted(res['arms']), ['A', 'B', 'D', 'G', 'O', 'P'])
+            self.assertTrue(res['ab_identical_across_rho_runs'])
+
+
 if __name__ == '__main__':
     unittest.main()

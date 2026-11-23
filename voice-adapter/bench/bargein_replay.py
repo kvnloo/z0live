@@ -94,6 +94,10 @@ Arm O (--arm-o, opt-in, output marked bargein_replay/12; arms A-H unchanged): ar
   --guard-packets consecutive render-active packets in which G's monitored ERLE is < --guard-erle-db and the shadow
   residual is >= --guard-margin-db lower. Until then every decision is arm G's. See ShadowGuardGate.
 
+Arm P (--arm-p, needs --arm-o, opt-in, output marked bargein_replay/13; arms A-O unchanged): arm O unchanged except
+  for one knob, a minimum-duration / backchannel rule: playout is flushed only after --mindur-ms of consecutive
+  residual-speech packets (arm O: --energy-min-speech-ms), so short near-end bursts never flush. See MinDurationGate.
+
 Stress flags (opt-in, output marked bargein_replay/5; without them nothing changes):
   --caller-level-db-range LO,HI  per valid trial, caller gain g ~ U(LO, HI) dB
             relative to the fixture level (bot render stays at its level), drawn
@@ -157,6 +161,7 @@ HARNESS_NLMS = "bargein_replay/9"  # only with --arm-f or --arm-f2
 HARNESS_RESID = "bargein_replay/10"  # only with --arm-g or --arm-g2
 HARNESS_TWOPATH = "bargein_replay/11"  # only with --arm-h
 HARNESS_SHADOW = "bargein_replay/12"  # only with --arm-o
+HARNESS_MINDUR = "bargein_replay/13"  # only with --arm-p
 ERL_DB_RANGE = (6, 20)
 REFLECTIONS = 12
 
@@ -971,6 +976,18 @@ class ShadowGuardGate(ResidualGate):
         return False
 
 
+class MinDurationGate(ShadowGuardGate):
+    """Arm P (bargein_replay/13): arm O unchanged (canceller, shadow stall guard, arming, residual-only speech
+    decision) except for ONE knob, a minimum-duration / backchannel rule: flush only after mindur_ms of consecutive
+    residual-speech packets instead of energy_min_speech_ms. Near-end bursts shorter than mindur_ms (backchannels,
+    coughs) never flush playout; sustained speech flushes mindur_ms - energy_min_speech_ms later than arm O.
+    """
+
+    def __init__(self, cfg, span_ms):
+        super().__init__(cfg, span_ms)
+        self.minimum = cfg.mindur_ms
+
+
 def residual_echo(seed, index, kind, erl_db_range=None):
     """bargein_replay/2 per-trial echo path, drawn from its own RNG (erl_db_range: bargein_replay/5)."""
     rng = Random(f"{HARNESS_RESIDUAL}:{seed}:{index}")
@@ -1167,7 +1184,8 @@ def replay(trial, arm, cfg, bot):
              ResidualGate(cfg, len(speaker) // SAMPLES_MS, "residual" if arm == "G" else "nlp")
              if arm in ("G", "G2") else
              TwoPathGate(cfg, len(speaker) // SAMPLES_MS) if arm == "H" else
-             ShadowGuardGate(cfg, len(speaker) // SAMPLES_MS) if arm == "O" else None)
+             ShadowGuardGate(cfg, len(speaker) // SAMPLES_MS) if arm == "O" else
+             MinDurationGate(cfg, len(speaker) // SAMPLES_MS) if arm == "P" else None)
 
     def post(t, priority, label, payload=None):
         heappush(future, (t, priority, next(order), label, payload))
@@ -1257,7 +1275,7 @@ def replay(trial, arm, cfg, bot):
                 flush(t, "erl2_gated_local_vad")
             if ngate and ngate.observe(t, payload):
                 trace["nlms_fire_ms"] = t
-                flush(t, "residual_gated_local_vad" if arm in ("G", "G2", "O") else
+                flush(t, "residual_gated_local_vad" if arm in ("G", "G2", "O", "P") else
                       "twopath_residual_gated_local_vad" if arm == "H" else "nlms_gated_local_vad")
             # PCM keeps flowing upstream even if bot audio has been muted.
             post(t + trial["ws_up"], 3, "server_pcm", payload)
@@ -1329,7 +1347,7 @@ def replay(trial, arm, cfg, bot):
         trace["nlms_erle_packets"] = len(erle)
         if arm == "H":
             trace["nlms_copies"] = ngate.copies
-        if arm == "O":
+        if arm in ("O", "P"):
             trace["nlms_swaps"] = ngate.swaps
     row = dict(trial=trial["id"], kind=kind, latency_ms=latency,
                residual_ms=residual, false_barge_in=kind != "valid" and muted,
@@ -1388,17 +1406,19 @@ def run(n, seed, cfg, bot):
     arm_g2 = getattr(cfg, "arm_g2", False)
     arm_h = getattr(cfg, "arm_h", False)
     arm_o = getattr(cfg, "arm_o", False)
+    arm_p = getattr(cfg, "arm_p", False)
     nlms = arm_f or arm_f2 or arm_g or arm_g2 or arm_h or arm_o
     result = dict(seed=seed, trials_per_arm=n, parameters={
         k: v for k, v in vars(cfg).items()
         if k not in ("aa", "output", "seed", "trials", "arm_c", "arm_d", "arm_e", "arm_e2", "arm_f", "arm_f2",
-                     "arm_g", "arm_g2", "arm_h", "arm_o")
+                     "arm_g", "arm_g2", "arm_h", "arm_o", "arm_p")
         and (arm_c or not k.startswith("gate_"))  # default run keeps the frozen bytes
         and (arm_d or arm_e or arm_e2 or nlms or not k.startswith("energy_"))
         and (nlms or not k.startswith("nlms_"))  # bargein_replay/9 only with --arm-f / --arm-f2 (/10: G, G2)
         and (arm_g or arm_g2 or arm_h or arm_o or not k.startswith("resid_"))  # /10 G, G2 (/11: H, /12: O)
         and (arm_h or not k.startswith("twopath_"))  # bargein_replay/11 only with --arm-h
         and (arm_o or not k.startswith("guard_"))  # bargein_replay/12 only with --arm-o
+        and (arm_p or not k.startswith("mindur_"))  # bargein_replay/13 only with --arm-p
         and (arm_e2 or not k.startswith("erl2_"))  # bargein_replay/8 only with --arm-e2
         and (arm_e or not k.startswith("erl_") or k == "erl_db_range")  # erl_db_range: bargein_replay/5 stress
         and (k != "echo_model" or echo_model != "copy")
@@ -1429,11 +1449,13 @@ def run(n, seed, cfg, bot):
         result["harness"] = HARNESS_TWOPATH
     if arm_o:
         result["harness"] = HARNESS_SHADOW
+    if arm_p:
+        result["harness"] = HARNESS_MINDUR
     arms = ("A", "B", "C") if arm_c else ("A", "B")
     arms += (("D",) if arm_d else ()) + (("E",) if arm_e else ()) + (("E2",) if arm_e2 else ())
     arms += (("F",) if arm_f else ()) + (("F2",) if arm_f2 else ())
     arms += (("G",) if arm_g else ()) + (("G2",) if arm_g2 else ()) + (("H",) if arm_h else ())
-    for arm in arms + (("O",) if arm_o else ()):
+    for arm in arms + (("O",) if arm_o else ()) + (("P",) if arm_p else ()):
         rows = [replay(case, arm, cfg, bot) for case in cases]
         pooled = [v for row in rows for v in row.pop("_erle", ())]
         valid = [row for row in rows if row["kind"] == "valid"]
@@ -1487,7 +1509,7 @@ def run(n, seed, cfg, bot):
                 [row["latency_ms"] for row in valid if row.get("echo_path", {}).get("double_talk")])
             summary["valid_trials_with_veto"] = sum(row["trace"]["erl2_vetoes"] > 0 for row in valid)
             summary["final_est_db"] = quantiles([row["trace"]["erl2_final_est_db"] for row in rows])
-        if arm in ("F", "F2", "G", "G2", "H", "O"):
+        if arm in ("F", "F2", "G", "G2", "H", "O", "P"):
             summary = result["arms"][arm]
             summary["double_talk_latency_ms"] = percentiles(
                 [row["latency_ms"] for row in valid if row.get("echo_path", {}).get("double_talk")])
@@ -1502,7 +1524,7 @@ def run(n, seed, cfg, bot):
                                                    for row in rows if row["trace"]["nlms_delay_ms"] is not None])
             if arm == "H":
                 summary["copies_per_trial"] = quantiles([row["trace"]["nlms_copies"] for row in rows])
-            if arm == "O":
+            if arm in ("O", "P"):
                 summary["swaps_per_trial"] = quantiles([row["trace"]["nlms_swaps"] for row in rows])
                 summary["trials_with_swap"] = sum(row["trace"]["nlms_swaps"] > 0 for row in rows)
     return result
@@ -1606,6 +1628,12 @@ def main():
                         help="arm O: the shadow residual must be at least this many dB below G's residual")
     parser.add_argument("--guard-packets", type=int, default=10,
                         help="arm O: consecutive stalled-and-shadow-better packets before the shadow replaces G's filter")
+    parser.add_argument("--arm-p", action="store_true",
+                        help="add arm P (bargein_replay/13, needs --arm-o): arm O with a minimum-duration / "
+                             "backchannel rule (flush only after --mindur-ms of consecutive residual speech)")
+    parser.add_argument("--mindur-ms", type=int, default=100,
+                        help="arm P: consecutive residual-speech ms before flushing playout (arm O: "
+                             "--energy-min-speech-ms)")
     parser.add_argument("--echo-erle-db", type=float, default=None,
                         help="bargein_replay/8 (needs --echo-continuous): linear-AEC residual, echo attenuated X dB")
     parser.add_argument("--echo-model", choices=("copy", "residual"), default="copy",
@@ -1668,6 +1696,10 @@ def main():
         parser.error("twopath: copy dB in [-20, 60], copy packets >= 1")
     if not -20 <= cfg.guard_erle_db <= 60 or not 0 <= cfg.guard_margin_db <= 60 or cfg.guard_packets < 1:
         parser.error("guard: ERLE dB in [-20, 60], margin dB in [0, 60], packets >= 1")
+    if cfg.mindur_ms <= 0 or cfg.mindur_ms % CAPTURE_MS or cfg.mindur_ms > 2000:
+        parser.error("mindur: a positive multiple of 10 ms, <= 2000")
+    if cfg.arm_p and not cfg.arm_o:
+        parser.error("--arm-p needs --arm-o (arm P is arm O plus one knob)")
 
     bot = voice(BOT_MS, 142, 11000, 115)
     result = run(cfg.trials, cfg.seed, cfg, bot)
