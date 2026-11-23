@@ -1,11 +1,11 @@
-name: z0live barge-in energy-gate stress sweep (CPU, stdlib)
-# A-bargein-G: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml
+name: z0live barge-in one-flag stress split (CPU, stdlib)
+# A-bargein-H: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml
 # --ref <branch>` can dispatch it (a new workflow file is not dispatchable until it is on the default branch).
-# It runs voice-adapter/bench/bargein_sweep.py with --echo-model residual --bot-render recorded --arm-d plus
-# the stress flags --caller-level-db-range -10,0 --erl-db-range 0,6 (bargein_replay/5, offline virtual-time
-# sim, Python stdlib only, no network, no secrets) on holdout seed 46 and fresh seeds 4000-4039: arms A, B,
-# C rho 0.9 at M 40 ms, D frozen (k -12 dB, M 30 ms, A-bargein-F pick). A second sweep (out/tuned) runs
-# D-retuned k -18 M30 (least-bad on dev seed 45; descriptive only).
+# It runs voice-adapter/bench/bargein_sweep.py with --echo-model residual --bot-render recorded --arm-d
+# (bargein_replay/5, offline virtual-time sim, Python stdlib only, no network, no secrets) on holdout seed 47
+# and fresh seeds 5000-5039 under two one-flag stress conditions: S1 caller-only (--caller-level-db-range
+# -10,0, default ERL) -> out/s1, and S2 ERL-only (--erl-db-range 0,6, caller at 0 dB) -> out/s2. Arms A, B,
+# C rho 0.9 at M 40 ms, D frozen (k -12 dB, M 30 ms). No harness code change.
 on:
   workflow_dispatch:
     inputs:
@@ -23,9 +23,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        seeds: ["46", 4000-4001, 4002-4003, 4004-4005, 4006-4007, 4008-4009, 4010-4011, 4012-4013, 4014-4015,
-                4016-4017, 4018-4019, 4020-4021, 4022-4023, 4024-4025, 4026-4027, 4028-4029, 4030-4031,
-                4032-4033, 4034-4035, 4036-4037, 4038-4039]
+        seeds: ["47", 5000-5001, 5002-5003, 5004-5005, 5006-5007, 5008-5009, 5010-5011, 5012-5013, 5014-5015,
+                5016-5017, 5018-5019, 5020-5021, 5022-5023, 5024-5025, 5026-5027, 5028-5029, 5030-5031,
+                5032-5033, 5034-5035, 5036-5037, 5038-5039]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,14 +44,14 @@ jobs:
         run: |
           set -euo pipefail
           cd voice-adapter
-          python -B bench/bargein_sweep.py --seeds "$SEEDS" --out ../out --jobs "$(nproc)" \
+          python -B bench/bargein_sweep.py --seeds "$SEEDS" --out ../out/s1 --jobs "$(nproc)" \
             --echo-model residual --bot-render recorded --rhos 0.9 \
             --arm-d --energy-k-db -12 --energy-min-speech-ms 30 \
-            --caller-level-db-range=-10,0 --erl-db-range=0,6 | tee -a "$GITHUB_STEP_SUMMARY"
-          python -B bench/bargein_sweep.py --seeds "$SEEDS" --out ../out/tuned --jobs "$(nproc)" \
+            --caller-level-db-range=-10,0 | sed 's/^/s1 /' | tee -a "$GITHUB_STEP_SUMMARY"
+          python -B bench/bargein_sweep.py --seeds "$SEEDS" --out ../out/s2 --jobs "$(nproc)" \
             --echo-model residual --bot-render recorded --rhos 0.9 \
-            --arm-d --energy-k-db -18 --energy-min-speech-ms 30 \
-            --caller-level-db-range=-10,0 --erl-db-range=0,6 | sed 's/^/tuned /' | tee -a "$GITHUB_STEP_SUMMARY"
+            --arm-d --energy-k-db -12 --energy-min-speech-ms 30 \
+            --erl-db-range=0,6 | sed 's/^/s2 /' | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -75,5 +75,5 @@ jobs:
           NOTE: ${{ inputs.note }}
         run: |
           set -euo pipefail
-          { [ -n "${NOTE}" ] && echo "note: ${NOTE}"; echo '```'; (cd results && ls seed-*.json tuned/seed-*.json | wc -l && sha256sum seed-*.json tuned/seed-*.json); echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          (cd results && sha256sum seed-*.json tuned/seed-*.json)
+          { [ -n "${NOTE}" ] && echo "note: ${NOTE}"; echo '```'; (cd results && ls s1/seed-*.json s2/seed-*.json | wc -l && sha256sum s1/seed-*.json s2/seed-*.json); echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          (cd results && sha256sum s1/seed-*.json s2/seed-*.json)
