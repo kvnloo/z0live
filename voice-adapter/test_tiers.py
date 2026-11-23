@@ -45,9 +45,9 @@ class RaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(set(errors), {"haiku", "luna"})
 
     def test_every_lane_sees_the_brief_and_the_call_so_far(self):
-        ctx = tiers.snapshot("Kevin approved adb.", [("user", "hey"), ("assistant", "Hi Kevin.")])
-        self.assertIn("Kevin approved adb.", ctx)
-        self.assertIn("Kevin: hey\nYou: Hi Kevin.", ctx)
+        ctx = tiers.snapshot("The user approved adb.", [("user", "hey"), ("assistant", "Hi there.")])
+        self.assertIn("The user approved adb.", ctx)
+        self.assertIn("User: hey\nYou: Hi there.", ctx)
 
 
 class Call:

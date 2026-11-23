@@ -1,6 +1,6 @@
 # llama.cpp b12527 (78e0529): ggml-vulkan on a Vulkan 1.1 device (Lenovo TB350FU, Mali-G57 MC2, driver r32p1).
 # Three null-pointer crashes, each a core 1.2 path on a 1.1 device: vkGetBufferDeviceAddress, vkGetDeviceQueue2
-# (returns NULL on this driver), vkWaitSemaphores. Apply: git apply; build: docs/HILLCLIMB-OVERNIGHT.md Track B (B14).
+# (returns NULL on this driver), vkWaitSemaphores. Apply: git apply; build: llama.cpp Vulkan static build, Track B (B14).
 diff --git i/ggml/src/ggml-vulkan/ggml-vulkan.cpp w/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 index 616a17c..4f69186 100644
 --- i/ggml/src/ggml-vulkan/ggml-vulkan.cpp

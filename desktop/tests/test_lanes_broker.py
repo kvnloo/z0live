@@ -207,7 +207,7 @@ class FanoutTests(Base):
         self.assertEqual(len(spoken), 1)
 
     def test_agreeing_verifier_marks_verified_and_meta_is_no_answer(self):
-        out, _ = self.fanout({"claude-haiku-4-5": (0, '{"route":"answer","answer":"Hi Kevin."}'),
+        out, _ = self.fanout({"claude-haiku-4-5": (0, '{"route":"answer","answer":"Hi there."}'),
                               "claude-opus-5-5": (0, '{"verdict":"agree","answer":""}'),
                               "claude-sonnet-5": (0, '{"verdict":"agree","answer":""}')}, [])
         receipt = out.on_final(self.sid, "hey")

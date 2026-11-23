@@ -35,7 +35,7 @@ RATE_IN, RATE_OUT, FRAME = 24000, 48000, 960  # Grok PCM rate; phone rate; 20 ms
 SECRET_SCRIPT = Path(__file__).with_name("xai_secret.py")
 HERMES_BIN = os.environ.get("HERMES_BIN") or shutil.which("hermes") or str(Path.home() / ".hermes/hermes-agent/.hermes/bin/hermes")
 TOOL = {"type": "function", "name": "ask_hermes",
-        "description": "Hand real work to Hermes, Kevin's agent: anything about his data, files, sessions, phone "
+        "description": "Hand real work to Hermes, the user's agent: anything about his data, files, sessions, phone "
                        "or screen, or anything you can't answer from the conversation. Say a few words first.",
         "parameters": {"type": "object", "properties": {"request": {"type": "string"}}, "required": ["request"]}}
 TIMED = {"input_audio_buffer.speech_started", "input_audio_buffer.speech_stopped", "input_audio_buffer.committed",
@@ -165,7 +165,7 @@ class GrokLeg:
             self.ready = True
             self.emit({"type": "session.started"})
         elif ty == "input_audio_buffer.speech_started":
-            self.output.clear()  # barge-in: stop speaking over Kevin
+            self.output.clear()  # barge-in: stop speaking over the user
         elif ty == "conversation.item.input_audio_transcription.completed":
             text = ev.get("transcript") or ""
             if text:
@@ -220,7 +220,7 @@ class GrokLeg:
             await self.raw({"type": "conversation.item.create", "item": {
                 "type": "function_call_output", "call_id": did, "output": text}}, turn_id=turn_id)
         else:  # a second answer for the same request (lane first, Hermes later): speak it as an update
-            await self.note("Update from Hermes on Kevin's earlier request; say it briefly: " + text, turn_id, did)
+            await self.note("Update from Hermes on the user's earlier request; say it briefly: " + text, turn_id, did)
         await self.raw({"type": "response.create"})
 
     async def close(self):

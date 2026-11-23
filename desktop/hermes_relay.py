@@ -32,7 +32,7 @@ if "--native" not in sys.argv:
     )
     os.execv(runtime[0], [runtime[0], "-I", str(Path(__file__).resolve()), "--native"])
 
-sys.path.insert(0, os.environ.get("Z0LIVE_HERMES_SOURCE", "/workspace/hermes-home/hermes-agent"))
+sys.path.insert(0, os.environ.get("Z0LIVE_HERMES_SOURCE", str(Path.home() / ".hermes/hermes-agent")))
 import hermes_bootstrap  # noqa: E402,F401 - initializes the installed Hermes runtime
 from hermes_cli.gateway_client import GatewayClientError, connect_gateway  # noqa: E402
 from hermes_cli.gateway_runtime import attachable, discover_gateway_endpoint  # noqa: E402

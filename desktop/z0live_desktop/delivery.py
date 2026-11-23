@@ -87,7 +87,7 @@ class Delivery:
                             "Z0LIVE_DELIVERY_HOME",
                             os.environ.get(
                                 "Z0LIVE_HERMES_HOME",
-                                "/workspace/hermes-home/profiles/clean",
+                                os.environ.get("HERMES_HOME", str(Path.home() / ".hermes")),
                             ),
                         ),
                     },

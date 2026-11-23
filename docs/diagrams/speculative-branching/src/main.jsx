@@ -30,10 +30,10 @@ const n = (id, x, y, title, sub, color, status) => ({ id, position: { x, y }, da
   style: box(color, status) });
 
 const nodes = [
-  n("mic", 0, 260, "Kevin's mic (S25)", "WebRTC to the Studio adapter", C.you, "built"),
+  n("mic", 0, 260, "The user's mic (S25)", "WebRTC to the Studio adapter", C.you, "built"),
   n("asr", 270, 140, "Live transcript", "word-by-word partials, ~0.1-0.4 s behind speech", C.you, "built"),
   n("voice", 270, 420, "Voice model", "GPT-Live (default) · Grok · local Liquid", C.voice, "built"),
-  group("spec", "While Kevin is still talking", 540, 0, 520, 470),
+  group("spec", "While the user is still talking", 540, 0, 520, 470),
   { id: "spec-title", parentId: "spec", position: { x: 16, y: 10 }, draggable: false, selectable: false,
     data: { label: <span style={{ color: C.voice, fontFamily: "IBM Plex Mono, monospace", fontSize: 11 }}>WHILE KEVIN IS STILL TALKING</span> },
     style: { background: "transparent", border: "none", width: 300, padding: 0 } },
@@ -49,7 +49,7 @@ const nodes = [
   n("hermes", 1680, 400, "Hermes agent", "real work, lands last; per-call session (tek's fix)", C.hermes, "built"),
   n("ctx", 820, 560, "Shared context", "chat brief · live transcript · blackboard", C.ctx, "built"),
   n("eager", 1120, 0, "Launch at final transcript", "falsified: final arrives 0.42 s AFTER hand-off", C.bad, "falsified"),
-  n("spk", 0, 460, "Kevin hears the answer", "", C.you, "built"),
+  n("spk", 0, 460, "The user hears the answer", "", C.you, "built"),
 ];
 const e = (id, s, t, opts = {}) => ({ id, source: s, target: t, animated: !!opts.animated, label: opts.label,
   style: { stroke: opts.color || C.mute, strokeWidth: 1.5, strokeDasharray: opts.dashed ? "6 5" : undefined },

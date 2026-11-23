@@ -204,7 +204,8 @@ def load_jevkit():
             return mod, sys.modules.get(name[: -len("choose")] + "privacy")
     roots = [os.environ.get("Z0LIVE_JEVKIT", "")]
     home = Path.home() / ".hermes"
-    roots += [str(home / "profiles" / "clean" / "plugins" / "hermes-jev" / "jevkit"),
+    hermes_home = Path(os.environ["HERMES_HOME"]) if os.environ.get("HERMES_HOME") else home
+    roots += [str(hermes_home / "plugins" / "hermes-jev" / "jevkit"),
               str(home / "plugins" / "hermes-jev" / "jevkit")]
     for root in roots:
         init = Path(root) / "__init__.py" if root else None

@@ -42,18 +42,18 @@ Optional legacy `adb -s <phone-ip>:CONNECTPORT tcpip 5555` can give a fixed port
 
 ## Phone Harness for Hermes profile `clean`
 
-Installed via the reviewed catalog entry `phone-harness`, upstream `ShawnPana/phone-harness`, subdir `integrations/hermes`, pinned commit `7e3ea6cff1377db4d4f37e852c59493120aa52b6`. Manifest 0.1.0 depends on `phone-harness==0.3.2`. Location: `/workspace/hermes-home/profiles/clean/plugins/phone-harness`. `hermes plugins show phone-harness` reads back **enabled**; `hermes plugins doctor phone-harness` passes import/discovery/registration (one tool + one approval hook). The resumed runtime check `hermes --run-module phone_harness.run --version` returns 0.3.2. Both the previous run and the final resumed check executed a metadata-only `ensure_device()` through the bootstrapped module launcher against the explicit phone: `phone-harness device-ready`, exit 0. This did not capture a screen or drive UI.
+Installed via the reviewed catalog entry `phone-harness`, upstream `ShawnPana/phone-harness`, subdir `integrations/hermes`, pinned commit `7e3ea6cff1377db4d4f37e852c59493120aa52b6`. Manifest 0.1.0 depends on `phone-harness==0.3.2`. Location: `<hermes-home>/plugins/phone-harness`. `hermes plugins show phone-harness` reads back **enabled**; `hermes plugins doctor phone-harness` passes import/discovery/registration (one tool + one approval hook). The resumed runtime check `hermes --run-module phone_harness.run --version` returns 0.3.2. Both the previous run and the final resumed check executed a metadata-only `ensure_device()` through the bootstrapped module launcher against the explicit phone: `phone-harness device-ready`, exit 0. This did not capture a screen or drive UI.
 
 **Integrated tool blocker:** a real `phone_exec` call in this resumed session failed before executing its snippet: `ModuleNotFoundError: No module named 'phone_harness'`. The installed plugin's `_command()` invokes `[sys.executable, "-m", "phone_harness.run"]`; that raw child interpreter lacks the dependency path supplied by Hermes bootstrap. Doctor/import success does not test this child execution. `hermes --run-module phone_harness.run` does resolve the installed dependency and its Android readiness probe succeeds. The plugin is **installed/enabled/discoverable, but integrated `phone_exec` execution is currently broken**. No vendor/core patch or owner restart was performed; use the verified pinned ADB helper for approved tests until the integration is repaired. The module launcher is a diagnostic/approved CLI alternative, not authority to bypass phone-action consent.
 
 The tool is **`phone_exec`**: short Python snippets with Android helpers (`ensure_device`, `screen`, `screenshot`, `tap`, etc.). Android uses ADB screencap + uiautomator, not a companion app. Skill: `phone-harness:phone-harness` in a new session. It also supports iPhones/cloud phones; **do not use those backends for this task**. Three similarly named things are distinct: this Hermes plugin; the Lawnchair CI workflow **zer0 phone harness APK** (an Android launcher build, not the automation plugin); and the historical Tern `phone-controls` UI plugin on a separate phone host.
 
-For reproducible installation in **clean only**, the earlier run used the official plugin CLI (already done; no need to reinstall):
+For reproducible installation in **the one target profile only**, the earlier run used the official plugin CLI (already done; no need to reinstall):
 
 ```sh
-HERMES_HOME=/workspace/hermes-home/profiles/clean hermes plugins install phone-harness \
+HERMES_HOME=<hermes-home> hermes plugins install phone-harness \
   --ref 7e3ea6cff1377db4d4f37e852c59493120aa52b6 --yes-deps --enable
-HERMES_HOME=/workspace/hermes-home/profiles/clean hermes plugins doctor phone-harness --ci
+HERMES_HOME=<hermes-home> hermes plugins doctor phone-harness --ci
 ```
 
 This is a community plugin that executes Python with host-user permissions, not a sandbox. Keep the reviewed pin; do not update it implicitly.

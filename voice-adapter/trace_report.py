@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 STORE = Path(os.environ.get("HERMES_MOBILE_VOICE_TRACE_DIR",
-                            "/mnt/zer0models/sft-svlm/data/voice-traces/hermes-mobile-live"))
+                            str(Path.home() / ".local/share/z0live/voice-traces")))
 
 
 def load(path):

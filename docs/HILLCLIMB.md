@@ -58,7 +58,7 @@ Never edit `suite-v1.json` after its baseline. New cases go in `suite-v2.json` w
 |---|---|
 | Mac Studio | Runs the bench, both provider logins, the voice stack and this loop |
 | the desktop host | Local lane models (llama-servers 11530/15637, down 11-19) and k3s worker (NotReady since 11-17) |
-| MBP | Build node once its disk (96 %) is cleaned; k3s worker |
+| Laptop | Build node once its disk (96 %) is cleaned; k3s worker |
 | S25 Ultra | Physical stratum: real Hermes-app calls, physical onset/silence timing (adb, tailnet port changes on restart) |
 | S22 / tablet | Play spoken test prompts aloud next to the S25 for physical-audio cases (adb via the desktop host) |
 

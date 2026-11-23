@@ -1,4 +1,4 @@
-"""Passthru: z0 joins Kevin's other call (Meet, Zoom web, Teams, any WebRTC page, canvas, whiteboard).
+"""Passthru: z0 joins the user's other call (Meet, Zoom web, Teams, any WebRTC page, canvas, whiteboard).
 
 Android lets only one ordinary app hear the mic, and call audio (USAGE_VOICE_COMMUNICATION) cannot
 be captured, so the phone cannot merge a Meet call into the z0 call. Instead a browser on the Studio
@@ -10,10 +10,10 @@ live z0 call:
 
 Floor policy (``Z0LIVE_PASSTHRU_FLOOR``, default ``addressed``): in a meeting z0 speaks into the room
 only for a turn that names it ("z0, ...", "hey zero", "Hermes, ..."). ``open`` lets every reply
-through, ``listen`` never speaks into the room. Kevin's own phone leg keeps hearing every reply
+through, ``listen`` never speaks into the room. The user's own phone leg keeps hearing every reply
 unless ``Z0LIVE_PASSTHRU_PHONE`` is ``mute``.
 
-Voice control is parsed from Kevin's own transcript (``command()``), so it works with any engine and
+Voice control is parsed from the user's own transcript (``command()``), so it works with any engine and
 needs no model tool: "z0 merge the calls", "join my meeting", "share my screen", "share the canvas",
 "stop sharing", "leave the meeting".
 """
@@ -71,8 +71,8 @@ def addressed(text: str) -> bool:
 
 
 def command(text: str, *, active: bool) -> tuple[str, str] | None:
-    """Parse a passthru command from Kevin's transcript. Outside passthru only "join" counts, and
-    only when Kevin names z0 or says "passthru"/"merge", so ordinary talk about meetings stays talk."""
+    """Parse a passthru command from the user's transcript. Outside passthru only "join" counts, and
+    only when the user names z0 or says "passthru"/"merge", so ordinary talk about meetings stays talk."""
     text = (text or "").strip()
     if not text:
         return None
@@ -198,7 +198,7 @@ def mix_into(frame, room: np.ndarray | None, gain: float = ROOM_GAIN):
 @dataclass
 class Floor:
     policy: str = os.environ.get("Z0LIVE_PASSTHRU_FLOOR", "addressed")
-    released_at: float = float("-inf")   # Kevin or a guest named z0 at this time
+    released_at: float = float("-inf")   # the user or a guest named z0 at this time
     reply_open: bool = False             # the current assistant reply may reach the room
     tail_until: float = float("-inf")
 
@@ -263,7 +263,7 @@ class Passthru:
         if not ws_url:
             ws_url = await self.serve()
         cfg = {"url": url, "ws": ws_url + "?call=" + self.call.id, "token": self.token,
-               "name": os.environ.get("Z0LIVE_PASSTHRU_NAME", "z0 (Kevin's assistant)"),
+               "name": os.environ.get("Z0LIVE_PASSTHRU_NAME", "z0 (assistant)"),
                "headless": headless, "share": share, "create": create}
         self.proc = await asyncio.create_subprocess_exec(
             self.node, str(self.script), json.dumps(cfg), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -519,7 +519,7 @@ def shlex_quote(s: str) -> str:
 
 
 # ---------------------------------------------------------------------------- control
-SENSITIVE = {"share", "floor:open"}   # only Kevin's own phone leg or chat may ask for these
+SENSITIVE = {"share", "floor:open"}   # only the user's own phone leg or chat may ask for these
 
 
 def canvas_url() -> str:
@@ -532,10 +532,10 @@ def canvas_url() -> str:
 
 
 def say(call, text: str):
-    """Have z0 tell Kevin something short in its own voice (commentary for GPT-Live, note+response for Grok)."""
+    """Have z0 tell the user something short in its own voice (commentary for GPT-Live, note+response for Grok)."""
     if call.closed:
         return
-    line = "Passthru update. Tell Kevin in one short sentence: " + text
+    line = "Passthru update. Tell the user in one short sentence: " + text
     if getattr(call, "leg", None):
         call.spawn(call.leg.note(line, call.trace.turn_id))
         call.spawn(call.leg.raw({"type": "response.create"}))
@@ -549,7 +549,7 @@ async def handle(call, action: str, arg: str = "", *, from_kevin: bool) -> str:
     key = action if action != "floor" else "floor:" + arg
     if key in SENSITIVE and not from_kevin:
         call.trace("passthru.refused", action=action, arg=arg, why="room_voice")
-        return "Only Kevin can ask me to share or speak freely, from his phone or chat."
+        return "Only the user can ask me to share or speak freely, from his phone or chat."
     if action == "start":
         await p.start("", create=SERVICE)
         link = await p.wait_link(40)
@@ -616,7 +616,7 @@ async def run_command(call, action: str, arg: str, *, from_kevin: bool):
 
 
 def send_link(call, link: str):
-    """Put the meeting link in Kevin's Hermes chat transcript (text only; never spoken)."""
+    """Put the meeting link in the user's Hermes chat transcript (text only; never spoken)."""
     try:
         call.send(call.protocol.transcript("assistant", "\n" + link + "\n"))
     except Exception:  # noqa: BLE001

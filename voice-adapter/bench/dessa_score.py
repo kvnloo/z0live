@@ -1,4 +1,4 @@
-"""Score a Dessa-replay run with confidence intervals and Dessa-labelled cut-ins (HILLCLIMB-OVERNIGHT backlog 0a-c).
+"""Score a Dessa-replay run with confidence intervals and Dessa-labelled cut-ins (overnight hill-climb backlog 0a-c).
 
 dessa_replay.py writes NAME-ai.wav / NAME-human.wav (48 kHz, aligned, human starts LEAD_S into the file). This reads
 those WAVs and adds what one D number cannot show:

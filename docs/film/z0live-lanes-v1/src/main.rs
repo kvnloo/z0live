@@ -204,7 +204,7 @@ fn film(t: f32) -> Svgr<'static> {
             l.push(text(PANEL.0 + 34.0, ROWS[i] + 8.0, 22.0, label, MUTE, MONO, "start", o));
             l.push(seg(PANEL.0 + VAL, ROWS[i] + 28.0, PANEL.0 + PANEL.2 - 34.0, ROWS[i] + 28.0, LIFT, 1.5, o, false));
         }
-        l.push(text(PANEL.0 + VAL, ROWS[0] + 8.0, 26.0, "Kevin's chat: last 12 turns, open tasks, today", INK, SANS, "start", prog(t, 6.2, 6.6) * panel_o));
+        l.push(text(PANEL.0 + VAL, ROWS[0] + 8.0, 26.0, "The user's chat: last 12 turns, open tasks, today", INK, SANS, "start", prog(t, 6.2, 6.6) * panel_o));
     }
     for (i, lane) in LANES.iter().enumerate() {
         let at = 6.6 + i as f32 * 0.28;

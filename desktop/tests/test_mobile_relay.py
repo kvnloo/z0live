@@ -40,7 +40,7 @@ class RelayTests(Base):
 
         async def run():
             relay = LaneRelay(self.token, base=self.base, choice="start live with 2 fast, 1 large, no council")
-            started = await relay.start("clean")
+            started = await relay.start("main")
             self.assertEqual(started["lanes"]["counts"], {"fast": 2, "small": 1, "large": 1, "council": 0})
             await relay.transcript("what is 6 plus", False)
             receipt = await relay.transcript("what is 6 plus 7", True)

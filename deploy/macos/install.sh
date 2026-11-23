@@ -10,7 +10,7 @@
 # Same layout as the desktop host: the Hermes app uses the https URL, Tailscale holds the certificate, and every call
 # goes through the adapter (and its event trace). The dashboard must bind loopback (docs/STUDIO.md "Front door").
 #   com.zer0.z0live.lanes  voice-adapter/lane_server.py on 127.0.0.1:8646 under the Hermes runtime: fast/medium/
-#                          slow model lanes (tiers.py) as plain model calls through the poteto profile's logins
+#                          slow model lanes (tiers.py) as plain model calls through the primary profile's logins
 #   com.zer0.z0live.gemma  optional loopback model server on 127.0.0.1:8650 for the local lane
 #
 # Secrets never live in this repo or the plists. Optional ~/.config/z0live/voice.env (mode 600, bws-synced)
@@ -20,7 +20,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 VA="$REPO/voice-adapter"
 DASHBOARD="${HERMES_DASHBOARD_UPSTREAM:-127.0.0.1:9119}"
-PRIMARY_PROFILE="${Z0LIVE_PRIMARY_HOST_PROFILE:-poteto}"
+PRIMARY_PROFILE="${Z0LIVE_PRIMARY_HOST_PROFILE:?set Z0LIVE_PRIMARY_HOST_PROFILE to the named Hermes profile that hosts the voice primary}"
 case "$PRIMARY_PROFILE" in
   default|*[!a-zA-Z0-9_-]*) printf 'Expected a named primary Hermes profile\n' >&2; exit 1 ;;
 esac
@@ -82,7 +82,7 @@ plist com.zer0.z0live.voice 'voice-slot 9168' "$VOICE_ENV" "$VOICE_KEEPALIVE"
 plist com.zer0.z0live.voice-next 'voice-slot 9169' "$VOICE_ENV" "$VOICE_KEEPALIVE"
 
 plist com.zer0.z0live.lanes lane_server.py "    <key>Z0LIVE_PY</key><string>$PY</string>
-    <key>HERMES_HOME</key><string>${Z0LIVE_LANES_HERMES_HOME:-$HOME/.hermes/profiles/poteto}</string>
+    <key>HERMES_HOME</key><string>${Z0LIVE_LANES_HERMES_HOME:-$PRIMARY_HOME}</string>
     <key>Z0LIVE_HERMES_SOURCE</key><string>$HOME/.hermes/hermes-agent</string>"
 
 plist com.zer0.z0live.proxy dashboard_proxy.py "    <key>Z0LIVE_VOICE_SLOTS</key><string>$SLOTS</string>

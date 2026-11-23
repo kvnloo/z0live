@@ -31,7 +31,7 @@ except Exception as exc:
     print(sys.argv[2], "FAILED", type(exc).__name__); raise SystemExit
 a = d.get("ai") or {}
 first = sum(v["spoke_first"] for v in d["per_call"].values())
-# Score D (docs/HILLCLIMB-OVERNIGHT.md): distance from Dessa on the same clips; lower is better.
+# Score D (overnight hill-climb log): distance from Dessa on the same clips; lower is better.
 D = (abs(a["median_s"] - 0.43) + max(0, a["over_1s_pct"] - 13.2) / 100 + abs(a["backchannels_per_min"] - 3.5) / 10) if a else None
 print(f'{sys.argv[2]:9} D={D if D is None else round(D, 3)} calls={d["calls_done"]} errors={len(d["errors"])} takes={a.get("floor_takes")} '
       f'median={a.get("median_s")} iqr={a.get("iqr_s")} overlap%={a.get("overlap_start_pct")} '

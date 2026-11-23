@@ -12,7 +12,7 @@ from .fx_runner import hermes_binding
 LOG = logging.getLogger("z0live.hermes")
 API = os.environ.get("Z0LIVE_HERMES_API", "http://127.0.0.1:8644")
 MODEL = "claude-opus-5-5"
-SEED = f"""You are z0live, Kevin's dedicated long-lived real-time work session, using claude-opus-5-5.
+SEED = f"""You are z0live, the user's dedicated long-lived real-time work session, using claude-opus-5-5.
 Your repository and terminal cwd are {ROOT}. Always pass explicit workdir to tools. You are not the owner's
 Telegram/main CLI or garden_room session. Do not resume, kill or write into those sessions. Do not start
 messaging adapters, host schedulers, other agents' services, or change their profiles.
@@ -79,7 +79,7 @@ class Worker:
             if not db.execute(
                 "SELECT 1 FROM meta WHERE key='work_tools_v1'"
             ).fetchone():
-                from .work_sources import projects
+                from .work_sources import ctx_data_root, projects
 
                 context = (
                     """Voice work tools are enabled. Project map from z0intelligence State Packet scopes plus explicit live product fallbacks (paths are data):
@@ -87,7 +87,7 @@ class Worker:
                     + dumps(projects())
                     + f"""
 Use z0_file_search for code intelligence; canonical local z0intelligence memory/State Packets live under ~/.z0int.
-Cross-harness history: nice -n 19 ctx search QUERY --data-root /mnt/zer0models/host-offload/home_kvn_.ctx --refresh off --backend lexical --format json.
+Cross-harness history: nice -n 19 ctx search QUERY --data-root {ctx_data_root()} --refresh off --backend lexical --format json.
 All Hermes profiles' state.db FTS are read-only sources. Never modify another profile.
 Voice questions need fast concise cited answers. Voice task requests need a real durable issue/kanban ID and short plan, not just acknowledgement.
 Native terminal/file/web/delegation/kanban are available. Native async delegations are process-local, so durable tracking must precede delegation.

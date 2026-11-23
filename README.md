@@ -4,7 +4,7 @@ z0live connects the Hermes mobile client to GPT-Live or Grok Voice. The Hermes p
 
 ## Demos
 
-Real recorded test calls (caller lines are Kevin's own words read by TTS; timings come from the call trace and the lane
+Real recorded test calls (caller lines are the owner's own words read by TTS; timings come from the call trace and the lane
 server log). Click a poster to download the video from the [demos release](https://github.com/kvnloo/z0live/releases/tag/demos-2026-11-21).
 
 | | |

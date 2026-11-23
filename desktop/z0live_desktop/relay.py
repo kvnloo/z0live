@@ -1,6 +1,6 @@
-"""Relay a voice request into one of Kevin's Hermes sessions, and list recent sessions.
+"""Relay a voice request into one of the user's Hermes sessions, and list recent sessions.
 
-Read side: the clean profile's SessionDB, opened read-only. Write side: one message into the
+Read side: the relay profile's SessionDB, opened read-only. Write side: one message into the
 target session through the gateway that owns it (`desktop/hermes_relay.py`, Hermes's own
 viewer protocol: steer a running turn, otherwise queue the next turn). Same transport choice as
 Dash's continuation seam (`bridge/src/hermes-continue.ts`): the owning gateway, never
@@ -23,12 +23,12 @@ import time
 ROOT = Path(__file__).resolve().parents[2]
 HELPER = ROOT / "desktop" / "hermes_relay.py"
 # Interactive surfaces only: subagents, cron, kanban, one-shots and the voice's own API
-# sessions are workers, not places Kevin talks.
+# sessions are workers, not places the owner talks.
 HUMAN_SOURCES = ("local", "cli", "tui", "gui", "telegram", "discord", "slack", "signal", "whatsapp")
 DRIVEN_FROM = ("cli", "tui", "gui")
 MIN_MAIN_MESSAGES = 20  # below this a "local" row is a connectivity probe, not a work session
 DEFAULT_WORDS = {"", "main", "default", "hermes", "my main session", "main session", "orchestrator"}
-PREFIX = "Relayed from Kevin's z0live voice call"
+PREFIX = "Relayed from the user's z0live voice call"
 RELAY_INTENT = re.compile(
     r"\b(?:pass (?:it|that|this|(?:a|the) (?:message|note))? ?along|relay|"
     r"(?:tell|ask|message|ping|notify|let) hermes|send (?:it|that|this|(?:a|the) (?:message|note)) "
@@ -38,7 +38,7 @@ RELAY_INTENT = re.compile(
 
 
 def profile_home() -> Path:
-    raw = os.environ.get("Z0LIVE_RELAY_HOME") or str(Path.home() / ".hermes/profiles/clean")
+    raw = os.environ.get("Z0LIVE_RELAY_HOME") or os.environ.get("HERMES_HOME") or str(Path.home() / ".hermes")
     return Path(raw).resolve()
 
 
@@ -86,7 +86,7 @@ def _rows(db, limit, where="", args=()):
 
 def _last_user(db, sid) -> str:
     row = db.execute(
-        # Kevin's own words: skip relays, steers and machine notices, which all start with "[".
+        # The owner's own words: skip relays, steers and machine notices, which all start with "[".
         "SELECT content FROM messages WHERE session_id=? AND role='user' "
         "AND content NOT LIKE '[%' ORDER BY id DESC LIMIT 1",
         (sid,),
@@ -129,7 +129,7 @@ def recent_sessions(limit=8, home=None, now=None, min_messages=4) -> list[dict]:
 
 
 def main_session(home=None):
-    """Kevin's most recently active interactive desktop or terminal session."""
+    """The user's most recently active interactive desktop or terminal session."""
     pinned = os.environ.get("Z0LIVE_RELAY_DEFAULT", "").strip()
     home = home or profile_home()
     with _db(home) as db:

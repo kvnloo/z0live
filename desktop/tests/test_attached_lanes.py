@@ -17,7 +17,7 @@ class AttachedLanesTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR"))
         self.addCleanup(self.tmp.cleanup)
         self.store = Store(Path(self.tmp.name))
-        self.target = {"profile": "clean", "session": "exact-session"}
+        self.target = {"profile": "main", "session": "exact-session"}
 
     def answer(self, result, selected=None):
         calls = []
@@ -26,7 +26,7 @@ class AttachedLanesTests(unittest.TestCase):
             return result
         with patch("z0live_desktop.voice_runtime.Journal.plan", return_value=selected or plan()), \
              patch("z0live_desktop.attached_lanes.conversation", return_value=[{"id": 7, "role": "user", "text": "Fix voice"}]):
-            value = small_answer(self.store, "call", "item", self.target, "Hi", "Kevin: hello", small)
+            value = small_answer(self.store, "call", "item", self.target, "Hi", "User: hello", small)
         return value, calls
 
     def test_smol_uses_pinned_binding_and_both_conversations(self):
@@ -34,7 +34,7 @@ class AttachedLanesTests(unittest.TestCase):
         self.assertEqual(answer, "Hello.")
         self.assertEqual(calls[0][1], plan()["roles"]["smol"])
         self.assertIn('"id": 7', calls[0][2])
-        self.assertIn("Kevin: hello", calls[0][2])
+        self.assertIn("User: hello", calls[0][2])
         self.assertEqual(marks["meta_role"], "plan")
         self.assertEqual(marks["smol_ms"], 102)
 

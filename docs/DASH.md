@@ -2,9 +2,8 @@
 
 ## What it is (source evidence)
 
-**Dash is Kevin's Expo / React Native phone app, not a no-code dashboard or Kustom widget.**
-Repository: https://github.com/kvnloo/dash. Local checkout:
-`/mnt/zer0models/workspace/zer0/products/dash`, read at commit
+**Dash is the owner's Expo / React Native phone app, not a no-code dashboard or Kustom widget.**
+Repository: https://github.com/kvnloo/dash, read at commit
 `d5d191b0f7afc5c77b0902643da40b0c1a70c0be`. The previous task cloned this checkout;
 this resumed task did not modify it.
 

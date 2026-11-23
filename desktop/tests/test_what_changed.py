@@ -31,13 +31,13 @@ class WhatChangedTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         now = time.time()
-        make_profile(root, "clean", [
-            ("s1", "Debug Hermes crashing", "cli", "/repo/hermes", "clean", now - 20, "receiving stream response", 40, 0, 0),
-            ("s2", "Plan garden beds", "cli", "/repo/garden_room", "clean", now - 4000, "", 12, 0, 0),
-            ("s3", "Audit repo x", "oneshot", "/repo/x", "clean", now - 600, "", 3, 0, 0),
-            ("s4", "Audit repo y", "oneshot", "/repo/y", "clean", now - 700, "", 3, 0, 0),
-            ("s5", "Subagent: Restyle Dash", "subagent", "/repo/dash", "clean", now - 30, "terminal command running", 9, 0, 0),
-            ("s6", "Old archived thing", "cli", "/repo/old", "clean", now - 100, "", 2, 1, 0),
+        make_profile(root, "main", [
+            ("s1", "Debug Hermes crashing", "cli", "/repo/hermes", "main", now - 20, "receiving stream response", 40, 0, 0),
+            ("s2", "Plan garden beds", "cli", "/repo/garden_room", "main", now - 4000, "", 12, 0, 0),
+            ("s3", "Audit repo x", "oneshot", "/repo/x", "main", now - 600, "", 3, 0, 0),
+            ("s4", "Audit repo y", "oneshot", "/repo/y", "main", now - 700, "", 3, 0, 0),
+            ("s5", "Subagent: Restyle Dash", "subagent", "/repo/dash", "main", now - 30, "terminal command running", 9, 0, 0),
+            ("s6", "Old archived thing", "cli", "/repo/old", "main", now - 100, "", 2, 1, 0),
         ])
         # A profile whose database never created a sessions table is not a reportable gap.
         empty = root / "state.db"

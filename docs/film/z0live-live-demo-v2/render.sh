@@ -5,7 +5,7 @@
 set -e
 cd "$(dirname "$0")"
 export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
-B=${B:-/mnt/zer0models/workspace/zer0/data/operations/hermes-tern-showcase/target/release/z0live-live-demo-v2}
+B=${B:?set B to the built renderer binary (<tern-showcase>/target/release/z0live-live-demo-v2)}
 NAME=${1:?Usage: bash render.sh NAME}; D=out/p-$NAME
 [ -e out/$NAME.mp4 ] && { echo "refusing: out/$NAME.mp4 exists"; exit 1; }
 mkdir -p "$D" out/tmp; : > "$D/list.txt"

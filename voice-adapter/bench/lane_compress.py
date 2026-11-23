@@ -3,7 +3,7 @@
 A phone lane pays ~1.7 ms per cached token on every warm turn (B11), so it needs a short context. Two ways to get
 one from the chat tail, both local only (chat text never leaves the Studio):
   tail   keep the newest CHARS characters (what snapshot() does today, at a smaller cap)
-  model  a local GGUF rewrites the tail as Kevin's personal facts, plans and settings in <= CHARS characters
+  model  a local GGUF rewrites the tail as the user's personal facts, plans and settings in <= CHARS characters
 
   .venv/bin/python bench/lane_compress.py --suite bench/slm-v2.json --mode model --model qwen3.5-9b > /tmp/v2c.json
 Then score the derived suite with slm_bench.py --suite. The compressed brief and its timing go in "compressed".
@@ -17,8 +17,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import slm_bench  # noqa: E402
 
-PROMPT = ("Below is the tail of a chat between Kevin and his assistant. Write the facts a voice assistant would "
-          "need to answer Kevin's questions about his own life and setup: appointments, people, flights, budgets, "
+PROMPT = ("Below is the tail of a chat between the user and his assistant. Write the facts a voice assistant would "
+          "need to answer the user's questions about his own life and setup: appointments, people, flights, budgets, "
           "decisions, settings, numbers, permissions and status lines. Keep every number, time, name and place "
           "exactly. Drop general-knowledge answers, recipes, advice and explanations entirely. One fact per line, "
           "no bullets or headings, at most {chars} characters in total.")

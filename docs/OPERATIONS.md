@@ -18,19 +18,19 @@ the Hermes plugin's tools:
 
 ## Host installation
 
-The paths in `deploy/*.service` are deliberately explicit. Adapt them to your machine. The broker needs only Python ≥3.10 stdlib. The native
+The units in `deploy/*.service` use placeholders: replace `<repo>` with this checkout, `<data-dir>` with a private data directory outside it (for example `~/.local/share/z0live`), and `<hermes-home>` with the Hermes profile directory. The broker needs only Python ≥3.10 stdlib. The native
 Hermes API host uses `hermes --print-runtime-command` to select the installed interpreter and imports
 `APIServerAdapter` from the installed source (`Z0LIVE_HERMES_SOURCE` can override it).
-It does **not** instantiate GatewayRunner or start messaging/cron/kanban. Clean-profile credentials and
+It does **not** instantiate GatewayRunner or start messaging/cron/kanban. The profile's credentials and
 native session storage are reused; the unique `z0live` session is not another writer for an existing CLI.
 
 ```bash
-cd /mnt/zer0models/workspace/zer0/products/z0live
+cd <repo>
 chmod +x bin/z0live
-install -d -m 700 /mnt/zer0models/workspace/zer0/data/z0live
+install -d -m 700 <data-dir>
 # Refuse/inspect existing targets before replacing any links.
-ln -s "$PWD/deploy/z0live.service" ~/.config/systemd/user/z0live.service
-ln -s "$PWD/deploy/z0live-hermes.service" ~/.config/systemd/user/z0live-hermes.service
+# Copy the units, then fill in <repo>, <data-dir> and <hermes-home>.
+cp deploy/z0live.service deploy/z0live-hermes.service ~/.config/systemd/user/
 ln -s "$PWD/bin/z0live" ~/.local/bin/z0live
 systemctl --user daemon-reload
 systemctl --user enable --now z0live-hermes.service z0live.service
@@ -62,7 +62,7 @@ is already enabled on this host; services survive terminal logout and restart af
 - `z0live-hermes.service`: `127.0.0.1:8644`, dedicated native API-only host; tools-free streaming liaison inference on loopback `8645` in the same process.
 - Hermes session `z0live`, title `z0live`, locked `anthropic/claude-opus-5-5`, repository cwd.
 - Existing Garden Room services/API port 8643 are not modified or reused as a second cwd.
-- Data: `/mnt/zer0models/workspace/zer0/data/z0live/` (outside the public repository).
+- Data: `<data-dir>` (`Z0LIVE_DATA`, outside the public repository).
   - `devices.json`: hashed device verifiers, names/revocation; 0600.
   - `.hermes-api-key`: local API key; 0600, never shared with phones.
   - `broker.db{,-wal,-shm}`: sessions, events, jobs, inbox, native session pointer.
@@ -70,7 +70,7 @@ is already enabled on this host; services survive terminal logout and restart af
   - `traces/TURN_ID.jsonl`: private layer/model/native-run/usage replay snapshots; SQLite is canonical.
   - `.service.lock`, `.export.lock`, `.devices.lock`: singleton/interprocess serialization.
   - optional `service.env`: non-secret broker settings, loaded by systemd.
-- Hermes transcript/run state remains in the clean profile's native state.db; the broker never writes it.
+- Hermes transcript/run state remains in the host profile's native state.db; the broker never writes it.
 - Journal: `journalctl --user -u z0live.service -u z0live-hermes.service -f`.
 
 Optional remote routes are off unless configured. Set `Z0LIVE_SR_URL` to your

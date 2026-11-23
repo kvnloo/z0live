@@ -76,10 +76,13 @@ def projects():
         {
             "garden_room": str(ROOT.parent / "garden_room"),
             "z0live": str(ROOT),
-            "lawnchair": "/mnt/zer0models/lawnchair-z0live",
-            "z0intelligence": "/mnt/zer0models/z0-wt/z0intelligence",
         }
     )
+    # Extra local checkouts: Z0LIVE_PROJECTS="name=/path/to/repo<os.pathsep>name2=/path2".
+    for item in os.environ.get("Z0LIVE_PROJECTS", "").split(os.pathsep):
+        name, sep, path = item.partition("=")
+        if sep and name.strip() and path.strip():
+            mapping[name.strip()] = str(Path(path.strip()).expanduser())
     return {k: v for k, v in mapping.items() if Path(v).is_dir()}
 
 
@@ -128,12 +131,17 @@ def in_window(value, start, end):
         return False
 
 
+def ctx_data_root():
+    """The ctx index root: CTX_DATA_ROOT, else ctx's own per-user default."""
+    return os.environ.get("CTX_DATA_ROOT", str(Path.home() / ".ctx"))
+
+
 def databases():
     configured = os.environ.get("Z0LIVE_HISTORY_ROOTS")
     roots = (
         [Path(x).expanduser() for x in configured.split(os.pathsep)]
         if configured
-        else [Path("/workspace/hermes-home"), Path.home() / ".hermes"]
+        else [Path.home() / ".hermes"]
     )
     found = {}
     for root in roots:
@@ -347,7 +355,7 @@ def ctx(query, project=None, scope="recent", since=None):
         "search",
         query,
         "--data-root",
-        os.environ.get("CTX_DATA_ROOT", "/mnt/zer0models/host-offload/home_kvn_.ctx"),
+        ctx_data_root(),
         "--refresh",
         "off",
         "--backend",
@@ -592,7 +600,7 @@ def kanban_tasks(query="", project=None, ident=None, **_):
                 timeout=10,
                 env={
                     "HERMES_HOME": os.environ.get(
-                        "Z0LIVE_HERMES_HOME", "/workspace/hermes-home/profiles/clean"
+                        "Z0LIVE_HERMES_HOME", os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))
                     )
                 },
             )

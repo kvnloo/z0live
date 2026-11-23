@@ -9,7 +9,7 @@ the broker accepts three additive fields, still schema z0live.lanes.v1:
   lanes are `[driver.model] + verifiers`; they audit the blackboard and may correct it.
 - A `voice_plan` binding's `model` may name a z0int role (smol/plan/slow/judge...), so lanes bind to
   roles from the pinned z0int.voice_plan.v1, not to hard-coded models.
-Presets (Kevin 11-05: roles are defaults, chosen at launch): D is E1's winner and the default, B is
+Presets (owner, 11-05: roles are defaults, chosen at launch): D is E1's winner and the default, B is
 his 2/2/2/1 example, A is today's voice + 1 smol. `preset(name)` returns a copy; a call picks one (or a
 spoken topology) at start and may change it mid-call (lane_fanout.Fanout.launch/configure).
 Privacy classes are hard filters on every binding (`allowed`): public -> any, personal -> Claude or
@@ -150,7 +150,7 @@ def validate(cfg) -> list[str]:
 SR_BASE = os.environ.get("Z0LIVE_SR_URL", "").strip().rstrip("/")
 
 
-# ------------------------------------------------------------------ privacy (Kevin decision 3, 11-05)
+# ------------------------------------------------------------------ privacy (owner decision 3, 11-05)
 PRIVACY = ("public", "personal", "location", "credentials")  # increasing strictness
 _CREDENTIALS = re.compile(r"\b(passwords?|passcodes?|passphrase|api[ -]?keys?|tokens?|secrets?|credentials?|2fa|otp|"
                           r"one[- ]time code|pin( code| number)?|ssh key|private key|card number|credit card|cvv|cvc|"

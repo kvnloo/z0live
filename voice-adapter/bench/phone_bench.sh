@@ -10,8 +10,8 @@
 # gemma4-e2b and lfm3 on the S25; the generic build found no CPU backend with its libs in lib/; models must be
 # deleted after each run (the S25 ran out of space for gemma4-e4b).
 set -u
-M=/mnt/zer0models/models/phone-slm-20261118
-OUT=${OUT:-/mnt/zer0models/workspace/zer0/data/z0live/phone-bench-$(date +%Y%m%d-%H%M)}
+M=${PHONE_SLM_MODELS:?set PHONE_SLM_MODELS to the dir holding android/ builds and GGUFs}
+OUT=${OUT:-$HOME/.local/share/z0live/phone-bench-$(date +%Y%m%d-%H%M)}
 mkdir -p "$OUT"
 declare -A RUNS=(
   [SM-S938U]="qwen3-1.7b:gpu gemma4-e2b:gpu lfm3-1.7b:gpu"  # e4b (4.6 GB) > its 4.6 GB free; qwen3 npu in v1

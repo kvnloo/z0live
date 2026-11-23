@@ -26,17 +26,17 @@ Lane turns go adapter → core `/v1/lanes/turn` with the relay token.
 Wait until no Live Voice call is active. From the deployed checkout of the approved revision, run:
 
 ```sh
-Z0LIVE_PRIMARY_HOST_PROFILE=poteto ./deploy/macos/install.sh
+Z0LIVE_PRIMARY_HOST_PROFILE=<profile> ./deploy/macos/install.sh
 ```
 
 The installer builds `voice-adapter/.venv` from `requirements.lock`, writes the LaunchAgent plists,
 pairs the relay token once, and re-registers the jobs. It sets `HERMES_HOME` for
-`com.zer0.z0live.hermes` to `$HOME/.hermes/profiles/poteto` and sets `Z0LIVE_PRIMARY_HOST_PROFILE`
+`com.zer0.z0live.hermes` to `$HOME/.hermes/profiles/<profile>` and sets `Z0LIVE_PRIMARY_HOST_PROFILE`
 for `com.zer0.z0live.voice` to match. Use the installer rather than `kickstart` alone, which does not
 reload changed plist environment variables. The separate Tek host is not managed by this installer.
 
 After install, check that ports 8644 and 9168 listen on loopback. Send an authenticated request to
-`/p/poteto/v1/models` on port 8644 using the existing core API credential. Expect HTTP 200.
+`/p/<profile>/v1/models` on port 8644 using the existing core API credential. Expect HTTP 200.
 Then run one probe call and check `delegation.chat` and `delegation.done` for the same delegation
 ID. Do not set the probe-only provider cap in launchd.
 
@@ -162,8 +162,8 @@ The first real answer is spoken; a later tier, and Hermes's own answer, speak on
 Lanes reply SKIP for phone, screen, file or action requests, which leaves those to Hermes.
 
 `lane_server.py` (LaunchAgent `com.zer0.z0live.lanes`, 127.0.0.1:8646) makes plain model calls through the
-poteto profile's logins: the Claude subscription, and a separate Hermes Codex login for GPT
-(`HERMES_HOME=~/.hermes/profiles/poteto hermes auth add openai-codex`). Don't adopt `~/.codex`: GPT-Live uses
+primary profile's logins: the Claude subscription, and a separate Hermes Codex login for GPT
+(`HERMES_HOME=~/.hermes/profiles/<profile> hermes auth add openai-codex`). Don't adopt `~/.codex`: GPT-Live uses
 that token family, and sharing it logs one of them out. Change the models per call without a restart by
 writing `~/.config/z0live/tiers.json` in the shape of `tiers.TIERS`. `Z0LIVE_TIERS=off` in the voice plist
 restores the older instant/Fable/relay lanes.

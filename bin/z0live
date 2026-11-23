@@ -58,7 +58,7 @@ def main():
     progress.add_argument("--turn", required=True)
     progress.add_argument("text")
     relay_cmd = sub.add_parser(
-        "relay", help="Send a message into one of Kevin's Hermes sessions via its gateway"
+        "relay", help="Send a message into one of the user's Hermes sessions via its gateway"
     )
     relay_cmd.add_argument(
         "--to", default="", help="session id/prefix or title words; default: his main session"

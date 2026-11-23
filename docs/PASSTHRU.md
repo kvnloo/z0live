@@ -1,7 +1,7 @@
 # Passthru: z0 joins your other call
 
 Say **"z0, join my meeting"** (or "merge the calls") on a z0 call. A browser on the Studio joins that
-meeting as **z0 (Kevin's assistant)**, using the service's own, unmodified web app. Everyone in the meeting
+meeting as **z0 (assistant)**, using the service's own, unmodified web app. Everyone in the meeting
 hears z0, z0 hears them, and z0 can share a screen. There is no z0 server to run and no app to fork.
 
 | Say | What happens |
@@ -12,7 +12,7 @@ hears z0, z0 hears them, and z0 can share a screen. There is no z0 server to run
 | "stop sharing", "z0, leave the meeting" | |
 | "talk freely" / "just listen" / "only speak when someone says my name" | floor policy (default: addressed) |
 
-Only Kevin's own phone leg can ask for **share** or **talk freely**. The same words spoken by someone in
+Only the owner's own phone leg can ask for **share** or **talk freely**. The same words spoken by someone in
 the meeting are refused.
 
 ## Default service: Element Call

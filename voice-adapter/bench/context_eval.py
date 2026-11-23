@@ -106,7 +106,7 @@ def budgeted(scenario, count, budget, last_n):
     facts = list(blackboard(scenario.chat + scenario.call).items())
     recent = exchange(scenario.call[-last_n:]) if last_n else []
     while True:
-        turns = '\n'.join(f'{"Kevin" if r == "user" else "You"}: {t}' for r, t in recent)
+        turns = '\n'.join(f'{"User" if r == "user" else "You"}: {t}' for r, t in recent)
         board = '\n'.join(f'{key}: {value}' for key, value in facts)
         text = f'Stable brief:\n{scenario.stable}\n\nRecent call turns:\n{turns}\n\nBlackboard (current values):\n{board}'
         tokens = count(text)

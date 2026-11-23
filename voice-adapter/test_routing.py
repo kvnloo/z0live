@@ -27,11 +27,11 @@ class RoutingTests(unittest.IsolatedAsyncioTestCase):
         try:
             with patch.object(proxy, 'UPSTREAM_HTTP', str(apps[0].make_url('/')).rstrip('/')), patch.dict(
                     proxy.os.environ, {'HERMES_MOBILE_VOICE_UPSTREAM': str(apps[1].make_url('/')).rstrip('/')}):
-                async with http.post(server.make_url('/api/audio/voice-live/session?profile=clean'),
+                async with http.post(server.make_url('/api/audio/voice-live/session?profile=main'),
                         json={'sdp': 'fixture'}, headers={'Authorization': 'Bearer fixture'}) as response:
                     result = await response.json()
                 self.assertEqual(result, {'target': 'voice', 'auth': 'Bearer fixture',
-                    'query': {'profile': 'clean'}, 'body': {'sdp': 'fixture'}})
+                    'query': {'profile': 'main'}, 'body': {'sdp': 'fixture'}})
                 for path in ('/api/health', '/api/audio/voice-live/session-extra', '/api/auth/me'):
                     async with http.get(server.make_url(path)) as response:
                         self.assertEqual((await response.json())['target'], 'dashboard')

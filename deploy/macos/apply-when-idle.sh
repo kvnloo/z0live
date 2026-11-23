@@ -60,7 +60,7 @@ if [ -f "$ROUTE" ] && [ -f "$AGENTS/com.zer0.z0live.voice-next.plist" ]; then
     || { say "FAILED: active slot $active not ready; not touching Gemma"; exit 1; }
 else
   say "installing rolling restart (install.sh)"
-  Z0LIVE_PRIMARY_HOST_PROFILE=poteto "$REPO/deploy/macos/install.sh" >> "$LOG" 2>&1 || { say "FAILED: install.sh exited $?"; exit 1; }
+  Z0LIVE_PRIMARY_HOST_PROFILE="${Z0LIVE_PRIMARY_HOST_PROFILE:?export the named primary Hermes profile}" "$REPO/deploy/macos/install.sh" >> "$LOG" 2>&1 || { say "FAILED: install.sh exited $?"; exit 1; }
 fi
 
 # 2. Gemma model server (a new job; nothing on a call uses it yet).

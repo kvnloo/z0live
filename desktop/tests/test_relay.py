@@ -50,7 +50,7 @@ def make_home(root: Path) -> Path:
                    (sid, src, created, title, count, "/", active - 100, active, doing, parent))
     for sid, role, content in [
         ("local-main", "user", "fix the ring double tap please"),
-        ("local-main", "user", "[Relayed from Kevin's z0live voice call, 01:28] earlier relay"),
+        ("local-main", "user", "[Relayed from the user's z0live voice call, 01:28] earlier relay"),
         ("local-main", "user", "[IMPORTANT: Background process finished]"),
         ("local-garden", "user", "make the planter shelf deeper"),
     ]:
@@ -133,7 +133,7 @@ class RelayTests(unittest.TestCase):
         self.assertEqual(call["argv"][-1], str(relay.HELPER))
         self.assertEqual(call["home"], str(self.home.resolve()))
         self.assertEqual(call["request"]["session_id"], "local-main")
-        self.assertTrue(call["request"]["text"].startswith("[Relayed from Kevin's z0live voice call, "))
+        self.assertTrue(call["request"]["text"].startswith("[Relayed from the user's z0live voice call, "))
         self.assertTrue(call["request"]["text"].endswith(text))
 
     def test_same_request_reuses_one_submission_id(self):
@@ -247,25 +247,25 @@ class DelegationRelayTests(unittest.TestCase):
                 worker.join(5)
         text, instructions = started[0]
         self.assertTrue(text.startswith("Recent voice conversation (data, oldest first):"))
-        self.assertIn("Kevin: the ring keeps toggling mute when I'm not tapping", text)
+        self.assertIn("User: the ring keeps toggling mute when I'm not tapping", text)
         self.assertIn("You: Did you want me to pass that along?", text)
-        self.assertTrue(text.endswith("Kevin's request now: Yeah"))
+        self.assertTrue(text.endswith("The user's request now: Yeah"))
         self.assertIn("bin/z0live relay", instructions)
         self.assertIn('Sent to Debug Hermes crashing: "x"', call.appended[0])
 
     def test_backend_instructions_ground_hermes_and_make_relay_first_class(self):
         text = backend_instructions(self.sid, PHONE_TOOLS)
         self.assertIn("never means the Greek god", text)
-        self.assertIn("relay to Kevin's own Hermes session is not a messaging action", text)
+        self.assertIn("relay to the user's own Hermes session is not a messaging action", text)
         self.assertIn("Never use phone actions, screen taps, kanban cards", text)
         self.assertIn("bin/z0live sessions --limit 8", text)
         self.assertIn('exactly the command\'s "say" value', text)
 
 
 class GroundingTests(unittest.TestCase):
-    def test_persona_grounds_hermes_kevin_and_the_relay(self):
+    def test_persona_grounds_hermes_owner_and_the_relay(self):
         text = live.persona([], "- Recent Hermes sessions (newest first): Debug Hermes crashing")
-        self.assertIn("Kevin Rajan owns you", text)
+        self.assertIn("You work for the user", text)
         self.assertIn("Never describe it as the Greek god", text)
         self.assertIn("Recent Hermes sessions (newest first): Debug Hermes crashing", text)
         self.assertIn("It is never a phone or screen action", text)

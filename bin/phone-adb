@@ -79,7 +79,7 @@ def verify(p):
         return False
     identity = adb("-s", address, "shell", "getprop", "ro.serialno")
     if identity.returncode or identity.stdout.strip() != PHONE_SERIAL:
-        raise PhoneIdentityError("Connected hardware serial does not match Kevin's S25 Ultra")
+        raise PhoneIdentityError("Connected hardware serial does not match the configured phone")
     return True
 
 
@@ -121,7 +121,7 @@ def reconnect():
             print(f"Saved endpoint unavailable: {exc}", file=sys.stderr)
     found = discover()
     if len(found) != 1:
-        raise RuntimeError("No unique S25 Ultra connect port on this LAN. mDNS does not cross Tailscale; read the phone's current port and run connect PORT")
+        raise RuntimeError("No unique connect port for the configured phone on this LAN. mDNS does not cross Tailscale; read the phone's current port and run connect PORT")
     return connect(found[0])
 
 

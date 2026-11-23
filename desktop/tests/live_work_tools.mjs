@@ -7,6 +7,10 @@ import fs from 'node:fs';
 const root=path.resolve(import.meta.dirname,'../..');
 const base=process.env.Z0LIVE_TEST_BASE;
 if (!base) throw new Error('Set Z0LIVE_TEST_BASE before running this live check');
+const checkout=process.env.Z0LIVE_TEST_CHECKOUT;  // the broker's own checkout path, as Hermes sees it
+if(!checkout){console.log('SKIP: set Z0LIVE_TEST_CHECKOUT to the broker checkout path to run this live check');process.exit(0);}
+const kanbanRoot=process.env.Z0LIVE_KANBAN_ROOT;
+if(!kanbanRoot){console.log('SKIP: set Z0LIVE_KANBAN_ROOT to the Hermes home holding kanban.db to run this live check');process.exit(0);}
 const pairing=execFileSync(path.join(root,'bin/z0live'),['pair','work-tools-test-'+Date.now()],{encoding:'utf8'});
 const token=pairing.match(/Device token: ([^\n]+)/)[1];
 const request=async(p,body)=>{
@@ -21,7 +25,7 @@ await page.route(base+'/qualification-work',r=>r.fulfill({contentType:'text/html
 let outcome;
 try {
  await page.goto(base+'/qualification-work');
- outcome=await page.evaluate(async({base,token,session})=>{
+ outcome=await page.evaluate(async({base,token,session,checkout})=>{
   const sid=session.session_id;
   const req=async(p,b)=>{const r=await fetch(base+p,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(b)});if(!r.ok)throw new Error('broker HTTP '+r.status);return r.json();};
   const pc=new RTCPeerConnection();pc.addTransceiver('audio',{direction:'recvonly'});
@@ -71,7 +75,7 @@ try {
    'Is that task done?',
    'What changed today in z0live? Use what_changed for a daily brief.',
    '[test] Ask Hermes to check the live status of kvnloo/lawnchair PR 14 using gh, with its link and latest checks. This explicitly permits a read-only tool lookup. Use ask_hermes.',
-   '[test] Test async answer delivery: ask Hermes to run exactly one harmless terminal timing probe with explicit workdir /mnt/zer0models/workspace/zer0/products/z0live: python3 -c \"import time;time.sleep(26);print(123456)\". This test explicitly permits that single read-only timing command, no file edits. Have Hermes reply ASYNC_VOICE_PROBE_DONE after it returns. Use ask_hermes.'
+   '[test] Test async answer delivery: ask Hermes to run exactly one harmless terminal timing probe with explicit workdir '+checkout+': python3 -c \"import time;time.sleep(26);print(123456)\". This test explicitly permits that single read-only timing command, no file edits. Have Hermes reply ASYNC_VOICE_PROBE_DONE after it returns. Use ask_hermes.'
   ];
   try{
    for(const utterance of utterances){
@@ -92,7 +96,7 @@ try {
    while(Date.now()<deadline){await poll();if(inboxMessages.some(m=>m.say.includes('ASYNC_VOICE_PROBE_DONE')))break;await new Promise(r=>setTimeout(r,500));}
   }finally{pc.close();}
   return {session_id:sid,registered,errors,turns,calls,inbox:inboxMessages};
- },{base,token,session});
+ },{base,token,session,checkout});
  assert.deepEqual(outcome.errors,[]);
  assert.ok(outcome.inbox.some(m=>m.say.includes('ASYNC_VOICE_PROBE_DONE')),'overflow answer missing from inbox');
  for(const call of outcome.calls.filter(c=>c.result.partial)) assert.ok(outcome.inbox.some(m=>m.params.lookup_id===call.result.id),'partial lookup missing from inbox: '+call.result.id);
@@ -105,7 +109,7 @@ try {
  const taskIds=[...new Set(outcome.inbox.flatMap(m=>[...m.say.matchAll(/Created test task (t_[0-9a-f]{8})/g)].map(m=>m[1])))];
  if(taskIds.length){
   const cleanup=await request('/v1/hermes/send',{session_id:sid,text:`[test] Cleanup only these exact newly created voice integration test tasks: ${taskIds.join(', ')}. This test explicitly authorizes using kanban to archive them, with readback confirming archived. Do not implement them or touch any other task or file. Reply with final statuses.`});
-  const verify=()=>JSON.parse(execFileSync('python3',['-c',`import pathlib,sqlite3,json,sys;ids=json.loads(sys.argv[1]);root=pathlib.Path(sys.argv[2]);out=[]\nfor p in [root/'kanban.db',*(root/'kanban/boards').glob('*/kanban.db')]:\n if not p.exists():continue\n d=sqlite3.connect(p.resolve().as_uri()+'?mode=ro',uri=True);d.row_factory=sqlite3.Row\n out.extend(dict(r) for r in d.execute('select id,title,status from tasks where id in ('+','.join('?' for _ in ids)+')',ids));d.close()\nprint(json.dumps(out))`,JSON.stringify(taskIds),process.env.Z0LIVE_KANBAN_ROOT||'/workspace/hermes-home'],{encoding:'utf8'}));
+  const verify=()=>JSON.parse(execFileSync('python3',['-c',`import pathlib,sqlite3,json,sys;ids=json.loads(sys.argv[1]);root=pathlib.Path(sys.argv[2]);out=[]\nfor p in [root/'kanban.db',*(root/'kanban/boards').glob('*/kanban.db')]:\n if not p.exists():continue\n d=sqlite3.connect(p.resolve().as_uri()+'?mode=ro',uri=True);d.row_factory=sqlite3.Row\n out.extend(dict(r) for r in d.execute('select id,title,status from tasks where id in ('+','.join('?' for _ in ids)+')',ids));d.close()\nprint(json.dumps(out))`,JSON.stringify(taskIds),kanbanRoot],{encoding:'utf8'}));
   const deadline=Date.now()+90000;let rows=[];
   while(Date.now()<deadline){rows=verify();if(taskIds.every(id=>rows.some(r=>r.id===id&&r.status==='archived')))break;await new Promise(r=>setTimeout(r,500));}
   assert.ok(taskIds.every(id=>rows.some(r=>r.id===id&&r.status==='archived')),'test tasks were not archived');

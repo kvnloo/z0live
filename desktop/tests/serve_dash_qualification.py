@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Private, disposable tailnet broker for MBP synthetic-media tests. Not production."""
+"""Private, disposable tailnet broker for laptop synthetic-media tests. Not production."""
 import json
 import os
 from pathlib import Path

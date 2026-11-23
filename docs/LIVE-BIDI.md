@@ -55,7 +55,7 @@ desktop broker  ── POST /codex/realtime/calls ────────┘
 - **Persona** (`live.persona`, version `z0live.bidi.v3`): one assistant, action-biased, brief,
   silent while waiting, never claims an action before its final message, never reads commentary,
   lists the real phone tools from the mint, and says "not wired up yet" for anything else. A
-  `<context>` block grounds it: who Kevin is, "Hermes" = his own agent system (not mythology),
+  `<context>` block grounds it: who the owner is, "Hermes" = his own agent system (not mythology),
   his usual projects and, at mint, his recent Hermes session titles. "Pass it along / tell Hermes"
   is a relay delegation, never a phone action, and a `Sent to …` result is read back verbatim
   ([RELAY.md](RELAY.md)).

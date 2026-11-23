@@ -1,7 +1,7 @@
 # Relay to Hermes
 
 "Pass it along", "tell Hermes", "send it to Hermes" and "let Hermes know" mean one thing: put
-a message into Kevin's Hermes session. It is never a phone or screen action.
+a message into the owner's Hermes session. It is never a phone or screen action.
 
 ## Path
 
@@ -16,14 +16,14 @@ voice (bidi delegation, or ask_z0 on gpt-realtime)
   → final reply = the command's "say": Sent to <title>: "<message>"  (voice reads it verbatim)
 ```
 
-- **Target.** Default: Kevin's main session, the most recently active `cli`/`tui`-created
+- **Target.** Default: The owner's main session, the most recently active `cli`/`tui`-created
   session with at least 20 messages (probes, subagents, cron, one-shots and the voice's own API
   sessions are excluded). `--to` takes a session id or prefix, or title words.
   `Z0LIVE_RELAY_DEFAULT=<session id>` pins the default.
-- **Message.** Stored as `[Relayed from Kevin's z0live voice call, HH:MM] MESSAGE`.
+- **Message.** Stored as `[Relayed from the owner's z0live voice call, HH:MM] MESSAGE`.
 - **Idempotency.** `submission_id` is derived from target, text and minute (or `--key`), so a
   retried command does not queue a second turn.
-- **Profile.** `Z0LIVE_RELAY_HOME` (default `~/.hermes/profiles/clean`). `HERMES_HOME` is set on
+- **Profile.** `Z0LIVE_RELAY_HOME` (default `$HERMES_HOME`, else `~/.hermes`). `HERMES_HOME` is set on
   the helper child process only.
 
 ## Why not `/v1/runs`
@@ -33,7 +33,7 @@ owns a CLI/TUI chat is the gateway, and other clients submit into the gateway FI
 
 - The API server refuses `/v1/runs` for sessions that another surface owns (HTTP 409
   `permission_denied`, per the Hermes API docs).
-- On the multiplexed listener (`127.0.0.1:8642`), `/p/clean/...` needs the clean profile's own
+- On the multiplexed listener (`127.0.0.1:8642`), `/p/<profile>/...` needs that profile's own
   `API_SERVER_KEY`, which it does not have (HTTP 401).
 - The unprefixed `/v1/runs` with a clean session id was accepted and ran in the **default**
   profile under the same id (measured 2026-10-21). That id collision then wedged the real clean
@@ -43,7 +43,7 @@ owns a CLI/TUI chat is the gateway, and other clients submit into the gateway FI
 ## Read-only session summaries
 
 `bin/z0live sessions --limit 8` lists recent interactive sessions, each with title, source, age,
-Kevin's last own message, the current activity and the number of active helper agents. The voice
+The owner's last own message, the current activity and the number of active helper agents. The voice
 backend uses it for "what was I working on" and "what did we talk about earlier". At mint, the
 Bidi persona (`z0live.bidi.v3`) gets the six most recent substantial titles.
 
@@ -69,7 +69,7 @@ Assistant activity after relay time is observed, not a claim it answers that spe
 Voice "did it go through / did you send / what did Hermes say" uses relay_status, never phone
 control. Bidi has no function tools: its delegation dispatcher performs the same deterministic
 lookup before any phone router or Hermes model. Replies stay 1–2 sentences grounded in output.
-Session titles come directly from `sessions.title` in the clean profile state.db: resolution reads
+Session titles come directly from `sessions.title` in the relay profile state.db: resolution reads
 them at send time, Bidi grounding freezes recent titles at call creation, and old read-backs freeze
 the send-time label. A title is not liveness or a crash receipt. Prefer target id plus `latest_topic`
 (the latest owner user message, excluding relays/notices) for identity/current work, retaining the
