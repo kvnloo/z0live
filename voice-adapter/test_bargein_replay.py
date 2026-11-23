@@ -313,5 +313,77 @@ class ResidualEchoTest(unittest.TestCase):
         self.assertNotEqual(sha256(plain).hexdigest(), sha256(data).hexdigest())
 
 
+class RecordedBotRenderTest(unittest.TestCase):
+    """bargein_replay/3: opt-in --bot-render recorded (LibriSpeech bot, disjoint from the user clip)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.residual = list(replay.stimuli(60, 39, echo_model='residual'))
+        cls.recorded = list(replay.stimuli(60, 39, echo_model='residual', bot_render='recorded'))
+        cls.clips = {p.name: replay.clip(p) for p in sorted(replay.ASSETS.glob('*.wav'))}
+
+    def test_harness_id(self):
+        self.assertEqual(replay.HARNESS_RECORDED, 'bargein_replay/3')
+
+    def test_base_and_residual_streams_unchanged(self):
+        for res, rec in zip(self.residual, self.recorded):
+            for key in BASE_KEYS:
+                self.assertEqual(res[key], rec[key], key)
+            self.assertEqual(res['residual'], rec['residual'])
+            self.assertNotIn('bot', res)
+            self.assertEqual(len(rec['bot']), replay.BOT_MS * replay.SAMPLES_MS)
+
+    def test_bot_segment_disjoint_from_user_clip(self):
+        valid = [t for t in self.recorded if t['kind'] == 'valid']
+        self.assertTrue(valid)
+        for trial in self.recorded:
+            source = self.clips[trial['bot_clip']]
+            if trial['kind'] == 'valid':
+                self.assertEqual(self.clips[trial['mic_clip']], trial['mic'])
+                self.assertNotEqual(trial['bot_clip'], trial['mic_clip'])
+            else:
+                self.assertIsNone(trial['mic_clip'])
+            # every bot sample is a sample of the bot clip at the recorded rotation
+            n, off = len(source), trial['bot_offset']
+            self.assertTrue(0 <= off < n)
+            self.assertEqual(list(trial['bot'][:2000]), [source[(off + i) % n] for i in range(2000)])
+        names = list(self.clips)
+        with self.assertRaises(AssertionError):
+            replay.recorded_bot(39, 0, [self.clips[names[0]]], names[:1], exclude=names[0])
+
+    def test_recorded_differs_from_periodic(self):
+        periodic = replay.voice(replay.BOT_MS, 142, 11000, 115)
+        self.assertNotEqual(list(self.recorded[0]['bot']), list(periodic))
+
+    def test_recorded_deterministic_per_seed(self):
+        again = list(replay.stimuli(60, 39, echo_model='residual', bot_render='recorded'))
+        self.assertEqual([(t['bot_clip'], t['bot_offset'], t['bot']) for t in again],
+                         [(t['bot_clip'], t['bot_offset'], t['bot']) for t in self.recorded])
+        other = list(replay.stimuli(60, 38, echo_model='residual', bot_render='recorded'))
+        self.assertNotEqual([t['bot_offset'] for t in other], [t['bot_offset'] for t in self.recorded])
+
+    def test_cli_recorded_marks_v3_and_reports_rho(self):
+        args = ('--seed', '39', '--trials', '20', '--arm-c', '--echo-model', 'residual')
+        proc, data = run_cli(*args, '--bot-render', 'recorded', '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out, summary = json.loads(data), json.loads(proc.stdout)
+        self.assertEqual(out['harness'], 'bargein_replay/3')
+        self.assertEqual(out['parameters']['bot_render'], 'recorded')
+        self.assertIs(summary['aa_identical'], True)
+        rho = summary['arms']['C']['echo_trial_max_rho']
+        self.assertEqual(sorted(rho), ['n', 'p10', 'p50', 'p90'])
+        self.assertIn('valid_trials_with_veto', summary['arms']['C'])
+        self.assertIn('double_talk_latency_ms', summary['arms']['A'])
+        self.assertIn('bot_render', out['arms']['C']['trials'][0])
+        _, again = run_cli(*args, '--bot-render', 'recorded')
+        self.assertEqual(sha256(data).hexdigest(), sha256(again).hexdigest())
+        _, v2 = run_cli(*args)
+        _, v2_explicit = run_cli(*args, '--bot-render', 'periodic')
+        self.assertEqual(v2, v2_explicit)
+        self.assertEqual(json.loads(v2)['harness'], 'bargein_replay/2')
+        self.assertNotIn('bot_render', json.loads(v2)['parameters'])
+        self.assertNotIn('echo_trial_max_rho', json.loads(v2)['arms']['C'])
+
+
 if __name__ == '__main__':
     unittest.main()

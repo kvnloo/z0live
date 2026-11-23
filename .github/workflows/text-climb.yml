@@ -1,0 +1,71 @@
+name: z0live barge-in recorded-bot sweep (CPU, stdlib)
+# A-bargein-E: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml
+# --ref <branch>` can dispatch it (a new workflow file is not dispatchable until it is on the default branch).
+# It runs voice-adapter/bench/bargein_sweep.py with --echo-model residual --bot-render recorded
+# (bargein_replay/3, offline virtual-time sim, Python stdlib only, no network, no secrets) on holdout seed 42
+# and fresh seeds 2000-2039: arms A, B, C rho 0.7 / 0.9 at M 40 ms.
+on:
+  workflow_dispatch:
+    inputs:
+      note:
+        description: "free-text label for this run (shown in the summary)"
+        required: false
+        default: ""
+permissions:
+  contents: read
+jobs:
+  sweep:
+    name: seeds ${{ matrix.seeds }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        seeds: ["42", 2000-2001, 2002-2003, 2004-2005, 2006-2007, 2008-2009, 2010-2011, 2012-2013, 2014-2015,
+                2016-2017, 2018-2019, 2020-2021, 2022-2023, 2024-2025, 2026-2027, 2028-2029, 2030-2031,
+                2032-2033, 2034-2035, 2036-2037, 2038-2039]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Runner CPU
+        run: |
+          cpu=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)
+          echo "runner CPU: ${cpu:-unknown} ($(uname -m), $(nproc) cpus), $(python --version)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Sweep
+        timeout-minutes: 17
+        env:
+          SEEDS: ${{ matrix.seeds }}
+        run: |
+          set -euo pipefail
+          cd voice-adapter
+          python -B bench/bargein_sweep.py --seeds "$SEEDS" --out ../out --jobs "$(nproc)" \
+            --echo-model residual --bot-render recorded | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sweep-${{ matrix.seeds }}
+          path: out/
+          if-no-files-found: warn
+          retention-days: 30
+  summary:
+    needs: sweep
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sweep-*
+          path: results
+          merge-multiple: true
+      - name: Hashes
+        env:
+          NOTE: ${{ inputs.note }}
+        run: |
+          set -euo pipefail
+          { [ -n "${NOTE}" ] && echo "note: ${NOTE}"; echo '```'; (cd results && ls seed-*.json | wc -l && sha256sum seed-*.json); echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          (cd results && sha256sum seed-*.json)

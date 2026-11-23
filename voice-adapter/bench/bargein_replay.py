@@ -29,6 +29,17 @@ Echo models (--echo-model):
             85-200 ms of residual echo under the caller's speech from onset.
             Not modelled: time-varying echo paths, AEC adaptation, drift.
 
+Bot render (--bot-render):
+  periodic  default, unchanged bytes: synthetic harmonic voice (142 Hz, 115 ms
+            syllables). Its self-similarity flatters the arm C echo gate.
+  recorded  opt-in, output marked bargein_replay/3. Per trial, from its own
+            RNG, the bot render is a seeded rotation of one LibriSpeech fixture
+            clip tiled to the bot length. In valid trials that clip is never the
+            caller's onset clip (asserted), so bot and caller audio are
+            disjoint. Speech pauses can end audible bot audio earlier than the
+            dense periodic render does. Adds echo-rho, veto and double-talk
+            summaries.
+
 Timing definitions (virtual ms; t=0 is the first bot frame generated):
   latency_ms       valid trials: end of the last audible bot sample at the
                    simulated phone speaker minus the caller mic onset (>= 0).
@@ -74,6 +85,7 @@ AUDIBLE = 380   # PCM RMS over 1 ms at the simulated speaker
 ASSETS = Path(__file__).resolve().parent / "fixtures" / "bargein"
 HARNESS = "bargein_replay/1"
 HARNESS_RESIDUAL = "bargein_replay/2"  # only with --echo-model residual
+HARNESS_RECORDED = "bargein_replay/3"  # only with --bot-render recorded
 REFLECTIONS = 12
 
 
@@ -213,9 +225,24 @@ def residual_echo(seed, index, kind):
                 double_talk=double_talk, double_talk_ms=double_talk_ms)
 
 
-def stimuli(n, seed, echo_model="copy"):
+def recorded_bot(seed, index, clips, names, exclude):
+    """bargein_replay/3 bot render: a seeded rotation of a fixture clip that is not `exclude`."""
+    candidates = [k for k, name in enumerate(names) if name != exclude]
+    assert candidates, "no recorded bot clip disjoint from the caller clip"
+    rng = Random(f"{HARNESS_RECORDED}:bot:{seed}:{index}")
+    k = rng.choice(candidates)
+    source = clips[k]
+    offset = rng.randrange(len(source))
+    bot = array("h", (source[(offset + i) % len(source)] for i in range(BOT_MS * SAMPLES_MS)))
+    assert names[k] != exclude
+    return names[k], offset, bot
+
+
+def stimuli(n, seed, echo_model="copy", bot_render="periodic"):
     rng = Random(seed)
-    clips = [clip(path) for path in sorted(ASSETS.glob("*.wav"))]
+    paths = sorted(ASSETS.glob("*.wav"))
+    names = [path.name for path in paths]
+    clips = [clip(path) for path in paths]
     if not clips:
         raise RuntimeError("Bundled LibriSpeech WAV files are missing")
     kinds = ["valid"] * 7 + ["backchannel", "echo", "noise"]
@@ -241,6 +268,12 @@ def stimuli(n, seed, echo_model="copy"):
                      up=up, ws_up=ws_up, ws_back=ws_back, down=down, phone_extra=phone_extra)
         if echo_model == "residual":
             trial["residual"] = residual_echo(seed, index, kind)
+        if bot_render == "recorded":
+            mic_clip = next((names[k] for k, c in enumerate(clips) if c is mic), None)
+            assert (mic_clip is not None) == (kind == "valid")
+            trial["mic_clip"] = mic_clip
+            trial["bot_clip"], trial["bot_offset"], trial["bot"] = recorded_bot(seed, index, clips, names, mic_clip)
+            assert trial["bot_clip"] != mic_clip  # bot render never reuses the caller's onset clip
         yield trial
 
 
@@ -304,6 +337,7 @@ class FakeProvider:
 
 def replay(trial, arm, cfg, bot):
     onset, kind = trial["onset"], trial["kind"]
+    bot = trial.get("bot", bot)  # bargein_replay/3 per-trial recorded render
     depth = cfg.depth
     hold = cfg.phone_ms + trial["phone_extra"]
     future = []
@@ -434,6 +468,8 @@ def replay(trial, arm, cfg, bot):
         r = trial["residual"]
         row["echo_path"] = dict(delay_ms=r["delay_ms"], rir_ms=r["rir_ms"], erl_db=round(r["erl_db"], 3),
                                 double_talk=r["double_talk"], double_talk_ms=r["double_talk_ms"])
+    if "bot" in trial:
+        row["bot_render"] = dict(clip=trial["bot_clip"], offset=trial["bot_offset"], mic_clip=trial["mic_clip"])
     return row
 
 
@@ -444,17 +480,31 @@ def percentiles(values):
     return {"p50": median(values), "p95": values[ceil(.95 * len(values)) - 1]}
 
 
+def quantiles(values):
+    """Nearest-rank p10 / p90 and statistics.median p50 (bargein_replay/3 summaries)."""
+    values = sorted(values)
+    if not values:
+        return {"n": 0, "p10": None, "p50": None, "p90": None}
+    rank = lambda q: values[max(0, ceil(q * len(values)) - 1)]
+    return {"n": len(values), "p10": rank(.1), "p50": median(values), "p90": rank(.9)}
+
+
 def run(n, seed, cfg, bot):
     echo_model = getattr(cfg, "echo_model", "copy")
-    cases = list(stimuli(n, seed, echo_model))
+    bot_render = getattr(cfg, "bot_render", "periodic")
+    recorded = bot_render == "recorded"
+    cases = list(stimuli(n, seed, echo_model, bot_render)) if recorded else list(stimuli(n, seed, echo_model))
     arm_c = getattr(cfg, "arm_c", False)
     result = dict(seed=seed, trials_per_arm=n, parameters={
         k: v for k, v in vars(cfg).items() if k not in ("aa", "output", "seed", "trials", "arm_c")
         and (arm_c or not k.startswith("gate_"))  # default run keeps the frozen bytes
         and (k != "echo_model" or echo_model != "copy")
+        and (k != "bot_render" or recorded)
     }, arms={})
     if echo_model != "copy":
         result["harness"] = HARNESS_RESIDUAL
+    if recorded:
+        result["harness"] = HARNESS_RECORDED
     for arm in ("A", "B", "C") if arm_c else ("A", "B"):
         rows = [replay(case, arm, cfg, bot) for case in cases]
         valid = [row for row in rows if row["kind"] == "valid"]
@@ -472,6 +522,15 @@ def run(n, seed, cfg, bot):
             } for kind in ("backchannel", "echo", "noise")},
             trials=rows,
         )
+        if recorded:
+            summary = result["arms"][arm]
+            summary["double_talk_latency_ms"] = percentiles(
+                [row["latency_ms"] for row in valid if row.get("echo_path", {}).get("double_talk")])
+            if arm == "C":
+                summary["valid_trials_with_veto"] = sum(row["trace"]["gate_echo_vetoes"] > 0 for row in valid)
+                summary["echo_trial_max_rho"] = quantiles(
+                    [row["trace"]["gate_max_rho"] for row in rows if row["kind"] == "echo"])
+                summary["valid_trial_max_rho"] = quantiles([row["trace"]["gate_max_rho"] for row in valid])
     return result
 
 
@@ -498,6 +557,8 @@ def main():
     parser.add_argument("--gate-lag-max-ms", type=int, default=250, help="arm C: render lag search 0..N ms")
     parser.add_argument("--echo-model", choices=("copy", "residual"), default="copy",
                         help="residual: bargein_replay/2 filtered, attenuated, clipped, noisy echo plus double-talk")
+    parser.add_argument("--bot-render", choices=("periodic", "recorded"), default="periodic",
+                        help="recorded: bargein_replay/3 LibriSpeech bot render disjoint from the caller clip")
     parser.add_argument("--aa", action="store_true", help="repeat and compare canonical JSON bytes")
     parser.add_argument("--output", type=Path, help="write full canonical per-trial JSON")
     cfg = parser.parse_args()
