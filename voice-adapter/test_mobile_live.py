@@ -25,6 +25,21 @@ def setUpModule():
     unittest.addModuleCleanup(config.stop)
 
 
+class GroqKeyTests(unittest.TestCase):
+    def test_groq_key_comes_only_from_the_service_env_never_another_profile(self):
+        with tempfile.TemporaryDirectory() as home:
+            other = Path(home) / ".hermes/profiles/other/.env"
+            other.parent.mkdir(parents=True)
+            other.write_text("GROQ_API_KEY=gsk-from-another-profile\n")
+            env = {k: v for k, v in os.environ.items() if k != "GROQ_API_KEY"}
+            with patch.dict(os.environ, env, clear=True), patch.object(Path, "home", return_value=Path(home)), \
+                    patch.object(Path, "read_text", side_effect=AssertionError("read a file for the key")):
+                self.assertEqual(live._groq_key(), "")
+            with patch.dict(os.environ, {"GROQ_API_KEY": " gsk-service \n"}):
+                self.assertEqual(live._groq_key(), "gsk-service")
+        self.assertFalse(hasattr(live, "_ttft_key"))
+
+
 class ChunkTests(unittest.TestCase):
     def test_dense_brief_never_exceeds_the_500_token_append_limit(self):
         # 11-20: a 1800-byte brief chunk of IDs/paths/numbers went over 500 tokens and the endpoint dropped it.

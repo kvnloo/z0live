@@ -51,6 +51,24 @@ TOOLS = ['Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch', 'Bash(journalctl:*)', 
          'Bash(systemctl --user cat:*)', 'Bash(ss:*)', 'Bash(git -C:*)', 'Bash(gh search:*)', 'Bash(gh pr:*)',
          'Bash(gh issue list:*)', 'Bash(gh api:*)', 'Bash(sqlite3 -readonly:*)', 'Bash(curl -s:*)', 'Bash(tail:*)', 'Bash(ls:*)']
 
+# A `claude` lane child gets exactly these variables and nothing else from the service env (provider keys,
+# tokens and the rest of voice.env stay in the adapter).
+CHILD_ENV_KEYS = ('PATH', 'HOME', 'CLAUDE_CONFIG_DIR', 'FAST_LANE_CHILD')
+
+
+def claude_config_dir(environ=None):
+    """Setting: Z0LIVE_CLAUDE_CONFIG_DIR in the adapter's service env (~/.config/z0live/voice.env), so lanes can
+    use a separate Claude login; unset = Claude Code's default ~/.claude."""
+    env = os.environ if environ is None else environ
+    return os.path.expanduser(env.get('Z0LIVE_CLAUDE_CONFIG_DIR') or '~/.claude')
+
+
+def claude_child_env(environ=None):
+    """The complete environment for a `claude` child (CHILD_ENV_KEYS only)."""
+    env = os.environ if environ is None else environ
+    return {'PATH': env.get('PATH') or os.defpath, 'HOME': env.get('HOME') or str(Path.home()),
+            'CLAUDE_CONFIG_DIR': claude_config_dir(env), 'FAST_LANE_CHILD': '1'}
+
 
 def pick_angles(q):
     """z0live-debug angles when the question is about the live stack, else the general ones."""
@@ -81,7 +99,7 @@ def prompt(q, angle, fable=True):
 
 def run(name, q, out, timeout, done, fable=True):
     t0 = time.time()
-    env = {**os.environ, 'CLAUDE_CONFIG_DIR': os.path.expanduser('~/.claude-sub2'), 'FAST_LANE_CHILD': '1'}
+    env = claude_child_env()
     cmd = ['claude', '-p', '--model', MODEL, *(['--advisor', 'fable'] if fable else []), '--output-format', 'json',
            '--allowedTools', *TOOLS]
     try:

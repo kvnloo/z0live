@@ -49,6 +49,7 @@ from aiortc.contrib.media import MediaRelay  # noqa: E402
 # the warm-Haiku/Groq instant lane, the Fable lanes and the core lanes relay.
 TIERS_ON = os.environ.get("Z0LIVE_TIERS", "off") == "on"
 import handoff  # noqa: E402 - sibling module (call continues on z0live when Kevin leaves the screen)
+import fable_lanes  # noqa: E402 - sibling module (claude child env shared with the Fable lanes)
 CHAT_CONTINUITY = os.environ.get("HERMES_MOBILE_VOICE_CHAT", "1") != "0"
 TTFT_MODEL = os.environ.get("VOICE_TTFT_MODEL", "qwen/qwen3.8-27b")  # Groq: ~0.2 s whole answer (11-15 probe)
 # Children (claude, hermes, lanes) get their own transient scope. Inside this unit's 768M cap they pushed it
@@ -86,18 +87,21 @@ def live_sessions(hours: float = 3.0, limit: int = 12) -> str:
                      for at, p, t, d, last in sorted(out, reverse=True)[:limit])
 
 
-def _ttft_key():
-    """GROQ_API_KEY from the process env (a bws-synced env file on hosts without the ttft bot), else the ttft
-    bot's env (bws-deployed on groot); never logged."""
-    if os.environ.get("GROQ_API_KEY"):
-        return os.environ["GROQ_API_KEY"].strip()
-    try:
-        for line in (Path.home() / ".hermes/profiles/ttft/.env").read_text().splitlines():
-            if line.startswith("GROQ_API_KEY="):
-                return line.split("=", 1)[1].strip().strip("'\"")
-    except OSError:
-        pass
-    return ""
+def _groq_key():
+    """GROQ_API_KEY from the adapter's own service env only (~/.config/z0live/voice.env, sourced by
+    deploy/macos/run.sh). Never read from another Hermes profile's files; never logged. Unset = no Groq lane."""
+    return os.environ.get("GROQ_API_KEY", "").strip()
+
+
+def claude_cmd(*args):
+    """(argv, env) for a `claude` child whose environment is only fable_lanes.CHILD_ENV_KEYS. Under a systemd
+    scope, systemd-run keeps what it needs to reach the user manager and `env -i` clears it before claude."""
+    child = fable_lanes.claude_child_env()
+    if not SCOPE:
+        return ["claude", *args], child
+    scope_env = {k: os.environ[k] for k in ("PATH", "HOME", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")
+                 if k in os.environ}
+    return [*SCOPE, "env", "-i", *(f"{k}={v}" for k, v in child.items()), "claude", *args], scope_env
 
 
 FAST_SYSTEM = ("You are the instant fast lane ({who}) on Kevin's live voice call; this very answer is the fast lane he "
@@ -115,10 +119,11 @@ class WarmHaiku:
         self.stale = 0  # results still owed to asks that timed out; the next ask must skip them
 
     async def start(self):
-        env = {**os.environ, "CLAUDE_CONFIG_DIR": str(Path.home() / ".claude-sub2"), "FAST_LANE_CHILD": "1"}
+        argv, env = claude_cmd(
+            "-p", "--model", "haiku", "--input-format", "stream-json", "--output-format", "stream-json",
+            "--verbose", "--tools", "", "--strict-mcp-config", "--append-system-prompt", self.system)
         self.proc = await asyncio.create_subprocess_exec(
-            *SCOPE, "claude", "-p", "--model", "haiku", "--input-format", "stream-json", "--output-format", "stream-json",
-            "--verbose", "--tools", "", "--strict-mcp-config", "--append-system-prompt", self.system,
+            *argv,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
             env=env, cwd=str(Path.home()), limit=1 << 22)
         await self.ask("Reply with just: ready", 30)  # pays the cold start before Kevin's first question
@@ -1477,8 +1482,8 @@ class Call:
             await asyncio.sleep(0.1)
 
     async def groq(self, system, user, max_tokens=120):
-        """One Groq completion (~0.3 s), or '' on any failure. Key from the ttft bot's env; never logged."""
-        key = _ttft_key()
+        """One Groq completion (~0.3 s), or '' on any failure. Key from the service env only; never logged."""
+        key = _groq_key()
         if not key:
             return ""
         body = {"model": TTFT_MODEL, "max_tokens": max_tokens,

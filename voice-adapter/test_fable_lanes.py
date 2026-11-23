@@ -10,6 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import fable_lanes
 import mobile_live
 
 
@@ -138,3 +139,61 @@ class LaneAngles(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+SECRETS = {"GROQ_API_KEY": "gsk-test", "OPENAI_API_KEY": "sk-test", "ANTHROPIC_API_KEY": "sk-ant-test",
+           "XAI_API_KEY": "xai-test", "Z0LIVE_PROGRESS_TOKEN": "tok-test"}
+
+
+class ClaudeChildEnv(unittest.TestCase):
+    """A `claude` child gets PATH, HOME, CLAUDE_CONFIG_DIR and FAST_LANE_CHILD, nothing else."""
+
+    def test_child_env_is_exactly_the_allowed_keys(self):
+        env = fable_lanes.claude_child_env({"PATH": "/bin", "HOME": "/h", **SECRETS})
+        self.assertEqual(set(env), {"PATH", "HOME", "CLAUDE_CONFIG_DIR", "FAST_LANE_CHILD"})
+        self.assertEqual((env["PATH"], env["HOME"], env["FAST_LANE_CHILD"]), ("/bin", "/h", "1"))
+
+    def test_config_dir_is_a_setting_with_claude_default(self):
+        with mock.patch.dict(os.environ, {"HOME": "/h"}):
+            self.assertEqual(fable_lanes.claude_config_dir({}), os.path.expanduser("~/.claude"))
+        self.assertEqual(fable_lanes.claude_config_dir({"Z0LIVE_CLAUDE_CONFIG_DIR": "/srv/claude-lanes"}),
+                         "/srv/claude-lanes")
+
+    def test_fable_lane_run_spawns_claude_with_only_the_allowed_env(self):
+        seen = {}
+
+        def fake_run(cmd, **kw):
+            seen.update(cmd=cmd, env=kw["env"])
+            return SimpleNamespace(stdout=json.dumps({"result": "ok"}), stderr="")
+        with tempfile.TemporaryDirectory() as out, mock.patch.dict(os.environ, SECRETS), \
+                mock.patch.object(fable_lanes.subprocess, "run", fake_run):
+            fable_lanes.run("service", "is it up", Path(out), 5, [], fable=False)
+        self.assertEqual(seen["cmd"][0], "claude")
+        self.assertEqual(set(seen["env"]), set(fable_lanes.CHILD_ENV_KEYS))
+        self.assertFalse(set(SECRETS.values()) & set(seen["env"].values()))
+
+    def test_warm_haiku_spawns_claude_with_only_the_allowed_env(self):
+        seen = {}
+
+        async def fake_exec(*argv, env=None, **kw):
+            seen.update(argv=argv, env=env)
+            return SimpleNamespace(returncode=None)
+
+        async def go():
+            haiku = mobile_live.WarmHaiku("system")
+            with mock.patch.object(mobile_live.asyncio, "create_subprocess_exec", fake_exec), \
+                    mock.patch.object(mobile_live.WarmHaiku, "ask", mock.AsyncMock(return_value="ready")):
+                await haiku.start()
+        for scope in ([], ["systemd-run", "--user", "--scope"]):
+            with self.subTest(scope=scope), mock.patch.dict(os.environ, {**SECRETS, "XDG_RUNTIME_DIR": "/run/user/1"}), \
+                    mock.patch.object(mobile_live, "SCOPE", scope):
+                asyncio.run(go())
+                argv, env = list(seen["argv"]), seen["env"]
+                self.assertFalse(set(SECRETS) & set(env))  # not even systemd-run sees provider keys
+                if scope:  # systemd-run reaches the user manager; `env -i` hands claude only the allowed keys
+                    child = argv[argv.index("-i") + 1:argv.index("claude")]
+                    self.assertEqual(argv[len(scope):len(scope) + 2], ["env", "-i"])
+                    self.assertEqual({kv.split("=", 1)[0] for kv in child}, set(fable_lanes.CHILD_ENV_KEYS))
+                else:
+                    self.assertEqual(argv[0], "claude")
+                    self.assertEqual(set(env), set(fable_lanes.CHILD_ENV_KEYS))
