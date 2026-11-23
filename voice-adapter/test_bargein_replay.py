@@ -122,5 +122,95 @@ class FrozenSeed39Test(unittest.TestCase):
         self.assertEqual(self.summary['sha256'], REFERENCE_SHA256)
 
 
+def canonical(value):
+    return (json.dumps(value, sort_keys=True, separators=(',', ':')) + '\n').encode()
+
+
+def run_cli(*args):
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / 'out.json'
+        proc = subprocess.run(
+            [sys.executable, '-B', str(BENCH_DIR / 'bargein_replay.py'), *args, '--output', str(out)],
+            capture_output=True, text=True, timeout=900)
+        data = out.read_bytes() if out.exists() else b''
+    return proc, data
+
+
+class ArmCTest(unittest.TestCase):
+    """Arm C: local-VAD timing plus a render-referenced echo gate and a minimum-speech gate."""
+
+    # Names the gate must never touch: labels, echo-model internals, network legs, phone speaker.
+    FORBIDDEN = {'trial', 'kind', 'echo_ms', 'echo_gain', 'onset', 'speaker', 'up', 'ws_up',
+                 'ws_back', 'down', 'phone_extra', 'missed_valid', 'false_barge_in', 'mic', 'stimuli'}
+
+    @classmethod
+    def setUpClass(cls):
+        cls.bot = replay.voice(replay.BOT_MS, 142, 11000, 115)
+        cls.trials = list(replay.stimuli(20, 39))
+
+    def gate_cfg(self, **overrides):
+        return cfg(**({'gate_echo_rho': 0.9, 'gate_min_speech_ms': 40, 'gate_window_ms': 20,
+                       'gate_lag_max_ms': 250} | overrides))
+
+    def test_flag_parses(self):
+        proc, data = run_cli('--seed', '39', '--trials', '10', '--arm-c',
+                             '--gate-echo-rho', '0.8', '--gate-min-speech-ms', '30')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        summary = json.loads(proc.stdout)
+        self.assertEqual(sorted(summary['arms']), ['A', 'B', 'C'])
+        self.assertEqual(summary['parameters']['gate_echo_rho'], 0.8)
+        self.assertEqual(summary['parameters']['gate_min_speech_ms'], 30)
+        bad, _ = run_cli('--trials', '10', '--arm-c', '--gate-min-speech-ms', '25')
+        self.assertNotEqual(bad.returncode, 0)
+
+    def test_ab_unchanged_by_arm_c(self):
+        _, plain = run_cli('--seed', '39', '--trials', '20')
+        _, with_c = run_cli('--seed', '39', '--trials', '20', '--arm-c')
+        plain, with_c = json.loads(plain), json.loads(with_c)
+        for arm in ('A', 'B'):
+            self.assertEqual(sha256(canonical(with_c['arms'][arm])).hexdigest(),
+                             sha256(canonical(plain['arms'][arm])).hexdigest())
+        self.assertNotIn('C', plain['arms'])
+        self.assertFalse(any(key.startswith('gate_') for key in plain['parameters']))
+
+    def test_gate_never_reads_labels(self):
+        import ast
+        import inspect
+        tree = ast.parse(inspect.getsource(replay.FlushGate))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                self.assertNotIn(node.id, self.FORBIDDEN, node.id)
+            elif isinstance(node, ast.Attribute):
+                self.assertNotIn(node.attr, self.FORBIDDEN, node.attr)
+                if isinstance(node.value, ast.Name) and node.value.id == 'cfg':
+                    self.assertTrue(node.attr.startswith('gate_'), node.attr)
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                self.assertNotIn(node.value, self.FORBIDDEN, node.value)
+        self.assertEqual(list(inspect.signature(replay.FlushGate.observe).parameters),
+                         ['self', 't', 'packet'])
+        self.assertEqual(list(inspect.signature(replay.FlushGate.render).parameters),
+                         ['self', 't', 'frame'])
+
+    def test_gate_off_min20_matches_b(self):
+        loose = self.gate_cfg(gate_echo_rho=0, gate_min_speech_ms=20)
+        for trial in self.trials:
+            b = replay.replay(trial, 'B', loose, self.bot)
+            c = replay.replay(trial, 'C', loose, self.bot)
+            self.assertEqual(b['latency_ms'], c['latency_ms'])
+            self.assertEqual(b['trace'].get('adapter_flush_ms'), c['trace'].get('adapter_flush_ms'))
+
+    def test_echo_gate_vetoes_render_copy(self):
+        echo = next(t for t in self.trials if t['kind'] == 'echo')
+        self.assertTrue(replay.replay(echo, 'B', self.gate_cfg(), self.bot)['false_barge_in'])
+        self.assertFalse(replay.replay(echo, 'C', self.gate_cfg(), self.bot)['false_barge_in'])
+
+    def test_arm_c_deterministic(self):
+        proc, data = run_cli('--seed', '39', '--trials', '20', '--arm-c', '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIs(json.loads(proc.stdout)['aa_identical'], True)
+        _, again = run_cli('--seed', '39', '--trials', '20', '--arm-c')
+        self.assertEqual(sha256(data).hexdigest(), sha256(again).hexdigest())
+
+
 if __name__ == '__main__':
     unittest.main()

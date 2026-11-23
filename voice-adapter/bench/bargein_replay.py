@@ -8,7 +8,15 @@ Arms (the same seeded trial inputs run through both):
   A  flush and fence the old response when the provider speech_started event
      reaches the adapter (server VAD 50 ms + uplink + event return leg).
   B  flush and fence on the adapter's local VAD (20 ms of hot PCM).
-Neither arm waits for provider acknowledgement.
+  C  (opt-in, --arm-c) B's local uplink path with a FlushGate that sees only
+     uplink PCM and the render log of bot frames the adapter itself sent:
+     an echo gate (normalized render cross-correlation over a 0..250 ms lag
+     search) plus a minimum-speech gate. Without --arm-c the output bytes
+     are unchanged. CAVEAT: the sim echo is an exact delayed and scaled copy
+     of the render, so a correlation gate finds it far more easily than real
+     AEC residuals (nonlinear, filtered, time-varying, mixed with double-talk).
+     A C result in this sim is an upper bound, not live evidence.
+No arm waits for provider acknowledgement.
 
 Timing definitions (virtual ms; t=0 is the first bot frame generated):
   latency_ms       valid trials: end of the last audible bot sample at the
@@ -38,7 +46,8 @@ from hashlib import sha256
 from heapq import heappop, heappush
 from itertools import count
 import json
-from math import ceil, pi, sin
+from math import ceil, pi, sin, sqrt
+from operator import mul
 from pathlib import Path
 from random import Random
 from statistics import median
@@ -91,6 +100,77 @@ class VAD:
 
     def observe(self, samples):
         self.run = self.run + CAPTURE_MS if hot(samples, THRESHOLD) else 0
+        if not self.fired and self.run >= self.minimum:
+            self.fired = True
+            return True
+        return False
+
+
+class FlushGate:
+    """Arm C flush decision from adapter-side signals only.
+
+    Inputs: uplink PCM packets at adapter receive time (observe) and the bot
+    PCM frames this adapter sent downlink at its send times (render). Nothing
+    else: no labels, no echo-model parameters, no network legs, no speaker.
+
+    (a) Echo gate: a hot packet whose last gate_window_ms of near-end audio has
+        normalized cross-correlation >= gate_echo_rho with the render log at
+        some lag in 0..gate_lag_max_ms is explained by render, not speech.
+        gate_echo_rho <= 0 disables it.
+    (b) Minimum speech: flush after gate_min_speech_ms of consecutive hot,
+        unexplained packets.
+    """
+
+    def __init__(self, cfg, span_ms):
+        self.rho = cfg.gate_echo_rho
+        self.minimum = cfg.gate_min_speech_ms
+        self.window = cfg.gate_window_ms * SAMPLES_MS
+        self.lag_max = cfg.gate_lag_max_ms * SAMPLES_MS
+        self.sent = pcm(span_ms)
+        self.near = pcm(span_ms)
+        self.run = 0
+        self.fired = False
+        self.vetoes = 0
+        self.max_rho = 0.0
+
+    def render(self, t, frame):
+        pos = t * SAMPLES_MS
+        self.sent[pos:pos + len(frame)] = frame
+
+    def correlation(self, end):
+        start = end - self.window
+        if start < 0:
+            return 0.0
+        x = self.near[start:end]
+        ex = sum(v * v for v in x)
+        lo = max(0, start - self.lag_max)
+        seg = self.sent[lo:end]
+        prefix = [0]
+        for v in seg:
+            prefix.append(prefix[-1] + v * v)
+        if not ex or not prefix[-1]:
+            return 0.0
+        best = 0.0
+        n = self.window
+        for offset in range(start - lo, -1, -1):  # lag 0 .. lag_max
+            er = prefix[offset + n] - prefix[offset]
+            if er:
+                num = sum(map(mul, x, seg[offset:offset + n]))
+                if num > 0:
+                    best = max(best, num / sqrt(ex * er))
+        return best
+
+    def observe(self, t, packet):
+        end = t * SAMPLES_MS
+        self.near[end - len(packet):end] = packet
+        speech = hot(packet, THRESHOLD)
+        if speech and self.rho > 0:
+            rho = self.correlation(end)
+            self.max_rho = max(self.max_rho, rho)
+            if rho >= self.rho:
+                speech = False
+                self.vetoes += 1
+        self.run = self.run + CAPTURE_MS if speech else 0
         if not self.fired and self.run >= self.minimum:
             self.fired = True
             return True
@@ -159,6 +239,7 @@ def replay(trial, arm, cfg, bot):
     speaker = pcm(BOT_MS + cfg.audio_transit_ms + depth * FRAME_MS + trial["down"] + hold)
     last_phone = None
     dropped = 0
+    gate = FlushGate(cfg, len(speaker) // SAMPLES_MS) if arm == "C" else None
 
     def post(t, priority, label, payload=None):
         heappush(future, (t, priority, next(order), label, payload))
@@ -210,6 +291,8 @@ def replay(trial, arm, cfg, bot):
                 first = index * FRAME_MS * SAMPLES_MS
                 size = FRAME_MS * SAMPLES_MS
                 speaker[pos:pos + size] = bot[first:first + size]
+                if gate:
+                    gate.render(t, bot[first:first + size])  # what the adapter sent, at its send time
         elif event == "capture":
             start = (t - CAPTURE_MS) * SAMPLES_MS
             packet = pcm(CAPTURE_MS)
@@ -238,6 +321,9 @@ def replay(trial, arm, cfg, bot):
                 trace["local_vad_ms"] = t
                 if arm == "B":
                     flush(t, "local_vad")
+            if gate and gate.observe(t, payload):
+                trace["gate_fire_ms"] = t
+                flush(t, "gated_local_vad")
             # PCM keeps flowing upstream even if bot audio has been muted.
             post(t + trial["ws_up"], 3, "server_pcm", payload)
         elif event == "server_pcm":
@@ -270,6 +356,9 @@ def replay(trial, arm, cfg, bot):
     residual = sum(ms >= onset for ms in audible)
     latency = max(0, end - onset) if end is not None else 0
     trace["provider_history_end_ms"] = provider.history_end_ms
+    if gate:
+        trace["gate_echo_vetoes"] = gate.vetoes
+        trace["gate_max_rho"] = round(gate.max_rho, 4)
     return dict(trial=trial["id"], kind=kind, latency_ms=latency,
                 residual_ms=residual, false_barge_in=kind != "valid" and muted,
                 missed_valid=kind == "valid" and not muted,
@@ -287,10 +376,12 @@ def percentiles(values):
 
 def run(n, seed, cfg, bot):
     cases = list(stimuli(n, seed))
+    arm_c = getattr(cfg, "arm_c", False)
     result = dict(seed=seed, trials_per_arm=n, parameters={
-        k: v for k, v in vars(cfg).items() if k not in ("aa", "output", "seed", "trials")
+        k: v for k, v in vars(cfg).items() if k not in ("aa", "output", "seed", "trials", "arm_c")
+        and (arm_c or not k.startswith("gate_"))  # default run keeps the frozen bytes
     }, arms={})
-    for arm in ("A", "B"):
+    for arm in ("A", "B", "C") if arm_c else ("A", "B"):
         rows = [replay(case, arm, cfg, bot) for case in cases]
         valid = [row for row in rows if row["kind"] == "valid"]
         result["arms"][arm] = dict(
@@ -323,6 +414,14 @@ def main():
     parser.add_argument("--echo-gain", type=float, default=.65)
     parser.add_argument("--transport", choices=("websocket", "provider-buffer"), default="websocket",
                         help="provider-buffer also exercises fake output_audio_buffer.clear")
+    parser.add_argument("--arm-c", action="store_true",
+                        help="add arm C: local VAD timing gated by a render echo gate and minimum speech")
+    parser.add_argument("--gate-echo-rho", type=float, default=.9,
+                        help="arm C: veto a hot packet whose render correlation reaches this (<=0 disables)")
+    parser.add_argument("--gate-min-speech-ms", type=int, default=40,
+                        help="arm C: consecutive unexplained hot speech before flush")
+    parser.add_argument("--gate-window-ms", type=int, default=20, help="arm C: near-end correlation window")
+    parser.add_argument("--gate-lag-max-ms", type=int, default=250, help="arm C: render lag search 0..N ms")
     parser.add_argument("--aa", action="store_true", help="repeat and compare canonical JSON bytes")
     parser.add_argument("--output", type=Path, help="write full canonical per-trial JSON")
     cfg = parser.parse_args()
@@ -332,6 +431,10 @@ def main():
         parser.error("control, transit and phone delays must be 0..1000 ms")
     if any(value <= 0 or value % CAPTURE_MS for value in (cfg.local_vad_ms, cfg.server_vad_ms)):
         parser.error("VAD durations must be positive multiples of 10 ms")
+    if cfg.gate_min_speech_ms <= 0 or cfg.gate_min_speech_ms % CAPTURE_MS or cfg.gate_echo_rho > 1:
+        parser.error("gate minimum speech must be a positive multiple of 10 ms; gate rho <= 1")
+    if not CAPTURE_MS <= cfg.gate_window_ms <= 100 or not 0 <= cfg.gate_lag_max_ms <= 1000:
+        parser.error("gate window must be 10..100 ms and lag max 0..1000 ms")
 
     bot = voice(BOT_MS, 142, 11000, 115)
     result = run(cfg.trials, cfg.seed, cfg, bot)
