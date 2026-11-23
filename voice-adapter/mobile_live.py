@@ -89,17 +89,8 @@ def live_sessions(hours: float = 3.0, limit: int = 12) -> str:
 
 
 def _ttft_key():
-    """GROQ_API_KEY from the process env (a bws-synced env file on hosts without the ttft bot), else the ttft
-    bot's env (bws-deployed on groot); never logged."""
-    if os.environ.get("GROQ_API_KEY"):
-        return os.environ["GROQ_API_KEY"].strip()
-    try:
-        for line in (Path.home() / ".hermes/profiles/ttft/.env").read_text().splitlines():
-            if line.startswith("GROQ_API_KEY="):
-                return line.split("=", 1)[1].strip().strip("'\"")
-    except OSError:
-        pass
-    return ""
+    """Read the key only from the adapter's service environment; never log it."""
+    return os.environ.get("GROQ_API_KEY", "").strip()
 
 
 FAST_SYSTEM = ("You are the instant fast lane ({who}) on Kevin's live voice call; this very answer is the fast lane he "
