@@ -14,11 +14,14 @@ Everything one delegation sends to one voice (a lane guess, Hermes's answer, a 5
 resend carries only its unspoken pieces. A resend happens only after the voice has been quiet for SETTLE_SECONDS
 without saying the entry, at most once.
 
-"Spoken" means the voice began saying it, which is enough while the reply plays on. A reply cut off mid-answer (a
-barge-in, the floor moving away, or the provider ending it under the caller's words) is not: take 13's line-3
-answer was cut after its first sentence and Tek's after "It was a startup timing bug: the blur". So the ledger keeps
-the entries the current or just-finished reply is saying, closed or not, and a cut returns each one's unheard
-sentences for the floor to hand back.
+"Spoken" means the voice began saying it, which is enough while the reply plays on: it is not resent. Heard is
+decided when the reply ends, from what that reply's transcript said. A reply cut off mid-answer (a
+barge-in, the floor moving away, or the provider ending it under the caller's words) leaves its unheard sentences:
+take 13's line-3 answer was cut after its first sentence and Tek's after "It was a startup timing bug: the blur".
+A reply that ran its course can leave some out too: take 16's resumed line-3 rest was read as paragraph 2 and a
+paraphrase of paragraph 3, and paragraph 1 (card t_0a96e2de, "won't start a second run") was never said. So the
+ledger keeps the entries the current or just-finished reply is saying, closed or not; a cut returns each one's
+unheard sentences, and a reply that ran its course the paragraphs it skipped, for the floor to hand back.
 """
 from __future__ import annotations
 
@@ -62,6 +65,38 @@ def sentences(text: str) -> list[str]:
     return [s for s in re.split(r"(?<=[.!?])\s+", text.strip()) if s]
 
 
+def paragraphs(text: str) -> list[str]:
+    return [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+
+
+_TENS = "twenty thirty forty fifty sixty seventy eighty ninety".split()
+
+
+def spoken(text: str) -> set[str]:
+    """Word tokens the way a voice says them, letters apart from digits: up to two digits as a number, longer runs
+    digit by digit (\"S25\" and \"S twenty-five\", \"30652\" and \"three zero six five two\" match)."""
+    out = set()
+    for part in re.findall(r"[^\W\d_]+|\d+", text.casefold().replace("’", "'")):
+        digits = part.lstrip("0") or "0"
+        if not part.isdigit():
+            out.add(part)
+        elif len(digits) > 2:
+            out |= {_NUMBERS[int(d)] for d in part}
+        elif int(digits) <= 20:
+            out.add(_NUMBERS[int(digits)])
+        else:
+            out |= {_TENS[int(digits) // 10 - 2], *([_NUMBERS[int(digits) % 10]] if int(digits) % 10 else [])}
+    return out
+
+
+def anchors(text: str) -> list[set[str]]:
+    """What a text names that a voice cannot put in other words: each identifier in it (a token with an underscore,
+    or with letters and digits: card t_0a96e2de, S25), as spoken(). Not a bare number: a voice says \"12:30\" as
+    \"twelve thirty\" or \"half past twelve\"."""
+    return [spoken(token) for token in re.findall(r"\w+", text)
+            if "_" in token or (re.search(r"\d", token) and re.search(r"[^\W\d_]", token))]
+
+
 @dataclass
 class Piece:
     text: str
@@ -101,6 +136,7 @@ class Entry:
     pieces: list[Piece] = field(default_factory=list)
     sends: int = 1
     said: set[str] = field(default_factory=set)  # content words the voice said while this entry was out
+    spoken: set[str] = field(default_factory=set)  # spoken() of the same words
 
     @property
     def started(self) -> bool:
@@ -111,13 +147,37 @@ class Entry:
         runs in order, so what comes before it, or before the piece the voice was saying (take 13), is not owed."""
         begun = [i for i, p in enumerate(self.pieces) if p.hits or p.spoken]
         pieces = self.pieces[begun[-1] if begun else 0:]
-        parts, last, before = [s for p in pieces for s in sentences(p.text)], -1, set()
-        for i, sentence in enumerate(parts):
+        parts = [((i, j), s) for i, p in enumerate(pieces) for j, para in enumerate(paragraphs(p.text))
+                 for s in sentences(para)]
+        last, before = -1, set()
+        for i, (_, sentence) in enumerate(parts):
             own = content(sentence) - before
             before |= own
             if own and 2 * len(own & self.said) >= len(own):
                 last = i
-        return " ".join(parts[last + 1:])
+        out = []  # its paragraphs stay paragraphs: a reply that skips one is judged by them (skipped)
+        for i, (para, sentence) in enumerate(parts[last + 1:]):
+            out.append(sentence if not i or para == parts[last + i][0] else "\n\n" + sentence)
+        return " ".join(out).replace(" \n\n", "\n\n")
+
+    def skipped(self) -> str:
+        """The paragraphs of its answer a reply that ran its course left out: each names something (an identifier,
+        anchors()) the voice never said while this entry was out. A voice may put an answer in its own
+        words and leave out how it works (take 16: Tek's \"In short: blur ran too early and crashed\"), not what
+        it names (Hermes's resumed reply skipped paragraph 1 and card t_0a96e2de). Lane guesses and status lines
+        are never owed: Hermes's own answer supersedes them."""
+        begun = [i for i, p in enumerate(self.pieces) if p.hits or p.spoken]
+        pieces = [p for p in self.pieces[begun[-1] if begun else 0:] if not p.lane]
+
+        def unheard(text):
+            return any(not anchor <= self.spoken for anchor in anchors(text))
+
+        out = []
+        for para in (para for p in pieces for para in paragraphs(p.text) if unheard(para)):
+            # Without the sentences of it the voice did say (half their words), unless they hold what it named.
+            out.append(" ".join(s for s in sentences(para)
+                                if unheard(s) or 2 * len(content(s) & self.said) < len(content(s))))
+        return "\n\n".join(o for o in out if o)
 
     @property
     def unspoken(self) -> list[Piece]:
@@ -136,6 +196,7 @@ class Ledger:
         self.entries: list[Entry] = []
         self.said: set[str] = set()  # content words any voice has said on this call
         self.speaking: dict[str, list[Entry]] = {}  # per leg: entries the last reply has begun, closed ones too
+        self.retold: set[tuple[str, str | None]] = set()  # (leg, did) whose skipped paragraphs went back once
 
     def pending(self, leg: str) -> list[Entry]:
         return [e for e in self.entries if e.leg == leg]
@@ -159,16 +220,18 @@ class Ledger:
 
     def heard(self, leg: str, text: str) -> list[Entry]:
         """The voice on this leg said these words aloud. Returns the entries now fully spoken (and closes them)."""
-        said = content(text)
+        said, voiced = content(text), spoken(text)
         speaking = self.speaking.setdefault(leg, [])
         for entry in self.pending(leg):
             for piece in entry.unspoken:
                 piece.hear(said)
             entry.said |= said
+            entry.spoken |= voiced
             if entry.started and entry not in speaking:
                 speaking.append(entry)
         for entry in speaking:  # closed entries the reply is still saying
             entry.said |= said
+            entry.spoken |= voiced
         self.said |= said
         return self._close(leg)
 
@@ -189,10 +252,36 @@ class Ledger:
 
     def cut(self, leg: str) -> list[tuple[str | None, str]]:
         """Playback on this leg stopped before the phone heard it all. Each answer the reply had begun leaves the
-        pending entries; returns (did, unheard rest) for each with a rest. Unbegun answers stay pending."""
+        pending entries; returns (did, unheard rest) for each with a rest. Unbegun answers stay pending, and a
+        stopped reply was not their chance: one send comes back (floor_sim seed 33: Tek's resumed answer, all words
+        the call had heard, was stopped at \"PR twenty\" and again at \"PR twenty eight\", then dropped)."""
         begun = self.speaking.pop(leg, [])
         self.entries = [e for e in self.entries if e not in begun]
+        self.retold -= {(leg, e.did) for e in begun}  # its rest takes the place of a retelling
+        for entry in self.pending(leg):
+            entry.sends = max(1, entry.sends - 1)
         return [(e.did, text) for e in begun if (text := e.rest())]
+
+    def finished(self, leg: str) -> list[tuple[Entry, str]]:
+        """The reply on this leg ran its course: (entry, the paragraphs it skipped) for each answer it had begun, ""
+        when it left none out. Skipped paragraphs are owed once per answer (a voice that skips them again chose
+        to), and are not resent as well. The entries stay with the reply until the next one, as after reply_done:
+        a caller turn that began inside it, or the floor leaving while it drains, is still a cut, and the cut's
+        rest takes the place of the skipped paragraphs (take 14; a barge-in in the same tick as turn.done)."""
+        out = []
+        for entry in self.speaking.get(leg, []):
+            again = (leg, entry.did) in self.retold
+            rest = "" if again else entry.skipped()
+            if rest:
+                self.retold.add((leg, entry.did))
+            if rest or again:  # handed back, or its one retelling had its chance
+                self.entries = [e for e in self.entries if e is not entry]
+            out.append((entry, rest))
+        return out
+
+    def drop(self, leg: str, dids: set[str]) -> None:
+        """The caller moved on from these answers: nothing of them is resent."""
+        self.entries = [e for e in self.entries if e.leg != leg or e.did not in dids]
 
     def due(self, leg: str, now: float, quiet_since: float | None) -> list[tuple[Entry, str | None]]:
         """Entries the voice had its chance to say and didn't: (entry, text to resend), or (entry, None) once it

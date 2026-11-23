@@ -188,6 +188,16 @@ def promises_new_work(text: str) -> bool:
     return bool(PROMISE.search(text.replace("\u2019", "'")))
 
 
+# How a voice's own hand-off line starts a promise (PROMISE): its transcript runs with its audio, so the floor mutes the
+# line at these words, before the rest is heard (takes 15 and 16: "Mm-hm. I'll take that", "Okay, I'll take that").
+PROMISE_OPENER = re.compile(r"\b(i'?ll|i will|i'?m (taking|handling|on)|on it)\b", re.I)
+
+
+def opens_promise(text: str) -> bool:
+    text = text.replace("\u2019", "'")
+    return bool(PROMISE_OPENER.search(text) or PROMISE.search(text))
+
+
 PERSONA = """You are Hermes, speaking with the user in the official Hermes mobile app.
 Be natural, brief and direct. Do not speak until the user speaks. While the user tells a longer
 story, acknowledge often with a quick "mm-hm", "yeah" or "right" and let them keep going. Start
@@ -482,6 +492,10 @@ class Protocol:
                 kind == "turn.done" and (event.get("turn") or {}).get("role") == "assistant")):
             if kind == "turn.done":
                 self.turn_text["assistant"] = ""
+            elif isinstance(text := (event.get("item") or {}).get("text"), str):
+                # Muted words are never the phone's, even at the turn.done of a reply unmuted later (take 16:
+                # "Okay, I'll take that" reached the phone's transcript at 55.15 s, muted on its audio).
+                self.turn_text["assistant"] = (self.turn_text["assistant"] + text)[-16000:]
             return []
         if kind in ("session.started", "session.closed", "error"):
             if kind == "error" and not isinstance(event.get("error"), dict):
@@ -723,6 +737,7 @@ class UserTurn:
     continuation: bool = False
     interrupted: bool = False
     opened_on: Leg = "primary"  # the floor when the provider opened this turn (one turn can span exchanges)
+    done: bool = False  # the provider closed it (turn.done)
 
 
 @dataclass
@@ -739,6 +754,9 @@ PEOPLE_NOTE = ("(The people on the call are talking to each other, not to you. N
                "nothing was handed off. Stay quiet until someone says your name or asks you directly.)")
 PEOPLE_PAUSE_SECONDS = 1.5  # a pause in the people's talk long enough for a bot to give an answer it was asked for
 EOU_SECONDS = 0.8  # with people on the call, a caller utterance ends after this much mic quiet with no new words
+# A rest waits for the caller's open turn to close, unless it has had no new words this long (a silent leg can hold a
+# turn open across exchanges). Take 16 sent line 3's rest 0.8 s before its turn closed, and the voice merged the two.
+OPEN_TURN_SECONDS = 3.0
 
 
 class GPTGuest:
@@ -765,6 +783,7 @@ class GPTGuest:
         # Answers handed to a voice, delivered once the voice has said them (answer_delivery).
         self.ledger = answer_delivery.Ledger()
         self.superseded: set[str] = set()  # delegations whose stopped answer the caller moved on from
+        self.unanswered: set[Leg] = set()  # legs the floor handed a request and nothing of its answer yet
         self.quiet_since: dict[Leg, float | None] = {"primary": None, "guest": None}  # last reply or caller turn end
         self.user_heard_at = float("-inf")  # the latest caller transcript event on either leg
         self.flush_timer: asyncio.TimerHandle | None = None
@@ -826,13 +845,28 @@ class GPTGuest:
         if event == "floor.changed" and data["reason"] == "answer_ready":
             self.unmute(data["speaker"], data["since"])
 
-    def cut(self, leg: str):
+    def cut(self, leg: Leg):
         """Playback on this leg stopped before the phone heard it all: a barge-in, the floor moving off a playing
         reply, or the provider ending the reply under the caller's words. The unheard rest of each answer it was
         saying goes back to the head of this leg's queue, to be said once the caller is quiet (take 13, take 14)."""
+        queue = self.floor.answers[leg]
         for did, text in reversed(self.ledger.cut(leg)):
-            self.floor.answers[leg].appendleft(Answer(leg, did, text, rest=True))
+            for retold in [a for a in queue if a.retold and a.delegation_id == did]:  # the cut's rest replaces it
+                queue.remove(retold)
+            queue.appendleft(Answer(leg, did, text, rest=True))
             self.call.trace("floor.answer_cut", speaker=leg, did=did)
+
+    def retell(self, leg: Leg):
+        """A reply on this leg ran its course: an answer it began is heard unless it left out a paragraph naming
+        something it never said (answer_delivery.Entry.skipped). Those paragraphs go back to the head of the queue,
+        once (take 16: the resumed line-3 rest was read as paragraph 2 and a paraphrase of paragraph 3; paragraph 1
+        and card t_0a96e2de were never said, yet counted spoken as the reply began)."""
+        for entry, rest in reversed(self.ledger.finished(leg)):
+            if rest:
+                self.floor.answers[leg].appendleft(Answer(leg, entry.did, rest, rest=True, retold=True))
+                self.call.trace("floor.answer_unsaid", speaker=leg, did=entry.did, sends=entry.sends)
+            else:
+                self.call.trace("floor.answer_spoken", speaker=leg, did=entry.did, sends=entry.sends)
 
     def supersede(self, leg: str):
         """The caller asked this voice something new: a stopped answer is not coming back, its rest or any of its
@@ -845,6 +879,7 @@ class GPTGuest:
         for answer in [a for a in queue if a.rest or a.delegation_id in self.superseded]:
             queue.remove(answer)
             self.call.trace("floor.answer_dropped", speaker=leg, did=answer.delegation_id, reason="new_request")
+        self.ledger.drop(leg, self.superseded)  # nor resent (take 16: resent 16 ms after it was dropped)
 
     def unmute(self, leg: Leg, now: float):
         """The floor came back to this leg so it can give the answer it was handed. A reply it has open was muted
@@ -933,6 +968,7 @@ class GPTGuest:
         if not routed or not substantive(self.addressing.vocative.sub(" ", mine)):
             return
         self.unmute(leg, now)  # the voice began answering before the utterance ended: that reply is for it
+        self.unanswered.add(leg)  # until its answer comes, the voice's own line may not promise (observe)
         if follow:
             self.supersede(leg)  # the next request to this voice: a cut answer's rest is not coming back
         held = [did for did, at in self.offered.pop(leg, []) if at >= began - 1.0]  # the provider's own delegation
@@ -963,7 +999,11 @@ class GPTGuest:
             start_ms = event.get("start_ms", end_ms - 200)
             # A silent leg can keep one user ID open across several exchanges. Only split at a gap in the provider's
             # word timestamps (never at a mic onset or a delayed packet), or at the floor's decision on this turn.
-            if start_ms - user.end_ms >= 1500 or (user.committed and self.floor.people > 1):
+            # Words that follow the decided ones closer than EOU_SECONDS were said before it, and the transcriber
+            # was late with them: they end that utterance (take 16: line 3's "receipts" came 17 ms after the
+            # decision, became its own utterance and gave the floor to the people).
+            gap = start_ms - user.end_ms
+            if gap >= 1500 or (user.committed and self.floor.people > 1 and gap >= EOU_SECONDS * 1000):
                 self.users[source] = user = UserTurn(user.id, now, start_ms, end_ms, continuation=True,
                                                       opened_on=user.opened_on)
             user.end_ms = end_ms
@@ -974,6 +1014,7 @@ class GPTGuest:
                                                       opened_on=self.floor.owner)
             if user.id != turn["id"]:
                 return False
+            user.done = True
             if not user.committed and not user.continuation:
                 user.text = turn.get("transcript") or user.text
         else:
@@ -1004,13 +1045,20 @@ class GPTGuest:
                     self.floor.reply_started(source, now)
             if reply is not None:
                 allowed = reply.allowed and not reply.cut and self.floor.owner == source
+                words = (turn.get("transcript") if kind == "turn.created" else
+                         (event.get("item") or {}).get("text") if kind == "output_transcript.added" else None)
+                if allowed and source in self.unanswered and words and opens_promise(reply.spoken + words):
+                    reply.cut, allowed = True, False  # its answer unmutes it (flush_answers)
+                    self.audio.clear()
+                    self.floor.reply_finished(source, now, reply.began)
+                    self.call.trace("floor.promise_muted", speaker=source, turn=turn.get("id") or reply.id)
                 if kind == "turn.created":
                     reply.id = turn.get("id")
                 elif kind == "output_transcript.added" and allowed:
                     text = (event.get("item") or {}).get("text", "")
                     reply.spoken = (reply.spoken + text)[-1500:]
                     self.last_output = " ".join(re.findall(r"\w+", reply.spoken.casefold()))
-                    self.delivered(source, self.ledger.heard(source, text))
+                    self.ledger.heard(source, text)  # begun is not heard: the reply's end decides (retell)
                 elif kind == "turn.done" and reply.id in (None, turn.get("id")):
                     self.replies.pop(source)
                     if reply.spoken.strip():
@@ -1042,6 +1090,7 @@ class GPTGuest:
                             self.cut(source)
                         else:  # the caller's turn can arrive just after (take 14): it began inside this reply
                             self.ended[source] = span
+                            self.retell(source)
                     self.quiet_since[source] = now
                     self.flush_answers()
                 return allowed
@@ -1115,13 +1164,20 @@ class GPTGuest:
         busy = (reply and reply.allowed and not reply.cut) or self.ledger.pending(self.floor.owner)
         if not busy:
             self.floor.expire(now)
-        def waiting(leg):
-            return bool(self.floor.answers[leg] or self.ledger.pending(leg))
+        def waiting(leg, retold=True):
+            return bool(self.ledger.pending(leg) or any(retold or not a.retold for a in self.floor.answers[leg]))
         owner = self.floor.owner
         # An answer asked for earlier waits for the people's pause, and Tek's for idle Hermes (floor_sim, line 5).
-        handover = (self.floor.people > 1 and owner == "primary" and not busy and owner not in self.replies
-                    and not self.utterance and not getattr(self.call, "pending_delegations", ())
-                    and not waiting(owner) and waiting("guest"))
+        # Sentences Hermes skipped wait for Tek's answer, and get the floor back once Tek is idle (take 16).
+        idle = not busy and owner not in self.replies and not self.utterance
+        handover = self.floor.people > 1 and idle and (
+            (owner == "primary" and not getattr(self.call, "pending_delegations", ())
+             and not waiting(owner, retold=False) and waiting("guest"))
+            or (owner == "guest" and not self.floor.guest_jobs and not waiting(owner)
+                and any(a.retold for a in self.floor.answers["primary"])))
+        if handover and self.playing(owner):  # its last words are still playing out: hand over once they end
+            self.flush_timer = self.later(LEVEL_OFF_SECONDS, self.flush_answers)
+            return
         if owner == "people" or handover:
             if not (waiting("primary") or waiting("guest")):
                 return
@@ -1129,12 +1185,14 @@ class GPTGuest:
                     or now - max(self.call.input_loud_at, self.user_heard_at) < PEOPLE_PAUSE_SECONDS):
                 self.flush_timer = self.later(0.5, self.flush_answers)
                 return
-            self.floor.answer_ready(waiting, now)
+            self.floor.answer_ready(lambda leg: bool(self.ledger.pending(leg)), now)
         source = self.floor.owner
         queue, pending = self.floor.answers[source], self.ledger.pending(source)
         # A stopped answer's rest waits for the caller's pause, counted from the stop too (take 14).
-        rest_waits = bool(queue and queue[0].rest and now - max(
-            self.call.input_loud_at, self.user_heard_at, self.quiet_since.get(source) or 0) < PEOPLE_PAUSE_SECONDS)
+        user = self.users.get(source)
+        rest_waits = bool(queue and queue[0].rest and (now - max(
+            self.call.input_loud_at, self.user_heard_at, self.quiet_since.get(source) or 0) < PEOPLE_PAUSE_SECONDS
+            or (user and not user.done and now - self.user_heard_at < OPEN_TURN_SECONDS)))
         if (queue or pending) and (not self.call.provider_ready or now - self.call.input_loud_at < 0.4 or rest_waits
                                    or self.utterance):  # mid-utterance: take 11 answered the ask with line 2's
             self.flush_timer = self.later(0.25, self.flush_answers)
@@ -1178,7 +1236,11 @@ class GPTGuest:
             self.ledger.sent(source, answer.delegation_id, answer.text, now, lane=answer.lane, late=source in self.replies)
             if answer.rest:
                 self.call.trace("floor.answer_resumed", speaker=source, did=answer.delegation_id)
-            self.call.trace("floor.answer_sent", speaker=source, did=did, of=answer.delegation_id)  # did: the voice's id
+            self.call.trace("floor.answer_sent", speaker=source, did=did, of=answer.delegation_id,  # did: the voice's id
+                            lane=answer.lane)
+            if source in self.unanswered:  # the voice reads its answer into the reply it has open
+                self.unanswered.discard(source)
+                self.unmute(source, now)
         due = self.ledger.next_due(source, self.quiet_since[source]) if source not in self.replies else None
         if due is not None:  # a reply still open on this leg flushes again when it ends (observe)
             self.flush_timer = self.later(max(0.05, due - now) if quiet else 0.25, self.flush_answers)

@@ -13,10 +13,10 @@ import replay  # noqa: E402
 
 FIXTURES = Path(__file__).with_name("fixtures") / "takes"
 TAKES = sorted(FIXTURES.glob("take*.jsonl"), key=lambda p: int(p.stem[4:]))
-# Takes 7, 9, 14 and 15: the voice's own hand-off line promised work ("I'll handle that and keep receipts", "I'm
-# taking that on end-to-end", "I'll go step by step and show receipts", "I'll take that"). The prompts are the guard;
-# a replay cannot unsay it.
-RECORDED = {"promised": {"take7", "take9", "take14", "take15"}}
+# None now: takes 7, 9, 14 and 15 failed `promised` on the voice's own hand-off line ("I'll handle that and keep
+# receipts", "I'll take that"); the floor mutes a hand-off line at its promise, and `promised` is judged on what
+# reached the phone (take 16).
+RECORDED: dict[str, set[str]] = {}
 
 
 def checked(path):
@@ -47,6 +47,14 @@ def handed(r, since=0.0):
     return out
 
 
+def sent_after_dropped(test, r):
+    """(did, t) of each answer sent or resent after the floor dropped it for the caller's next request."""
+    dropped = {d["did"]: t for t, ev, d in r.floor if ev == "floor.answer_dropped" and d["reason"] == "new_request"}
+    test.assertTrue(dropped, "fixture: line 3 drops line 2's stopped answer")
+    sent = [(d["of"], t) for t, ev, d in r.floor if ev in ("floor.answer_sent", "floor.answer_resent")]
+    return [(did, t) for did, t in sent if did in dropped and t >= dropped[did]]
+
+
 class Take15(unittest.TestCase):
     """Take 15, line 3 (words scrambled; the scrambled line-3 answer opens "That zqcj is zqck running")."""
 
@@ -65,11 +73,7 @@ class Take15(unittest.TestCase):
     def test_an_answer_dropped_for_the_next_request_is_never_sent_after(self):
         # 52.62 s: floor.answer_dropped (new_request) for line 2, and 83 ms later line 2's whole answer went out as the
         # reply to line 3.
-        floor = self.r.floor
-        dropped = {d["did"]: t for t, ev, d in floor if ev == "floor.answer_dropped" and d["reason"] == "new_request"}
-        self.assertTrue(dropped, "fixture: line 3 drops line 2's stopped answer")
-        sent = [(d["of"], t) for t, ev, d in floor if ev in ("floor.answer_sent", "floor.answer_resent")]
-        self.assertEqual([(did, t) for did, t in sent if did in dropped and t >= dropped[did]], [])
+        self.assertEqual(sent_after_dropped(self, self.r), [])
 
     def test_a_reply_that_ran_its_course_is_not_cut_and_a_rest_is_never_resumed_twice(self):
         # 106.0 (Tek), 144.7 and 150.9 s: replies ended on their own, the mic quiet since 94.5 s, and each was logged
@@ -81,9 +85,45 @@ class Take15(unittest.TestCase):
             self.assertEqual([t for t, e in leg if json.dumps(e).count("To finish what I was saying") > 1], [])
 
 
+class Take16(unittest.TestCase):
+    """Take 16, line 3 (words scrambled; the scrambled line-3 answer names card t_zqcx)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.r = take("take16")
+
+    def test_the_paragraph_the_resumed_reply_skipped_is_handed_back_once_with_one_cue(self):
+        # 98.8-121.2 s: the voice said paragraphs 2 and 3 of the resumed rest and ran its course; paragraph 1 (card
+        # t_0a96e2de, "won't start a second run") was credited at 100.365 and never resent.
+        again = [(t, text) for t, text in handed(self.r, 121) if "t_zqcx" in text]
+        self.assertTrue(again, "paragraph 1 goes back to the voice")
+        self.assertNotIn("\n\n", again[0][1].split(replay.FINAL)[-1].strip(), "only paragraph 1")
+        self.assertEqual([t for t, text in handed(self.r) if text.count("To finish what I was saying") > 1], [])
+
+    def test_a_rest_is_not_sent_while_the_callers_turn_is_open(self):
+        # 97.969 s: the rest went out 0.8 s before the caller's open turn closed (98.778).
+        rested = [t for t, ev, d in self.r.floor if ev == "floor.answer_resumed" and d["speaker"] == "primary"]
+        self.assertEqual([t for t in rested if 97 < t < 98.778], [])
+
+    def test_an_answer_dropped_for_the_next_request_is_never_sent_after(self):
+        # 51.974 s: answer_dropped (new_request) for line 2's answer, and 16 ms later floor.answer_resent of it.
+        self.assertEqual(sent_after_dropped(self, self.r), [])
+
+    def test_the_last_word_of_line_3_ends_line_3(self):
+        # 52.836 s: "receipts" became its own utterance and gave the floor to the people, muting the reply.
+        utterances = [d["text"] for t, ev, d in self.r.floor if ev == "floor.utterance" and 51 < t < 60]
+        self.assertEqual(len(utterances), 1, utterances)
+        self.assertEqual([t for t, ev, d in self.r.floor if ev == "floor.changed" and 51 < t < 60], [])
+
+    def test_the_hand_off_line_is_muted_at_its_promise(self):
+        # 52.998 s: the reply to line 3 said "Okay, I'll take that".
+        self.assertIn("floor.promise_muted", [ev for t, ev, _ in self.r.floor if 52 < t < 56])
+        self.assertNotIn("take that", "".join(text for t, text in self.r.heard if 52 < t < 56))
+
+
 class RecordedTakes(unittest.TestCase):
     def test_the_takes_are_here(self):
-        self.assertEqual([p.stem for p in TAKES][:9], [f"take{n}" for n in range(7, 16)])
+        self.assertEqual([p.stem for p in TAKES][:10], [f"take{n}" for n in range(7, 17)])
 
     def test_each_recorded_take_passes_the_five_checks_on_the_phone(self):
         for path in TAKES:

@@ -80,6 +80,7 @@ class Answer:
     text: str
     lane: bool = False  # a fast lane's guess; Hermes's own answer to the same delegation supersedes it
     rest: bool = False  # the unheard rest of an answer whose playback stopped: waits until the caller is quiet
+    retold: bool = False  # a rest the voice skipped in a reply that ran its course: waits for the other voice's answers
 
 
 @dataclass
@@ -152,12 +153,13 @@ class Floor:
 
     def answer_ready(self, pending: Callable[[Leg], bool], now: float) -> bool:
         """While the people talk, a bot with an answer to give takes the floor in their next pause (the caller asked
-        it earlier). Returns whether the floor moved."""
-        for leg in ("primary", "guest"):
-            if self.answers[leg] or pending(leg):
-                self.change(leg, "answer_ready", now)
-                return True
-        return False
+        it earlier). Sentences a voice skipped wait for the other voice's answer (take 16: Tek's stopped answer had
+        waited since line 5 when Hermes's resumed reply skipped paragraph 1). Returns whether the floor moved."""
+        legs: list[Leg] = [leg for leg in ("primary", "guest") if self.answers[leg] or pending(leg)]
+        legs.sort(key=lambda leg: not pending(leg) and all(a.retold for a in self.answers[leg]))
+        if legs:
+            self.change(legs[0], "answer_ready", now)
+        return bool(legs)
 
     def failed(self, name: str, now: float) -> None:
         self.available = False
