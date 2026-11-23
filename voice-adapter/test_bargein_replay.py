@@ -1336,5 +1336,132 @@ class TwoPathGateTest(unittest.TestCase):
             self.assertTrue(res['ab_identical_across_rho_runs'])
 
 
+# bargein_replay/11 bytes of CONT_J_ARGS + F_ARGS[:2] + G_ARGS + --arm-h (pinned at 8445cc4, before arm O existed)
+H11_SHA256 = '28347e01630ecffd673386767c900ea236ba4471ba06727ecbfe4b01ffc96ec3'
+
+
+class ShadowGuardGateTest(unittest.TestCase):
+    """bargein_replay/12: opt-in arm O, arm G unchanged (Geigel-frozen NLMS + residual-only gate) plus a
+    Geigel-free shadow NLMS filter used only as a stall/divergence guard: the shadow replaces G's filter only after
+    guard_packets consecutive render-active packets with G's monitored ERLE < guard_erle_db and the shadow residual
+    >= guard_margin_db lower; until then every decision is arm G's."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nlms = NlmsGateTest('test_harness_id')
+        cls.nlms.setUpClass()
+
+    def o_cfg(self, **overrides):
+        return self.nlms.f_cfg(**({'resid_threshold': 1360.0, 'resid_arm_db': 6.0, 'resid_nlp_db': 3.0,
+                                   'guard_erle_db': 6.0, 'guard_margin_db': 3.0, 'guard_packets': 10} | overrides))
+
+    def test_harness_id(self):
+        self.assertEqual(replay.HARNESS_SHADOW, 'bargein_replay/12')
+        self.assertEqual(replay.HARNESS_TWOPATH, 'bargein_replay/11')
+
+    def test_o_never_reads_labels(self):
+        import ast
+        import inspect
+        tree = ast.parse(inspect.getsource(replay.ShadowGuardGate))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                self.assertNotIn(node.id, ArmCTest.FORBIDDEN, node.id)
+            elif isinstance(node, ast.Attribute):
+                self.assertNotIn(node.attr, ArmCTest.FORBIDDEN | {'erl_db', 'gain', 'caller_gain_db', 'erle_db',
+                                                                  'taps', 'delay_ms_true'}, node.attr)
+                if isinstance(node.value, ast.Name) and node.value.id == 'cfg':
+                    self.assertTrue(node.attr.startswith(('nlms_', 'energy_', 'resid_', 'guard_')), node.attr)
+        self.assertTrue(issubclass(replay.ShadowGuardGate, replay.ResidualGate))
+
+    def test_o_equals_g_when_guard_never_fires(self):
+        # unreachable guard: every residual, monitor value, decision and fire time is arm G's
+        for kw in ({}, {'gain_db': -3.0}, {'caller_from': 1500, 'caller_amp': 2400, 'ms': 1800}):
+            g = replay.ResidualGate(self.o_cfg(), 2100, 'residual')
+            o = replay.ShadowGuardGate(self.o_cfg(guard_margin_db=60.0), 2100)
+            self.assertEqual(self.nlms.synthetic(g, **kw), self.nlms.synthetic(o, **kw), kw)
+            self.assertEqual(o.swaps, 0)
+            self.assertEqual(o.log, g.log, kw)
+            self.assertEqual((o.erle_hat_db, o.dt_packets, o.updates, o.delay_ms),
+                             (g.erle_hat_db, g.dt_packets, g.updates, g.delay_ms), kw)
+
+    def test_o_converged_g_is_untouched(self):
+        # ERL 10 dB, no double talk: G converges past the 6 dB stall level, the shadow never replaces it
+        g = replay.ResidualGate(self.o_cfg(resid_threshold=10 ** 6), 2100, 'residual')
+        o = replay.ShadowGuardGate(self.o_cfg(resid_threshold=10 ** 6), 2100)
+        self.assertIsNone(self.nlms.synthetic(g))
+        self.assertIsNone(self.nlms.synthetic(o))
+        self.assertEqual(o.swaps, 0)
+        self.assertEqual(o.log, g.log)
+
+    def test_o_replaces_a_stalled_filter_at_low_erl(self):
+        # ERL 3 dB: Geigel flags the loud echo itself as double talk, G's filter stalls; O's shadow keeps adapting
+        # and the guard swaps it in, so late cancellation is far better than G's
+        g = replay.ResidualGate(self.o_cfg(resid_threshold=10 ** 6), 2100, 'residual')
+        o = replay.ShadowGuardGate(self.o_cfg(resid_threshold=10 ** 6), 2100)
+        self.assertIsNone(self.nlms.synthetic(g, gain_db=-3.0))
+        self.assertIsNone(self.nlms.synthetic(o, gain_db=-3.0))
+        self.assertGreater(g.dt_packets, 0)
+        self.assertGreater(o.swaps, 0)
+        erle_g, _ = TwoPathGateTest.late_erle(g, 1500)
+        erle_o, n = TwoPathGateTest.late_erle(o, 1500)
+        self.assertGreater(n, 20)
+        self.assertGreater(erle_o, erle_g + 6.0)
+
+    def test_o_fires_on_caller_like_g(self):
+        # with the default (reachable) guard and a converged G, a caller fires O exactly when it fires G
+        kw = {'caller_from': 1500, 'caller_amp': 2400, 'ms': 1800}
+        g = replay.ResidualGate(self.o_cfg(), 2100, 'residual')
+        o = replay.ShadowGuardGate(self.o_cfg(guard_packets=5), 2100)
+        fired_g = self.nlms.synthetic(g, **kw)
+        self.assertIsNotNone(fired_g)
+        self.assertEqual(self.nlms.synthetic(o, **kw), fired_g)
+        self.assertEqual(o.swaps, 0)
+
+    def test_cli_arm_o_leaves_other_arms_unchanged(self):
+        args = (*CONT_J_ARGS, *F_ARGS[:2], *G_ARGS, '--arm-h')
+        proc, h11 = run_cli(*args)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sha256(h11).hexdigest(), H11_SHA256)  # bargein_replay/11 bytes unchanged
+        proc, data = run_cli(*args, '--arm-o', '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        p, o = json.loads(h11), json.loads(data)
+        self.assertEqual(o['harness'], 'bargein_replay/12')
+        self.assertEqual(sorted(o['arms']), ['A', 'B', 'C', 'D', 'E', 'F', 'F2', 'G', 'G2', 'H', 'O'])
+        for arm in ('A', 'B', 'C', 'D', 'E', 'F', 'F2', 'G', 'G2', 'H'):
+            self.assertEqual(canonical(o['arms'][arm]), canonical(p['arms'][arm]), arm)
+        self.assertEqual(o['parameters']['guard_packets'], 10)
+        self.assertFalse(any(k.startswith('guard_') for k in p['parameters']))
+        s = json.loads(proc.stdout)
+        self.assertIs(s['aa_identical'], True)
+        oa = o['arms']['O']
+        self.assertIn('swaps_per_trial', oa)
+        self.assertIn('trials_with_swap', oa)
+        # per trial: a trial without a swap is byte-identical to arm G's trial (apart from the swap counter)
+        same = 0
+        for to, tg in zip(oa['trials'], o['arms']['G']['trials']):
+            tr = dict(to['trace'])
+            if tr.pop('nlms_swaps') == 0:
+                self.assertEqual(canonical(dict(to, trace=tr)), canonical(tg), to['trial'])
+                same += 1
+        self.assertGreater(same, 0)
+        # guard flags without --arm-o change nothing
+        proc, data = run_cli(*CONT_J_ARGS, '--guard-packets', '3')
+        self.assertEqual(sha256(data).hexdigest(), CONT_J_SHA256)
+
+    def test_sweep_passes_arm_o(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([sys.executable, '-B', str(BENCH_DIR / 'bargein_sweep.py'), '--seeds', '39', '--trials', '10',
+                            '--echo-model', 'residual', '--echo-continuous', '--bot-render', 'recorded', '--rhos',
+                            'none', '--arm-d', '--energy-k-db', '-12', '--energy-min-speech-ms', '30', '--arm-g',
+                            '--arm-o', '--resid-threshold', '1360', '--guard-packets', '7', '--guard-margin-db', '2',
+                            '--out', tmp], check=True, capture_output=True, timeout=900)
+            res = json.loads(Path(tmp, 'seed-39.json').read_text())
+            self.assertEqual(res['harness'], 'bargein_replay/12')
+            self.assertIn('--arm-o', res['extra_args'])
+            self.assertIn('--guard-margin-db=2.0', res['extra_args'])
+            self.assertEqual(sorted(res['arms']), ['A', 'B', 'D', 'G', 'O'])
+            self.assertTrue(res['ab_identical_across_rho_runs'])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -89,6 +89,11 @@ Arm H (--arm-h, opt-in, output marked bargein_replay/11; arms A-G2 unchanged): a
   render-active packet, the foreground filter (read by the gate) copies it when the background residual beats the
   foreground's by --twopath-copy-db for --twopath-copy-packets consecutive packets. See TwoPathGate.
 
+Arm O (--arm-o, opt-in, output marked bargein_replay/12; arms A-H unchanged): arm G unchanged plus a Geigel-free
+  shadow NLMS filter used only as a stall/divergence guard: the shadow replaces G's filter only after
+  --guard-packets consecutive render-active packets in which G's monitored ERLE is < --guard-erle-db and the shadow
+  residual is >= --guard-margin-db lower. Until then every decision is arm G's. See ShadowGuardGate.
+
 Stress flags (opt-in, output marked bargein_replay/5; without them nothing changes):
   --caller-level-db-range LO,HI  per valid trial, caller gain g ~ U(LO, HI) dB
             relative to the fixture level (bot render stays at its level), drawn
@@ -151,6 +156,7 @@ HARNESS_AEC = "bargein_replay/8"  # only with --echo-erle-db or --arm-e2
 HARNESS_NLMS = "bargein_replay/9"  # only with --arm-f or --arm-f2
 HARNESS_RESID = "bargein_replay/10"  # only with --arm-g or --arm-g2
 HARNESS_TWOPATH = "bargein_replay/11"  # only with --arm-h
+HARNESS_SHADOW = "bargein_replay/12"  # only with --arm-o
 ERL_DB_RANGE = (6, 20)
 REFLECTIONS = 12
 
@@ -850,6 +856,121 @@ class TwoPathGate(ResidualGate):
         return False
 
 
+class ShadowGuardGate(ResidualGate):
+    """Arm O (bargein_replay/12): arm G unchanged (Geigel-frozen NLMS + residual-only gate) plus a Geigel-free
+    shadow filter that is used ONLY as a stall/divergence guard.
+
+    Same adapter-only inputs as NlmsGate. The foreground path (filter w, Geigel freeze, delay estimator, ERLE
+    monitor, gate) is NlmsGate.observe + ResidualGate.decide, arithmetic unchanged, so until the guard fires every
+    decision is arm G's.
+    (1) Shadow filter ws: NLMS (same mu, delta, span, delay placement as w; shifted with every delay move) adapting
+        on EVERY render-active packet once the filter is placed, double talk or not. Its residual never feeds the
+        gate. Its own monitor is the EWMA 0.1 of capture/shadow-residual dB over render-active packets.
+    (2) Guard, evaluated after each render-active packet's decision (filter placed): the foreground is "stalled"
+        while its monitored ERLE is < guard_erle_db; the packet counts when the foreground is stalled AND the shadow
+        residual energy is at least guard_margin_db below the foreground's. After guard_packets consecutive counting
+        packets, the shadow replaces the foreground (w = ws, and the foreground monitor takes the shadow monitor's
+        value, since the residual it describes is now the shadow's); the counter resets.
+    """
+
+    def __init__(self, cfg, span_ms):
+        super().__init__(cfg, span_ms, "residual")
+        self.guard_erle_db = cfg.guard_erle_db
+        self.guard_ratio = 10 ** (-cfg.guard_margin_db / 10)
+        self.guard_packets = cfg.guard_packets
+        self.ws = [0.0] * self.length
+        self.shadow_erle_db = 0.0
+        self.guard_run = 0
+        self.swaps = 0
+
+    def estimate(self, q0, q1):
+        before = self.delay_ms
+        super().estimate(q0, q1)  # shifts the foreground w with a delay move (NlmsGate)
+        if before is not None and self.delay_ms != before:
+            shift = (self.delay_ms - before) * 4
+            old = self.ws
+            self.ws = [old[j - shift] if 0 <= j - shift < self.length else 0.0 for j in range(self.length)]
+
+    def observe(self, t, packet):
+        if self.fired:
+            return False
+        end = t * SAMPLES_MS
+        self.near[end - len(packet):end] = packet
+        self.advance(end)
+        m1 = end // 4
+        m0 = m1 - len(packet) // 4
+        n = m1 - m0
+        r4, d4, p4 = self.r4, self.d4, self.p4
+        lag4 = self.lag_ms * 4
+        top = max((p4[e] - p4[e - n] for e in range(max(n, m1 - lag4), m1 + 1)), default=0.0)
+        active = top >= n * THRESHOLD ** 2
+        if self.delay_ms is None:
+            lo_lag, hi_lag = 0, lag4
+        else:
+            lo_lag = max(0, self.delay_ms * 4 - self.pre)
+            hi_lag = lo_lag + self.length - 1
+        span = r4[max(0, m0 - hi_lag):max(0, m1 - lo_lag)]
+        rmax = max(map(abs, span), default=0.0)
+        if active and rmax and max(map(abs, d4[m0:m1])) >= self.geigel * rmax:
+            self.dt_until = t + self.hang
+        dt = active and t <= self.dt_until
+        self.dt_packets += dt
+        adapt = active and not dt
+        ee = ey = es = 0.0
+        placed = self.delay_ms is not None
+        if not placed:
+            for m in range(m0, m1):
+                ee += d4[m] * d4[m]
+        else:
+            s0 = max(0, self.delay_ms * 4 - self.pre)
+            taps, mu, delta = self.length, self.mu, self.delta
+            for m in range(m0, m1):
+                hi = m - s0 + 1
+                lo = hi - taps
+                x = r4[lo:hi] if lo >= 0 else [0.0] * (-lo) + r4[0:hi] if hi > 0 else [0.0] * taps
+                w = self.w
+                y = sum(map(mul, w, x))
+                e = d4[m] - y
+                ee += e * e
+                ey += y * y
+                norm = p4[max(0, hi)] - p4[max(0, lo)]
+                if adapt:
+                    if norm:
+                        g = mu * e / (norm + delta)
+                        self.w = [a + g * b for a, b in zip(w, x)]
+                        self.updates += 1
+                ws = self.ws  # shadow: every render-active packet, no double-talk freeze
+                b = d4[m] - sum(map(mul, ws, x))
+                es += b * b
+                if active and norm:
+                    g = mu * b / (norm + delta)
+                    self.ws = [a + g * v for a, v in zip(ws, x)]
+        if adapt:
+            q1 = end // SAMPLES_MS
+            self.estimate(q1 - len(packet) // SAMPLES_MS, q1)
+        ed = sum(d4[m] * d4[m] for m in range(m0, m1))
+        if active:
+            self.log.append((t, ed, ee))
+        if adapt and self.delay_ms is not None and ed and ee:  # the foreground's own ERLE monitor (arm G)
+            self.erle_hat_db = 0.9 * self.erle_hat_db + 0.1 * 10 * log10(ed / ee)
+        speech = self.decide(n, ee, ed, ey, top)
+        if active and placed:  # stall/divergence guard, after this packet's decision
+            if ed and es:
+                self.shadow_erle_db = 0.9 * self.shadow_erle_db + 0.1 * 10 * log10(ed / es)
+            stalled = self.erle_hat_db < self.guard_erle_db
+            self.guard_run = self.guard_run + 1 if stalled and es <= self.guard_ratio * ee else 0
+            if self.guard_run >= self.guard_packets:
+                self.w = list(self.ws)
+                self.erle_hat_db = self.shadow_erle_db
+                self.swaps += 1
+                self.guard_run = 0
+        self.run = self.run + CAPTURE_MS if speech else 0
+        if self.run >= self.minimum:
+            self.fired = True
+            return True
+        return False
+
+
 def residual_echo(seed, index, kind, erl_db_range=None):
     """bargein_replay/2 per-trial echo path, drawn from its own RNG (erl_db_range: bargein_replay/5)."""
     rng = Random(f"{HARNESS_RESIDUAL}:{seed}:{index}")
@@ -1045,7 +1166,8 @@ def replay(trial, arm, cfg, bot):
              if arm in ("F", "F2") else
              ResidualGate(cfg, len(speaker) // SAMPLES_MS, "residual" if arm == "G" else "nlp")
              if arm in ("G", "G2") else
-             TwoPathGate(cfg, len(speaker) // SAMPLES_MS) if arm == "H" else None)
+             TwoPathGate(cfg, len(speaker) // SAMPLES_MS) if arm == "H" else
+             ShadowGuardGate(cfg, len(speaker) // SAMPLES_MS) if arm == "O" else None)
 
     def post(t, priority, label, payload=None):
         heappush(future, (t, priority, next(order), label, payload))
@@ -1135,7 +1257,7 @@ def replay(trial, arm, cfg, bot):
                 flush(t, "erl2_gated_local_vad")
             if ngate and ngate.observe(t, payload):
                 trace["nlms_fire_ms"] = t
-                flush(t, "residual_gated_local_vad" if arm in ("G", "G2") else
+                flush(t, "residual_gated_local_vad" if arm in ("G", "G2", "O") else
                       "twopath_residual_gated_local_vad" if arm == "H" else "nlms_gated_local_vad")
             # PCM keeps flowing upstream even if bot audio has been muted.
             post(t + trial["ws_up"], 3, "server_pcm", payload)
@@ -1207,6 +1329,8 @@ def replay(trial, arm, cfg, bot):
         trace["nlms_erle_packets"] = len(erle)
         if arm == "H":
             trace["nlms_copies"] = ngate.copies
+        if arm == "O":
+            trace["nlms_swaps"] = ngate.swaps
     row = dict(trial=trial["id"], kind=kind, latency_ms=latency,
                residual_ms=residual, false_barge_in=kind != "valid" and muted,
                missed_valid=kind == "valid" and not muted,
@@ -1263,16 +1387,18 @@ def run(n, seed, cfg, bot):
     arm_g = getattr(cfg, "arm_g", False)
     arm_g2 = getattr(cfg, "arm_g2", False)
     arm_h = getattr(cfg, "arm_h", False)
-    nlms = arm_f or arm_f2 or arm_g or arm_g2 or arm_h
+    arm_o = getattr(cfg, "arm_o", False)
+    nlms = arm_f or arm_f2 or arm_g or arm_g2 or arm_h or arm_o
     result = dict(seed=seed, trials_per_arm=n, parameters={
         k: v for k, v in vars(cfg).items()
         if k not in ("aa", "output", "seed", "trials", "arm_c", "arm_d", "arm_e", "arm_e2", "arm_f", "arm_f2",
-                     "arm_g", "arm_g2", "arm_h")
+                     "arm_g", "arm_g2", "arm_h", "arm_o")
         and (arm_c or not k.startswith("gate_"))  # default run keeps the frozen bytes
         and (arm_d or arm_e or arm_e2 or nlms or not k.startswith("energy_"))
         and (nlms or not k.startswith("nlms_"))  # bargein_replay/9 only with --arm-f / --arm-f2 (/10: G, G2)
-        and (arm_g or arm_g2 or arm_h or not k.startswith("resid_"))  # bargein_replay/10 only with G / G2 (/11: H)
+        and (arm_g or arm_g2 or arm_h or arm_o or not k.startswith("resid_"))  # /10 G, G2 (/11: H, /12: O)
         and (arm_h or not k.startswith("twopath_"))  # bargein_replay/11 only with --arm-h
+        and (arm_o or not k.startswith("guard_"))  # bargein_replay/12 only with --arm-o
         and (arm_e2 or not k.startswith("erl2_"))  # bargein_replay/8 only with --arm-e2
         and (arm_e or not k.startswith("erl_") or k == "erl_db_range")  # erl_db_range: bargein_replay/5 stress
         and (k != "echo_model" or echo_model != "copy")
@@ -1301,10 +1427,13 @@ def run(n, seed, cfg, bot):
         result["harness"] = HARNESS_RESID
     if arm_h:
         result["harness"] = HARNESS_TWOPATH
+    if arm_o:
+        result["harness"] = HARNESS_SHADOW
     arms = ("A", "B", "C") if arm_c else ("A", "B")
     arms += (("D",) if arm_d else ()) + (("E",) if arm_e else ()) + (("E2",) if arm_e2 else ())
     arms += (("F",) if arm_f else ()) + (("F2",) if arm_f2 else ())
-    for arm in arms + (("G",) if arm_g else ()) + (("G2",) if arm_g2 else ()) + (("H",) if arm_h else ()):
+    arms += (("G",) if arm_g else ()) + (("G2",) if arm_g2 else ()) + (("H",) if arm_h else ())
+    for arm in arms + (("O",) if arm_o else ()):
         rows = [replay(case, arm, cfg, bot) for case in cases]
         pooled = [v for row in rows for v in row.pop("_erle", ())]
         valid = [row for row in rows if row["kind"] == "valid"]
@@ -1358,7 +1487,7 @@ def run(n, seed, cfg, bot):
                 [row["latency_ms"] for row in valid if row.get("echo_path", {}).get("double_talk")])
             summary["valid_trials_with_veto"] = sum(row["trace"]["erl2_vetoes"] > 0 for row in valid)
             summary["final_est_db"] = quantiles([row["trace"]["erl2_final_est_db"] for row in rows])
-        if arm in ("F", "F2", "G", "G2", "H"):
+        if arm in ("F", "F2", "G", "G2", "H", "O"):
             summary = result["arms"][arm]
             summary["double_talk_latency_ms"] = percentiles(
                 [row["latency_ms"] for row in valid if row.get("echo_path", {}).get("double_talk")])
@@ -1373,6 +1502,9 @@ def run(n, seed, cfg, bot):
                                                    for row in rows if row["trace"]["nlms_delay_ms"] is not None])
             if arm == "H":
                 summary["copies_per_trial"] = quantiles([row["trace"]["nlms_copies"] for row in rows])
+            if arm == "O":
+                summary["swaps_per_trial"] = quantiles([row["trace"]["nlms_swaps"] for row in rows])
+                summary["trials_with_swap"] = sum(row["trace"]["nlms_swaps"] > 0 for row in rows)
     return result
 
 
@@ -1465,6 +1597,15 @@ def main():
                         help="arm H: copy background to foreground when its residual is >= this many dB lower")
     parser.add_argument("--twopath-copy-packets", type=int, default=2,
                         help="arm H: consecutive better packets before a copy")
+    parser.add_argument("--arm-o", action="store_true",
+                        help="add arm O (bargein_replay/12): arm G plus a Geigel-free shadow filter used only as a "
+                             "stall/divergence guard")
+    parser.add_argument("--guard-erle-db", type=float, default=6.0,
+                        help="arm O: G's filter counts as stalled while its monitored ERLE is below this (dB)")
+    parser.add_argument("--guard-margin-db", type=float, default=3.0,
+                        help="arm O: the shadow residual must be at least this many dB below G's residual")
+    parser.add_argument("--guard-packets", type=int, default=10,
+                        help="arm O: consecutive stalled-and-shadow-better packets before the shadow replaces G's filter")
     parser.add_argument("--echo-erle-db", type=float, default=None,
                         help="bargein_replay/8 (needs --echo-continuous): linear-AEC residual, echo attenuated X dB")
     parser.add_argument("--echo-model", choices=("copy", "residual"), default="copy",
@@ -1525,6 +1666,8 @@ def main():
 
     if not -20 <= cfg.twopath_copy_db <= 60 or cfg.twopath_copy_packets < 1:
         parser.error("twopath: copy dB in [-20, 60], copy packets >= 1")
+    if not -20 <= cfg.guard_erle_db <= 60 or not 0 <= cfg.guard_margin_db <= 60 or cfg.guard_packets < 1:
+        parser.error("guard: ERLE dB in [-20, 60], margin dB in [0, 60], packets >= 1")
 
     bot = voice(BOT_MS, 142, 11000, 115)
     result = run(cfg.trials, cfg.seed, cfg, bot)
