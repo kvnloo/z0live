@@ -385,5 +385,117 @@ class RecordedBotRenderTest(unittest.TestCase):
         self.assertNotIn('echo_trial_max_rho', json.loads(v2)['arms']['C'])
 
 
+class ArmDEnergyGateTest(unittest.TestCase):
+    """bargein_replay/4: opt-in arm D, Geigel-style energy-ratio echo gate plus minimum speech."""
+
+    ARGS = ('--seed', '39', '--trials', '20', '--arm-c', '--echo-model', 'residual', '--bot-render', 'recorded')
+
+    @classmethod
+    def setUpClass(cls):
+        cls.bot = replay.voice(replay.BOT_MS, 142, 11000, 115)
+        cls.trials = list(replay.stimuli(40, 39, echo_model='residual', bot_render='recorded'))
+
+    def energy_cfg(self, **overrides):
+        return cfg(**({'echo_model': 'residual', 'bot_render': 'recorded', 'energy_k_db': -6.0,
+                       'energy_min_speech_ms': 40, 'energy_lag_max_ms': 250} | overrides))
+
+    def test_harness_id(self):
+        self.assertEqual(replay.HARNESS_ENERGY, 'bargein_replay/4')
+
+    def test_gate_never_reads_labels(self):
+        import ast
+        import inspect
+        tree = ast.parse(inspect.getsource(replay.EnergyGate))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                self.assertNotIn(node.id, ArmCTest.FORBIDDEN, node.id)
+            elif isinstance(node, ast.Attribute):
+                self.assertNotIn(node.attr, ArmCTest.FORBIDDEN, node.attr)
+                if isinstance(node.value, ast.Name) and node.value.id == 'cfg':
+                    self.assertTrue(node.attr.startswith('energy_'), node.attr)
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                self.assertNotIn(node.value, ArmCTest.FORBIDDEN, node.value)
+        self.assertEqual(list(inspect.signature(replay.EnergyGate.observe).parameters), ['self', 't', 'packet'])
+        self.assertEqual(list(inspect.signature(replay.EnergyGate.render).parameters), ['self', 't', 'frame'])
+
+    def test_energy_rule_unit(self):
+        gate = replay.EnergyGate(self.energy_cfg(energy_min_speech_ms=20), 400)
+        loud = array('h', [8000, -8000] * (replay.FRAME_MS * replay.SAMPLES_MS // 2))
+        gate.render(100, loud)
+        # near-end at -12 dB re render (RMS 2000 vs 8000), hot, inside the lag window: explained -> veto
+        echo = array('h', [2000, -2000] * (replay.CAPTURE_MS * replay.SAMPLES_MS // 2))
+        self.assertFalse(gate.observe(200, echo))
+        self.assertFalse(gate.observe(210, echo))
+        self.assertEqual(gate.vetoes, 2)
+        # near-end at 0 dB re render: unexplained -> counts as speech; flush after 20 ms
+        speech = array('h', [8000, -8000] * (replay.CAPTURE_MS * replay.SAMPLES_MS // 2))
+        self.assertFalse(gate.observe(220, speech))
+        self.assertTrue(gate.observe(230, speech))
+        # outside the lag window the render does not explain anything
+        late = replay.EnergyGate(self.energy_cfg(energy_min_speech_ms=10), 800)
+        late.render(100, loud)
+        self.assertTrue(late.observe(500, echo))
+        self.assertEqual(late.vetoes, 0)
+
+    def test_gate_off_min20_matches_b(self):
+        # k so low nothing is explained, M 20 -> identical to arm B's local VAD timing
+        loose = self.energy_cfg(energy_k_db=-200.0, energy_min_speech_ms=20)
+        for trial in self.trials:
+            b = replay.replay(trial, 'B', loose, self.bot)
+            d = replay.replay(trial, 'D', loose, self.bot)
+            self.assertEqual(b['latency_ms'], d['latency_ms'])
+            self.assertEqual(b['trace'].get('adapter_flush_ms'), d['trace'].get('adapter_flush_ms'))
+            self.assertEqual(d['trace']['energy_vetoes'], 0)
+
+    def test_cli_arm_d_marks_v4_and_leaves_abc_unchanged(self):
+        proc, without = run_cli(*self.ARGS)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        proc, with_d = run_cli(*self.ARGS, '--arm-d', '--energy-k-db', '-9', '--energy-min-speech-ms', '30', '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        plain, out = json.loads(without), json.loads(with_d)
+        self.assertEqual(plain['harness'], 'bargein_replay/3')
+        self.assertEqual(out['harness'], 'bargein_replay/4')
+        self.assertEqual(sorted(out['arms']), ['A', 'B', 'C', 'D'])
+        for arm in ('A', 'B', 'C'):
+            self.assertEqual(canonical(out['arms'][arm]), canonical(plain['arms'][arm]), arm)
+        self.assertEqual(out['parameters']['energy_k_db'], -9.0)
+        self.assertEqual(out['parameters']['energy_min_speech_ms'], 30)
+        self.assertEqual(out['parameters']['energy_lag_max_ms'], 250)
+        self.assertNotIn('arm_d', out['parameters'])
+        self.assertFalse(any(k.startswith('energy_') for k in plain['parameters']))
+        summary = json.loads(proc.stdout)
+        self.assertIs(summary['aa_identical'], True)
+        d = summary['arms']['D']
+        self.assertIn('valid_trials_with_veto', d)
+        self.assertIn('double_talk_latency_ms', d)
+        self.assertEqual(sorted(d['echo_trial_max_ratio_db']), ['n', 'p10', 'p50', 'p90'])
+        self.assertIn('energy_vetoes', out['arms']['D']['trials'][0]['trace'])
+        _, again = run_cli(*self.ARGS, '--arm-d', '--energy-k-db', '-9', '--energy-min-speech-ms', '30')
+        self.assertEqual(sha256(with_d).hexdigest(), sha256(again).hexdigest())
+        bad, _ = run_cli('--trials', '10', '--arm-d', '--energy-min-speech-ms', '25')
+        self.assertNotEqual(bad.returncode, 0)
+
+    def test_default_bytes_unchanged_without_arm_d(self):
+        # explicit: seed-39 default and arm-C seed-40 shas are asserted in FrozenSeed39Test and
+        # DefaultBytesFrozenTest; here, energy flags without --arm-d must not change any byte.
+        _, plain = run_cli('--seed', '39', '--trials', '20', '--arm-c')
+        _, flags = run_cli('--seed', '39', '--trials', '20', '--arm-c', '--energy-k-db', '-9')
+        self.assertEqual(plain, flags)
+        self.assertNotIn('harness', json.loads(plain))
+
+    def test_sweep_default_and_arm_d(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = [sys.executable, '-B', str(BENCH_DIR / 'bargein_sweep.py'), '--seeds', '39', '--trials', '20',
+                    '--echo-model', 'residual', '--bot-render', 'recorded']
+            subprocess.run(base + ['--out', tmp + '/d', '--rhos', '0.9', '--arm-d', '--energy-k-db', '-9',
+                                   '--energy-min-speech-ms', '30'], check=True, capture_output=True, timeout=900)
+            res = json.loads(Path(tmp, 'd', 'seed-39.json').read_text())
+            self.assertEqual(res['harness'], 'bargein_replay/4')
+            self.assertEqual(sorted(res['arms']), ['A', 'B', 'C0.9', 'D'])
+            self.assertIn('valid_trials_with_veto', res['arms']['D'])
+            self.assertIn('valid_trials_with_veto', res['arms']['C0.9'])
+            self.assertNotIn('valid_trials_with_veto', res['arms']['A'])
+
+
 if __name__ == '__main__':
     unittest.main()

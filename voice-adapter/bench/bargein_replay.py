@@ -40,6 +40,13 @@ Bot render (--bot-render):
             dense periodic render does. Adds echo-rho, veto and double-talk
             summaries.
 
+Arm D (--arm-d, opt-in, output marked bargein_replay/4; arms A/B/C unchanged):
+  B's local uplink path with an EnergyGate (Geigel-style energy-ratio echo
+  gate): a hot packet is vetoed when near RMS <= 10^(k/20) x the max render
+  RMS over the 0..energy_lag_max_ms lag window of the adapter's own render
+  log (--energy-k-db k); flush after --energy-min-speech-ms of consecutive
+  unvetoed hot packets. Same adapter-only inputs as arm C, no spectral match.
+
 Timing definitions (virtual ms; t=0 is the first bot frame generated):
   latency_ms       valid trials: end of the last audible bot sample at the
                    simulated phone speaker minus the caller mic onset (>= 0).
@@ -68,7 +75,7 @@ from hashlib import sha256
 from heapq import heappop, heappush
 from itertools import count
 import json
-from math import ceil, exp, pi, sin, sqrt, tanh
+from math import ceil, exp, log10, pi, sin, sqrt, tanh
 from operator import mul
 from pathlib import Path
 from random import Random
@@ -86,6 +93,7 @@ ASSETS = Path(__file__).resolve().parent / "fixtures" / "bargein"
 HARNESS = "bargein_replay/1"
 HARNESS_RESIDUAL = "bargein_replay/2"  # only with --echo-model residual
 HARNESS_RECORDED = "bargein_replay/3"  # only with --bot-render recorded
+HARNESS_ENERGY = "bargein_replay/4"  # only with --arm-d
 REFLECTIONS = 12
 
 
@@ -195,6 +203,64 @@ class FlushGate:
             if rho >= self.rho:
                 speech = False
                 self.vetoes += 1
+        self.run = self.run + CAPTURE_MS if speech else 0
+        if not self.fired and self.run >= self.minimum:
+            self.fired = True
+            return True
+        return False
+
+
+class EnergyGate:
+    """Arm D flush decision (bargein_replay/4): Geigel-style energy-ratio echo gate.
+
+    Same inputs as FlushGate: uplink PCM packets at adapter receive time
+    (observe) and the bot PCM frames this adapter sent (render). Nothing else.
+
+    (a) Echo gate: a hot packet whose energy is explained by the predicted
+        echo energy is vetoed: near RMS <= 10^(energy_k_db / 20) x the max RMS
+        of any packet-length render window that ended 0..energy_lag_max_ms
+        before the packet ended. Compared in squared energy (no log), so the
+        decision is exact float arithmetic.
+    (b) Minimum speech: flush after energy_min_speech_ms of consecutive hot,
+        unexplained packets.
+    """
+
+    def __init__(self, cfg, span_ms):
+        self.ratio2 = 10 ** (cfg.energy_k_db / 10)  # (amplitude ratio)^2
+        self.minimum = cfg.energy_min_speech_ms
+        self.lag_max = cfg.energy_lag_max_ms * SAMPLES_MS
+        self.sent = pcm(span_ms)
+        self.run = 0
+        self.fired = False
+        self.vetoes = 0
+        self.max_ratio2 = None  # max near/render energy ratio over hot packets (reporting only)
+
+    def render(self, t, frame):
+        pos = t * SAMPLES_MS
+        self.sent[pos:pos + len(frame)] = frame
+
+    def reference(self, end, n):
+        """Max sum of squares over render windows of n samples ending in [end - lag_max, end]."""
+        lo = max(0, end - self.lag_max - n)
+        seg = self.sent[lo:end]
+        prefix = [0]
+        for v in seg:
+            prefix.append(prefix[-1] + v * v)
+        return max((prefix[i + n] - prefix[i] for i in range(0, len(seg) - n + 1)), default=0)
+
+    def observe(self, t, packet):
+        end = t * SAMPLES_MS
+        speech = hot(packet, THRESHOLD)
+        if speech:
+            n = len(packet)
+            near = sum(x * x for x in packet)
+            ref = self.reference(end, n)
+            if ref:
+                ratio2 = near / ref
+                self.max_ratio2 = ratio2 if self.max_ratio2 is None else max(self.max_ratio2, ratio2)
+                if near <= self.ratio2 * ref:
+                    speech = False
+                    self.vetoes += 1
         self.run = self.run + CAPTURE_MS if speech else 0
         if not self.fired and self.run >= self.minimum:
             self.fired = True
@@ -353,6 +419,7 @@ def replay(trial, arm, cfg, bot):
     last_phone = None
     dropped = 0
     gate = FlushGate(cfg, len(speaker) // SAMPLES_MS) if arm == "C" else None
+    egate = EnergyGate(cfg, len(speaker) // SAMPLES_MS) if arm == "D" else None
 
     def post(t, priority, label, payload=None):
         heappush(future, (t, priority, next(order), label, payload))
@@ -406,6 +473,8 @@ def replay(trial, arm, cfg, bot):
                 speaker[pos:pos + size] = bot[first:first + size]
                 if gate:
                     gate.render(t, bot[first:first + size])  # what the adapter sent, at its send time
+                if egate:
+                    egate.render(t, bot[first:first + size])
         elif event == "capture":
             packet = capture(trial, speaker, (t - CAPTURE_MS) * SAMPLES_MS, CAPTURE_MS * SAMPLES_MS, cfg)
             if t - CAPTURE_MS <= onset < t:
@@ -423,6 +492,9 @@ def replay(trial, arm, cfg, bot):
             if gate and gate.observe(t, payload):
                 trace["gate_fire_ms"] = t
                 flush(t, "gated_local_vad")
+            if egate and egate.observe(t, payload):
+                trace["energy_fire_ms"] = t
+                flush(t, "energy_gated_local_vad")
             # PCM keeps flowing upstream even if bot audio has been muted.
             post(t + trial["ws_up"], 3, "server_pcm", payload)
         elif event == "server_pcm":
@@ -458,6 +530,10 @@ def replay(trial, arm, cfg, bot):
     if gate:
         trace["gate_echo_vetoes"] = gate.vetoes
         trace["gate_max_rho"] = round(gate.max_rho, 4)
+    if egate:
+        trace["energy_vetoes"] = egate.vetoes
+        trace["energy_max_ratio_db"] = (None if egate.max_ratio2 is None
+                                        else round(10 * log10(egate.max_ratio2), 2))
     row = dict(trial=trial["id"], kind=kind, latency_ms=latency,
                residual_ms=residual, false_barge_in=kind != "valid" and muted,
                missed_valid=kind == "valid" and not muted,
@@ -495,9 +571,11 @@ def run(n, seed, cfg, bot):
     recorded = bot_render == "recorded"
     cases = list(stimuli(n, seed, echo_model, bot_render)) if recorded else list(stimuli(n, seed, echo_model))
     arm_c = getattr(cfg, "arm_c", False)
+    arm_d = getattr(cfg, "arm_d", False)
     result = dict(seed=seed, trials_per_arm=n, parameters={
-        k: v for k, v in vars(cfg).items() if k not in ("aa", "output", "seed", "trials", "arm_c")
+        k: v for k, v in vars(cfg).items() if k not in ("aa", "output", "seed", "trials", "arm_c", "arm_d")
         and (arm_c or not k.startswith("gate_"))  # default run keeps the frozen bytes
+        and (arm_d or not k.startswith("energy_"))
         and (k != "echo_model" or echo_model != "copy")
         and (k != "bot_render" or recorded)
     }, arms={})
@@ -505,7 +583,10 @@ def run(n, seed, cfg, bot):
         result["harness"] = HARNESS_RESIDUAL
     if recorded:
         result["harness"] = HARNESS_RECORDED
-    for arm in ("A", "B", "C") if arm_c else ("A", "B"):
+    if arm_d:
+        result["harness"] = HARNESS_ENERGY
+    arms = ("A", "B", "C") if arm_c else ("A", "B")
+    for arm in arms + ("D",) if arm_d else arms:
         rows = [replay(case, arm, cfg, bot) for case in cases]
         valid = [row for row in rows if row["kind"] == "valid"]
         result["arms"][arm] = dict(
@@ -531,6 +612,18 @@ def run(n, seed, cfg, bot):
                 summary["echo_trial_max_rho"] = quantiles(
                     [row["trace"]["gate_max_rho"] for row in rows if row["kind"] == "echo"])
                 summary["valid_trial_max_rho"] = quantiles([row["trace"]["gate_max_rho"] for row in valid])
+        if arm == "D":
+            summary = result["arms"][arm]
+            if not recorded:
+                summary["double_talk_latency_ms"] = percentiles(
+                    [row["latency_ms"] for row in valid if row.get("echo_path", {}).get("double_talk")])
+            summary["valid_trials_with_veto"] = sum(row["trace"]["energy_vetoes"] > 0 for row in valid)
+
+            def ratios(subset):
+                return quantiles([row["trace"]["energy_max_ratio_db"] for row in subset
+                                  if row["trace"]["energy_max_ratio_db"] is not None])
+            summary["echo_trial_max_ratio_db"] = ratios([row for row in rows if row["kind"] == "echo"])
+            summary["valid_trial_max_ratio_db"] = ratios(valid)
     return result
 
 
@@ -555,6 +648,13 @@ def main():
                         help="arm C: consecutive unexplained hot speech before flush")
     parser.add_argument("--gate-window-ms", type=int, default=20, help="arm C: near-end correlation window")
     parser.add_argument("--gate-lag-max-ms", type=int, default=250, help="arm C: render lag search 0..N ms")
+    parser.add_argument("--arm-d", action="store_true",
+                        help="add arm D (bargein_replay/4): local VAD timing gated by an energy-ratio echo gate")
+    parser.add_argument("--energy-k-db", type=float, default=-6.0,
+                        help="arm D: veto a hot packet when near RMS <= 10^(k/20) x max render RMS in the lag window")
+    parser.add_argument("--energy-min-speech-ms", type=int, default=40,
+                        help="arm D: consecutive unvetoed hot speech before flush")
+    parser.add_argument("--energy-lag-max-ms", type=int, default=250, help="arm D: render lag window 0..N ms")
     parser.add_argument("--echo-model", choices=("copy", "residual"), default="copy",
                         help="residual: bargein_replay/2 filtered, attenuated, clipped, noisy echo plus double-talk")
     parser.add_argument("--bot-render", choices=("periodic", "recorded"), default="periodic",
@@ -572,6 +672,10 @@ def main():
         parser.error("gate minimum speech must be a positive multiple of 10 ms; gate rho <= 1")
     if not CAPTURE_MS <= cfg.gate_window_ms <= 100 or not 0 <= cfg.gate_lag_max_ms <= 1000:
         parser.error("gate window must be 10..100 ms and lag max 0..1000 ms")
+    if cfg.energy_min_speech_ms <= 0 or cfg.energy_min_speech_ms % CAPTURE_MS or not -200 <= cfg.energy_k_db <= 40:
+        parser.error("energy minimum speech must be a positive multiple of 10 ms; k in [-200, 40] dB")
+    if not 0 <= cfg.energy_lag_max_ms <= 1000:
+        parser.error("energy lag max must be 0..1000 ms")
 
     bot = voice(BOT_MS, 142, 11000, 115)
     result = run(cfg.trials, cfg.seed, cfg, bot)

@@ -1,9 +1,10 @@
-name: z0live barge-in recorded-bot sweep (CPU, stdlib)
-# A-bargein-E: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml
+name: z0live barge-in energy-gate sweep (CPU, stdlib)
+# A-bargein-F: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml
 # --ref <branch>` can dispatch it (a new workflow file is not dispatchable until it is on the default branch).
-# It runs voice-adapter/bench/bargein_sweep.py with --echo-model residual --bot-render recorded
-# (bargein_replay/3, offline virtual-time sim, Python stdlib only, no network, no secrets) on holdout seed 42
-# and fresh seeds 2000-2039: arms A, B, C rho 0.7 / 0.9 at M 40 ms.
+# It runs voice-adapter/bench/bargein_sweep.py with --echo-model residual --bot-render recorded --arm-d
+# (bargein_replay/4, offline virtual-time sim, Python stdlib only, no network, no secrets) on holdout seed 44
+# and fresh seeds 3000-3039: arms A, B, C rho 0.9 at M 40 ms, D (energy gate k -12 dB, M 30 ms, picked on
+# dev seed 43).
 on:
   workflow_dispatch:
     inputs:
@@ -21,9 +22,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        seeds: ["42", 2000-2001, 2002-2003, 2004-2005, 2006-2007, 2008-2009, 2010-2011, 2012-2013, 2014-2015,
-                2016-2017, 2018-2019, 2020-2021, 2022-2023, 2024-2025, 2026-2027, 2028-2029, 2030-2031,
-                2032-2033, 2034-2035, 2036-2037, 2038-2039]
+        seeds: ["44", 3000-3001, 3002-3003, 3004-3005, 3006-3007, 3008-3009, 3010-3011, 3012-3013, 3014-3015,
+                3016-3017, 3018-3019, 3020-3021, 3022-3023, 3024-3025, 3026-3027, 3028-3029, 3030-3031,
+                3032-3033, 3034-3035, 3036-3037, 3038-3039]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,7 +44,8 @@ jobs:
           set -euo pipefail
           cd voice-adapter
           python -B bench/bargein_sweep.py --seeds "$SEEDS" --out ../out --jobs "$(nproc)" \
-            --echo-model residual --bot-render recorded | tee -a "$GITHUB_STEP_SUMMARY"
+            --echo-model residual --bot-render recorded --rhos 0.9 \
+            --arm-d --energy-k-db -12 --energy-min-speech-ms 30 | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
