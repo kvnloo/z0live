@@ -17,8 +17,6 @@ TAKES = sorted(FIXTURES.glob("take*.jsonl"), key=lambda p: int(p.stem[4:]))
 # taking that on end-to-end", "I'll go step by step and show receipts", "I'll take that"). The prompts are the guard;
 # a replay cannot unsay it.
 RECORDED = {"promised": {"take7", "take9", "take14", "take15"}}
-# Take 15 failures of the adapter's own, each fixed by its own change: an entry here must keep failing until then.
-OPEN = {"runs": {"take15"}}
 
 
 def checked(path):
@@ -57,8 +55,8 @@ class Take15(unittest.TestCase):
         cls.r = take("take15")
 
     def test_line_3s_answer_handed_into_a_playing_reply_is_handed_again_whole_without_its_receipt(self):
-        again = [text for t, text in handed(self.r, 120) if "zqck running" in text]
-        self.assertEqual(len(again), 1, "the floor's return hands the whole answer again")
+        again = [text for t, text in handed(self.r, 62) if "zqck running" in text]
+        self.assertEqual(len(again), 1, "the floor's return hands the whole answer again, once")
         self.assertIn("I can only report from this call", again[0], "all three paragraphs")
         self.assertNotIn("Still working on that", "".join(text for _, text in handed(self.r, 62)),
                          "the answer overtook the receipt")
@@ -76,10 +74,11 @@ class Take15(unittest.TestCase):
     def test_a_reply_that_ran_its_course_is_not_cut_and_a_rest_is_never_resumed_twice(self):
         # 106.0 (Tek), 144.7 and 150.9 s: replies ended on their own, the mic quiet since 94.5 s, and each was logged
         # as a cut and its last sentence re-queued, the second time as "To finish what I was saying: To finish ...".
+        # (Tek's answer that line 5 talked over at 93.6 s is a cut, and comes back once.)
         cuts = [round(t, 1) for t, ev, _ in self.r.floor if ev == "floor.answer_cut"]
         self.assertEqual([t for t in cuts if t > 100], [])
-        self.assertEqual([t for t, text in handed(self.r) if text.count("To finish what I was saying") > 1], [])
-        self.assertEqual([t for t, text in self.r.sent_guest if "To finish" in json.dumps(text) and t > 100], [])
+        for leg in (self.r.sent, self.r.sent_guest):
+            self.assertEqual([t for t, e in leg if json.dumps(e).count("To finish what I was saying") > 1], [])
 
 
 class RecordedTakes(unittest.TestCase):
@@ -91,7 +90,7 @@ class RecordedTakes(unittest.TestCase):
             result = checked(path)
             for check, failures in result.items():
                 with self.subTest(take=path.stem, check=check):
-                    if path.stem in RECORDED.get(check, ()) or path.stem in OPEN.get(check, ()):
+                    if path.stem in RECORDED.get(check, ()):
                         self.assertTrue(failures, "now passes: drop it from RECORDED")
                     else:
                         self.assertEqual(failures, [])

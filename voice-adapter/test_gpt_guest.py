@@ -90,6 +90,11 @@ class FloorTest(unittest.TestCase):
         self.assertEqual(floor.owner, "primary")
         floor.user_turn(None, "Okay, nice. That's the one I kept hitting", 12, 13, final=True)  # a remark, not a request
         self.assertEqual((floor.owner, floor.reason), ("people", "people_talk"))
+        floor.change("primary", "redirected", 12.5)
+        floor.reply_started("primary", 12.6)
+        # Take 15: line 5 opened with the "?" that ended line 4 ("... in PR 28?"), and Tek's Hermes ran for it.
+        floor.user_turn(None, "? Okay nice. That's the one I kept hitting", 12.7, 13, final=True)
+        self.assertEqual((floor.owner, floor.reason), ("people", "people_talk"))
         floor.user_turn(Address.GUEST, "Tek, what caused the crash?", 14, 15, final=True)
         floor.reply_finished("guest", 20, 16)
         floor.user_turn(None, "And can you check the fix too?", 45, 46, final=True)  # too long after the reply
