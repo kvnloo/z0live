@@ -173,6 +173,30 @@ class Take19(unittest.TestCase):
         self.assertEqual("".join(text for t, text in self.r.heard if 52 < t < 60), "")
 
 
+class Take20(unittest.TestCase):
+    """Take 20 (words scrambled; ids and short words kept)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.r = take("take20")
+
+    def test_tek_is_never_handed_hermess_sentence_under_the_resume_cue(self):
+        # 125.994 s: Hermes's resumed reply ended and Tek got "Hermes said ..., starting: To finish what I was saying,
+        # that's already running, ...". Its own hand-back followed at 126.594, and Tek said Hermes's sentence.
+        notes = [c["text"] for t, e in self.r.sent_guest if 125 < t < 127 and e.get("channel") == "developer"
+                 for c in e["content"]]
+        self.assertEqual(len(notes), 1)
+        self.assertIn("starting: that's", notes[0])
+        self.assertNotIn(answer_delivery.RESUME_PREFIX.rstrip(": "), notes[0])
+        self.assertEqual(replay.retellings(self.r), [])
+
+    def test_a_jumped_sentence_that_names_nothing_is_not_owed(self):
+        # 60.2-66.4 s: the first send said sentences 1 and 5-6 of line 3's answer, and "Hey Tek" cut it. Sentence 2
+        # ("The goal is what you just said.") names nothing: rest(named=True) leaves it out, and so does `whole`.
+        self.assertNotIn("is what you just", " ".join(text for _, text in handed(self.r, 67)))
+        self.assertEqual(replay.checks(self.r)["whole"], [])
+
+
 class RecordedTakes(unittest.TestCase):
     def test_the_takes_are_here(self):
         self.assertEqual([p.stem for p in TAKES][:13], [f"take{n}" for n in range(7, 20)])
