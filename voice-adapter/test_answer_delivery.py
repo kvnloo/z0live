@@ -166,16 +166,24 @@ class LedgerTest(unittest.TestCase):
                "A correction: the pin is brass, not steel.\n\n"
                "I can only report from this call. The card keeps going on its own.")
 
-    def test_a_reply_that_ran_its_course_owes_the_paragraph_it_skipped_once(self):
+    CARD = 'Card t_0b17 (say: "t, zero b one seven")'
+
+    def test_a_reply_that_ran_its_course_owes_the_paragraph_it_skipped_at_most_twice(self):
         self.ledger.sent("primary", "d1", self.SKIPPED, 10)
         self.ledger.heard("primary", "Quick correction, the pin is brass, not steel. The card keeps going on its own.")
         [(entry, rest)] = self.ledger.finished("primary")
-        self.assertEqual(rest, self.SKIPPED.split("\n\n")[0])
+        self.assertEqual(rest, self.SKIPPED.split("\n\n")[0].replace("Card t_0b17", self.CARD))
         self.assertEqual(self.ledger.due("primary", 30, quiet_since=None), [], "handed back, not resent as well")
         self.ledger.reply_started("primary")
         self.ledger.sent("primary", "d1", rest, 20)
-        self.ledger.heard("primary", "The card is fixing the shed door.")
-        self.assertEqual(self.ledger.finished("primary")[0][1], "", "skipped twice: the voice chose to")
+        self.ledger.heard("primary", "The card is fixing the shed door. Its steps are to oil the hinge every week.")
+        [(_, again)] = self.ledger.finished("primary")
+        self.assertEqual(again, self.CARD + " has fixed the shed door since Monday, so I won't start a second job.",
+                         "skipped again: only the sentence naming the card, once more")
+        self.ledger.reply_started("primary")
+        self.ledger.sent("primary", "d1", again, 30)
+        self.ledger.heard("primary", "Since Monday the card has had the shed door, so no second job.")
+        self.assertEqual(self.ledger.finished("primary")[0][1], "", "skipped a third time: dropped")
 
     def test_a_reply_that_put_an_answer_in_its_own_words_owes_nothing(self):
         # Take 16, Tek: "In short: blur ran too early and crashed. PR twenty-eight adds a null check. It's in staging,
@@ -205,12 +213,14 @@ class LedgerTest(unittest.TestCase):
         self.ledger.sent("primary", "d1", self.JUMPED, 10)
         self.ledger.heard("primary", self.PARAPHRASE)
         [(_, rest)] = self.ledger.cut("primary")
-        self.assertEqual(rest, "Card t_0b17, owned by Rosa, has fixed the shed door since Monday: oil the hinge, "
+        self.assertEqual(rest, self.CARD + ", owned by Rosa, has fixed the shed door since Monday: oil the hinge, "
                                "then check it every week. I also can't buy anything from this call.\n\n"
                                + self.JUMPED.split("\n\n")[1])
 
-    def test_a_jumped_sentence_goes_back_once(self):
+    def test_a_jumped_sentence_goes_back_at_most_twice(self):
+        # Take 18: the voice dropped card t_0a96e2de from the reply and again from the verbatim hand-back.
         resumed = " Also, I can't buy anything from this call. The hinge was oiled at noon"
+        card = self.CARD + ", owned by Rosa, has fixed the shed door since Monday: oil the hinge, then check it every week."
         for end in ("cut", "finished"):
             with self.subTest(end):
                 ledger = Ledger()
@@ -222,9 +232,32 @@ class LedgerTest(unittest.TestCase):
                 ledger.heard("primary", resumed)  # the resumed reply jumps the card sentence again
                 if end == "cut":
                     [(_, again)] = ledger.cut("primary")
-                    self.assertEqual(again, "New receipts land on the card.", "jumped again: the voice chose to")
+                    self.assertEqual(again, card + "\n\nNew receipts land on the card.")
                 else:
-                    self.assertEqual(ledger.finished("primary")[0][1], "", "and is not retold as well")
+                    [(_, again)] = ledger.finished("primary")
+                    self.assertEqual(again, card)
+                ledger.reply_started("primary")
+                ledger.sent("primary", "d1", again, 30)
+                ledger.heard("primary", "Rosa's card has fixed the shed door since Monday.")  # and a third time
+                self.assertEqual(ledger.finished("primary")[0][1], "", "two retellings had their chance")
+
+    def test_an_id_spelled_out_is_said(self):
+        self.assertLessEqual(answer_delivery.spoken("t_0a96e2de"),
+                             answer_delivery.spoken("card t zero a nine six e two d e"))
+        self.assertEqual(answer_delivery.say("t_0a96e2de"), "t, zero a nine six e two d e")
+        ledger = Ledger()  # the provider's transcript splits a spelled id across pieces
+        ledger.sent("primary", "d1", 'Card t_0b17 (say: "t, zero b one seven") fixed the shed.', 10)
+        for piece in ("Card t, zero", " b one", " seven fixed the shed."):
+            ledger.heard("primary", piece)
+        [(entry, rest)] = ledger.finished("primary")
+        self.assertEqual(rest, "", "the card was said")
+
+    def test_a_hand_back_spells_only_ids_the_voice_never_said(self):
+        text = answer_delivery.spelled("Card t_0b17 is on your S25.", answer_delivery.spoken("your S twenty five"))
+        self.assertEqual(text, 'Card t_0b17 (say: "t, zero b one seven") is on your S25.')
+        self.assertEqual(answer_delivery.spelled(text, answer_delivery.spoken("S25")), text, "spelled once")
+        self.assertTrue(answer_delivery.resumed(text).startswith(answer_delivery.SAY_EXACTLY))
+        self.assertEqual(answer_delivery.resumed("The pin is brass."), answer_delivery.RESUME_PREFIX + "The pin is brass.")
 
     def test_a_reply_stopped_before_it_began_an_answer_was_not_its_chance(self):
         # floor_sim seed 33: Tek's resumed answer, all words the call had heard, was stopped at "PR twenty" and again

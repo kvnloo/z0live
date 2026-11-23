@@ -1231,7 +1231,7 @@ class GPTGuest:
                 continue
             # The cue is the floor's, not the answer's: the ledger keeps the rest bare, so a rest of a rest never
             # says it twice (take 15, 152.5 s).
-            did = hand(answer.delegation_id, answer_delivery.RESUME_PREFIX + answer.text if answer.rest else answer.text)
+            did = hand(answer.delegation_id, answer_delivery.resumed(answer.text) if answer.rest else answer.text)
             # Into a reply already playing: that reply was made before this answer existed (take 15, line 3).
             self.ledger.sent(source, answer.delegation_id, answer.text, now, lane=answer.lane, late=source in self.replies)
             if answer.rest:

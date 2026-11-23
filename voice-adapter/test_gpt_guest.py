@@ -773,7 +773,7 @@ class Take16FloorTest(TimedGuestTest):
         self.at(end)
         g.observe("primary", turn("done", "", int(start * 1000), int(end * 1000), role="assistant", tid=rid))
 
-    async def test_a_paragraph_a_reply_skipped_comes_back_once_with_one_cue(self):
+    async def test_a_paragraph_a_reply_skipped_comes_back_with_one_cue(self):
         # 98.8-121.2 s: the voice said paragraph 2 and a paraphrase of paragraph 3 and ran its course; paragraph 1
         # (card t_0a96e2de, "won't start a second run") was credited at answer_spoken 100.365 and never resent.
         g = self.guest
@@ -788,10 +788,15 @@ class Take16FloorTest(TimedGuestTest):
         g.flush_answers()
         self.assertEqual(self.speakable("t_0b17"), 2, "paragraph 1 goes back")
         self.assertEqual(self.speakable("brass"), 1, "and only paragraph 1")
-        self.said_by_a_reply("r2", "The card is fixing the shed door.", 112.5, 115)
-        self.at(120)
+        self.said_by_a_reply("r2", "The card is fixing the shed door. Its steps: oil the hinge every week.", 112.5, 115)
+        self.at(117)
         g.flush_answers()
-        self.assertEqual(self.speakable("t_0b17"), 2, "once: skipped twice, the voice chose to")
+        self.assertEqual(self.speakable("t_0b17"), 3, "skipped again: the card's sentence once more (take 18)")
+        self.assertEqual(self.speakable("hinge"), 2, "only the sentence naming the card")
+        self.said_by_a_reply("r3", "Since Monday the card has had the shed door, so no second job.", 117.5, 120)
+        self.at(126)
+        g.flush_answers()
+        self.assertEqual(self.speakable("t_0b17"), 3, "skipped a third time: dropped")
         self.assertEqual([m for m in self.call.sent if str(m).count("To finish what I was saying") > 1], [])
 
     async def test_a_reply_that_put_the_answer_in_its_own_words_is_heard(self):
