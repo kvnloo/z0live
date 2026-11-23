@@ -746,6 +746,7 @@ class VoiceReply:
     began: float
     id: str | None = None
     spoken: str = ""
+    held: str = ""  # what it said while the phone could not hear it: never heard, so never credited (unmute)
     cut: bool = False
 
 
@@ -885,9 +886,14 @@ class GPTGuest:
         """The floor came back to this leg so it can give the answer it was handed. A reply it has open was muted
         when it opened (the floor was elsewhere) or cut when the people talked, and a muted reply never becomes
         audible: take 12's line-3 answer was read into one and lost. That reply is where the voice reads the answer,
-        so the phone hears it from here on, and the ledger credits what it says."""
+        so the phone hears it from here on, and the ledger credits what it says. Unless, before its answer came, it
+        already began a promise unheard: take 19's hand-off ack said \" I'll\" muted, then \"get the full picture\" aloud."""
         reply = self.replies.get(leg)
         if reply is None or (reply.allowed and not reply.cut) or not self.call.heard_user:
+            return
+        if leg in self.unanswered and opens_promise(reply.held):
+            self.audio.clear()  # its answer unmutes it (flush_answers)
+            self.call.trace("floor.promise_muted", speaker=leg, turn=reply.id)
             return
         reply.allowed, reply.cut, reply.began = True, False, now
         self.quiet_since[leg] = None
@@ -967,8 +973,8 @@ class GPTGuest:
         # Only the name ("Hey, Tek."): the floor is that bot's, and the request that follows is its follow-up.
         if not routed or not substantive(self.addressing.vocative.sub(" ", mine)):
             return
+        self.unanswered.add(leg)  # until its answer comes, the voice's own line may not promise (observe, unmute)
         self.unmute(leg, now)  # the voice began answering before the utterance ended: that reply is for it
-        self.unanswered.add(leg)  # until its answer comes, the voice's own line may not promise (observe)
         if follow:
             self.supersede(leg)  # the next request to this voice: a cut answer's rest is not coming back
         held = [did for did, at in self.offered.pop(leg, []) if at >= began - 1.0]  # the provider's own delegation
@@ -1059,6 +1065,8 @@ class GPTGuest:
                     reply.spoken = (reply.spoken + text)[-1500:]
                     self.last_output = " ".join(re.findall(r"\w+", reply.spoken.casefold()))
                     self.ledger.heard(source, text)  # begun is not heard: the reply's end decides (retell)
+                elif kind == "output_transcript.added":
+                    reply.held = (reply.held + (event.get("item") or {}).get("text", ""))[-1500:]
                 elif kind == "turn.done" and reply.id in (None, turn.get("id")):
                     self.replies.pop(source)
                     if reply.spoken.strip():
