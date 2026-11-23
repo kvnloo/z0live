@@ -16,7 +16,10 @@ TAKES = sorted(FIXTURES.glob("take*.jsonl"), key=lambda p: int(p.stem[4:]))
 # Takes 7, 9, 14 and 15: the voice's own hand-off line promised work ("I'll handle that and keep receipts", "I'm
 # taking that on end-to-end", "I'll go step by step and show receipts", "I'll take that"). The prompts are the guard;
 # a replay cannot unsay it.
-RECORDED = {"promised": {"take7", "take9", "take14", "take15"}}
+# Takes 12 and 16 (whole): a reply that ran its course skipped the paragraph naming the card (take 16: t_0a96e2de), and
+# the floor credited the answer as the reply began; open until the floor judges a reply by what it named. Take 7's
+# promise was never heard on the phone.
+RECORDED = {"promised": {"take9", "take14", "take15"}, "whole": {"take12", "take16"}}
 
 
 def checked(path):
@@ -83,7 +86,7 @@ class Take15(unittest.TestCase):
 
 class RecordedTakes(unittest.TestCase):
     def test_the_takes_are_here(self):
-        self.assertEqual([p.stem for p in TAKES][:9], [f"take{n}" for n in range(7, 16)])
+        self.assertEqual([p.stem for p in TAKES][:10], [f"take{n}" for n in range(7, 17)])
 
     def test_each_recorded_take_passes_the_five_checks_on_the_phone(self):
         for path in TAKES:

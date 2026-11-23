@@ -62,6 +62,38 @@ def sentences(text: str) -> list[str]:
     return [s for s in re.split(r"(?<=[.!?])\s+", text.strip()) if s]
 
 
+def paragraphs(text: str) -> list[str]:
+    return [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+
+
+_TENS = "twenty thirty forty fifty sixty seventy eighty ninety".split()
+
+
+def spoken(text: str) -> set[str]:
+    """Word tokens the way a voice says them, letters apart from digits: up to two digits as a number, longer runs
+    digit by digit (\"S25\" and \"S twenty-five\", \"30652\" and \"three zero six five two\" match)."""
+    out = set()
+    for part in re.findall(r"[^\W\d_]+|\d+", text.casefold().replace("’", "'")):
+        digits = part.lstrip("0") or "0"
+        if not part.isdigit():
+            out.add(part)
+        elif len(digits) > 2:
+            out |= {_NUMBERS[int(d)] for d in part}
+        elif int(digits) <= 20:
+            out.add(_NUMBERS[int(digits)])
+        else:
+            out |= {_TENS[int(digits) // 10 - 2], *([_NUMBERS[int(digits) % 10]] if int(digits) % 10 else [])}
+    return out
+
+
+def anchors(text: str) -> list[set[str]]:
+    """What a text names that a voice cannot put in other words: each identifier in it (a token with an underscore,
+    or with letters and digits: card t_0a96e2de, S25), as spoken(). Not a bare number: a voice says \"12:30\" as
+    \"twelve thirty\" or \"half past twelve\"."""
+    return [spoken(token) for token in re.findall(r"\w+", text)
+            if "_" in token or (re.search(r"\d", token) and re.search(r"[^\W\d_]", token))]
+
+
 @dataclass
 class Piece:
     text: str
@@ -101,6 +133,7 @@ class Entry:
     pieces: list[Piece] = field(default_factory=list)
     sends: int = 1
     said: set[str] = field(default_factory=set)  # content words the voice said while this entry was out
+    spoken: set[str] = field(default_factory=set)  # spoken() of the same words
 
     @property
     def started(self) -> bool:
@@ -118,6 +151,25 @@ class Entry:
             if own and 2 * len(own & self.said) >= len(own):
                 last = i
         return " ".join(parts[last + 1:])
+
+    def skipped(self) -> str:
+        """The paragraphs of its answer a reply that ran its course left out: each names something (an identifier,
+        anchors()) the voice never said while this entry was out. A voice may put an answer in its own
+        words and leave out how it works (take 16: Tek's \"In short: blur ran too early and crashed\"), not what
+        it names (Hermes's resumed reply skipped paragraph 1 and card t_0a96e2de). Lane guesses and status lines
+        are never owed: Hermes's own answer supersedes them."""
+        begun = [i for i, p in enumerate(self.pieces) if p.hits or p.spoken]
+        pieces = [p for p in self.pieces[begun[-1] if begun else 0:] if not p.lane]
+
+        def unheard(text):
+            return any(not anchor <= self.spoken for anchor in anchors(text))
+
+        out = []
+        for para in (para for p in pieces for para in paragraphs(p.text) if unheard(para)):
+            # Without the sentences of it the voice did say (half their words), unless they hold what it named.
+            out.append(" ".join(s for s in sentences(para)
+                                if unheard(s) or 2 * len(content(s) & self.said) < len(content(s))))
+        return "\n\n".join(o for o in out if o)
 
     @property
     def unspoken(self) -> list[Piece]:

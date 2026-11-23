@@ -1178,7 +1178,8 @@ class GPTGuest:
             self.ledger.sent(source, answer.delegation_id, answer.text, now, lane=answer.lane, late=source in self.replies)
             if answer.rest:
                 self.call.trace("floor.answer_resumed", speaker=source, did=answer.delegation_id)
-            self.call.trace("floor.answer_sent", speaker=source, did=did, of=answer.delegation_id)  # did: the voice's id
+            self.call.trace("floor.answer_sent", speaker=source, did=did, of=answer.delegation_id,  # did: the voice's id
+                            lane=answer.lane)
         due = self.ledger.next_due(source, self.quiet_since[source]) if source not in self.replies else None
         if due is not None:  # a reply still open on this leg flushes again when it ends (observe)
             self.flush_timer = self.later(max(0.05, due - now) if quiet else 0.25, self.flush_answers)
