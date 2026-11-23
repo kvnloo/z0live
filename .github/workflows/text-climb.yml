@@ -1,0 +1,66 @@
+name: z0live barge-in seed sweep (CPU, stdlib)
+# GH16: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml --ref <branch>`
+# can dispatch it. It runs voice-adapter/bench/bargein_sweep.py (bargein_replay/1, offline virtual-time sim,
+# Python stdlib only, no network, no secrets) over seeds 1000-1039: arms A, B, C rho 0.7 / 0.9 at M 40 ms.
+on:
+  workflow_dispatch:
+    inputs:
+      note:
+        description: "free-text label for this run (shown in the summary)"
+        required: false
+        default: ""
+permissions:
+  contents: read
+jobs:
+  sweep:
+    name: seeds ${{ matrix.seeds }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        seeds: [1000-1003, 1004-1007, 1008-1011, 1012-1015, 1016-1019, 1020-1023, 1024-1027, 1028-1031, 1032-1035, 1036-1039]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Runner CPU
+        run: |
+          cpu=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)
+          echo "runner CPU: ${cpu:-unknown} ($(uname -m), $(nproc) cpus), $(python --version)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Sweep
+        timeout-minutes: 17
+        env:
+          SEEDS: ${{ matrix.seeds }}
+        run: |
+          set -euo pipefail
+          cd voice-adapter
+          python -B bench/bargein_sweep.py --seeds "$SEEDS" --out ../out --jobs "$(nproc)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sweep-${{ matrix.seeds }}
+          path: out/
+          if-no-files-found: warn
+          retention-days: 30
+  summary:
+    needs: sweep
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sweep-*
+          path: results
+          merge-multiple: true
+      - name: Hashes
+        env:
+          NOTE: ${{ inputs.note }}
+        run: |
+          set -euo pipefail
+          { [ -n "${NOTE}" ] && echo "note: ${NOTE}"; echo '```'; (cd results && ls seed-*.json | wc -l && sha256sum seed-*.json); echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          (cd results && sha256sum seed-*.json)
