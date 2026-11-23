@@ -142,22 +142,34 @@ class Entry:
     def started(self) -> bool:
         return any(p.begun for p in self.pieces)
 
-    def rest(self) -> str:
-        """The sentences after the last one the voice said (half the words it adds to the ones before it). Speech
-        runs in order, so what comes before it, or before the piece the voice was saying (take 13), is not owed."""
+    def _begun(self) -> list[Piece]:
+        """The pieces from the one the voice was saying: what comes before it is not owed (take 13)."""
         begun = [i for i, p in enumerate(self.pieces) if p.hits or p.spoken]
-        pieces = self.pieces[begun[-1] if begun else 0:]
-        parts = [((i, j), s) for i, p in enumerate(pieces) for j, para in enumerate(paragraphs(p.text))
-                 for s in sentences(para)]
+        return self.pieces[begun[-1] if begun else 0:]
+
+    def unheard(self, text: str) -> bool:
+        """Whether the text names something (anchors()) the voice never said while this entry was out."""
+        return any(not anchor <= self.spoken for anchor in anchors(text))
+
+    def rest(self, named: bool = False) -> str:
+        """The sentences after the last one the voice said (half the words it adds to the ones before it), and,
+        when `named`, each one before it that names something the voice never said (as skipped()). Speech runs in
+        order, but a voice that puts an answer in its own words can say a later sentence and jump an earlier one:
+        take 17's \"I won't start another one\" said sentence 3 of line 3's answer, and sentence 2 (card t_0a96e2de,
+        the S25) was never said. Lane guesses and status lines before it are never owed."""
+        parts = [((i, j), s, p.lane) for i, p in enumerate(self._begun())
+                 for j, para in enumerate(paragraphs(p.text)) for s in sentences(para)]
         last, before = -1, set()
-        for i, (_, sentence) in enumerate(parts):
+        for i, (_, sentence, _) in enumerate(parts):
             own = content(sentence) - before
             before |= own
             if own and 2 * len(own & self.said) >= len(own):
                 last = i
+        keep = [part for i, part in enumerate(parts)
+                if i > last or (named and not part[2] and self.unheard(part[1]))]
         out = []  # its paragraphs stay paragraphs: a reply that skips one is judged by them (skipped)
-        for i, (para, sentence) in enumerate(parts[last + 1:]):
-            out.append(sentence if not i or para == parts[last + i][0] else "\n\n" + sentence)
+        for i, (para, sentence, _) in enumerate(keep):
+            out.append(sentence if not i or para == keep[i - 1][0] else "\n\n" + sentence)
         return " ".join(out).replace(" \n\n", "\n\n")
 
     def skipped(self) -> str:
@@ -166,17 +178,11 @@ class Entry:
         words and leave out how it works (take 16: Tek's \"In short: blur ran too early and crashed\"), not what
         it names (Hermes's resumed reply skipped paragraph 1 and card t_0a96e2de). Lane guesses and status lines
         are never owed: Hermes's own answer supersedes them."""
-        begun = [i for i, p in enumerate(self.pieces) if p.hits or p.spoken]
-        pieces = [p for p in self.pieces[begun[-1] if begun else 0:] if not p.lane]
-
-        def unheard(text):
-            return any(not anchor <= self.spoken for anchor in anchors(text))
-
         out = []
-        for para in (para for p in pieces for para in paragraphs(p.text) if unheard(para)):
+        for para in (para for p in self._begun() if not p.lane for para in paragraphs(p.text) if self.unheard(para)):
             # Without the sentences of it the voice did say (half their words), unless they hold what it named.
             out.append(" ".join(s for s in sentences(para)
-                                if unheard(s) or 2 * len(content(s) & self.said) < len(content(s))))
+                                if self.unheard(s) or 2 * len(content(s) & self.said) < len(content(s))))
         return "\n\n".join(o for o in out if o)
 
     @property
@@ -257,10 +263,21 @@ class Ledger:
         the call had heard, was stopped at \"PR twenty\" and again at \"PR twenty eight\", then dropped)."""
         begun = self.speaking.pop(leg, [])
         self.entries = [e for e in self.entries if e not in begun]
-        self.retold -= {(leg, e.did) for e in begun}  # its rest takes the place of a retelling
         for entry in self.pending(leg):
             entry.sends = max(1, entry.sends - 1)
-        return [(e.did, text) for e in begun if (text := e.rest())]
+        out = []
+        for entry in begun:
+            # The sentences it jumped that name something go back once per answer, as skipped paragraphs do (take
+            # 17); a rest without them takes the place of a retelling.
+            key = (leg, entry.did)
+            text = entry.rest(named=key not in self.retold)
+            if key not in self.retold and text != entry.rest():
+                self.retold.add(key)
+            else:
+                self.retold.discard(key)
+            if text:
+                out.append((entry.did, text))
+        return out
 
     def finished(self, leg: str) -> list[tuple[Entry, str]]:
         """The reply on this leg ran its course: (entry, the paragraphs it skipped) for each answer it had begun, ""

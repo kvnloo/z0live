@@ -121,9 +121,26 @@ class Take16(unittest.TestCase):
         self.assertNotIn("take that", "".join(text for t, text in self.r.heard if 52 < t < 56))
 
 
+class Take17(unittest.TestCase):
+    """Take 17, line 3 (words scrambled; the scrambled line-3 answer names card t_zqby)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.r = take("take17")
+
+    def test_the_sentence_a_paraphrase_jumped_comes_back_with_the_cuts_rest_once(self):
+        # 59.7-66.9 s: the voice said sentences 1 and 3 in its own words ("I won't start another one"); "Hey Tek" cut
+        # it, and the rest resumed at 99.561 from sentence 4. Sentence 2 (card t_0a96e2de) was never said.
+        rested = [t for t, ev, d in self.r.floor if ev == "floor.answer_resumed" and d["speaker"] == "primary"]
+        self.assertTrue(rested, "line 3's rest is resumed")
+        card = [t for t, text in handed(self.r, 67) if "t_zqby" in text]
+        self.assertEqual(len(card), 1, "sentence 2 goes back once")
+        self.assertIn(card[0], rested, "with the cut's rest")
+
+
 class RecordedTakes(unittest.TestCase):
     def test_the_takes_are_here(self):
-        self.assertEqual([p.stem for p in TAKES][:10], [f"take{n}" for n in range(7, 17)])
+        self.assertEqual([p.stem for p in TAKES][:11], [f"take{n}" for n in range(7, 18)])
 
     def test_each_recorded_take_passes_the_five_checks_on_the_phone(self):
         for path in TAKES:

@@ -194,6 +194,38 @@ class LedgerTest(unittest.TestCase):
         self.assertEqual(rest, "Its steps are to oil the hinge, then check it every week.\n\n"
                                + "\n\n".join(self.SKIPPED.split("\n\n")[1:]))
 
+    # Take 17, line 3 (words changed): the voice said "A run is already in progress with those exact steps; I won't
+    # start another one" and was cut. That said sentence 3, so sentence 2 and its card id counted as passed.
+    JUMPED = ("That's already running. Card t_0b17, owned by Rosa, has fixed the shed door since Monday: oil the hinge, "
+              "then check it every week. I won't start a second job. I also can't buy anything from this call.\n\n"
+              "The latest receipts are from noon: the hinge was oiled. New receipts land on the card.")
+    PARAPHRASE = " A job is already in progress with those exact steps; I won't start another one from here."
+
+    def test_a_cut_keeps_a_sentence_it_jumped_that_names_what_the_voice_never_said(self):
+        self.ledger.sent("primary", "d1", self.JUMPED, 10)
+        self.ledger.heard("primary", self.PARAPHRASE)
+        [(_, rest)] = self.ledger.cut("primary")
+        self.assertEqual(rest, "Card t_0b17, owned by Rosa, has fixed the shed door since Monday: oil the hinge, "
+                               "then check it every week. I also can't buy anything from this call.\n\n"
+                               + self.JUMPED.split("\n\n")[1])
+
+    def test_a_jumped_sentence_goes_back_once(self):
+        resumed = " Also, I can't buy anything from this call. The hinge was oiled at noon"
+        for end in ("cut", "finished"):
+            with self.subTest(end):
+                ledger = Ledger()
+                ledger.sent("primary", "d1", self.JUMPED, 10)
+                ledger.heard("primary", self.PARAPHRASE)
+                [(_, rest)] = ledger.cut("primary")
+                ledger.reply_started("primary")
+                ledger.sent("primary", "d1", rest, 20)
+                ledger.heard("primary", resumed)  # the resumed reply jumps the card sentence again
+                if end == "cut":
+                    [(_, again)] = ledger.cut("primary")
+                    self.assertEqual(again, "New receipts land on the card.", "jumped again: the voice chose to")
+                else:
+                    self.assertEqual(ledger.finished("primary")[0][1], "", "and is not retold as well")
+
     def test_a_reply_stopped_before_it_began_an_answer_was_not_its_chance(self):
         # floor_sim seed 33: Tek's resumed answer, all words the call had heard, was stopped at "PR twenty" and again
         # at "PR twenty eight", and dropped as unspoken.
