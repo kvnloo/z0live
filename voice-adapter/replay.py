@@ -632,7 +632,8 @@ def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
                 if entry.started and len(mine - more) >= 2:
                     rest = entry.rest()
                 else:  # handed into this reply and never begun: all of it (its latest words: a receipt is overtaken)
-                    into = [x for at, x, late in items if late and opened <= at and not (receipt and receipt in x)]
+                    into = [x for at, x, late in items if late and opened <= at and not (receipt and receipt in x)
+                            and content(x) - heard_before(at)]  # with no new words it has nothing left to hear
                     rest = into[-1] if into else ""
                 if rest and not (receipt and rest in receipt):  # a status line's rest: the answer overtakes it
                     owed[did] = (t, rest)

@@ -11,12 +11,13 @@ import unittest
 os.environ.setdefault("HERMES_VOICE_ENGINE", "gpt-live")  # never the owner's lanes config
 import replay  # noqa: E402
 
-TAKES = sorted(Path(__file__).with_name("fixtures").glob("takes/take*.jsonl"), key=lambda p: int(p.stem[4:]))
+FIXTURES = Path(__file__).with_name("fixtures") / "takes"
+TAKES = sorted(FIXTURES.glob("take*.jsonl"), key=lambda p: int(p.stem[4:]))
 # Takes 7, 9 and 14: the voice's own hand-off line promised work ("I'll handle that and keep receipts", "I'm taking
 # that on end-to-end", "I'll go step by step and show receipts"). The prompts are the guard; a replay cannot unsay it.
 RECORDED = {"promised": {"take7", "take9", "take14"}}
 # Take 15 failures of the adapter's own, each fixed by its own change: an entry here must keep failing until then.
-OPEN = {"whole": {"take15"}, "runs": {"take15"}}
+OPEN = {"runs": {"take15"}}
 
 
 def checked(path):
@@ -24,6 +25,42 @@ def checked(path):
     r = replay.Replay(rows)
     asyncio.run(r.run())
     return replay.checks(r)
+
+
+def take(name):
+    rows = [json.loads(line) for line in (FIXTURES / f"{name}.jsonl").read_text().splitlines() if line.strip()]
+    r = replay.Replay(rows)
+    asyncio.run(r.run())
+    return r
+
+
+def handed(r, since=0.0):
+    """(t, text) of each answer the adapter handed the primary voice, its 500-byte pieces joined."""
+    out = []
+    for t, e in r.sent:
+        text = "".join(c.get("text", "") for c in e.get("content", []))
+        if e.get("channel") != "speakable" or t < since:
+            continue
+        if out and out[-1][0] == t and not text.startswith(replay.FINAL):
+            out[-1] = (t, out[-1][1] + text)
+        else:
+            out.append((t, text))
+    return out
+
+
+class Take15(unittest.TestCase):
+    """Take 15, line 3 (words scrambled; the scrambled line-3 answer opens "That zqcj is zqck running")."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.r = take("take15")
+
+    def test_line_3s_answer_handed_into_a_playing_reply_is_handed_again_whole_without_its_receipt(self):
+        again = [text for t, text in handed(self.r, 120) if "zqck running" in text]
+        self.assertEqual(len(again), 1, "the floor's return hands the whole answer again")
+        self.assertIn("I can only report from this call", again[0], "all three paragraphs")
+        self.assertNotIn("Still working on that", "".join(text for _, text in handed(self.r, 62)),
+                         "the answer overtook the receipt")
 
 
 class RecordedTakes(unittest.TestCase):

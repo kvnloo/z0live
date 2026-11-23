@@ -1143,7 +1143,8 @@ class GPTGuest:
                 self.call.trace("floor.answer_dropped", speaker=source, did=answer.delegation_id, reason="stale")
                 continue  # a lane's guess for a question Kevin has moved on from
             did = hand(answer.delegation_id, answer.text)
-            self.ledger.sent(source, answer.delegation_id, answer.text, now, lane=answer.lane)
+            # Into a reply already playing: that reply was made before this answer existed (take 15, line 3).
+            self.ledger.sent(source, answer.delegation_id, answer.text, now, lane=answer.lane, late=source in self.replies)
             if answer.rest:
                 self.call.trace("floor.answer_resumed", speaker=source, did=answer.delegation_id)
             self.call.trace("floor.answer_sent", speaker=source, did=did, of=answer.delegation_id)  # did: the voice's id
@@ -2032,7 +2033,7 @@ class Call:
             return  # a queued request was already told it is queued: "still working on it" would not be true
         self.counts["receipts"] += 1
         self.trace("delegation.receipt", did=did, s=RECEIPT_SECONDS)
-        self.speak_for(did, RECEIPT)
+        self.speak_for(did, RECEIPT, lane=True)  # a status line: the answer supersedes it unsaid, as a lane guess
 
     async def audio_health(self):
         """Once a second for the first 60 s: frames each way and event-loop lag (choppy starts, 11-16)."""

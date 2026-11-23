@@ -17,6 +17,19 @@ class LedgerTest(unittest.TestCase):
         self.assertEqual([entry.did for entry in done], ["d1"])
         self.assertEqual(self.ledger.due("primary", 99, quiet_since=20), [])
 
+    def test_an_answer_handed_into_a_playing_reply_counts_only_once_it_says_one_of_its_sentences(self):
+        # Take 15, line 3: the answer came 9 s into the reply to the request, which went on with "The update run is
+        # still going, no new receipts yet". Three of the answer's words, each from another sentence, credited it.
+        answer = ("That job is already running as card seven, so I won't start another. The last receipts are from "
+                  "midnight. Nothing new is planted yet. The shed run keeps landing receipts on the card.")
+        self.ledger.sent("primary", "d1", answer, 10, late=True)
+        self.assertEqual(self.ledger.heard("primary", " The garden run is still going, no new receipts yet."), [])
+        self.assertEqual(self.ledger.cut("primary"), [], "never begun: the whole answer stays pending")
+        [(entry, text)] = self.ledger.due("primary", 30, quiet_since=None)
+        self.assertEqual(text, answer)
+        self.assertEqual([e.did for e in self.ledger.heard("primary", "It's already running as card seven, so "
+                                                                         "I won't start another.")], ["d1"])
+
     def test_a_reply_that_never_says_it_does_not_deliver_it(self):
         # Any allowed reply starting used to mark every pending answer delivered ("Mm-hm." included).
         self.ledger.sent("primary", "d1", "The bike chain is fixed and the brakes need new pads.", 10)
