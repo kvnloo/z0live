@@ -33,6 +33,16 @@ To opt in to `z0live_say`, provide the same random `Z0LIVE_PROGRESS_TOKEN` secre
 - The voice stack streams audio and context to OpenAI or xAI, depending on the call engine and guest settings. Model lanes can send context to their configured providers. The legacy Groq lane can send Hermes session excerpts when enabled. Do not run it on profiles with private history. The adapter's local traces can contain transcripts, delegation requests, and responses.
 - `z0live_say` accepts only [stock lines](voice-adapter/progress_lines.json). The adapter sends the selected line to the call's voice provider. It does not send the local shared token, Hermes session ID, caller-supplied text, Telegram data, or chat history through this route.
 
+### What the voice stack does beyond the plugin
+
+The plugin (`__init__.py`) does none of the following. The separately installed voice stack in this repository (`voice-adapter/`, `desktop/`) does:
+
+- **Reuses the host Codex login.** For GPT-Live calls it reads the ChatGPT subscription token from `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`, or `Z0LIVE_CODEX_AUTH`). z0live never writes that file. The voice adapter calls chatgpt.com with that token and the `Codex Desktop` client headers (`User-Agent`, `originator`, `version`). The desktop broker uses the same token to mint short-lived OpenAI Realtime client secrets. When the token is close to expiry it asks the installed `codex app-server` to refresh it, and Codex may then rewrite its own file. The Grok engine does not use this login.
+- **Reads every Hermes profile's `state.db` read-only.** The voice adapter, its lanes and the desktop work tools open `~/.hermes/state.db` and `~/.hermes/profiles/*/state.db` in SQLite read-only mode. They list open sessions, recent titles and messages, and the latest user turn, and use them as call context. That context can reach the call's voice provider and the lane providers.
+- **Puts prompts into your Hermes sessions.** [`desktop/hermes_relay.py`](desktop/hermes_relay.py) attaches to the Hermes gateway that owns a session (`session.resume`). It then either steers the running turn (`session.steer`) or queues a new turn (`prompt.submit`) with what you asked for on the call.
+- **Holds only its own service secrets.** Provider keys such as `GROQ_API_KEY` come from the adapter's service env, `~/.config/z0live/voice.env`, which `deploy/macos/run.sh` sources. Nothing is read from other Hermes profiles' `.env` files. The `claude` lane children receive only `PATH`, `HOME`, `CLAUDE_CONFIG_DIR` (set it with `Z0LIVE_CLAUDE_CONFIG_DIR`, default `~/.claude`) and `FAST_LANE_CHILD`.
+- **Ships no hosts.** The broker's pairing URL (`Z0LIVE_BASE_URL`), the vLLM Semantic Router (`Z0LIVE_SR_URL`) and the phone-system model router (`Z0LIVE_SYSTEM_MODEL_URL`) have no defaults. Without `Z0LIVE_SR_URL`, `vllm-sr` lanes are never added and are rejected by validation. Without `Z0LIVE_BASE_URL`, `z0live pair` refuses to run.
+
 z0live is licensed under the GNU GPL v3 ([LICENSE](LICENSE)).
 
 ## Existing portable runtime work
