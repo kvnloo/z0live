@@ -1,5 +1,6 @@
 """Tests for the frozen barge-in replay harness (bench/bargein_replay.py, bargein_replay/1)."""
 
+from array import array
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -141,7 +142,8 @@ class ArmCTest(unittest.TestCase):
 
     # Names the gate must never touch: labels, echo-model internals, network legs, phone speaker.
     FORBIDDEN = {'trial', 'kind', 'echo_ms', 'echo_gain', 'onset', 'speaker', 'up', 'ws_up',
-                 'ws_back', 'down', 'phone_extra', 'missed_valid', 'false_barge_in', 'mic', 'stimuli'}
+                 'ws_back', 'down', 'phone_extra', 'missed_valid', 'false_barge_in', 'mic', 'stimuli',
+                 'residual', 'echo_model', 'double_talk', 'capture', 'residual_echo'}
 
     @classmethod
     def setUpClass(cls):
@@ -210,6 +212,105 @@ class ArmCTest(unittest.TestCase):
         self.assertIs(json.loads(proc.stdout)['aa_identical'], True)
         _, again = run_cli('--seed', '39', '--trials', '20', '--arm-c')
         self.assertEqual(sha256(data).hexdigest(), sha256(again).hexdigest())
+
+
+ARM_C_SEED40_SHA256 = '03bf7ab8269744f76c2d177d900ced730626266424c26ed444e0ee882ae78b2c'
+BASE_KEYS = ('id', 'kind', 'onset', 'mic', 'echo_ms', 'up', 'ws_up', 'ws_back', 'down', 'phone_extra')
+
+
+class DefaultBytesFrozenTest(unittest.TestCase):
+    """Without --echo-model residual, arm C's seed-40 holdout bytes stay exactly as published."""
+
+    def test_arm_c_seed40_bytes_unchanged(self):
+        proc, data = run_cli('--seed', '40', '--trials', '200', '--arm-c',
+                             '--gate-echo-rho', '0.7', '--gate-min-speech-ms', '40')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sha256(data).hexdigest(), ARM_C_SEED40_SHA256)
+        self.assertNotIn('harness', json.loads(data))
+
+    def test_explicit_copy_model_is_default(self):
+        _, plain = run_cli('--seed', '39', '--trials', '20', '--arm-c')
+        _, copy = run_cli('--seed', '39', '--trials', '20', '--arm-c', '--echo-model', 'copy')
+        self.assertEqual(plain, copy)
+        self.assertNotIn('echo_model', json.loads(plain)['parameters'])
+
+
+class ResidualEchoTest(unittest.TestCase):
+    """bargein_replay/2: opt-in residual echo (RIR, bulk delay, ERL, soft clip, noise, double-talk)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.bot = replay.voice(replay.BOT_MS, 142, 11000, 115)
+        cls.copy = list(replay.stimuli(200, 39))
+        cls.residual = list(replay.stimuli(200, 39, echo_model='residual'))
+
+    def gate_cfg(self, **overrides):
+        return cfg(**({'gate_echo_rho': 0.9, 'gate_min_speech_ms': 40, 'gate_window_ms': 20,
+                       'gate_lag_max_ms': 250, 'echo_model': 'residual'} | overrides))
+
+    def test_harness_ids(self):
+        self.assertEqual(replay.HARNESS, 'bargein_replay/1')
+        self.assertEqual(replay.HARNESS_RESIDUAL, 'bargein_replay/2')
+
+    def test_base_generator_stream_unchanged(self):
+        for plain, res in zip(self.copy, self.residual):
+            for key in BASE_KEYS:
+                self.assertEqual(plain[key], res[key], key)
+            self.assertNotIn('residual', plain)
+            self.assertIn('residual', res)
+
+    def test_residual_parameters_in_spec(self):
+        dt = 0
+        for trial in self.residual:
+            r = trial['residual']
+            self.assertTrue(20 <= r['delay_ms'] <= 120)
+            self.assertTrue(10 <= r['rir_ms'] <= 60)
+            self.assertEqual(r['taps'][0], (0, 1.0))
+            self.assertEqual(len(r['taps']), 13)
+            for delay, gain in r['taps'][1:]:
+                self.assertTrue(16 <= delay <= r['rir_ms'] * 16)
+                self.assertTrue(0 < abs(gain) <= 0.6)
+            self.assertTrue(6 <= r['erl_db'] <= 20)
+            self.assertTrue(12000 <= r['clip_level'] <= 20000)
+            self.assertTrue(40 <= r['noise_rms'] <= 160)
+            self.assertEqual(len(r['noise']), replay.BOT_MS * replay.SAMPLES_MS)
+            if trial['kind'] == 'valid':
+                dt += r['double_talk']
+                if r['double_talk']:
+                    self.assertTrue(85 <= r['double_talk_ms'] <= 200)
+            else:
+                self.assertFalse(r['double_talk'])
+        self.assertTrue(50 <= dt <= 90, dt)  # about half of 140 valid trials
+
+    def test_residual_echo_is_not_an_exact_copy(self):
+        echoes = [t for t in self.residual if t['kind'] == 'echo'][:6]
+        rhos = [replay.replay(t, 'C', self.gate_cfg(), self.bot)['trace']['gate_max_rho'] for t in echoes]
+        self.assertTrue(all(rho < 0.99 for rho in rhos), rhos)
+        copy_echo = next(t for t in self.copy if t['kind'] == 'echo')
+        copy_rho = replay.replay(copy_echo, 'C', self.gate_cfg(echo_model='copy'), self.bot)['trace']['gate_max_rho']
+        self.assertGreater(copy_rho, 0.999)
+
+    def test_double_talk_mixes_echo_under_speech(self):
+        trial = next(t for t in self.residual if t['kind'] == 'valid' and t['residual']['double_talk'])
+        speaker = array('h', [9000, -9000] * (replay.BOT_MS * replay.SAMPLES_MS))
+        start = trial['onset'] * replay.SAMPLES_MS
+        packet = replay.capture(trial, speaker, start, 160, self.gate_cfg())
+        clip = trial['mic'][:160]
+        self.assertNotEqual(list(packet), list(clip))
+        self.assertTrue(all(-32768 <= v <= 32767 for v in packet))
+        quiet = replay.capture(trial, array('h', [0]) * len(speaker), start, 160, self.gate_cfg())
+        noise = trial['residual']['noise'][start:start + 160]
+        self.assertEqual(list(quiet), [max(-32768, min(32767, c + n)) for c, n in zip(clip, noise)])
+
+    def test_cli_residual_marks_harness_v2(self):
+        proc, data = run_cli('--seed', '39', '--trials', '20', '--arm-c', '--echo-model', 'residual', '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out = json.loads(data)
+        self.assertEqual(out['harness'], 'bargein_replay/2')
+        self.assertEqual(out['parameters']['echo_model'], 'residual')
+        self.assertIs(json.loads(proc.stdout)['aa_identical'], True)
+        _, plain = run_cli('--seed', '39', '--trials', '20', '--arm-c')
+        self.assertNotEqual(sha256(plain).hexdigest(), sha256(data).hexdigest())
 
 
 if __name__ == '__main__':

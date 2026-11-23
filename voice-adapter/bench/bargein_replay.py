@@ -18,6 +18,17 @@ Arms (the same seeded trial inputs run through both):
      A C result in this sim is an upper bound, not live evidence.
 No arm waits for provider acknowledgement.
 
+Echo models (--echo-model):
+  copy      default, bargein_replay/1 bytes: echo = 0.65 x speaker, 35 ms late.
+  residual  opt-in, output marked bargein_replay/2. Per trial, from a second
+            RNG (the base trial stream is untouched): bulk delay 20-120 ms,
+            sparse room impulse response (direct tap + 12 exponentially
+            decaying reflections over 10-60 ms), ERL 6-20 dB, tanh loudspeaker
+            soft clip, Gaussian near-end noise (RMS 40-160) on every capture
+            sample, and double-talk: about half of the valid trials get
+            85-200 ms of residual echo under the caller's speech from onset.
+            Not modelled: time-varying echo paths, AEC adaptation, drift.
+
 Timing definitions (virtual ms; t=0 is the first bot frame generated):
   latency_ms       valid trials: end of the last audible bot sample at the
                    simulated phone speaker minus the caller mic onset (>= 0).
@@ -46,7 +57,7 @@ from hashlib import sha256
 from heapq import heappop, heappush
 from itertools import count
 import json
-from math import ceil, pi, sin, sqrt
+from math import ceil, exp, pi, sin, sqrt, tanh
 from operator import mul
 from pathlib import Path
 from random import Random
@@ -62,6 +73,8 @@ THRESHOLD = 480  # PCM RMS, VAD; not a calibrated dB SPL threshold
 AUDIBLE = 380   # PCM RMS over 1 ms at the simulated speaker
 ASSETS = Path(__file__).resolve().parent / "fixtures" / "bargein"
 HARNESS = "bargein_replay/1"
+HARNESS_RESIDUAL = "bargein_replay/2"  # only with --echo-model residual
+REFLECTIONS = 12
 
 
 def pcm(ms):
@@ -177,7 +190,30 @@ class FlushGate:
         return False
 
 
-def stimuli(n, seed):
+def residual_echo(seed, index, kind):
+    """bargein_replay/2 per-trial echo path, drawn from its own RNG."""
+    rng = Random(f"{HARNESS_RESIDUAL}:{seed}:{index}")
+    delay_ms = rng.randint(20, 120)
+    rir_ms = rng.randint(10, 60)
+    span = rir_ms * SAMPLES_MS
+    taps = [(0, 1.0)]
+    for _ in range(REFLECTIONS):
+        d = rng.randint(SAMPLES_MS, span)
+        sign = rng.choice((-1, 1))
+        taps.append((d, sign * rng.uniform(.2, .6) * exp(-3 * d / span)))
+    erl_db = rng.uniform(6, 20)
+    clip_level = rng.uniform(12000, 20000)
+    noise_rms = rng.uniform(40, 160)
+    noise_rng = Random(rng.getrandbits(32))
+    noise = array("h", (round(noise_rng.gauss(0, noise_rms)) for _ in range(BOT_MS * SAMPLES_MS)))
+    double_talk = kind == "valid" and rng.random() < .5
+    double_talk_ms = rng.randint(85, 200) if double_talk else None
+    return dict(delay_ms=delay_ms, rir_ms=rir_ms, taps=taps, erl_db=erl_db, gain=10 ** (-erl_db / 20),
+                clip_level=clip_level, noise_rms=noise_rms, noise=noise,
+                double_talk=double_talk, double_talk_ms=double_talk_ms)
+
+
+def stimuli(n, seed, echo_model="copy"):
     rng = Random(seed)
     clips = [clip(path) for path in sorted(ASSETS.glob("*.wav"))]
     if not clips:
@@ -201,8 +237,51 @@ def stimuli(n, seed):
             duration = rng.randint(85, 200)
         else:
             mic = array("h", (rng.randint(-900, 900) for _ in range(rng.randint(8, 30) * SAMPLES_MS)))
-        yield dict(id=index, kind=kind, onset=onset, mic=mic, echo_ms=duration,
-                   up=up, ws_up=ws_up, ws_back=ws_back, down=down, phone_extra=phone_extra)
+        trial = dict(id=index, kind=kind, onset=onset, mic=mic, echo_ms=duration,
+                     up=up, ws_up=ws_up, ws_back=ws_back, down=down, phone_extra=phone_extra)
+        if echo_model == "residual":
+            trial["residual"] = residual_echo(seed, index, kind)
+        yield trial
+
+
+def capture(trial, speaker, start, size, cfg):
+    """Near-end mic samples [start, start + size) as the phone uplinks them."""
+    packet = array("h", [0]) * size
+    origin = trial["onset"] * SAMPLES_MS
+    mic = trial["mic"]
+    if getattr(cfg, "echo_model", "copy") != "residual":
+        if mic is not None:
+            for j in range(size):
+                offset = start + j - origin
+                if 0 <= offset < len(mic):
+                    packet[j] = mic[offset]
+        elif trial["kind"] == "echo":
+            for j in range(size):
+                offset = start + j - origin
+                ref = start + j - 35 * SAMPLES_MS
+                if 0 <= offset < trial["echo_ms"] * SAMPLES_MS and ref >= 0:
+                    packet[j] = round(cfg.echo_gain * speaker[ref])
+        return packet
+    r = trial["residual"]
+    echo_ms = trial["echo_ms"] if trial["kind"] == "echo" else r["double_talk_ms"]
+    window = (echo_ms or 0) * SAMPLES_MS
+    bulk = r["delay_ms"] * SAMPLES_MS
+    level, gain, noise = r["clip_level"], r["gain"], r["noise"]
+    for j in range(size):
+        i = start + j
+        offset = i - origin
+        value = mic[offset] if mic is not None and 0 <= offset < len(mic) else 0
+        if 0 <= offset < window:
+            echo = 0.0
+            for d, h in r["taps"]:
+                ref = i - bulk - d
+                if 0 <= ref < len(speaker):
+                    echo += h * level * tanh(speaker[ref] / level)
+            value += gain * echo
+        if i < len(noise):
+            value += noise[i]
+        packet[j] = max(-32768, min(32767, round(value)))
+    return packet
 
 
 class FakeProvider:
@@ -294,21 +373,7 @@ def replay(trial, arm, cfg, bot):
                 if gate:
                     gate.render(t, bot[first:first + size])  # what the adapter sent, at its send time
         elif event == "capture":
-            start = (t - CAPTURE_MS) * SAMPLES_MS
-            packet = pcm(CAPTURE_MS)
-            origin = onset * SAMPLES_MS
-            mic = trial["mic"]
-            if mic is not None:
-                for j in range(len(packet)):
-                    offset = start + j - origin
-                    if 0 <= offset < len(mic):
-                        packet[j] = mic[offset]
-            elif kind == "echo":
-                for j in range(len(packet)):
-                    offset = start + j - origin
-                    ref = start + j - 35 * SAMPLES_MS
-                    if 0 <= offset < trial["echo_ms"] * SAMPLES_MS and ref >= 0:
-                        packet[j] = round(cfg.echo_gain * speaker[ref])
+            packet = capture(trial, speaker, (t - CAPTURE_MS) * SAMPLES_MS, CAPTURE_MS * SAMPLES_MS, cfg)
             if t - CAPTURE_MS <= onset < t:
                 trace["onset_capture_frame_end_ms"] = t
                 trace["phone_uplink_send_ms"] = t
@@ -359,12 +424,17 @@ def replay(trial, arm, cfg, bot):
     if gate:
         trace["gate_echo_vetoes"] = gate.vetoes
         trace["gate_max_rho"] = round(gate.max_rho, 4)
-    return dict(trial=trial["id"], kind=kind, latency_ms=latency,
-                residual_ms=residual, false_barge_in=kind != "valid" and muted,
-                missed_valid=kind == "valid" and not muted,
-                queue_dropped_frames=dropped, late_dropped_frames=late_dropped,
-                timing={k: trial[k] for k in ("up", "ws_up", "ws_back", "down", "phone_extra")},
-                trace=trace)
+    row = dict(trial=trial["id"], kind=kind, latency_ms=latency,
+               residual_ms=residual, false_barge_in=kind != "valid" and muted,
+               missed_valid=kind == "valid" and not muted,
+               queue_dropped_frames=dropped, late_dropped_frames=late_dropped,
+               timing={k: trial[k] for k in ("up", "ws_up", "ws_back", "down", "phone_extra")},
+               trace=trace)
+    if "residual" in trial and getattr(cfg, "echo_model", "copy") == "residual":
+        r = trial["residual"]
+        row["echo_path"] = dict(delay_ms=r["delay_ms"], rir_ms=r["rir_ms"], erl_db=round(r["erl_db"], 3),
+                                double_talk=r["double_talk"], double_talk_ms=r["double_talk_ms"])
+    return row
 
 
 def percentiles(values):
@@ -375,12 +445,16 @@ def percentiles(values):
 
 
 def run(n, seed, cfg, bot):
-    cases = list(stimuli(n, seed))
+    echo_model = getattr(cfg, "echo_model", "copy")
+    cases = list(stimuli(n, seed, echo_model))
     arm_c = getattr(cfg, "arm_c", False)
     result = dict(seed=seed, trials_per_arm=n, parameters={
         k: v for k, v in vars(cfg).items() if k not in ("aa", "output", "seed", "trials", "arm_c")
         and (arm_c or not k.startswith("gate_"))  # default run keeps the frozen bytes
+        and (k != "echo_model" or echo_model != "copy")
     }, arms={})
+    if echo_model != "copy":
+        result["harness"] = HARNESS_RESIDUAL
     for arm in ("A", "B", "C") if arm_c else ("A", "B"):
         rows = [replay(case, arm, cfg, bot) for case in cases]
         valid = [row for row in rows if row["kind"] == "valid"]
@@ -422,6 +496,8 @@ def main():
                         help="arm C: consecutive unexplained hot speech before flush")
     parser.add_argument("--gate-window-ms", type=int, default=20, help="arm C: near-end correlation window")
     parser.add_argument("--gate-lag-max-ms", type=int, default=250, help="arm C: render lag search 0..N ms")
+    parser.add_argument("--echo-model", choices=("copy", "residual"), default="copy",
+                        help="residual: bargein_replay/2 filtered, attenuated, clipped, noisy echo plus double-talk")
     parser.add_argument("--aa", action="store_true", help="repeat and compare canonical JSON bytes")
     parser.add_argument("--output", type=Path, help="write full canonical per-trial JSON")
     cfg = parser.parse_args()
