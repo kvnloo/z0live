@@ -724,5 +724,89 @@ class ArmEErlAdaptiveTest(unittest.TestCase):
             self.assertTrue(res['ab_identical_across_rho_runs'])
 
 
+class ContinuousEchoTest(unittest.TestCase):
+    """bargein_replay/7: opt-in --echo-continuous, residual echo in every render-active capture."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.trials = list(replay.stimuli(30, 39, echo_model='residual', bot_render='recorded'))
+        cls.speaker = array('h', [9000, -9000, 4000, -4000] * (replay.BOT_MS * replay.SAMPLES_MS // 4))
+
+    def res_cfg(self, **overrides):
+        return cfg(**({'echo_model': 'residual', 'bot_render': 'recorded'} | overrides))
+
+    def test_harness_id(self):
+        self.assertEqual(replay.HARNESS_CONTINUOUS, 'bargein_replay/7')
+
+    def test_echo_present_outside_event_window(self):
+        for trial in self.trials:
+            r = trial['residual']
+            start = 400 * replay.SAMPLES_MS  # before every onset (>= 550 ms): no event window here
+            plain = replay.capture(trial, self.speaker, start, 160, self.res_cfg())
+            cont = replay.capture(trial, self.speaker, start, 160, self.res_cfg(echo_continuous=True))
+            self.assertEqual(list(plain), [max(-32768, min(32767, n)) for n in r['noise'][start:start + 160]])
+            self.assertNotEqual(list(plain), list(cont), trial['kind'])
+            self.assertGreater(sum(v * v for v in cont), 4 * sum(v * v for v in plain), trial['kind'])
+
+    def test_same_path_inside_event_window(self):
+        for trial in self.trials:
+            r = trial['residual']
+            window = trial['echo_ms'] if trial['kind'] == 'echo' else r['double_talk_ms']
+            if not window:
+                continue
+            start = trial['onset'] * replay.SAMPLES_MS
+            size = min(window, 60) * replay.SAMPLES_MS
+            plain = replay.capture(trial, self.speaker, start, size, self.res_cfg())
+            cont = replay.capture(trial, self.speaker, start, size, self.res_cfg(echo_continuous=True))
+            self.assertEqual(list(plain), list(cont))
+
+    def test_silent_speaker_adds_no_echo(self):
+        silent = array('h', [0]) * len(self.speaker)
+        for trial in self.trials[:10]:
+            start = 300 * replay.SAMPLES_MS
+            self.assertEqual(list(replay.capture(trial, silent, start, 160, self.res_cfg())),
+                             list(replay.capture(trial, silent, start, 160, self.res_cfg(echo_continuous=True))))
+
+    def test_labels_unchanged(self):
+        bot = replay.voice(replay.BOT_MS, 142, 11000, 115)
+        for trial in self.trials[:10]:
+            a = replay.replay(trial, 'A', self.res_cfg(), bot)
+            b = replay.replay(trial, 'A', self.res_cfg(echo_continuous=True), bot)
+            self.assertEqual((a['kind'], a['echo_path'], a['trial']), (b['kind'], b['echo_path'], b['trial']))
+
+    def test_cli_marks_v7_default_bytes_unchanged(self):
+        proc, without = run_cli(*ARM_D_F_ARGS)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sha256(without).hexdigest(), ARM_D_F_SHA256)
+        self.assertNotIn('echo_continuous', json.loads(without)['parameters'])
+        proc, data = run_cli(*ARM_D_F_ARGS, *E_ARGS, '--echo-continuous', '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out = json.loads(data)
+        self.assertEqual(out['harness'], 'bargein_replay/7')
+        self.assertIs(out['parameters']['echo_continuous'], True)
+        self.assertIs(json.loads(proc.stdout)['aa_identical'], True)
+        _, again = run_cli(*ARM_D_F_ARGS, *E_ARGS, '--echo-continuous')
+        self.assertEqual(sha256(data).hexdigest(), sha256(again).hexdigest())
+        _, plain_e = run_cli(*ARM_D_F_ARGS, *E_ARGS)
+        self.assertEqual(json.loads(plain_e)['harness'], 'bargein_replay/6')
+        self.assertNotEqual(sha256(plain_e).hexdigest(), sha256(data).hexdigest())
+
+    def test_cli_rejects_continuous_without_residual(self):
+        bad, _ = run_cli('--trials', '10', '--echo-continuous')
+        self.assertNotEqual(bad.returncode, 0)
+
+    def test_sweep_passes_echo_continuous(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([sys.executable, '-B', str(BENCH_DIR / 'bargein_sweep.py'), '--seeds', '39', '--trials', '20',
+                            '--echo-model', 'residual', '--echo-continuous', '--bot-render', 'recorded', '--rhos', '0.9',
+                            '--arm-d', '--energy-k-db', '-12', '--energy-min-speech-ms', '30', *E_ARGS, STRESS[0],
+                            '--out', tmp], check=True, capture_output=True, timeout=900)
+            res = json.loads(Path(tmp, 'seed-39.json').read_text())
+            self.assertEqual(res['harness'], 'bargein_replay/7')
+            self.assertIn('--echo-continuous', res['extra_args'])
+            self.assertEqual(sorted(res['arms']), ['A', 'B', 'C0.9', 'D', 'E'])
+            self.assertTrue(res['ab_identical_across_rho_runs'])
+
+
 if __name__ == '__main__':
     unittest.main()

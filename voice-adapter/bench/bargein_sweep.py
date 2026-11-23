@@ -89,6 +89,7 @@ def main():
     p.add_argument("--trials", type=int, default=200)
     p.add_argument("--jobs", type=int, default=os.cpu_count() or 2)
     p.add_argument("--echo-model", choices=("copy", "residual"), default="copy")
+    p.add_argument("--echo-continuous", action="store_true", help="bargein_replay/7 pass-through (residual only)")
     p.add_argument("--bot-render", choices=("periodic", "recorded"), default="periodic")
     p.add_argument("--rhos", default=",".join(map(str, RHOS)), help="arm C rho values, e.g. 0.9 (default 0.7,0.9)")
     p.add_argument("--arm-d", action="store_true", help="also run arm D (energy-ratio gate, bargein_replay/4)")
@@ -109,6 +110,8 @@ def main():
     extra = []  # defaults add no flags, so GH16-style bargein_replay/1 sweeps keep their exact bytes
     if a.echo_model != "copy":
         extra += ["--echo-model", a.echo_model]
+    if a.echo_continuous:
+        extra += ["--echo-continuous"]
     if a.bot_render != "periodic":
         extra += ["--bot-render", a.bot_render]
     if a.arm_d:

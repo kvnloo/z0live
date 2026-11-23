@@ -54,6 +54,11 @@ Arm E (--arm-e, opt-in, output marked bargein_replay/6; arms A-D unchanged):
   CAVEAT: the residual echo model only puts echo in the uplink inside a trial's echo window (from onset),
   so bot-only windows carry noise, not echo: in this sim the estimate tracks noise/render, not the ERL.
 
+Continuous echo (--echo-continuous, opt-in, needs --echo-model residual, output marked bargein_replay/7):
+  the same residual echo path (delay, RIR, ERL, soft clip; same per-trial draws) is added to every uplink
+  sample while the speaker plays, in every trial, not only inside the event window (as on real calls).
+  Labels are unchanged; inside the old window the samples are identical. Without the flag nothing changes.
+
 Stress flags (opt-in, output marked bargein_replay/5; without them nothing changes):
   --caller-level-db-range LO,HI  per valid trial, caller gain g ~ U(LO, HI) dB
             relative to the fixture level (bot render stays at its level), drawn
@@ -111,6 +116,7 @@ HARNESS_RECORDED = "bargein_replay/3"  # only with --bot-render recorded
 HARNESS_ENERGY = "bargein_replay/4"  # only with --arm-d
 HARNESS_STRESS = "bargein_replay/5"  # only with --caller-level-db-range / --erl-db-range
 HARNESS_ERL = "bargein_replay/6"  # only with --arm-e
+HARNESS_CONTINUOUS = "bargein_replay/7"  # only with --echo-continuous
 ERL_DB_RANGE = (6, 20)
 REFLECTIONS = 12
 
@@ -482,6 +488,27 @@ def capture(trial, speaker, start, size, cfg):
     window = (echo_ms or 0) * SAMPLES_MS
     bulk = r["delay_ms"] * SAMPLES_MS
     level, gain, noise = r["clip_level"], r["gain"], r["noise"]
+    if getattr(cfg, "echo_continuous", False):
+        # bargein_replay/7: the same echo path in every sample (echo whenever the speaker plays), not only in
+        # the event window. tanh is cached per speaker sample; each echo value is the identical float sum.
+        taps = r["taps"]
+        lo = max(0, start - bulk - max(d for d, _ in taps))
+        hi = min(len(speaker), start + size - bulk)
+        soft = {ref: tanh(speaker[ref] / level) for ref in range(lo, hi)}
+        for j in range(size):
+            i = start + j
+            offset = i - origin
+            value = mic[offset] if mic is not None and 0 <= offset < len(mic) else 0
+            echo = 0.0
+            for d, h in taps:
+                ref = i - bulk - d
+                if 0 <= ref < len(speaker):
+                    echo += h * level * soft[ref]
+            value += gain * echo
+            if i < len(noise):
+                value += noise[i]
+            packet[j] = max(-32768, min(32767, round(value)))
+        return packet
     for j in range(size):
         i = start + j
         offset = i - origin
@@ -716,6 +743,7 @@ def run(n, seed, cfg, bot):
         and (k != "echo_model" or echo_model != "copy")
         and (k != "bot_render" or recorded)
         and (k not in ("caller_level_db_range", "erl_db_range") or v is not None)
+        and (k != "echo_continuous" or v)  # bargein_replay/7 only when on
     }, arms={})
     if echo_model != "copy":
         result["harness"] = HARNESS_RESIDUAL
@@ -727,6 +755,8 @@ def run(n, seed, cfg, bot):
         result["harness"] = HARNESS_STRESS
     if arm_e:
         result["harness"] = HARNESS_ERL
+    if getattr(cfg, "echo_continuous", False):
+        result["harness"] = HARNESS_CONTINUOUS
     arms = ("A", "B", "C") if arm_c else ("A", "B")
     for arm in arms + (("D",) if arm_d else ()) + (("E",) if arm_e else ()):
         rows = [replay(case, arm, cfg, bot) for case in cases]
@@ -828,6 +858,9 @@ def main():
                         help="arm E: consecutive unvetoed hot speech before flush")
     parser.add_argument("--echo-model", choices=("copy", "residual"), default="copy",
                         help="residual: bargein_replay/2 filtered, attenuated, clipped, noisy echo plus double-talk")
+    parser.add_argument("--echo-continuous", action="store_true",
+                        help="bargein_replay/7 (needs --echo-model residual): residual echo in every capture while "
+                        "the bot plays, not only in the event window")
     parser.add_argument("--bot-render", choices=("periodic", "recorded"), default="periodic",
                         help="recorded: bargein_replay/3 LibriSpeech bot render disjoint from the caller clip")
     parser.add_argument("--caller-level-db-range", type=db_range, default=None, metavar="LO,HI",
@@ -859,6 +892,9 @@ def main():
         parser.error("caller level range must be LO,HI with -60 <= LO <= HI <= 20 dB")
     if cfg.erl_db_range and (cfg.echo_model != "residual" or not 0 <= cfg.erl_db_range[0] <= cfg.erl_db_range[1] <= 60):
         parser.error("ERL range needs --echo-model residual and 0 <= LO <= HI <= 60 dB")
+
+    if cfg.echo_continuous and cfg.echo_model != "residual":
+        parser.error("--echo-continuous needs --echo-model residual")
 
     bot = voice(BOT_MS, 142, 11000, 115)
     result = run(cfg.trials, cfg.seed, cfg, bot)
