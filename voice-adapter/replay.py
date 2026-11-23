@@ -546,7 +546,7 @@ def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
     """Per voice: answers handed again after the recorded voice had already said them (repeats), and answers it
     never said that were never handed again (lost). "Said" is answer_delivery's measure, on the transcript the phone
     received: enough of a piece's words that the call had not heard before it was sent."""
-    from answer_delivery import RESUME_PREFIX, content, needed, sentences
+    from answer_delivery import RESUME_PREFIX, anchors, content, needed, sentences, spoken
     import mobile_live
 
     repeats, lost = [], []
@@ -647,7 +647,10 @@ def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
             and ev == "floor.barge_in" and data.get("speaker") == leg and data.get("by") != "provider"]
         left = [(playing(t), t) for t, ev, data in replay.floor  # the floor moved off it
                 if playing(t) is not None and ev == "floor.changed" and data.get("previous") == leg]
-        stops = barged + left
+        stops = []  # a reply stops once: take 17's provider ended line 3's at 66.857, and floor.barge_in came at 67.22
+        for opened, t in sorted(barged + left, key=lambda x: x[1]):
+            if all(o != opened for o, _ in stops):
+                stops.append((opened, t))
         # A reply that ran its course owes the paragraphs of an answer it began and left out, each naming something
         # it never said (answer_delivery.Entry.skipped). Take 16: the resumed line-3 rest was read as paragraph 2 and
         # a paraphrase of paragraph 3; paragraph 1 and card t_0a96e2de were never said, yet floor.answer_spoken
@@ -662,6 +665,7 @@ def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
                       key=lambda x: x[1])
         receipt = getattr(mobile_live, "RECEIPT", None)
         owed: dict[str | None, list[tuple[float, str]]] = {}
+        retold: set[str | None] = set()  # answers whose sentences naming something were owed once (Ledger.retold)
         for opened, t, cut in ends:
             # An answer was being said when the reply said two new words of it that no answer it said more of
             # covers (takes 7 and 13: an earlier answer shared its words with the one being said).
@@ -673,7 +677,20 @@ def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
                 items = [(at, x, late) for at, x, late in handings[did] if at < t]
                 entry = ledger_entry(items, own, t, {at for d, at in lanes if d == did})
                 if entry.started and len(mine - more) >= 2:
-                    rest = entry.rest() if cut else entry.skipped()
+                    # A cut owes what follows the last sentence said, and, like a reply that ran its course, every
+                    # sentence naming something it never said (take 17: "I won't start another one" said sentence 3
+                    # of line 3's answer, and sentence 2, card t_0a96e2de, was jumped).
+                    # Those it jumped, or skipped by running its course, are owed once per answer: a voice that
+                    # skips them again chose to (take 17's resumed rest, card sentence first, replays the recorded
+                    # reply that never had it). A cut that jumped none gives the answer its one retelling back.
+                    after = entry.rest() if cut else ""
+                    named = [] if did in retold else [x for x in sentences(entry.skipped())
+                                                      if x not in sentences(after)]
+                    if named:
+                        retold.add(did)
+                    elif cut:
+                        retold.discard(did)
+                    rest = " ".join([after] + named).strip()
                 elif not cut:
                     continue  # never begun by a reply that ran its course: still pending, judged below
                 else:  # handed into this reply and never begun: all of it (its latest words: a receipt is overtaken)
@@ -689,11 +706,21 @@ def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
         for did, rests in owed.items():
             # Each owed sentence must reach the phone, or be handed to the voice again (the recorded voice never had
             # that hand-back to say: a replay judges that hand-back by its own pieces).
+            # A sentence that names something (anchors) is said only once its names are: other words of it can come
+            # from elsewhere (take 17: "install", "card" and "phone" of the jumped sentence 2 were said by others).
             for t, rest in rests:
-                heard, handed = heard_between(t, float("inf")), set().union(
-                    *(content(x) for items in handings.values() for at, x, _ in items if at > t))
-                unsaid = [s for s in sentences(rest) if (own := content(s))
-                          and len(own & heard) < needed(len(own)) and len(own & handed) < needed(len(own))]
+                later = [x for items in handings.values() for at, x, _ in items if at > t]
+                heard, handed = heard_between(t, float("inf")), set().union(*map(content, later))
+                voiced_after = set().union(*(spoken(x) for at, x in speech if at >= t))
+                handed_names = set().union(*map(spoken, later))
+
+                def owes(s, own):
+                    names = anchors(s)
+                    if names:
+                        return not all(a <= voiced_after for a in names) and not all(a <= handed_names for a in names)
+                    return len(own & heard) < needed(len(own)) and len(own & handed) < needed(len(own))
+
+                unsaid = [s for s in sentences(rest) if (own := content(s)) and owes(s, own)]
                 if unsaid:
                     lost.append({"leg": leg, "did": did, "t": t, "cut": True, "unsaid": unsaid[0][:80]})
                     break
