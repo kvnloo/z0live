@@ -1,14 +1,14 @@
-name: z0live barge-in AEC-residual continuous echo, arms D / E / E2 (CPU, stdlib)
-# A-bargein-K: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml
+name: z0live barge-in NLMS echo canceller before the energy gate, raw continuous echo, arms D / F / F2 (CPU, stdlib)
+# A-bargein-L: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml
 # --ref <branch>` can dispatch it (a new workflow file is not dispatchable until it is on the default branch).
-# It runs voice-adapter/bench/bargein_sweep.py with --echo-model residual --echo-continuous --echo-erle-db 20
-# --bot-render recorded --arm-d --arm-e --arm-e2 (bargein_replay/8, offline virtual-time sim, Python stdlib
-# only, no network, no secrets) on holdout seed 53 and fresh seeds 8000-8039, one seed per shard, with the three
-# conditions run as parallel processes on the runner: S0 unstressed -> out/s0, S1 caller-only
+# It runs voice-adapter/bench/bargein_sweep.py with --echo-model residual --echo-continuous (raw echo, NO
+# --echo-erle-db) --bot-render recorded --arm-d --arm-f --arm-f2 (bargein_replay/9, offline virtual-time sim, Python
+# stdlib only, no network, no secrets) on holdout seed 55 and fresh seeds 9000-9039, one seed per shard, with the
+# three conditions run as parallel processes on the runner: S0 unstressed -> out/s0, S1 caller-only
 # (--caller-level-db-range -10,0) -> out/s1, FULL (caller -10,0 and --erl-db-range 0,6) -> out/full.
-# Arms A, B, C rho 0.9 at M 40 ms, D frozen (k -12 dB, M 30 ms), E frozen from A-bargein-J (estimator vetoed,
-# alpha 0.1, prior -12 dB, margin 6 dB, M 30 ms), E2 least-squares matched-lag ERL fit (margin 6 dB, prior
-# -12 dB, min updates 10, M 30 ms).
+# Arms A, B, C rho 0.9 at M 40 ms (always run by the sweep), D frozen (k -12 dB, M 30 ms), F = NLMS canceller
+# (mu 0.5, delta 1000/tap, 80 ms FIR at 4 kHz, Geigel 0.5 / 30 ms hangover) + D's gate on the residual, F2 = the
+# same canceller with the capture-referenced veto once converged (margin 6 dB, converged 6 dB).
 on:
   workflow_dispatch:
     inputs:
@@ -27,9 +27,9 @@ jobs:
       fail-fast: false
       max-parallel: 10
       matrix:
-        seed: [53, 8000, 8001, 8002, 8003, 8004, 8005, 8006, 8007, 8008, 8009, 8010, 8011, 8012, 8013, 8014, 8015,
-               8016, 8017, 8018, 8019, 8020, 8021, 8022, 8023, 8024, 8025, 8026, 8027, 8028, 8029, 8030, 8031,
-               8032, 8033, 8034, 8035, 8036, 8037, 8038, 8039]
+        seed: [55, 9000, 9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009, 9010, 9011, 9012, 9013, 9014, 9015,
+               9016, 9017, 9018, 9019, 9020, 9021, 9022, 9023, 9024, 9025, 9026, 9027, 9028, 9029, 9030, 9031,
+               9032, 9033, 9034, 9035, 9036, 9037, 9038, 9039]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,11 +48,9 @@ jobs:
         run: |
           set -euo pipefail
           cd voice-adapter
-          common=(--seeds "$SEED" --jobs 1 --echo-model residual --echo-continuous --echo-erle-db 20
+          common=(--seeds "$SEED" --jobs 1 --echo-model residual --echo-continuous
                   --bot-render recorded --rhos 0.9 --arm-d --energy-k-db -12 --energy-min-speech-ms 30
-                  --arm-e --erl-estimator vetoed --erl-alpha 0.1 --erl-prior-db=-12 --erl-margin-db=6
-                  --erl-min-speech-ms 30
-                  --arm-e2 --erl2-margin-db=6 --erl2-prior-db=-12 --erl2-min-updates 10 --erl2-min-speech-ms 30)
+                  --arm-f --arm-f2)
           t0=$(date +%s)
           python -B bench/bargein_sweep.py "${common[@]}" --out ../out/s0 > ../s0.log &
           p0=$!

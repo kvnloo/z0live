@@ -71,6 +71,12 @@ Arm E2 (--arm-e2, opt-in, output marked bargein_replay/8; arms A-E unchanged): a
   near <= 10^(erl2_margin_db/10) x (g x render(L) + a); before erl2_min_updates fits it falls back to
   near <= 10^((erl2_prior_db + erl2_margin_db)/10) x max-window render (arm E's start rule).
 
+Arms F / F2 (--arm-f / --arm-f2, opt-in, output marked bargein_replay/9; arms A-E2 unchanged): an NLMS linear
+  echo canceller (adapter render log = reference, uplink = input; 4 kHz low band, cross-correlation delay
+  estimate, 80 ms FIR, Geigel double-talk freeze) in front of arm D's gate on the residual (energy_k_db,
+  energy_min_speech_ms). F vetoes against the render energy (D's rule); F2 against the capture once the
+  canceller's own ERLE monitor says it has converged. Per-trial ERLE (scoring only) is logged. See NlmsGate.
+
 Stress flags (opt-in, output marked bargein_replay/5; without them nothing changes):
   --caller-level-db-range LO,HI  per valid trial, caller gain g ~ U(LO, HI) dB
             relative to the fixture level (bot render stays at its level), drawn
@@ -107,7 +113,7 @@ from hashlib import sha256
 from heapq import heappop, heappush
 from itertools import count
 import json
-from math import ceil, exp, log10, pi, sin, sqrt, tanh
+from math import ceil, cos, exp, log10, pi, sin, sqrt, tanh
 from operator import mul
 from pathlib import Path
 from random import Random
@@ -130,6 +136,7 @@ HARNESS_STRESS = "bargein_replay/5"  # only with --caller-level-db-range / --erl
 HARNESS_ERL = "bargein_replay/6"  # only with --arm-e
 HARNESS_CONTINUOUS = "bargein_replay/7"  # only with --echo-continuous
 HARNESS_AEC = "bargein_replay/8"  # only with --echo-erle-db or --arm-e2
+HARNESS_NLMS = "bargein_replay/9"  # only with --arm-f or --arm-f2
 ERL_DB_RANGE = (6, 20)
 REFLECTIONS = 12
 
@@ -496,6 +503,205 @@ class ErlFitGate:
         return False
 
 
+def lowpass(taps, cutoff):
+    """Hamming-windowed sinc lowpass (cutoff in cycles/sample), unity DC gain, mirrored so it is exactly
+    linear-phase, coefficients rounded to 9 decimals so libm ulp differences cannot change output bytes."""
+    mid = (taps - 1) // 2
+    half = []
+    for i in range(mid + 1):
+        x = i - mid
+        s = 2 * cutoff if x == 0 else sin(2 * pi * cutoff * x) / (pi * x)
+        half.append(s * (0.54 - 0.46 * cos(2 * pi * i / (taps - 1))))
+    h = half + half[-2::-1]
+    total = sum(h)
+    return tuple(round(v / total, 9) for v in h)
+
+
+LOWPASS_16K = lowpass(31, 1800 / 16000)  # 16 kHz -> 4 kHz decimation (passband 0-1.8 kHz)
+LOWPASS_4K = lowpass(31, 400 / 4000)  # 4 kHz -> 1 kHz decimation for the delay estimator (0-400 Hz)
+
+
+def decimate(src, dst, upto, h):
+    """Append dst[m] = sum_k h[k] src[4m - k] (zero before index 0) for m in len(dst)..upto-1."""
+    span = len(h) - 1
+    for m in range(len(dst), upto):
+        hi = 4 * m + 1
+        lo = hi - len(h)
+        seg = src[lo:hi] if lo >= 0 else [0] * (-lo) + list(src[0:hi])
+        dst.append(sum(map(mul, h, seg)))
+    return span
+
+
+class NlmsGate:
+    """Arms F / F2 (bargein_replay/9): NLMS linear echo canceller in front of arm D's energy-ratio gate.
+
+    Same inputs as EnergyGate: uplink PCM packets at adapter receive time (observe) and the bot PCM frames this
+    adapter sent (render). Nothing else: the sim's echo path, ERL, delays, labels and onset are never read.
+    Both signals are low-passed (31-tap Hamming sinc, 0-1.8 kHz) and decimated to 4 kHz, in adapter time.
+    (1) Delay estimator: normalised cross-correlation of capture and render at 1 kHz (a second 0-400 Hz
+        lowpass) accumulated over render-active, non-double-talk packets, lags 0..energy_lag_max_ms; the peak
+        lag is the bulk delay once nlms_min_updates packets were accumulated.
+    (2) NLMS FIR (4 kHz, taps covering lags delay - nlms_pre_ms .. delay + nlms_post_ms): y = w.x,
+        e = capture - y, w += mu e x / (x.x + delta), delta = taps x nlms_delta. When the delay estimate moves,
+        the weights are shifted with it (each tap keeps its absolute lag).
+    (3) Geigel double-talk detector per packet: max|capture| >= nlms_geigel x max|render| over the filter's
+        lag span (whole 0..lag window before the delay is known); flagged packets plus nlms_hang_ms after them
+        freeze adaptation and the delay estimator. Filtering continues.
+    (4) Gate on the residual e (4 kHz packet energy): hot when RMS >= the VAD threshold; arm F ("render")
+        vetoes when e energy <= 10^(energy_k_db/10) x the max render-window energy over 0..energy_lag_max_ms
+        (arm D's rule, on the residual); arm F2 ("echo") uses D's rule until the canceller's own ERLE monitor
+        (EWMA 0.1 of capture/residual dB over adapting packets) reaches nlms_converged_db, then vetoes when the
+        canceller removed at least nlms_margin_db of the packet's capture energy (e <= d x 10^(-margin/10)).
+        Flush after energy_min_speech_ms of consecutive hot, unvetoed packets.
+    """
+
+    def __init__(self, cfg, span_ms, ref):
+        assert ref in ("render", "echo")
+        self.ref = ref
+        self.mu = cfg.nlms_mu
+        self.pre = cfg.nlms_pre_ms * 4
+        self.length = (cfg.nlms_pre_ms + cfg.nlms_post_ms) * 4
+        self.delta = cfg.nlms_delta * self.length
+        self.geigel = cfg.nlms_geigel
+        self.hang = cfg.nlms_hang_ms
+        self.min_updates = cfg.nlms_min_updates
+        self.ratio2 = 10 ** (cfg.energy_k_db / 10)
+        self.minimum = cfg.energy_min_speech_ms
+        self.lag_ms = cfg.energy_lag_max_ms
+        self.sent = pcm(span_ms)
+        self.near = pcm(span_ms)
+        self.r4, self.d4, self.r1, self.d1 = [], [], [], []
+        self.p4 = [0.0]  # prefix sums of r4^2
+        self.p1 = [0.0]  # prefix sums of r1^2
+        self.corr = [0.0] * (self.lag_ms + 1)
+        self.rr = [0.0] * (self.lag_ms + 1)
+        self.w = [0.0] * self.length
+        self.delay_ms = None
+        self.est_updates = 0
+        self.updates = 0
+        self.dt_packets = 0
+        self.dt_until = -1
+        self.erle_hat_db = 0.0  # EWMA (0.1) of 10 log10(capture / residual) over adapting packets
+        self.converged_db = cfg.nlms_converged_db  # F2 trusts the canceller once its monitored ERLE reaches this
+        self.margin_db = cfg.nlms_margin_db
+        self.log = []  # (t, capture energy, residual energy) per render-active packet before the fire
+        self.run = 0
+        self.fired = False
+        self.vetoes = 0
+
+    def render(self, t, frame):
+        pos = t * SAMPLES_MS
+        self.sent[pos:pos + len(frame)] = frame
+
+    def advance(self, end):
+        m1, q1 = end // 4, end // SAMPLES_MS
+        decimate(self.sent, self.r4, m1, LOWPASS_16K)
+        decimate(self.near, self.d4, m1, LOWPASS_16K)
+        decimate(self.r4, self.r1, q1, LOWPASS_4K)
+        decimate(self.d4, self.d1, q1, LOWPASS_4K)
+        for src, prefix in ((self.r4, self.p4), (self.r1, self.p1)):
+            while len(prefix) <= len(src):
+                v = src[len(prefix) - 1]
+                prefix.append(prefix[-1] + v * v)
+
+    def estimate(self, q0, q1):
+        r1, p1, corr, rr = self.r1, self.p1, self.corr, self.rr
+        d = self.d1[q0:q1]
+        for lag in range(self.lag_ms + 1):
+            lo, hi = q0 - lag, q1 - lag
+            if hi <= 0:
+                break
+            seg = r1[lo:hi] if lo >= 0 else [0.0] * (-lo) + r1[0:hi]
+            corr[lag] += sum(map(mul, d, seg))
+            rr[lag] += p1[hi] - p1[max(0, lo)]
+        self.est_updates += 1
+        if self.est_updates < self.min_updates:
+            return
+        best = None
+        for lag in range(self.lag_ms + 1):
+            if rr[lag] > 0 and corr[lag] > 0:
+                score = corr[lag] / sqrt(rr[lag])
+                if best is None or score > best[0]:
+                    best = (score, lag)
+        if best is None or best[1] == self.delay_ms:
+            return
+        if self.delay_ms is not None:  # keep every tap at its absolute lag
+            shift = (best[1] - self.delay_ms) * 4
+            old = self.w
+            self.w = [old[j - shift] if 0 <= j - shift < self.length else 0.0 for j in range(self.length)]
+        self.delay_ms = best[1]
+
+    def observe(self, t, packet):
+        if self.fired:
+            return False
+        end = t * SAMPLES_MS
+        self.near[end - len(packet):end] = packet
+        self.advance(end)
+        m1 = end // 4
+        m0 = m1 - len(packet) // 4
+        n = m1 - m0
+        r4, d4, p4 = self.r4, self.d4, self.p4
+        lag4 = self.lag_ms * 4
+        top = max((p4[e] - p4[e - n] for e in range(max(n, m1 - lag4), m1 + 1)), default=0.0)
+        active = top >= n * THRESHOLD ** 2
+        if self.delay_ms is None:
+            lo_lag, hi_lag = 0, lag4
+        else:
+            lo_lag = max(0, self.delay_ms * 4 - self.pre)
+            hi_lag = lo_lag + self.length - 1
+        span = r4[max(0, m0 - hi_lag):max(0, m1 - lo_lag)]
+        rmax = max(map(abs, span), default=0.0)
+        if active and rmax and max(map(abs, d4[m0:m1])) >= self.geigel * rmax:
+            self.dt_until = t + self.hang
+        dt = active and t <= self.dt_until
+        self.dt_packets += dt
+        adapt = active and not dt
+        ee = ey = 0.0
+        if self.delay_ms is None:
+            for m in range(m0, m1):
+                ee += d4[m] * d4[m]
+        else:
+            s0 = max(0, self.delay_ms * 4 - self.pre)
+            taps, mu, delta = self.length, self.mu, self.delta
+            for m in range(m0, m1):
+                hi = m - s0 + 1
+                lo = hi - taps
+                x = r4[lo:hi] if lo >= 0 else [0.0] * (-lo) + r4[0:hi] if hi > 0 else [0.0] * taps
+                w = self.w
+                y = sum(map(mul, w, x))
+                e = d4[m] - y
+                ee += e * e
+                ey += y * y
+                if adapt:
+                    norm = p4[max(0, hi)] - p4[max(0, lo)]
+                    if norm:
+                        g = mu * e / (norm + delta)
+                        self.w = [a + g * b for a, b in zip(w, x)]
+                        self.updates += 1
+        if adapt:
+            q1 = end // SAMPLES_MS
+            self.estimate(q1 - len(packet) // SAMPLES_MS, q1)
+        ed = sum(d4[m] * d4[m] for m in range(m0, m1))
+        if active:
+            self.log.append((t, ed, ee))
+        if adapt and self.delay_ms is not None and ed and ee:  # the canceller's own ERLE monitor
+            self.erle_hat_db = 0.9 * self.erle_hat_db + 0.1 * 10 * log10(ed / ee)
+        speech = ee >= n * THRESHOLD ** 2
+        if speech:
+            if self.ref == "echo" and self.erle_hat_db >= self.converged_db:
+                explained = ee <= ed * 10 ** (-self.margin_db / 10)  # the canceller removed >= margin dB
+            else:
+                explained = top and ee <= self.ratio2 * top
+            if explained:
+                speech = False
+                self.vetoes += 1
+        self.run = self.run + CAPTURE_MS if speech else 0
+        if self.run >= self.minimum:
+            self.fired = True
+            return True
+        return False
+
+
 def residual_echo(seed, index, kind, erl_db_range=None):
     """bargein_replay/2 per-trial echo path, drawn from its own RNG (erl_db_range: bargein_replay/5)."""
     rng = Random(f"{HARNESS_RESIDUAL}:{seed}:{index}")
@@ -687,6 +893,8 @@ def replay(trial, arm, cfg, bot):
     egate = EnergyGate(cfg, len(speaker) // SAMPLES_MS) if arm == "D" else None
     lgate = ErlGate(cfg, len(speaker) // SAMPLES_MS) if arm == "E" else None
     fgate = ErlFitGate(cfg, len(speaker) // SAMPLES_MS) if arm == "E2" else None
+    ngate = (NlmsGate(cfg, len(speaker) // SAMPLES_MS, "render" if arm == "F" else "echo")
+             if arm in ("F", "F2") else None)
 
     def post(t, priority, label, payload=None):
         heappush(future, (t, priority, next(order), label, payload))
@@ -746,6 +954,8 @@ def replay(trial, arm, cfg, bot):
                     lgate.render(t, bot[first:first + size])
                 if fgate:
                     fgate.render(t, bot[first:first + size])
+                if ngate:
+                    ngate.render(t, bot[first:first + size])
         elif event == "capture":
             packet = capture(trial, speaker, (t - CAPTURE_MS) * SAMPLES_MS, CAPTURE_MS * SAMPLES_MS, cfg)
             if t - CAPTURE_MS <= onset < t:
@@ -772,6 +982,9 @@ def replay(trial, arm, cfg, bot):
             if fgate and fgate.observe(t, payload):
                 trace["erl2_fire_ms"] = t
                 flush(t, "erl2_gated_local_vad")
+            if ngate and ngate.observe(t, payload):
+                trace["nlms_fire_ms"] = t
+                flush(t, "nlms_gated_local_vad")
             # PCM keeps flowing upstream even if bot audio has been muted.
             post(t + trial["ws_up"], 3, "server_pcm", payload)
         elif event == "server_pcm":
@@ -824,6 +1037,22 @@ def replay(trial, arm, cfg, bot):
         trace["erl2_lag_ms"] = fgate.lag_ms
         trace["energy_max_ratio_db"] = (None if fgate.max_ratio2 is None
                                         else round(10 * log10(fgate.max_ratio2), 2))
+    erle = None
+    if ngate:
+        # ERLE of the canceller (scoring only, uses the label onset): 10 log10(capture / residual energy) per
+        # render-active 4 kHz packet whose samples all precede the caller mic onset (no near-end talker).
+        hot_e = CAPTURE_MS * 4 * THRESHOLD ** 2  # 4 kHz packet whose capture is above the VAD threshold
+        erle = [round(10 * log10(c / r), 2) for t, c, r in ngate.log
+                if t - trial["up"] <= onset and c >= hot_e and r]
+        trace["nlms_vetoes"] = ngate.vetoes
+        trace["nlms_updates"] = ngate.updates
+        trace["nlms_dt_packets"] = ngate.dt_packets
+        trace["nlms_active_packets"] = len(ngate.log)
+        trace["nlms_delay_ms"] = ngate.delay_ms
+        trace["nlms_delay_true_ms"] = trial["up"] + trial["down"] + hold + (
+            trial["residual"]["delay_ms"] if "residual" in trial else 35)  # direct-path lag, scoring only
+        trace["nlms_erle_db"] = median(erle) if erle else None
+        trace["nlms_erle_packets"] = len(erle)
     row = dict(trial=trial["id"], kind=kind, latency_ms=latency,
                residual_ms=residual, false_barge_in=kind != "valid" and muted,
                missed_valid=kind == "valid" and not muted,
@@ -838,6 +1067,8 @@ def replay(trial, arm, cfg, bot):
             row["echo_path"]["erle_db"] = cfg.echo_erle_db
     if "caller_gain_db" in trial:
         row["caller_gain_db"] = round(trial["caller_gain_db"], 3)
+    if erle is not None:
+        row["_erle"] = erle  # popped by run(): pooled packet ERLE summary
     if "bot" in trial:
         row["bot_render"] = dict(clip=trial["bot_clip"], offset=trial["bot_offset"], mic_clip=trial["mic_clip"])
     return row
@@ -873,10 +1104,14 @@ def run(n, seed, cfg, bot):
     arm_d = getattr(cfg, "arm_d", False)
     arm_e = getattr(cfg, "arm_e", False)
     arm_e2 = getattr(cfg, "arm_e2", False)
+    arm_f = getattr(cfg, "arm_f", False)
+    arm_f2 = getattr(cfg, "arm_f2", False)
     result = dict(seed=seed, trials_per_arm=n, parameters={
-        k: v for k, v in vars(cfg).items() if k not in ("aa", "output", "seed", "trials", "arm_c", "arm_d", "arm_e", "arm_e2")
+        k: v for k, v in vars(cfg).items()
+        if k not in ("aa", "output", "seed", "trials", "arm_c", "arm_d", "arm_e", "arm_e2", "arm_f", "arm_f2")
         and (arm_c or not k.startswith("gate_"))  # default run keeps the frozen bytes
-        and (arm_d or arm_e or arm_e2 or not k.startswith("energy_"))
+        and (arm_d or arm_e or arm_e2 or arm_f or arm_f2 or not k.startswith("energy_"))
+        and (arm_f or arm_f2 or not k.startswith("nlms_"))  # bargein_replay/9 only with --arm-f / --arm-f2
         and (arm_e2 or not k.startswith("erl2_"))  # bargein_replay/8 only with --arm-e2
         and (arm_e or not k.startswith("erl_") or k == "erl_db_range")  # erl_db_range: bargein_replay/5 stress
         and (k != "echo_model" or echo_model != "copy")
@@ -899,9 +1134,13 @@ def run(n, seed, cfg, bot):
         result["harness"] = HARNESS_CONTINUOUS
     if getattr(cfg, "echo_erle_db", None) is not None or arm_e2:
         result["harness"] = HARNESS_AEC
+    if arm_f or arm_f2:
+        result["harness"] = HARNESS_NLMS
     arms = ("A", "B", "C") if arm_c else ("A", "B")
-    for arm in arms + (("D",) if arm_d else ()) + (("E",) if arm_e else ()) + (("E2",) if arm_e2 else ()):
+    arms += (("D",) if arm_d else ()) + (("E",) if arm_e else ()) + (("E2",) if arm_e2 else ())
+    for arm in arms + (("F",) if arm_f else ()) + (("F2",) if arm_f2 else ()):
         rows = [replay(case, arm, cfg, bot) for case in cases]
+        pooled = [v for row in rows for v in row.pop("_erle", ())]
         valid = [row for row in rows if row["kind"] == "valid"]
         result["arms"][arm] = dict(
             valid_n=len(valid),
@@ -953,6 +1192,19 @@ def run(n, seed, cfg, bot):
                 [row["latency_ms"] for row in valid if row.get("echo_path", {}).get("double_talk")])
             summary["valid_trials_with_veto"] = sum(row["trace"]["erl2_vetoes"] > 0 for row in valid)
             summary["final_est_db"] = quantiles([row["trace"]["erl2_final_est_db"] for row in rows])
+        if arm in ("F", "F2"):
+            summary = result["arms"][arm]
+            summary["double_talk_latency_ms"] = percentiles(
+                [row["latency_ms"] for row in valid if row.get("echo_path", {}).get("double_talk")])
+            summary["valid_trials_with_veto"] = sum(row["trace"]["nlms_vetoes"] > 0 for row in valid)
+            summary["erle_db"] = quantiles(pooled)  # pooled over pre-onset render-active packets
+            summary["erle_trial_p50_db"] = quantiles([row["trace"]["nlms_erle_db"] for row in rows
+                                                      if row["trace"]["nlms_erle_db"] is not None])
+            act = sum(row["trace"]["nlms_active_packets"] for row in rows)
+            dtp = sum(row["trace"]["nlms_dt_packets"] for row in rows)
+            summary["dt_packet_fraction"] = round(dtp / act, 4) if act else None
+            summary["delay_error_ms"] = quantiles([row["trace"]["nlms_delay_ms"] - row["trace"]["nlms_delay_true_ms"]
+                                                   for row in rows if row["trace"]["nlms_delay_ms"] is not None])
     return result
 
 
@@ -1012,6 +1264,23 @@ def main():
     parser.add_argument("--erl2-min-updates", type=int, default=10, help="arm E2: fitted packets before using the fit")
     parser.add_argument("--erl2-min-speech-ms", type=int, default=30,
                         help="arm E2: consecutive unvetoed hot speech before flush")
+    parser.add_argument("--arm-f", action="store_true",
+                        help="add arm F (bargein_replay/9): NLMS echo canceller, then arm D's gate on the residual")
+    parser.add_argument("--arm-f2", action="store_true",
+                        help="add arm F2 (bargein_replay/9): arm F vetoing against the canceller's echo estimate")
+    parser.add_argument("--nlms-mu", type=float, default=0.5, help="arms F/F2: normalised NLMS step size")
+    parser.add_argument("--nlms-delta", type=float, default=1000.0,
+                        help="arms F/F2: regularisation per tap (delta = taps x this, int16 units squared)")
+    parser.add_argument("--nlms-pre-ms", type=int, default=15, help="arms F/F2: filter span before the delay estimate")
+    parser.add_argument("--nlms-post-ms", type=int, default=65, help="arms F/F2: filter span after the delay estimate")
+    parser.add_argument("--nlms-geigel", type=float, default=0.5, help="arms F/F2: Geigel double-talk threshold")
+    parser.add_argument("--nlms-hang-ms", type=int, default=30, help="arms F/F2: double-talk hangover")
+    parser.add_argument("--nlms-min-updates", type=int, default=10,
+                        help="arms F/F2: render-active packets before the delay estimate places the filter")
+    parser.add_argument("--nlms-margin-db", type=float, default=6.0,
+                        help="arm F2 (once converged): veto when the residual is >= this many dB below the capture")
+    parser.add_argument("--nlms-converged-db", type=float, default=6.0,
+                        help="arm F2: monitored ERLE (EWMA 0.1 over adapting packets) that switches from D's rule")
     parser.add_argument("--echo-erle-db", type=float, default=None,
                         help="bargein_replay/8 (needs --echo-continuous): linear-AEC residual, echo attenuated X dB")
     parser.add_argument("--echo-model", choices=("copy", "residual"), default="copy",
@@ -1060,6 +1329,12 @@ def main():
             or not -60 <= cfg.erl2_margin_db <= 60 or not -100 <= cfg.erl2_prior_db <= 40):
         parser.error("erl2 minimum speech must be a positive multiple of 10 ms; min updates >= 2; "
                      "margin in [-60, 60] dB; prior in [-100, 40] dB")
+
+    if (not 0 < cfg.nlms_mu < 2 or cfg.nlms_delta <= 0 or not 0 <= cfg.nlms_pre_ms <= 100
+            or not 10 <= cfg.nlms_post_ms <= 200 or not 0 < cfg.nlms_geigel <= 1 or cfg.nlms_hang_ms < 0
+            or cfg.nlms_min_updates < 1):
+        parser.error("nlms: mu in (0, 2), delta > 0, pre 0..100 ms, post 10..200 ms, geigel in (0, 1], "
+                     "hang >= 0, min updates >= 1")
 
     bot = voice(BOT_MS, 142, 11000, 115)
     result = run(cfg.trials, cfg.seed, cfg, bot)

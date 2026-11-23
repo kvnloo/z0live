@@ -47,6 +47,8 @@ def arm_summary(arm):
         out["valid_trials_with_veto"] = sum(t["trace"].get("erl_vetoes", 0) > 0 for t in valid)
     if any("erl2_vetoes" in t["trace"] for t in arm["trials"]):  # arm E2 (bargein_replay/8)
         out["valid_trials_with_veto"] = sum(t["trace"].get("erl2_vetoes", 0) > 0 for t in valid)
+    if any("nlms_vetoes" in t["trace"] for t in arm["trials"]):  # arms F / F2 (bargein_replay/9)
+        out["valid_trials_with_veto"] = sum(t["trace"].get("nlms_vetoes", 0) > 0 for t in valid)
     return out
 
 
@@ -63,7 +65,7 @@ def run_one(seed, rho, m, trials, extra):
 def sweep_seed(seed, m, trials, extra, rhos=RHOS):
     runs = {rho: run_one(seed, rho, m, trials, extra) for rho in rhos}
     base = runs[rhos[0]][1]
-    shared = ("A", "B") + tuple(a for a in ("D", "E", "E2") if a in base["arms"])  # D, E (opt-in) do not depend on rho
+    shared = ("A", "B") + tuple(a for a in ("D", "E", "E2", "F", "F2") if a in base["arms"])  # D, E (opt-in) do not depend on rho
     ab_same = all(json.dumps(r[1]["arms"][a], sort_keys=True) == json.dumps(base["arms"][a], sort_keys=True)
                   for r in runs.values() for a in shared)
     arms = {a: arm_summary(base["arms"][a]) for a in shared}
@@ -98,6 +100,17 @@ def main():
     p.add_argument("--erl2-prior-db", type=float, default=-12.0)
     p.add_argument("--erl2-min-updates", type=int, default=10)
     p.add_argument("--erl2-min-speech-ms", type=int, default=30)
+    p.add_argument("--arm-f", action="store_true", help="also run arm F (NLMS canceller + D gate, bargein_replay/9)")
+    p.add_argument("--arm-f2", action="store_true", help="also run arm F2 (NLMS canceller, echo-estimate veto)")
+    p.add_argument("--nlms-mu", type=float, default=0.5)
+    p.add_argument("--nlms-delta", type=float, default=1000.0)
+    p.add_argument("--nlms-pre-ms", type=int, default=15)
+    p.add_argument("--nlms-post-ms", type=int, default=65)
+    p.add_argument("--nlms-geigel", type=float, default=0.5)
+    p.add_argument("--nlms-hang-ms", type=int, default=30)
+    p.add_argument("--nlms-min-updates", type=int, default=10)
+    p.add_argument("--nlms-margin-db", type=float, default=6.0)
+    p.add_argument("--nlms-converged-db", type=float, default=6.0)
     p.add_argument("--bot-render", choices=("periodic", "recorded"), default="periodic")
     p.add_argument("--rhos", default=",".join(map(str, RHOS)), help="arm C rho values, e.g. 0.9 (default 0.7,0.9)")
     p.add_argument("--arm-d", action="store_true", help="also run arm D (energy-ratio gate, bargein_replay/4)")
@@ -133,6 +146,14 @@ def main():
     if a.arm_e2:
         extra += ["--arm-e2", "--erl2-margin-db=" + str(a.erl2_margin_db), "--erl2-prior-db=" + str(a.erl2_prior_db),
                   "--erl2-min-updates", str(a.erl2_min_updates), "--erl2-min-speech-ms", str(a.erl2_min_speech_ms)]
+    if a.arm_f or a.arm_f2:
+        if not a.arm_d:
+            extra += ["--energy-k-db=" + str(a.energy_k_db), "--energy-min-speech-ms", str(a.energy_min_speech_ms)]
+        extra += (["--arm-f"] if a.arm_f else []) + (["--arm-f2"] if a.arm_f2 else [])
+        extra += ["--nlms-mu", str(a.nlms_mu), "--nlms-delta", str(a.nlms_delta), "--nlms-pre-ms", str(a.nlms_pre_ms),
+                  "--nlms-post-ms", str(a.nlms_post_ms), "--nlms-geigel", str(a.nlms_geigel),
+                  "--nlms-hang-ms", str(a.nlms_hang_ms), "--nlms-min-updates", str(a.nlms_min_updates),
+                  "--nlms-margin-db=" + str(a.nlms_margin_db), "--nlms-converged-db=" + str(a.nlms_converged_db)]
     if a.caller_level_db_range:
         extra += ["--caller-level-db-range=" + a.caller_level_db_range]  # "=": the value starts with "-"
     if a.erl_db_range:

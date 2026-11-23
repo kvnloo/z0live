@@ -957,5 +957,140 @@ class AecResidualTest(unittest.TestCase):
             self.assertTrue(res['ab_identical_across_rho_runs'])
 
 
+F_ARGS = ('--arm-f', '--arm-f2', '--energy-k-db', '-12', '--energy-min-speech-ms', '30')
+
+
+class NlmsGateTest(unittest.TestCase):
+    """bargein_replay/9: opt-in arms F / F2, an NLMS linear echo canceller (render reference, uplink input,
+    Geigel double-talk freeze) in front of arm D's energy-ratio gate; F vetoes against the render (D's rule on
+    the residual), F2 against the canceller's own echo estimate."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.render = replay.clip(sorted(replay.ASSETS.glob('*.wav'))[0])
+
+    def f_cfg(self, **overrides):
+        return cfg(**({'energy_lag_max_ms': 250, 'energy_k_db': -12.0, 'energy_min_speech_ms': 30,
+                       'nlms_mu': 0.5, 'nlms_delta': 1000.0, 'nlms_pre_ms': 15, 'nlms_post_ms': 65,
+                       'nlms_geigel': 0.5, 'nlms_hang_ms': 30, 'nlms_min_updates': 10,
+                       'nlms_margin_db': 6.0, 'nlms_converged_db': 6.0} | overrides))
+
+    def synthetic(self, gate, lag_ms=130, gain_db=-10.0, caller_from=None, caller_amp=3000, ms=2000):
+        """Render = the fixture clip tiled; near = sparse 13-tap echo of the render (lag_ms bulk), + noise,
+        + an optional square-ish caller from caller_from ms. Returns the first fire time or None."""
+        n = replay.SAMPLES_MS * replay.CAPTURE_MS
+        total = ms * replay.SAMPLES_MS
+        sent = array('h', (self.render[i % len(self.render)] for i in range(total)))
+        for t in range(0, ms, 20):
+            gate.render(t, sent[t * replay.SAMPLES_MS:(t + 20) * replay.SAMPLES_MS])
+        rng = replay.Random(5)
+        taps = [(0, 1.0)] + [(rng.randint(16, 640), rng.choice((-1, 1)) * rng.uniform(.1, .4)) for _ in range(12)]
+        g = 10 ** (gain_db / 20)
+        bulk = lag_ms * replay.SAMPLES_MS
+        fired = None
+        for end in range(10, ms + 1, 10):
+            packet = array('h', [0]) * n
+            for j in range(n):
+                i = end * replay.SAMPLES_MS - n + j
+                echo = sum(h * sent[i - bulk - d] for d, h in taps if i - bulk - d >= 0)
+                v = g * echo + rng.gauss(0, 50)
+                if caller_from is not None and end - 10 >= caller_from:
+                    v += caller_amp * (1 if (i // 20) % 2 else -1)
+                packet[j] = max(-32768, min(32767, round(v)))
+            if gate.observe(end, packet) and fired is None:
+                fired = end
+        return fired
+
+    def test_harness_id(self):
+        self.assertEqual(replay.HARNESS_NLMS, 'bargein_replay/9')
+
+    def test_f_never_reads_labels(self):
+        import ast
+        import inspect
+        tree = ast.parse(inspect.getsource(replay.NlmsGate))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                self.assertNotIn(node.id, ArmCTest.FORBIDDEN, node.id)
+            elif isinstance(node, ast.Attribute):
+                self.assertNotIn(node.attr, ArmCTest.FORBIDDEN | {'erl_db', 'gain', 'caller_gain_db', 'erle_db',
+                                                                  'taps', 'delay_ms_true'}, node.attr)
+                if isinstance(node.value, ast.Name) and node.value.id == 'cfg':
+                    self.assertTrue(node.attr.startswith(('nlms_', 'energy_')), node.attr)
+        self.assertEqual(list(inspect.signature(replay.NlmsGate.observe).parameters), ['self', 't', 'packet'])
+        self.assertEqual(list(inspect.signature(replay.NlmsGate.render).parameters), ['self', 't', 'frame'])
+
+    def test_lowpass_is_unity_dc_and_platform_rounded(self):
+        for h in (replay.LOWPASS_16K, replay.LOWPASS_4K):
+            self.assertAlmostEqual(sum(h), 1.0, places=6)
+            self.assertEqual(list(h), list(reversed(h)))  # linear phase
+            self.assertTrue(all(round(c, 9) == c for c in h))
+
+    def test_cancels_sparse_echo_and_finds_delay(self):
+        for ref in ('render', 'echo'):
+            gate = replay.NlmsGate(self.f_cfg(), 2100, ref)
+            self.assertIsNone(self.synthetic(gate), ref)
+            self.assertLessEqual(abs(gate.delay_ms - 130), 3, ref)
+            late = [10 * replay.log10(c / r) for t, c, r in gate.log if t > 1500 and r > 0]
+            self.assertGreater(len(late), 20)
+            self.assertGreaterEqual(replay.median(late), 15.0, ref)
+            self.assertGreater(gate.updates, 1000)
+
+    def test_geigel_freezes_adaptation_in_double_talk(self):
+        gate = replay.NlmsGate(self.f_cfg(), 2100, 'render')
+        fired = self.synthetic(gate, caller_from=1200, caller_amp=15000, ms=1400)
+        self.assertGreater(gate.dt_packets, 0)
+        self.assertIsNotNone(fired)
+        self.assertGreater(fired, 1200)
+        self.assertLessEqual(fired, 1250)
+
+    def test_f2_fires_on_quiet_caller_over_echo(self):
+        # caller ~ -14 dB under the render peak level: arm F (render reference, k -12) vetoes it, F2 does not
+        f = replay.NlmsGate(self.f_cfg(), 2100, 'render')
+        f2 = replay.NlmsGate(self.f_cfg(), 2100, 'echo')
+        fired_f2 = self.synthetic(f2, caller_from=1500, caller_amp=1200, ms=1700)
+        self.assertIsNotNone(fired_f2)
+        self.assertLessEqual(fired_f2, 1560)
+        fired_f = self.synthetic(f, caller_from=1500, caller_amp=1200, ms=1700)
+        self.assertTrue(fired_f is None or fired_f > fired_f2)
+
+    def test_cli_arm_f_leaves_other_arms_unchanged(self):
+        proc, plain = run_cli(*CONT_J_ARGS)
+        self.assertEqual(sha256(plain).hexdigest(), CONT_J_SHA256)
+        proc, data = run_cli(*CONT_J_ARGS, *F_ARGS[:2], '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        p, o = json.loads(plain), json.loads(data)
+        self.assertEqual(o['harness'], 'bargein_replay/9')
+        self.assertEqual(sorted(o['arms']), ['A', 'B', 'C', 'D', 'E', 'F', 'F2'])
+        for arm in ('A', 'B', 'C', 'D', 'E'):
+            self.assertEqual(canonical(o['arms'][arm]), canonical(p['arms'][arm]), arm)
+        self.assertEqual(o['parameters']['nlms_mu'], 0.5)
+        self.assertFalse(any(k.startswith('nlms_') for k in p['parameters']))
+        self.assertIs(json.loads(proc.stdout)['aa_identical'], True)
+        for arm in ('F', 'F2'):
+            s = json.loads(proc.stdout)['arms'][arm]
+            self.assertEqual(sorted(s['erle_db']), ['n', 'p10', 'p50', 'p90'])
+            self.assertIn('valid_trials_with_veto', s)
+            trace = o['arms'][arm]['trials'][0]['trace']
+            for key in ('nlms_delay_ms', 'nlms_erle_db', 'nlms_dt_packets', 'nlms_vetoes'):
+                self.assertIn(key, trace)
+        # F flags without --arm-f / --arm-f2 change nothing
+        proc, data = run_cli(*CONT_J_ARGS, '--nlms-mu', '0.5')
+        self.assertEqual(sha256(data).hexdigest(), CONT_J_SHA256)
+
+    def test_sweep_passes_arm_f(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([sys.executable, '-B', str(BENCH_DIR / 'bargein_sweep.py'), '--seeds', '39', '--trials', '10',
+                            '--echo-model', 'residual', '--echo-continuous', '--bot-render', 'recorded', '--rhos',
+                            '0.9', '--arm-d', '--energy-k-db', '-12', '--energy-min-speech-ms', '30', '--arm-f',
+                            '--arm-f2', '--out', tmp], check=True, capture_output=True, timeout=900)
+            res = json.loads(Path(tmp, 'seed-39.json').read_text())
+            self.assertEqual(res['harness'], 'bargein_replay/9')
+            self.assertIn('--arm-f', res['extra_args'])
+            self.assertEqual(sorted(res['arms']), ['A', 'B', 'C0.9', 'D', 'F', 'F2'])
+            self.assertIn('valid_trials_with_veto', res['arms']['F'])
+            self.assertIn('erle_db', res['arms']['F2'])
+            self.assertTrue(res['ab_identical_across_rho_runs'])
+
+
 if __name__ == '__main__':
     unittest.main()
