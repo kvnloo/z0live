@@ -116,17 +116,6 @@ class FloorTest(unittest.TestCase):
         floor.user_turn(None, "Okay, I think it's still last night's build", 50, 52, final=True)
         self.assertEqual(floor.owner, "people")
 
-    def test_with_people_on_the_call_a_final_without_the_name_never_undoes_its_own_address(self):
-        # Take 9: one leg heard "Hey Tek, while" (floor to Tek mid-line); the other leg's final of the same utterance
-        # read "Hey Tech, while that runs, ..." and flipped the floor to the people, so Tek never answered.
-        floor = Floor(0, lambda *a, **k: None, available=True, people=2)
-        floor.user_turn(Address.GUEST, "Hey Tek, while", 64.2, 65.9, final=False)
-        floor.user_turn(None, "Hey Tech, while that runs, what caused the crash in PR 28", 65.0, 69.9, final=True)
-        self.assertEqual((floor.owner, floor.reason), ("guest", "guest_addressed"))
-        # The next utterance, begun after the address, is judged on its own.
-        floor.user_turn(None, "Okay, nice. That's the one I kept hitting", 90.0, 92.5, final=True)
-        self.assertEqual(floor.owner, "people")
-
     def test_with_people_on_the_call_an_idle_guest_leaves_the_floor_to_the_people(self):
         floor = Floor(0, lambda *a, **k: None, available=True, people=2)
         floor.user_turn(Address.GUEST, "Tek, what", 1, 1, final=True)
@@ -144,6 +133,16 @@ class FloorTest(unittest.TestCase):
         self.assertEqual((floor.owner, floor.reason), ("primary", "guest_idle"))
 
 
+async def working(*_, **__):
+    await asyncio.Event().wait()
+
+
+def utterance_ends(guest):
+    """The caller's mic and transcript have been quiet for EOU_SECONDS: the floor's one decision on the utterance."""
+    guest.user_heard_at -= live.EOU_SECONDS + 0.1
+    guest.end_of_utterance()
+
+
 class PrimaryCall(FakeCall):
     id = "test-call"
     provider_ready = heard_user = True
@@ -154,6 +153,10 @@ class PrimaryCall(FakeCall):
         self.protocol = live.Protocol(host_delegation=True)
         self.tasks = []
         self.manager = type("Manager", (), {"http": None})()
+        self.delegated = []  # (did, request) the floor handed to Kevin's Hermes
+
+    async def host_delegate(self, did, request):
+        self.delegated.append((did, request))
 
     def spawn(self, coro):
         self.tasks.append(asyncio.create_task(coro))
@@ -181,7 +184,7 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("promise receipts or a follow-up", self.guest.persona)
 
     async def test_suppressed_reply_never_leaks_audio_text_or_context(self):
-        self.guest.observe("guest", turn("done", "Tek, what shipped?"))
+        self.guest.observe("primary", turn("done", "Tek, what shipped?"))
         self.assertFalse(self.guest.observe("primary", output("Not for Kevin.")))
         self.guest.message(json.dumps(output("A release.")))
         self.guest.audio.extend(b"\xe8\x03" * 960)
@@ -258,7 +261,7 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_late_guest_answer_and_primary_answer_wait_for_their_floors(self):
         g = self.guest
-        g.observe("guest", turn("done", "Tek, what shipped?", 1000, 2000))
+        g.observe("primary", turn("done", "Tek, what shipped?", 1000, 2000))
         result = asyncio.get_running_loop().create_future()
         with patch.object(live, "ask_guest_host", AsyncMock(side_effect=lambda *args: result.result())) as host:
             g.message(json.dumps({"type": "delegation.created", "item": {
@@ -274,17 +277,17 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any("A release" in str(msg) for msg in self.call.sent))
         g.observe("primary", output("Primary answer."))
         g.observe("primary", turn("done", "Primary answer.", role="assistant", tid="spoken"))
-        g.observe("guest", turn("created", "Tek, back to you", 5000, 5800, tid="return"))
+        g.observe("primary", turn("created", "Tek, back to you", 5000, 5800, tid="return"))
         g.flush_answers()
         self.assertTrue(any(isinstance(msg, dict) and msg.get("delegation_item_id") == "guest-id"
                             and "A release" in str(msg) for msg in self.call.sent))
 
-    async def test_renewal_keeps_floor_requeues_delivery_and_rebases_new_addresses(self):
+    async def test_renewal_keeps_floor_requeues_delivery_and_takes_new_addresses(self):
         g = self.guest
-        g.observe("guest", turn("done", "Tek, what shipped?", 50_000, 51_000))
+        g.observe("primary", turn("done", "Tek, what shipped?", 50_000, 51_000))
         self.call.protocol.seen.append("old-primary")
         live.Call.speak_for(self.call, "old-primary", "Primary answer.")
-        g.transport_replaced("primary", 60_000)
+        g.transport_replaced("primary")
         self.assertEqual(g.floor.owner, "guest")
         self.assertFalse(any("Primary answer" in str(msg) for msg in self.call.sent))
 
@@ -293,7 +296,7 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
         g.flush_answers()
         self.assertEqual(self.call.sent[-1]["delegation_item_id"], "old-guest")
         g.protocol.seen.clear()
-        g.transport_replaced("guest", 61_000)
+        g.transport_replaced("guest")
         self.assertEqual(self.call.sent[-1]["type"], "session.context.append")
         self.assertIn("Tek's answer.", self.call.sent[-1]["content"][0]["text"])
 
@@ -306,7 +309,7 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_guest_failure_announced_once_and_answer_preserved(self):
         g = self.guest
-        g.observe("guest", turn("created", "Tek, what shipped?"))
+        g.observe("primary", turn("created", "Tek, what shipped?"))
         g.floor.enqueue(Answer("guest", "late", "A release."), "tek")
         g.failed("session_closed")
         g.failed("audio_ended")
@@ -332,15 +335,21 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
         g = self.guest
         g.set_people(2)
         self.assertEqual(g.floor.owner, "people")
-        g.observe("guest", turn("created", "", 1000, 1200, tid="u1"))
-        g.observe("guest", turn("done", "Is the glass theme on your phone yet?", 1000, 3000, tid="u1"))
+        g.observe("primary", turn("created", "", 1000, 1200, tid="u1"))
+        g.observe("primary", turn("done", "Is the glass theme on your phone yet?", 1000, 3000, tid="u1"))
         self.assertFalse(g.observe("primary", output("I'll check your screen quickly.")))
+        utterance_ends(g)
+        self.assertEqual(g.floor.owner, "people")
         self.assertFalse(g.output(frame()).to_ndarray().any())
-        self.assertFalse(g.may_delegate("primary", "d1"))
+        self.assertFalse(g.may_delegate("primary", "d1"), "the provider's own delegations never run")
         self.assertFalse(g.may_delegate("guest", "gd1"))
         g.observe("primary", turn("done", "", role="assistant", tid="hidden"))
         g.observe("primary", turn("done", "Hermes, what's on my phone?", 4000, 6000, tid="u2"))
-        self.assertTrue(g.may_delegate("primary", "d2"))
+        self.assertFalse(g.may_delegate("primary", "d2"))
+        utterance_ends(g)
+        await asyncio.gather(*self.call.tasks)
+        self.assertEqual(self.call.delegated, [("d2", "Hermes, what's on my phone?")],
+                         "the floor hands the words to Hermes itself, under the provider's delegation id")
         self.assertTrue(g.observe("primary", output("Checking.")))
         self.assertFalse(any("I'll check your screen" in str(msg) for msg in self.call.sent))
 
@@ -359,10 +368,10 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_reply_open_at_renewal_does_not_mute_the_new_session(self):
         g = self.guest
-        g.observe("guest", turn("done", "Tek, what shipped?", 1000, 2000))
+        g.observe("primary", turn("done", "Tek, what shipped?", 1000, 2000))
         self.assertFalse(g.observe("primary", output("Muted, Tek has the floor.")))
         g.observe("primary", turn("done", "Hermes, your turn", 3000, 4000, tid="redirect"))
-        g.transport_replaced("primary", 0)  # the retired session never sends turn.done for its open reply
+        g.transport_replaced("primary")  # the retired session never sends turn.done for its open reply
         self.assertTrue(g.observe("primary", output("New session reply.")))
 
     async def test_guest_delegation_runs_on_tek_profile_only_while_tek_has_the_floor(self):
@@ -391,6 +400,7 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
                 async with ClientSession() as http:
                     self.call.manager = SimpleNamespace(http=http)
                     for did, text in (("unaddressed", "What is this?"), ("addressed", "Tek, what shipped?")):
+                        self.guest.observe("primary", turn("done", text, tid="p-" + did))  # the floor's transcript
                         self.guest.message(json.dumps(turn("created", "", tid=did)))
                         self.guest.message(json.dumps(turn("done", text, tid=did)))
                         self.guest.message(json.dumps({"type": "delegation.created", "item": {
@@ -419,6 +429,8 @@ class TimedGuestTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.clock = Clock()
         self.enterContext(patch.object(live, "time", self.clock))
+        # Tek's Hermes, still working on whatever the floor hands it
+        self.tek = self.enterContext(patch.object(live, "ask_guest_host", AsyncMock(side_effect=working)))
         self.call = PrimaryCall()
         self.guest = live.GPTGuest(self.call, guest_voice.GuestConfig("gpt-live", "tek", "ember", "tek"))
         self.addAsyncCleanup(self.guest.close)
@@ -568,7 +580,8 @@ class AnswerDeliveryTest(TimedGuestTest):
         g.observe("primary", output("It's still running in card t_0a96e2de, so I won't start a second one."))
         self.at(104)
         self.call.output_loud_at = 104
-        g.observe("guest", turn("created", "Hey Tek, while that runs, what caused the crash", 4000, 4800, tid="j1"))
+        g.observe("primary", turn("created", "Hey Tek, while that runs, what caused the crash", 4000, 4800, tid="j1"))
+        utterance_ends(g)
         self.assertEqual(g.floor.owner, "guest", "fixture: the friend's words gave Tek the floor")
         g.observe("primary", turn("done", "", role="assistant", tid="r1"))
         return g
@@ -588,6 +601,7 @@ class AnswerDeliveryTest(TimedGuestTest):
         g = self.cut_by_a_friend_asking_tek()
         self.at(110)
         g.observe("primary", turn("done", "Hermes, what about the laptop?", 9000, 10000, tid="u2"))
+        utterance_ends(g)
         g.flush_answers()
         self.assertEqual(g.floor.owner, "primary")
         self.assertEqual(self.speakable("from this call"), 1)
@@ -612,6 +626,7 @@ class AnswerDeliveryTest(TimedGuestTest):
         g = self.guest
         g.set_people(2)
         g.observe("primary", turn("done", "Tek, why did the shed door stick?", 1000, 2000, tid="u1"))
+        utterance_ends(g)
         g.floor.enqueue(Answer("guest", "g1", "The shed door stuck because the hinge pin rusted. The new pin went "
                                               "in on Tuesday. Oil it twice a year."), "Tek")
         g.flush_answers()
@@ -623,6 +638,7 @@ class AnswerDeliveryTest(TimedGuestTest):
         self.call.output_loud_at = 103
         g.observe("primary", turn("created", "Okay, nice, that's good to know", 3000, 3800, tid="u2"))
         g.observe("primary", turn("done", "Okay, nice, that's good to know", 3000, 4200, tid="u2"))
+        utterance_ends(g)
         self.assertEqual(g.floor.owner, "people")
         g.observe("guest", turn("done", "", role="assistant", tid="r1"))
         self.at(106)
@@ -631,9 +647,77 @@ class AnswerDeliveryTest(TimedGuestTest):
         self.assertEqual(self.speakable("twice a year"), 2)
         self.assertEqual(self.speakable("hinge pin rusted"), 1)
 
+    async def test_a_friend_saying_hey_tech_asks_tek(self):
+        # Takes 9 and 14: both legs heard Jules's "Hey, Tek" as "Hey, Tech", the floor read it as the people talking
+        # to each other, and Tek's Hermes was never asked about PR 28.
+        for text, owner in [("Hey, Tech, while that runs, what actually caused the glass crash in PR 28", "guest"),
+                            ("Tec, what caused it?", "guest"), ("Tech's, what caused it?", "guest"),
+                            ("Hermes, is the tech stack on the laptop the same as staging?", "primary")]:
+            with self.subTest(text=text):
+                g = live.GPTGuest(self.call, guest_voice.GuestConfig("gpt-live", "tek", "ember", "tek"))
+                g.send = self.call.sent.append
+                g.message(json.dumps({"type": "session.started"}))
+                g.set_people(2)
+                g.floor.change("primary", "redirected", 100)
+                g.observe("primary", turn("done", text, 1000, 4000, tid="j1"))
+                utterance_ends(g)
+                self.assertEqual(g.floor.owner, owner)
+                await g.close()
+
+    async def test_an_answer_the_provider_cut_under_the_callers_words_comes_back_in_their_pause(self):
+        # Take 14, line 5: the provider ended the resumed line-3 answer itself at "then verify" when Jules said
+        # "Okay, nice". No barge-in fired ("Okay" is a backchannel, and the output had been quiet 0.26 s), nothing
+        # was handed back, Jules's turn never closed, and the call was silent for 60 s.
+        for order in ("turn.done first", "caller first"):
+            with self.subTest(order=order):
+                await self.asyncSetUp()
+                g = self.guest
+                g.set_people(2)
+                g.floor.change("primary", "redirected", 100)
+                self.speak("d3", self.LINE_3)
+                self.at(100.6)
+                g.observe("primary", turn("created", "", role="assistant", tid="r1"))
+                g.observe("primary", output("It's still running in card t_0a96e2de, so I won't start a second one."))
+                self.at(104)
+                done = turn("done", "", 600, 4200, role="assistant", tid="r1")
+                okay = turn("created", "Okay", 4000, 4200, tid="j5")  # began inside the reply, provider clock
+                for event in ((done, okay) if order == "turn.done first" else (okay, done)):
+                    g.observe("primary", event)
+                self.assertIn("floor.answer_cut", self.call.traces)
+                self.at(104.5)
+                g.flush_answers()
+                self.assertEqual(self.speakable("from this call"), 1, "not while the caller is still talking")
+                self.at(106.6)
+                utterance_ends(g)  # Jules's turn never closed: it ends on quiet
+                g.flush_answers()
+                self.assertEqual(self.speakable("from this call"), 2, "the rest comes back in the caller's pause")
+                self.assertEqual(self.speakable("second one"), 1, "and only the rest")
+                await g.close()
+
+    async def test_a_reply_that_ends_before_its_answer_hands_the_rest_back_without_a_barge_in(self):
+        # The sim's provider stops a reply at a random word with nobody talking: the answer was credited as spoken
+        # (answer_delivery's few words) and its rest never came back.
+        g = self.guest
+        g.set_people(2)
+        g.floor.change("primary", "redirected", 100)
+        self.speak("d3", self.LINE_3)
+        self.at(100.6)
+        g.observe("primary", turn("created", "", role="assistant", tid="r1"))
+        g.observe("primary", output("It's still running in card t_0a96e2de, so I won't start a second one."))
+        self.at(104)
+        g.observe("primary", turn("done", "", 600, 4200, role="assistant", tid="r1"))
+        g.observe("primary", turn("created", "Okay", 4400, 4600, tid="j5"))
+        self.assertNotIn("floor.barge_in", self.call.traces)
+        self.assertIn("floor.answer_cut", self.call.traces)
+        self.at(107)
+        utterance_ends(g)
+        g.flush_answers()
+        self.assertEqual(self.speakable("from this call"), 2, "the rest goes back once the caller pauses")
+        self.assertEqual(self.speakable("second one"), 1, "and only the rest")
+
     async def test_lane_guesses_waiting_for_the_floor_are_dropped_once_stale(self):
         g = self.guest
-        g.observe("guest", turn("done", "Tek, what shipped?", 1000, 2000))
+        g.observe("primary", turn("done", "Tek, what shipped?", 1000, 2000))
         self.call.latest_did = "p1"
         self.speak("p0", "Guess for an older question.", lane=True)
         self.speak("p1", "Guess for this question.", lane=True)
@@ -643,6 +727,62 @@ class AnswerDeliveryTest(TimedGuestTest):
         g.flush_answers()  # Call.message flushes after every provider event while primary answers wait
         self.assertEqual(self.speakable("Hermes answer for this question."), 1)
         self.assertEqual(self.speakable("Guess for"), 0)
+
+
+class OneDecisionTest(TimedGuestTest):
+    async def test_with_people_on_the_call_the_floor_decides_once_per_utterance_from_the_primary_leg(self):
+        # Take 9: one leg heard "Hey Tek, while" (floor to Tek mid-line); the other leg's final of the same utterance
+        # read "Hey Tech, while that runs, ..." and flipped the floor to the people, so Tek never answered.
+        g = self.guest
+        g.set_people(2)
+        g.observe("primary", turn("created", "Hey Tek, while", 64200, 65900, tid="p4"))
+        self.assertEqual(g.floor.owner, "people", "no decision while the caller is still talking")
+        g.observe("guest", turn("done", "Hey Teak, while that runs, what caused the crash in PR 28", 65000, 69900,
+                                tid="g4"))
+        g.observe("guest", {"type": "delegation.created", "item": {"id": "gd4", "target": "client"}})
+        self.at(101)
+        g.observe("primary", turn("done", "Hey Tek, while that runs, what caused the crash in PR 28", 64200, 69900,
+                                  tid="p4"))
+        self.assertEqual(g.floor.owner, "people", "nor at the provider's turn.done")
+        utterance_ends(g)
+        self.assertEqual((g.floor.owner, g.floor.reason), ("guest", "guest_addressed"))
+        await asyncio.sleep(0)
+        self.assertEqual([c.args[3] for c in self.tek.call_args_list], ["Tek, while that runs, what caused the crash "
+                                                                         "in PR 28"], "asked once, with the routed words")
+        self.at(120)
+        g.observe("primary", turn("done", "Okay, nice. That's the one I kept hitting", 90000, 92500, tid="p5"))
+        utterance_ends(g)
+        self.assertEqual(g.floor.owner, "people")
+        self.assertEqual(self.tek.call_count, 1)
+
+    async def test_an_unnamed_follow_up_goes_to_the_bot_that_just_replied_and_waits_for_the_utterance_to_end(self):
+        # Take 10: Hermes's "Right" 1.4 s into Kevin's long-run ask made "Yeah, merged isn't" his final; takes 10
+        # and 11 never handed the ask to Hermes.
+        g = self.guest
+        g.set_people(2)
+        g.observe("primary", turn("done", "Hermes, what's on my phone versus staging?", 1000, 3000, tid="p2"))
+        utterance_ends(g)
+        await asyncio.sleep(0)
+        g.observe("primary", turn("created", "", role="assistant", tid="a2"))
+        self.assertTrue(g.observe("primary", output("Your phone is on last night's build.")))
+        self.at(110)
+        g.observe("primary", turn("done", "", role="assistant", tid="a2"))
+        self.at(111)
+        g.observe("primary", turn("created", "Yeah, merged isn't", 11000, 12000, tid="p3"))
+        g.observe("primary", turn("created", "", role="assistant", tid="a3"))
+        self.assertFalse(g.observe("primary", output("Right.")), "the floor has not decided: the bot stays muted")
+        g.observe("primary", turn("done", "Yeah, merged isn't", 11000, 12000, tid="p3"))
+        self.call.input_loud_at = 113.9  # Kevin is still talking; his words trail the mic
+        self.at(114)
+        g.end_of_utterance()
+        self.assertEqual(len(self.call.delegated), 1, "no decision while the mic is loud")
+        g.observe("primary", {"type": "turn.delta", "turn_id": "p3", "delta": " done. Get all of it onto my S25",
+                              "start_ms": 12500, "end_ms": 15000})
+        self.at(115)  # mic quiet since 113.9
+        utterance_ends(g)
+        await asyncio.sleep(0)
+        self.assertEqual(g.floor.owner, "primary")
+        self.assertEqual(self.call.delegated[1][1], "Yeah, merged isn't done. Get all of it onto my S25")
 
 
 class FloorTimingTest(TimedGuestTest):
@@ -708,6 +848,8 @@ class GuestContextTest(unittest.IsolatedAsyncioTestCase):
         guest = call.guest
         guest.floor.available = True
         with patch.object(live, "ask_guest_host", host):
+            call.message(json.dumps(turn("done", "Hey, Tek. What caused the glass crash in PR twenty eight?", 1000,
+                                         5000, tid="p1")), True)
             guest.message(json.dumps(turn("created", "", 1000, 1200, tid="u1")))
             guest.message(json.dumps(turn("done", "Hey, Tek. What caused the glass crash in PR twenty eight?", 1000,
                                           5000, tid="u1")))
@@ -799,6 +941,7 @@ class GuestCallBriefTest(unittest.IsolatedAsyncioTestCase):
         guest = call.guest
         guest.floor.available = True
         with patch.object(live, "ask_guest_host", host):
+            call.message(json.dumps(turn("done", words, 1000, 5000, tid="p1")), True)
             guest.message(json.dumps(turn("created", "", 1000, 1200, tid="u1")))
             guest.message(json.dumps(turn("done", words, 1000, 5000, tid="u1")))
             guest.message(json.dumps({"type": "delegation.created", "item": {
@@ -867,6 +1010,8 @@ class GuestCallBriefTest(unittest.IsolatedAsyncioTestCase):
                     live.os.environ, {"Z0LIVE_GUEST_HOST_PORT": str(runner.addresses[0][1])}):
                 async with ClientSession() as http:
                     call.manager.http = http
+                    call.message(json.dumps(turn("done", "Hey, Tek. What caused the glass crash in PR twenty eight?",
+                                                 1000, 5000, tid="p1")), True)
                     guest.message(json.dumps(turn("created", "", 1000, 1200, tid="u1")))
                     guest.message(json.dumps(turn("done", "Hey, Tek. What caused the glass crash in PR twenty "
                                                   "eight?", 1000, 5000, tid="u1")))
@@ -935,15 +1080,15 @@ class PrimaryDelegationTest(unittest.IsolatedAsyncioTestCase):
         def delta(text, start, end):
             return {"type": "turn.delta", "turn_id": "p1", "delta": text, "start_ms": start, "end_ms": end}
 
-        # Tek's leg hears the caller's earlier question to Hermes in the same turn as the address to Tek.
+        # Tek's leg hears the caller's earlier question to Hermes in the same turn as the address to Tek. The primary
+        # stays silent while Tek talks, so its leg keeps ONE user turn open across both exchanges.
+        primary(turn("created", "", 1000, 1200, tid="p1"))
         guest(turn("created", "", 1000, 1200, tid="g1"))
+        primary(delta("Tek, what did you work on today?", 3500, 6000))
         guest(turn("done", "Hey, can you check the garden project? Tek, what did you work on today?", 1000, 6000,
                    tid="g1"))
         guest({"type": "delegation.created", "item": {"id": "gd1", "target": "client", "content": [
             {"type": "input_text", "text": "what did you work on today"}]}})
-        # The primary stays silent while Tek talks, so its leg keeps ONE user turn open across both exchanges.
-        primary(turn("created", "", 1000, 1200, tid="p1"))
-        primary(delta("Tek, what did you work on today?", 3500, 6000))
         guest(turn("created", "", 60000, 60200, tid="g2"))
         guest(turn("done", "Thanks, Tek. Hermes, back to you. When is the boat inspection?", 60000, 64000, tid="g2"))
         primary(delta(" Thanks, Tek. Hermes, back to you. When is the boat inspection?", 60000, 64000))

@@ -55,7 +55,8 @@ class HandoffPreambleTests(unittest.TestCase):
     def test_take_7_and_9_handoff_lines_count_as_promises_and_neutral_lines_do_not(self):
         for line in ("Got it, I'll handle that and keep receipts.",
                      "Got it, I\u2019m taking that on end-to-end. I\u2019ll be back with receipts once it\u2019s all "
-                     "buttoned up.", "On it.", "Understood, I'll handle it end-to-end and show results when it's done."):
+                     "buttoned up.", "On it.", "Understood, I'll handle it end-to-end and show results when it's done.",
+                     "Got it\u2014I\u2019ll go step by step and show receipts."):  # take 14
             self.assertTrue(live.promises_new_work(line), line)
         for line in ("Let me check.", "Checking now.", "I'll take a quick look.", "Mm-hm.",
                      "I'll check your laptop quickly.", live.RECEIPT, live.QUEUED.format(running=3, position=1)):

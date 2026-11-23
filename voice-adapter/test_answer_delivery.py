@@ -70,15 +70,14 @@ class LedgerTest(unittest.TestCase):
         self.assertNotIn("Probably", text)
         self.assertIn("spare", text)
 
-    def test_a_cut_parks_what_the_voice_had_begun_and_leaves_the_rest_pending(self):
-        # Whether a parked answer comes back is the floor's call (GPTGuest.floor_back), not the ledger's.
+    def test_a_cut_returns_what_the_voice_had_begun_and_leaves_the_rest_pending(self):
+        # Whether the rest comes back is the floor's call (GPTGuest.cut re-queues it), not the ledger's.
         self.ledger.sent("primary", "d1", "Here are two photos of the porch railing and the cracked steps.", 10)
         self.ledger.sent("primary", "d2", "The mailbox was replaced on Monday by the landlord.", 10)
         self.ledger.heard("primary", "Here are two photos")
-        self.assertEqual([c.did for c in self.ledger.cut("primary")], ["d1"])
+        self.assertEqual([did for did, _ in self.ledger.cut("primary")], ["d1"])
         self.assertEqual([e.did for e in self.ledger.pending("primary")], ["d2"])
-        self.assertEqual([c.did for c in self.ledger.unpark("primary")], ["d1"])
-        self.assertEqual(self.ledger.parked("primary"), [])
+        self.assertEqual(self.ledger.cut("primary"), [], "once")
 
     def test_one_shared_word_before_a_cut_is_not_having_started_the_answer(self):
         # 205504 at 242.1 s: "Not yet—since" was cut off; only "yet" was in the install answer, which then was lost.
@@ -96,8 +95,8 @@ class LedgerTest(unittest.TestCase):
         self.assertEqual([e.did for e in self.ledger.heard("guest", "The shed door stuck, the hinge pin rusted.")],
                          ["g1"])
         self.ledger.heard("guest", " The new")
-        [cut] = self.ledger.cut("guest")
-        self.assertEqual(cut.text, "The new pin went in on Tuesday. Oil it twice a year.")
+        [(_, rest)] = self.ledger.cut("guest")
+        self.assertEqual(rest, "The new pin went in on Tuesday. Oil it twice a year.")
 
     def test_a_cut_resumes_from_the_piece_the_voice_was_saying_not_a_receipt_it_skipped(self):
         # Take 13 replay: the receipt ("Still working on that") was overtaken by the answer, and resuming from it
@@ -105,8 +104,8 @@ class LedgerTest(unittest.TestCase):
         self.ledger.sent("primary", "d1", "Still checking the shed in the workshop log.", 10)
         self.ledger.sent("primary", "d1", "The shed door stuck because the hinge pin rusted. Oil it twice a year.", 11)
         self.ledger.heard("primary", "The shed door stuck, the hinge pin rusted.")
-        [cut] = self.ledger.cut("primary")
-        self.assertEqual(cut.text, "Oil it twice a year.")
+        [(_, rest)] = self.ledger.cut("primary")
+        self.assertEqual(rest, "Oil it twice a year.")
 
     def test_an_answer_said_to_the_end_leaves_nothing_to_park(self):
         self.ledger.sent("primary", "d1", "The bike chain is fixed. The brakes need new pads.", 10)
@@ -117,7 +116,16 @@ class LedgerTest(unittest.TestCase):
         self.ledger.sent("primary", "d1", "The bike chain is fixed. The brakes need new pads.", 10)
         self.ledger.heard("primary", "The bike chain is fixed.")
         self.ledger.reply_done("primary")
+        self.ledger.reply_started("primary")
         self.assertEqual(self.ledger.cut("primary"), [], "the voice chose to stop there")
+
+    def test_a_reply_the_provider_ended_under_the_caller_still_parks_its_rest(self):
+        # Take 14, line 5: the caller's turn arrives just after the provider's turn.done for the reply it cut.
+        self.ledger.sent("primary", "d1", "The bike chain is fixed. The brakes need new pads.", 10)
+        self.ledger.heard("primary", "The bike chain is fixed.")
+        self.ledger.reply_done("primary")
+        [(_, rest)] = self.ledger.cut("primary")
+        self.assertEqual(rest, "The brakes need new pads.")
 
     def test_short_answer_said_in_other_words_is_delivered(self):
         # 113507 at 478 s: "No, I don't have access to your phone's location." was said as "No, I don't have your
