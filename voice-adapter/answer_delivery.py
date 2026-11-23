@@ -74,12 +74,23 @@ def paragraphs(text: str) -> list[str]:
 
 
 _TENS = "twenty thirty forty fifty sixty seventy eighty ninety".split()
+_DIGIT = {word: str(n) for n, word in _NUMBERS.items() if n < 10}
 
 
 def spoken(text: str) -> set[str]:
     """Word tokens the way a voice says them, letters apart from digits: up to two digits as a number, longer runs
-    digit by digit (\"S25\" and \"S twenty-five\", \"30652\" and \"three zero six five two\" match)."""
+    digit by digit (\"S25\" and \"S twenty-five\", \"30652\" and \"three zero six five two\" match). An id
+    spelled out (\"t zero a nine six e two d e\", say()) counts as the id said."""
     out = set()
+    run = ""
+    for word in re.findall(r"[^\W_]+", text.casefold()) + [""]:
+        unit = _DIGIT.get(word, word if len(word) == 1 else "")
+        if unit:
+            run += unit
+            continue
+        if len(run) > 1:
+            out |= spoken(run)
+        run = ""
     for part in re.findall(r"[^\W\d_]+|\d+", text.casefold().replace("’", "'")):
         digits = part.lstrip("0") or "0"
         if not part.isdigit():
@@ -97,8 +108,34 @@ def anchors(text: str) -> list[set[str]]:
     """What a text names that a voice cannot put in other words: each identifier in it (a token with an underscore,
     or with letters and digits: card t_0a96e2de, S25), as spoken(). Not a bare number: a voice says \"12:30\" as
     \"twelve thirty\" or \"half past twelve\"."""
-    return [spoken(token) for token in re.findall(r"\w+", text)
-            if "_" in token or (re.search(r"\d", token) and re.search(r"[^\W\d_]", token))]
+    return [spoken(token) for token in re.findall(r"\w+", text) if _named(token)]
+
+
+def _named(token: str) -> bool:
+    return "_" in token or bool(re.search(r"\d", token) and re.search(r"[^\W\d_]", token))
+
+
+def say(token: str) -> str:
+    """An id the way a voice should say it, one letter or digit at a time: t_0a96e2de is \"t, zero a nine six e two
+    d e\"."""
+    return ", ".join(" ".join(_NUMBERS[int(c)] if c.isdigit() else c for c in part) for part in token.split("_") if part)
+
+
+def spelled(text: str, voiced: set[str]) -> str:
+    """The text with each id in it the voice never said (not in `voiced`) followed by its spelling, once."""
+    def spell(m):
+        token = m.group(0)
+        if not _named(token) or spoken(token) <= voiced or f"{token} (say: " in text or token in done:
+            return token
+        done.add(token)
+        return f'{token} (say: "{say(token)}")'
+    done: set[str] = set()
+    return re.sub(r"\w+", spell, text)
+
+
+def resumed(text: str) -> str:
+    """A hand-back as the voice gets it: the resume cue, and the ask to say ids exactly when it spells one."""
+    return (SAY_EXACTLY if " (say: " in text else "") + RESUME_PREFIX + text
 
 
 @dataclass
@@ -206,7 +243,8 @@ class Ledger:
         self.entries: list[Entry] = []
         self.said: set[str] = set()  # content words any voice has said on this call
         self.speaking: dict[str, list[Entry]] = {}  # per leg: entries the last reply has begun, closed ones too
-        self.retold: set[tuple[str, str | None]] = set()  # (leg, did) whose skipped paragraphs went back once
+        self.retold: dict[tuple[str, str | None], int] = {}  # (leg, did): times its named sentences went back
+        self.tail: dict[str, str] = {}  # per leg: the last words heard, so an id spelled across two pieces counts
 
     def pending(self, leg: str) -> list[Entry]:
         return [e for e in self.entries if e.leg == leg]
@@ -230,7 +268,13 @@ class Ledger:
 
     def heard(self, leg: str, text: str) -> list[Entry]:
         """The voice on this leg said these words aloud. Returns the entries now fully spoken (and closes them)."""
-        said, voiced = content(text), spoken(text)
+        heard = self.tail.get(leg, "") + " " + text
+        said, voiced = content(text), spoken(heard)
+        tokens = re.findall(r"[^\W_]+", heard.casefold())
+        n = len(tokens)
+        while n and (tokens[n - 1] in _DIGIT or len(tokens[n - 1]) == 1):
+            n -= 1
+        self.tail[leg] = " ".join(tokens[n:])
         speaking = self.speaking.setdefault(leg, [])
         for entry in self.pending(leg):
             for piece in entry.unspoken:
@@ -271,31 +315,35 @@ class Ledger:
             entry.sends = max(1, entry.sends - 1)
         out = []
         for entry in begun:
-            # The sentences it jumped that name something go back once per answer, as skipped paragraphs do (take
-            # 17); a rest without them takes the place of a retelling.
+            # The sentences it jumped that name something go back, as skipped paragraphs do (take 17), at most
+            # MAX_RETELLS times per answer, each id it names spelled out.
             key = (leg, entry.did)
-            text = entry.rest(named=key not in self.retold)
-            if key not in self.retold and text != entry.rest():
-                self.retold.add(key)
-            else:
-                self.retold.discard(key)
+            text = entry.rest(named=self.retold.get(key, 0) < MAX_RETELLS)
+            if text != entry.rest():
+                self.retold[key] = self.retold.get(key, 0) + 1
             if text:
-                out.append((entry.did, text))
+                out.append((entry.did, spelled(text, entry.spoken)))
         return out
 
     def finished(self, leg: str) -> list[tuple[Entry, str]]:
         """The reply on this leg ran its course: (entry, the paragraphs it skipped) for each answer it had begun, ""
-        when it left none out. Skipped paragraphs are owed once per answer (a voice that skips them again chose
-        to), and are not resent as well. The entries stay with the reply until the next one, as after reply_done:
-        a caller turn that began inside it, or the floor leaving while it drains, is still a cut, and the cut's
-        rest takes the place of the skipped paragraphs (take 14; a barge-in in the same tick as turn.done)."""
+        when it left none out. Skipped paragraphs go back at most MAX_RETELLS times per answer, cut rests that
+        carried them included, each id they name spelled out, and are not resent as well. Take 18: the voice dropped
+        card t_0a96e2de from the reply and again from the verbatim hand-back of the cut's rest. The entries stay
+        with the reply until the next one, as after reply_done: a caller turn that began inside it, or the floor
+        leaving while it drains, is still a cut, and the cut's rest takes the place of the skipped paragraphs (take
+        14; a barge-in in the same tick as turn.done)."""
         out = []
         for entry in self.speaking.get(leg, []):
-            again = (leg, entry.did) in self.retold
-            rest = "" if again else entry.skipped()
+            key = (leg, entry.did)
+            again = self.retold.get(key, 0)
+            rest = entry.skipped() if again < MAX_RETELLS else ""
+            if again:  # a retelling it skipped again: only what names what it never said
+                rest = " ".join(s for s in sentences(rest.replace("\n\n", " ")) if entry.unheard(s))
+            rest = spelled(rest, entry.spoken)
             if rest:
-                self.retold.add((leg, entry.did))
-            if rest or again:  # handed back, or its one retelling had its chance
+                self.retold[key] = again + 1
+            if rest or again:  # handed back, or a retelling had its chance
                 self.entries = [e for e in self.entries if e is not entry]
             out.append((entry, rest))
         return out
