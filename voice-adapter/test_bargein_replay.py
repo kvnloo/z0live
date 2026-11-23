@@ -1463,5 +1463,184 @@ class ShadowGuardGateTest(unittest.TestCase):
             self.assertTrue(res['ab_identical_across_rho_runs'])
 
 
+# bargein_replay/12 bytes of CONT_J_ARGS + F_ARGS[:2] + G_ARGS + --arm-h --arm-o (pinned at b7a2ce2, before arm Q)
+O12_SHA256 = 'a7ff9cbb879fd4dd0d98bd90423501688f7b9f67b0bd62f520050c51bb4ad563'
+
+
+class Recorder:
+    """Forward render/observe to a duck-confirm gate and record its (t, event) pairs; observe returns False so
+    the synthetic drivers run to the end."""
+
+    def __init__(self, gate):
+        self.gate = gate
+        self.events = []
+
+    def render(self, t, frame):
+        self.gate.render(t, frame)
+
+    def observe(self, t, packet):
+        event = self.gate.observe(t, packet)
+        if event:
+            self.events.append((t, event))
+        return False
+
+
+class DuckConfirmGateTest(unittest.TestCase):
+    """bargein_replay/14: opt-in arm Q, arm O unchanged (Geigel-frozen NLMS + shadow stall guard + residual-only
+    speech decision) except that the 30 ms onset only DUCKS (pauses) playout; the flush is COMMITTED after
+    --duck-commit-ms of cumulative residual speech within --duck-window-ms of the duck, else playout resumes
+    (un-duck) with no audio lost."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nlms = NlmsGateTest('test_harness_id')
+        cls.nlms.setUpClass()
+
+    def q_cfg(self, **overrides):
+        return self.nlms.f_cfg(**({'resid_threshold': 1360.0, 'resid_arm_db': 6.0, 'resid_nlp_db': 3.0,
+                                   'guard_erle_db': 6.0, 'guard_margin_db': 3.0, 'guard_packets': 5,
+                                   'duck_commit_ms': 100, 'duck_window_ms': 200} | overrides))
+
+    def test_harness_id(self):
+        self.assertEqual(replay.HARNESS_DUCK, 'bargein_replay/14')
+        self.assertEqual(replay.HARNESS_SHADOW, 'bargein_replay/12')
+
+    def test_q_is_o_with_duck_commit_knobs_only(self):
+        import ast
+        import inspect
+        self.assertTrue(issubclass(replay.DuckConfirmGate, replay.ShadowGuardGate))
+        tree = ast.parse(inspect.getsource(replay.DuckConfirmGate))
+        cfg_attrs = {n.attr for n in ast.walk(tree)
+                     if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == 'cfg'}
+        self.assertEqual(cfg_attrs, {'duck_commit_ms', 'duck_window_ms'})
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                self.assertNotIn(node.id, ArmCTest.FORBIDDEN, node.id)
+
+    def test_step_commits_on_cumulative_speech_across_a_gap(self):
+        # onset 30 ms ducks; speech 40 ms, a 30 ms gap (a weak syllable), then speech: cumulative 100 ms commits,
+        # a consecutive-run counter (arm P) would have reset at the gap
+        q = replay.DuckConfirmGate(self.q_cfg(), 2100)
+        pattern = [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1]
+        events = [(t, e) for t, s in zip(range(1000, 1200, 10), pattern) if (e := q.step(t, bool(s)))]
+        self.assertEqual(events, [(1020, 'duck'), (1120, 'commit')])
+        self.assertTrue(q.fired)
+
+    def test_step_unducks_after_the_window_and_can_duck_again(self):
+        q = replay.DuckConfirmGate(self.q_cfg(duck_commit_ms=100, duck_window_ms=50), 2100)
+        pattern = [1] * 5 + [0] * 5 + [1] * 3
+        events = [(t, e) for t, s in zip(range(1000, 1200, 10), pattern) if (e := q.step(t, bool(s)))]
+        self.assertEqual(events, [(1020, 'duck'), (1070, 'unduck'), (1120, 'duck')])
+        self.assertFalse(q.fired)
+        self.assertEqual((q.ducks, q.unducks), (2, 1))
+
+    def test_q_first_duck_is_o_fire(self):
+        for kw in ({}, {'gain_db': -3.0}, {'caller_from': 1500, 'caller_amp': 2400, 'ms': 1800},
+                   {'caller_from': 1500, 'caller_to': 1560, 'caller_amp': 4000, 'ms': 1800}):
+            o = replay.ShadowGuardGate(self.q_cfg(), 2100)
+            rec = Recorder(replay.DuckConfirmGate(self.q_cfg(), 2100))
+            fired = self.nlms.synthetic(o, **kw)
+            self.nlms.synthetic(rec, **kw)
+            self.assertEqual(rec.events[0][0] if rec.events else None, fired, kw)
+
+    def test_q_equals_o_when_commit_is_the_onset(self):
+        for kw in ({}, {'gain_db': -3.0}, {'caller_from': 1500, 'caller_amp': 2400, 'ms': 1800}):
+            o = replay.ShadowGuardGate(self.q_cfg(), 2100)
+            rec = Recorder(replay.DuckConfirmGate(self.q_cfg(duck_commit_ms=30), 2100))
+            fired = self.nlms.synthetic(o, **kw)
+            self.nlms.synthetic(rec, **kw)
+            self.assertEqual(rec.events, [] if fired is None else [(fired, 'commit')], kw)
+            self.assertEqual((o.log, o.swaps), (rec.gate.log, rec.gate.swaps), kw)
+
+    def test_q_unducks_a_short_burst_that_fires_o(self):
+        kw = {'caller_from': 1500, 'caller_to': 1560, 'caller_amp': 4000, 'ms': 1800}
+        o = replay.ShadowGuardGate(self.q_cfg(), 2100)
+        rec = Recorder(replay.DuckConfirmGate(self.q_cfg(), 2100))
+        fired = self.nlms.synthetic(o, **kw)
+        self.nlms.synthetic(rec, **kw)
+        self.assertIsNotNone(fired)
+        self.assertEqual(rec.events[:2], [(fired, 'duck'), (fired + 200, 'unduck')])
+        self.assertNotIn('commit', [e for _, e in rec.events])
+
+    def test_q_commits_sustained_speech(self):
+        kw = {'caller_from': 1500, 'caller_amp': 6000, 'ms': 1800}
+        o = replay.ShadowGuardGate(self.q_cfg(), 2100)
+        rec = Recorder(replay.DuckConfirmGate(self.q_cfg(), 2100))
+        fired = self.nlms.synthetic(o, **kw)
+        self.nlms.synthetic(rec, **kw)
+        self.assertIsNotNone(fired)
+        self.assertEqual(rec.events, [(fired, 'duck'), (fired + 70, 'commit')])
+
+    def test_cli_arm_q_leaves_other_arms_unchanged(self):
+        args = (*CONT_J_ARGS, *F_ARGS[:2], *G_ARGS, '--arm-h', '--arm-o')
+        proc, o12 = run_cli(*args)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sha256(o12).hexdigest(), O12_SHA256)  # bargein_replay/12 bytes unchanged
+        proc, data = run_cli(*args, '--arm-q', '--duck-commit-ms', '30', '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        b, q = json.loads(o12), json.loads(data)
+        self.assertEqual(q['harness'], 'bargein_replay/14')
+        self.assertEqual(sorted(q['arms']), ['A', 'B', 'C', 'D', 'E', 'F', 'F2', 'G', 'G2', 'H', 'O', 'Q'])
+        for arm in ('A', 'B', 'C', 'D', 'E', 'F', 'F2', 'G', 'G2', 'H', 'O'):
+            self.assertEqual(canonical(q['arms'][arm]), canonical(b['arms'][arm]), arm)
+        self.assertIs(json.loads(proc.stdout)['aa_identical'], True)
+        self.assertEqual(q['parameters']['duck_commit_ms'], 30)
+        self.assertFalse(any(k.startswith('duck_') for k in b['parameters']))
+        # commit at the onset: arm Q is arm O trial by trial (no duck, no un-duck)
+        qa, oa = q['arms']['Q'], q['arms']['O']
+        for k in ('latency_ms', 'false_barge_ins', 'missed_valid', 'residual_ms', 'negative_by_kind'):
+            self.assertEqual(qa[k], oa[k], k)
+        self.assertEqual(qa['duck_false_alarms'], 0)
+        for tq, to in zip(qa['trials'], oa['trials']):
+            self.assertEqual(tq['latency_ms'], to['latency_ms'], tq['trial'])
+            self.assertEqual(tq['trace'].get('adapter_flush_ms'), to['trace'].get('adapter_flush_ms'), tq['trial'])
+        # a real commit window: ducks first, commits later or resumes; no audio is lost on a resumed burst
+        proc, data = run_cli(*args, '--arm-q', '--duck-commit-ms', '100', '--duck-window-ms', '200')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        r = json.loads(data)['arms']
+        qa, oa = r['Q'], r['O']
+        self.assertLessEqual(qa['false_barge_ins'], oa['false_barge_ins'])
+        self.assertIn('duck_false_alarms', qa)
+        self.assertIn('commit_latency_ms', qa)
+        self.assertIn('swaps_per_trial', qa)
+        same = 0
+        for tq, to in zip(qa['trials'], oa['trials']):
+            ducks = tq['trace'].get('duck_ms', [])
+            if 'adapter_flush_ms' in tq['trace']:  # a commit always follows a duck at or after O's fire time
+                self.assertIn('adapter_flush_ms', to['trace'], tq['trial'])
+                self.assertGreaterEqual(tq['trace']['adapter_flush_ms'], to['trace']['adapter_flush_ms'])
+            if ducks:
+                self.assertEqual(ducks[0], to['trace']['nlms_fire_ms'], tq['trial'])
+            if tq['trace'].get('unduck_ms'):
+                self.assertGreater(tq['duck_ms_total'], 0)
+            if tq['kind'] == 'valid' and ducks and not tq['trace'].get('unduck_ms') and 'adapter_flush_ms' in \
+                    tq['trace']:
+                # the first duck commits: the speaker goes silent exactly when O's flush silences it
+                self.assertEqual(tq['latency_ms'], to['latency_ms'], tq['trial'])
+                same += 1
+            if not tq['false_barge_in'] and tq['kind'] != 'valid':
+                self.assertEqual(tq['queue_dropped_frames'], 0, tq['trial'])
+        self.assertGreater(same, 0)
+        # duck flags without --arm-q change nothing; --arm-q needs --arm-o
+        proc, data = run_cli(*CONT_J_ARGS, '--duck-commit-ms', '70')
+        self.assertEqual(sha256(data).hexdigest(), CONT_J_SHA256)
+        proc, _ = run_cli(*CONT_J_ARGS, '--arm-q')
+        self.assertNotEqual(proc.returncode, 0)
+
+    def test_sweep_passes_arm_q(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([sys.executable, '-B', str(BENCH_DIR / 'bargein_sweep.py'), '--seeds', '39', '--trials', '10',
+                            '--echo-model', 'residual', '--echo-continuous', '--bot-render', 'recorded', '--rhos',
+                            'none', '--arm-d', '--energy-k-db', '-12', '--energy-min-speech-ms', '30',
+                            '--arm-o', '--resid-threshold', '1360', '--guard-packets', '5', '--guard-margin-db', '3',
+                            '--arm-q', '--duck-commit-ms', '90', '--duck-window-ms', '150', '--out', tmp],
+                           check=True, capture_output=True, timeout=900)
+            res = json.loads(Path(tmp, 'seed-39.json').read_text())
+            self.assertEqual(res['harness'], 'bargein_replay/14')
+            self.assertEqual(res['extra_args'][-5:], ['--arm-q', '--duck-commit-ms', '90', '--duck-window-ms', '150'])
+            self.assertEqual(sorted(res['arms']), ['A', 'B', 'D', 'O', 'Q'])
+            self.assertTrue(res['ab_identical_across_rho_runs'])
+
+
 if __name__ == '__main__':
     unittest.main()

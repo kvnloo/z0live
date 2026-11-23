@@ -1,16 +1,16 @@
-name: z0live barge-in arm G + Geigel-free shadow-filter stall guard, raw continuous echo, arms D / G / O (CPU, stdlib)
-# A-bargein-O: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml
+name: z0live barge-in arm Q (arm O + duck-then-confirm), raw continuous echo, arms D / O / Q (CPU, stdlib)
+# A-bargein-Q: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml
 # --ref <branch>` can dispatch it (a new workflow file is not dispatchable until it is on the default branch).
 # It runs voice-adapter/bench/bargein_sweep.py with --echo-model residual --echo-continuous (raw echo, NO
-# --echo-erle-db) --bot-render recorded --rhos none (no arm C) --arm-d --arm-g --arm-o (bargein_replay/12,
-# offline virtual-time sim, Python stdlib only, no network, no secrets) on holdout seed 61 and fresh seeds
-# 12000-12039, one seed per shard, with the three conditions run as parallel processes on the runner: S0
+# --echo-erle-db) --bot-render recorded --rhos none (no arm C) --arm-d --arm-o --arm-q (bargein_replay/14,
+# offline virtual-time sim, Python stdlib only, no network, no secrets) on holdout seed 65 and fresh seeds
+# 14000-14039, one seed per shard, with the three conditions run as parallel processes on the runner: S0
 # unstressed -> out/s0, S1 caller-only (--caller-level-db-range -10,0) -> out/s1, FULL (caller -10,0 and
 # --erl-db-range 0,6) -> out/full.
-# Arms A, B (always run by the sweep), D frozen (k -12 dB, M 30 ms), G = A-bargein-M's arm (NLMS canceller with the
-# Geigel 0.5 double-talk freeze + residual-only gate, residual RMS >= 1360, M 30 ms, armed at monitored ERLE 6 dB),
-# O = arm G plus a Geigel-free shadow NLMS filter that replaces G's filter only when G's monitored ERLE is < 6 dB
-# and the shadow residual is >= 3 dB lower for 5 consecutive render-active packets (stall/divergence guard).
+# Arms A, B (always run by the sweep), D frozen (k -12 dB, M 30 ms), O = A-bargein-O's arm (NLMS canceller with the
+# Geigel 0.5 freeze + Geigel-free shadow stall guard 5 pkt / 3 dB / 6 dB, residual RMS >= 1360, 30 ms onset run,
+# armed at monitored ERLE 6 dB; the control), Q = arm O whose 30 ms onset only ducks (pauses) playout; the flush is
+# committed after 100 ms of cumulative residual speech within 300 ms of the duck, else playout resumes.
 on:
   workflow_dispatch:
     inputs:
@@ -29,9 +29,9 @@ jobs:
       fail-fast: false
       max-parallel: 10
       matrix:
-        seed: [61, 12000, 12001, 12002, 12003, 12004, 12005, 12006, 12007, 12008, 12009, 12010, 12011, 12012, 12013,
-               12014, 12015, 12016, 12017, 12018, 12019, 12020, 12021, 12022, 12023, 12024, 12025, 12026, 12027,
-               12028, 12029, 12030, 12031, 12032, 12033, 12034, 12035, 12036, 12037, 12038, 12039]
+        seed: [65, 14000, 14001, 14002, 14003, 14004, 14005, 14006, 14007, 14008, 14009, 14010, 14011, 14012, 14013,
+               14014, 14015, 14016, 14017, 14018, 14019, 14020, 14021, 14022, 14023, 14024, 14025, 14026, 14027,
+               14028, 14029, 14030, 14031, 14032, 14033, 14034, 14035, 14036, 14037, 14038, 14039]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,7 +52,8 @@ jobs:
           cd voice-adapter
           common=(--seeds "$SEED" --jobs 1 --echo-model residual --echo-continuous
                   --bot-render recorded --rhos none --arm-d --energy-k-db -12 --energy-min-speech-ms 30
-                  --arm-g --resid-threshold 1360 --arm-o --guard-erle-db 6 --guard-margin-db 3 --guard-packets 5)
+                  --resid-threshold 1360 --arm-o --guard-erle-db 6 --guard-margin-db 3 --guard-packets 5
+                  --arm-q --duck-commit-ms 100 --duck-window-ms 300)
           t0=$(date +%s)
           python -B bench/bargein_sweep.py "${common[@]}" --out ../out/s0 > ../s0.log &
           p0=$!

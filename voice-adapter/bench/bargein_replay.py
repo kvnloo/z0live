@@ -94,6 +94,15 @@ Arm O (--arm-o, opt-in, output marked bargein_replay/12; arms A-H unchanged): ar
   --guard-packets consecutive render-active packets in which G's monitored ERLE is < --guard-erle-db and the shadow
   residual is >= --guard-margin-db lower. Until then every decision is arm G's. See ShadowGuardGate.
 
+Arm Q (--arm-q, needs --arm-o, opt-in, output marked bargein_replay/14; arms A-O unchanged): arm O's canceller and
+  residual-speech decision unchanged, but the onset (--energy-min-speech-ms of consecutive residual speech, arm O's
+  flush point) only DUCKS playout: the adapter pauses its playout FIFO (reversible, no frame is dropped). The flush is
+  COMMITTED once --duck-commit-ms of cumulative residual speech (counting the onset run) is reached within
+  --duck-window-ms of the duck; otherwise playout resumes (un-duck) where it stopped and the gate re-arms. For arm Q
+  latency_ms is time-to-ducked-or-silent (end of the last audible bot sample; a paused speaker is silent and resumed
+  audio counts), false_barge_ins counts COMMITTED flushes on negatives, duck_false_alarms counts ducks that were not
+  committed (undone or open at the end). See DuckConfirmGate.
+
 Stress flags (opt-in, output marked bargein_replay/5; without them nothing changes):
   --caller-level-db-range LO,HI  per valid trial, caller gain g ~ U(LO, HI) dB
             relative to the fixture level (bot render stays at its level), drawn
@@ -157,6 +166,7 @@ HARNESS_NLMS = "bargein_replay/9"  # only with --arm-f or --arm-f2
 HARNESS_RESID = "bargein_replay/10"  # only with --arm-g or --arm-g2
 HARNESS_TWOPATH = "bargein_replay/11"  # only with --arm-h
 HARNESS_SHADOW = "bargein_replay/12"  # only with --arm-o
+HARNESS_DUCK = "bargein_replay/14"  # only with --arm-q (13 was arm P, reverted, not on this line)
 ERL_DB_RANGE = (6, 20)
 REFLECTIONS = 12
 
@@ -971,6 +981,65 @@ class ShadowGuardGate(ResidualGate):
         return False
 
 
+class DuckConfirmGate(ShadowGuardGate):
+    """Arm Q (bargein_replay/14): arm O unchanged (canceller, shadow stall guard, arming, residual-only speech
+    decision), with the onset split from the decision. observe() returns None or an event:
+      "duck"   energy_min_speech_ms of consecutive residual speech (arm O's flush point): pause playout;
+      "commit" duck_commit_ms of cumulative residual speech since the onset run began (the onset run counts, gaps
+               do not reset it) within duck_window_ms of the duck: flush playout (terminal);
+      "unduck" the window elapsed without a commit: resume playout; the onset run restarts from zero.
+    With duck_commit_ms <= energy_min_speech_ms the onset commits at once ("commit", no duck): arm O exactly.
+    """
+
+    def __init__(self, cfg, span_ms):
+        super().__init__(cfg, span_ms)
+        self.onset_ms = self.minimum  # arm O's flush run (energy_min_speech_ms)
+        self.minimum = float("inf")  # the inherited run never fires; step() decides
+        self.commit_ms = cfg.duck_commit_ms
+        self.window_ms = cfg.duck_window_ms
+        self.ducked = False
+        self.onset_run = 0
+        self.acc = 0
+        self.duck_t = None
+        self.ducks = 0
+        self.unducks = 0
+        self.speech = False
+
+    def decide(self, n, ee, ed, ey, top):
+        self.speech = super().decide(n, ee, ed, ey, top)
+        return self.speech
+
+    def observe(self, t, packet):
+        if self.fired:
+            return None
+        self.speech = False
+        super().observe(t, packet)
+        return self.step(t, self.speech)
+
+    def step(self, t, speech):
+        if self.fired:  # committed: terminal
+            return None
+        if not self.ducked:
+            self.onset_run = self.onset_run + CAPTURE_MS if speech else 0
+            if self.onset_run < self.onset_ms:
+                return None
+            self.ducked, self.duck_t, self.acc = True, t, self.onset_run
+            self.ducks += 1
+            if self.acc >= self.commit_ms:
+                self.fired = True
+                return "commit"
+            return "duck"
+        self.acc += CAPTURE_MS if speech else 0
+        if self.acc >= self.commit_ms:
+            self.fired = True
+            return "commit"
+        if t - self.duck_t >= self.window_ms:
+            self.ducked, self.onset_run = False, 0
+            self.unducks += 1
+            return "unduck"
+        return None
+
+
 def residual_echo(seed, index, kind, erl_db_range=None):
     """bargein_replay/2 per-trial echo path, drawn from its own RNG (erl_db_range: bargein_replay/5)."""
     rng = Random(f"{HARNESS_RESIDUAL}:{seed}:{index}")
@@ -1167,7 +1236,9 @@ def replay(trial, arm, cfg, bot):
              ResidualGate(cfg, len(speaker) // SAMPLES_MS, "residual" if arm == "G" else "nlp")
              if arm in ("G", "G2") else
              TwoPathGate(cfg, len(speaker) // SAMPLES_MS) if arm == "H" else
-             ShadowGuardGate(cfg, len(speaker) // SAMPLES_MS) if arm == "O" else None)
+             ShadowGuardGate(cfg, len(speaker) // SAMPLES_MS) if arm == "O" else
+             DuckConfirmGate(cfg, len(speaker) // SAMPLES_MS) if arm == "Q" else None)
+    paused = False  # arm Q: playout FIFO paused (ducked); never set for other arms
 
     def post(t, priority, label, payload=None):
         heappush(future, (t, priority, next(order), label, payload))
@@ -1210,7 +1281,7 @@ def replay(trial, arm, cfg, bot):
             else:
                 queue.append(payload)
         elif event == "play":
-            if queue:
+            if queue and not paused:
                 index = queue.popleft()
                 source_cursor = (index + 1) * FRAME_MS
                 trace["last_adapter_frame_ms"] = t
@@ -1255,9 +1326,16 @@ def replay(trial, arm, cfg, bot):
             if fgate and fgate.observe(t, payload):
                 trace["erl2_fire_ms"] = t
                 flush(t, "erl2_gated_local_vad")
-            if ngate and ngate.observe(t, payload):
+            fire = ngate.observe(t, payload) if ngate else False
+            if fire == "duck":  # arm Q: pause playout (reversible)
+                paused = True
+                trace.setdefault("duck_ms", []).append(t)
+            elif fire == "unduck":  # arm Q: resume playout where it stopped
+                paused = False
+                trace.setdefault("unduck_ms", []).append(t)
+            elif fire:
                 trace["nlms_fire_ms"] = t
-                flush(t, "residual_gated_local_vad" if arm in ("G", "G2", "O") else
+                flush(t, "residual_gated_local_vad" if arm in ("G", "G2", "O", "Q") else
                       "twopath_residual_gated_local_vad" if arm == "H" else "nlms_gated_local_vad")
             # PCM keeps flowing upstream even if bot audio has been muted.
             post(t + trial["ws_up"], 3, "server_pcm", payload)
@@ -1329,7 +1407,7 @@ def replay(trial, arm, cfg, bot):
         trace["nlms_erle_packets"] = len(erle)
         if arm == "H":
             trace["nlms_copies"] = ngate.copies
-        if arm == "O":
+        if arm in ("O", "Q"):
             trace["nlms_swaps"] = ngate.swaps
     row = dict(trial=trial["id"], kind=kind, latency_ms=latency,
                residual_ms=residual, false_barge_in=kind != "valid" and muted,
@@ -1349,6 +1427,14 @@ def replay(trial, arm, cfg, bot):
         row["_erle"] = erle  # popped by run(): pooled packet ERLE summary
     if "bot" in trial:
         row["bot_render"] = dict(clip=trial["bot_clip"], offset=trial["bot_offset"], mic_clip=trial["mic_clip"])
+    if arm == "Q":  # bargein_replay/14 duck bookkeeping (adapter clock)
+        ducks, unducks = trace.get("duck_ms", []), trace.get("unduck_ms", [])
+        row["ducks"] = len(ducks)
+        row["duck_false_alarms"] = len(ducks) - (1 if muted and ducks else 0)  # ducks not committed
+        row["duck_ms_total"] = sum(u - d for d, u in zip(ducks, unducks))  # paused time of undone ducks
+        row["duck_open_at_end"] = len(ducks) > len(unducks) and not muted
+        row["commit_latency_ms"] = (trace["adapter_flush_ms"] - onset
+                                    if kind == "valid" and muted else None)
     return row
 
 
@@ -1388,17 +1474,19 @@ def run(n, seed, cfg, bot):
     arm_g2 = getattr(cfg, "arm_g2", False)
     arm_h = getattr(cfg, "arm_h", False)
     arm_o = getattr(cfg, "arm_o", False)
+    arm_q = getattr(cfg, "arm_q", False)
     nlms = arm_f or arm_f2 or arm_g or arm_g2 or arm_h or arm_o
     result = dict(seed=seed, trials_per_arm=n, parameters={
         k: v for k, v in vars(cfg).items()
         if k not in ("aa", "output", "seed", "trials", "arm_c", "arm_d", "arm_e", "arm_e2", "arm_f", "arm_f2",
-                     "arm_g", "arm_g2", "arm_h", "arm_o")
+                     "arm_g", "arm_g2", "arm_h", "arm_o", "arm_q")
         and (arm_c or not k.startswith("gate_"))  # default run keeps the frozen bytes
         and (arm_d or arm_e or arm_e2 or nlms or not k.startswith("energy_"))
         and (nlms or not k.startswith("nlms_"))  # bargein_replay/9 only with --arm-f / --arm-f2 (/10: G, G2)
         and (arm_g or arm_g2 or arm_h or arm_o or not k.startswith("resid_"))  # /10 G, G2 (/11: H, /12: O)
         and (arm_h or not k.startswith("twopath_"))  # bargein_replay/11 only with --arm-h
         and (arm_o or not k.startswith("guard_"))  # bargein_replay/12 only with --arm-o
+        and (arm_q or not k.startswith("duck_"))  # bargein_replay/14 only with --arm-q
         and (arm_e2 or not k.startswith("erl2_"))  # bargein_replay/8 only with --arm-e2
         and (arm_e or not k.startswith("erl_") or k == "erl_db_range")  # erl_db_range: bargein_replay/5 stress
         and (k != "echo_model" or echo_model != "copy")
@@ -1429,11 +1517,13 @@ def run(n, seed, cfg, bot):
         result["harness"] = HARNESS_TWOPATH
     if arm_o:
         result["harness"] = HARNESS_SHADOW
+    if arm_q:
+        result["harness"] = HARNESS_DUCK
     arms = ("A", "B", "C") if arm_c else ("A", "B")
     arms += (("D",) if arm_d else ()) + (("E",) if arm_e else ()) + (("E2",) if arm_e2 else ())
     arms += (("F",) if arm_f else ()) + (("F2",) if arm_f2 else ())
     arms += (("G",) if arm_g else ()) + (("G2",) if arm_g2 else ()) + (("H",) if arm_h else ())
-    for arm in arms + (("O",) if arm_o else ()):
+    for arm in arms + (("O",) if arm_o else ()) + (("Q",) if arm_q else ()):
         rows = [replay(case, arm, cfg, bot) for case in cases]
         pooled = [v for row in rows for v in row.pop("_erle", ())]
         valid = [row for row in rows if row["kind"] == "valid"]
@@ -1487,7 +1577,7 @@ def run(n, seed, cfg, bot):
                 [row["latency_ms"] for row in valid if row.get("echo_path", {}).get("double_talk")])
             summary["valid_trials_with_veto"] = sum(row["trace"]["erl2_vetoes"] > 0 for row in valid)
             summary["final_est_db"] = quantiles([row["trace"]["erl2_final_est_db"] for row in rows])
-        if arm in ("F", "F2", "G", "G2", "H", "O"):
+        if arm in ("F", "F2", "G", "G2", "H", "O", "Q"):
             summary = result["arms"][arm]
             summary["double_talk_latency_ms"] = percentiles(
                 [row["latency_ms"] for row in valid if row.get("echo_path", {}).get("double_talk")])
@@ -1502,9 +1592,25 @@ def run(n, seed, cfg, bot):
                                                    for row in rows if row["trace"]["nlms_delay_ms"] is not None])
             if arm == "H":
                 summary["copies_per_trial"] = quantiles([row["trace"]["nlms_copies"] for row in rows])
-            if arm == "O":
+            if arm in ("O", "Q"):
                 summary["swaps_per_trial"] = quantiles([row["trace"]["nlms_swaps"] for row in rows])
                 summary["trials_with_swap"] = sum(row["trace"]["nlms_swaps"] > 0 for row in rows)
+        if arm == "Q":  # bargein_replay/14: latency_ms above is time-to-ducked-or-silent
+            summary = result["arms"][arm]
+            summary["latency_definition"] = "time_to_ducked_or_silent"
+            summary["commit_latency_ms"] = percentiles([row["commit_latency_ms"] for row in valid
+                                                        if row["commit_latency_ms"] is not None])
+            summary["duck_false_alarms"] = sum(row["duck_false_alarms"] for row in rows)
+            summary["duck_false_alarms_by_kind"] = {
+                kind: sum(row["duck_false_alarms"] for row in rows if row["kind"] == kind)
+                for kind in ("valid", "backchannel", "echo", "noise")}
+            summary["ducks"] = sum(row["ducks"] for row in rows)
+            summary["duck_ms_undone"] = quantiles([row["duck_ms_total"] for row in rows if row["duck_ms_total"]])
+            summary["duck_ms_undone_total"] = sum(row["duck_ms_total"] for row in rows)
+            summary["ducks_open_at_end"] = sum(row["duck_open_at_end"] for row in rows)
+            summary["premature_ducks_valid"] = sum(
+                bool(row["trace"].get("duck_ms")) and row["trace"]["duck_ms"][0]
+                < row["trace"]["adapter_onset_frame_receive_ms"] for row in valid)
     return result
 
 
@@ -1606,6 +1712,14 @@ def main():
                         help="arm O: the shadow residual must be at least this many dB below G's residual")
     parser.add_argument("--guard-packets", type=int, default=10,
                         help="arm O: consecutive stalled-and-shadow-better packets before the shadow replaces G's filter")
+    parser.add_argument("--arm-q", action="store_true",
+                        help="add arm Q (bargein_replay/14, needs --arm-o): arm O whose onset only ducks (pauses) "
+                             "playout; the flush commits after --duck-commit-ms of cumulative residual speech within "
+                             "--duck-window-ms, else playout resumes")
+    parser.add_argument("--duck-commit-ms", type=int, default=100,
+                        help="arm Q: cumulative residual-speech ms (onset run included) that commits the flush")
+    parser.add_argument("--duck-window-ms", type=int, default=200,
+                        help="arm Q: ms after the duck within which the commit must happen, else un-duck")
     parser.add_argument("--echo-erle-db", type=float, default=None,
                         help="bargein_replay/8 (needs --echo-continuous): linear-AEC residual, echo attenuated X dB")
     parser.add_argument("--echo-model", choices=("copy", "residual"), default="copy",
@@ -1668,6 +1782,11 @@ def main():
         parser.error("twopath: copy dB in [-20, 60], copy packets >= 1")
     if not -20 <= cfg.guard_erle_db <= 60 or not 0 <= cfg.guard_margin_db <= 60 or cfg.guard_packets < 1:
         parser.error("guard: ERLE dB in [-20, 60], margin dB in [0, 60], packets >= 1")
+    for v in (cfg.duck_commit_ms, cfg.duck_window_ms):
+        if v <= 0 or v % CAPTURE_MS or v > 2000:
+            parser.error("duck: commit and window ms are positive multiples of 10 ms, <= 2000")
+    if cfg.arm_q and not cfg.arm_o:
+        parser.error("--arm-q needs --arm-o (arm Q is arm O with a duck/commit split)")
 
     bot = voice(BOT_MS, 142, 11000, 115)
     result = run(cfg.trials, cfg.seed, cfg, bot)
