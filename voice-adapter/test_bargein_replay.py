@@ -808,5 +808,154 @@ class ContinuousEchoTest(unittest.TestCase):
             self.assertTrue(res['ab_identical_across_rho_runs'])
 
 
+# A-bargein-J continuous-echo bytes (seed 39, 20 trials, arms A-E, --echo-continuous), pinned before K's change
+CONT_J_ARGS = ARM_D_F_ARGS + E_ARGS + ('--echo-continuous',)
+CONT_J_SHA256 = '6668b9a866d5999f42598f51f3ceeb3a83cbad59eb1ec3624f8ba4130e9a6e79'
+E2_ARGS = ('--arm-e2', '--erl2-margin-db=6', '--erl2-min-speech-ms', '30')
+
+
+class AecResidualTest(unittest.TestCase):
+    """bargein_replay/8: opt-in --echo-erle-db X (continuous echo after a linear AEC with X dB ERLE) and arm E2
+    (unbiased online echo-gain estimate: least-squares fit over all render-active packets at the matched lag)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.trials = list(replay.stimuli(30, 39, echo_model='residual', bot_render='recorded'))
+        cls.speaker = array('h', [9000, -9000, 4000, -4000] * (replay.BOT_MS * replay.SAMPLES_MS // 4))
+
+    def res_cfg(self, **overrides):
+        return cfg(**({'echo_model': 'residual', 'bot_render': 'recorded', 'echo_continuous': True} | overrides))
+
+    def e2_cfg(self, **overrides):
+        return cfg(**({'energy_lag_max_ms': 250, 'erl2_margin_db': 6.0, 'erl2_min_speech_ms': 20,
+                       'erl2_prior_db': 0.0, 'erl2_min_updates': 10} | overrides))
+
+    def test_harness_id(self):
+        self.assertEqual(replay.HARNESS_AEC, 'bargein_replay/8')
+
+    def test_erle_attenuates_echo_only(self):
+        start = 400 * replay.SAMPLES_MS
+        for trial in self.trials:
+            noise = [max(-32768, min(32767, n)) for n in trial['residual']['noise'][start:start + 160]]
+            full = replay.capture(trial, self.speaker, start, 160, self.res_cfg())
+            zero = replay.capture(trial, self.speaker, start, 160, self.res_cfg(echo_erle_db=0.0))
+            att = replay.capture(trial, self.speaker, start, 160, self.res_cfg(echo_erle_db=20.0))
+            self.assertEqual(list(full), list(zero))
+            e_full = sum((a - b) ** 2 for a, b in zip(full, noise))
+            e_att = sum((a - b) ** 2 for a, b in zip(att, noise))
+            self.assertGreater(e_full, 0)
+            self.assertAlmostEqual(10 * replay.log10(e_full / e_att), 20.0, delta=0.5)
+
+    def test_j_continuous_bytes_unchanged(self):
+        proc, data = run_cli(*CONT_J_ARGS)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sha256(data).hexdigest(), CONT_J_SHA256)
+        self.assertNotIn('echo_erle_db', json.loads(data)['parameters'])
+
+    def test_cli_marks_v8_and_logs_erle(self):
+        proc, data = run_cli(*CONT_J_ARGS, '--echo-erle-db', '20', '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        out = json.loads(data)
+        self.assertEqual(out['harness'], 'bargein_replay/8')
+        self.assertEqual(out['parameters']['echo_erle_db'], 20.0)
+        for row in out['arms']['A']['trials']:
+            self.assertEqual(row['echo_path']['erle_db'], 20.0)
+        self.assertIs(json.loads(proc.stdout)['aa_identical'], True)
+        self.assertNotEqual(sha256(data).hexdigest(), CONT_J_SHA256)
+
+    def test_cli_rejects_bad_erle(self):
+        bad, _ = run_cli('--trials', '10', '--echo-model', 'residual', '--echo-erle-db', '20')  # no --echo-continuous
+        self.assertNotEqual(bad.returncode, 0)
+        bad, _ = run_cli('--trials', '10', '--echo-model', 'residual', '--echo-continuous', '--echo-erle-db=-1')
+        self.assertNotEqual(bad.returncode, 0)
+
+    def test_e2_never_reads_labels(self):
+        import ast
+        import inspect
+        tree = ast.parse(inspect.getsource(replay.ErlFitGate))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                self.assertNotIn(node.id, ArmCTest.FORBIDDEN, node.id)
+            elif isinstance(node, ast.Attribute):
+                self.assertNotIn(node.attr, ArmCTest.FORBIDDEN | {'erl_db', 'gain', 'caller_gain_db', 'erle_db'},
+                                 node.attr)
+                if isinstance(node.value, ast.Name) and node.value.id == 'cfg':
+                    self.assertTrue(node.attr.startswith('erl2_') or node.attr == 'energy_lag_max_ms', node.attr)
+        self.assertEqual(list(inspect.signature(replay.ErlFitGate.observe).parameters), ['self', 't', 'packet'])
+        self.assertEqual(list(inspect.signature(replay.ErlFitGate.render).parameters), ['self', 't', 'frame'])
+
+    def synthetic(self, gate, gain_db, lag_ms, hot_caller_from=None):
+        """Render with a varying envelope; near = render delayed lag_ms scaled by gain_db, + caller after onset."""
+        rng = replay.Random(7)
+        n = replay.CAPTURE_MS * replay.SAMPLES_MS
+        sent = array('h', [0]) * (900 * replay.SAMPLES_MS)
+        for t in range(0, 800, 20):
+            amp = rng.choice((0, 1500, 4000, 9000, 12000))
+            frame = array('h', [amp, -amp] * (replay.FRAME_MS * replay.SAMPLES_MS // 2))
+            gate.render(t, frame)
+            sent[t * replay.SAMPLES_MS:(t + 20) * replay.SAMPLES_MS] = frame
+        g = 10 ** (gain_db / 20)
+        fired = None
+        for end in range(300, 800, 10):
+            src = (end - lag_ms) * replay.SAMPLES_MS
+            packet = array('h', (round(g * v) for v in sent[src - n:src]))
+            if hot_caller_from is not None and end > hot_caller_from:
+                packet = array('h', (v + (15000 if k % 4 < 2 else -15000) for k, v in enumerate(packet)))
+            if gate.observe(end, packet) and fired is None:
+                fired = end
+        return fired
+
+    def test_e2_estimate_unbiased_on_hot_echo(self):
+        # echo at -6 dB re render is hot most of the time; the quiet-only E estimator never sees it, E2 must
+        for gain_db, lag in ((-6.0, 90), (-20.0, 150), (-30.0, 40)):
+            gate = replay.ErlFitGate(self.e2_cfg(), 900)
+            self.assertIsNone(self.synthetic(gate, gain_db, lag))
+            self.assertAlmostEqual(gate.est_db, gain_db, delta=1.0)
+            self.assertEqual(gate.lag_ms, lag)
+            self.assertGreater(gate.updates, 40)
+
+    def test_e2_fires_on_caller_over_echo(self):
+        gate = replay.ErlFitGate(self.e2_cfg(), 900)
+        fired = self.synthetic(gate, -6.0, 90, hot_caller_from=600)
+        self.assertIsNotNone(fired)
+        self.assertGreater(fired, 600)
+        self.assertLessEqual(fired, 640)
+
+    def test_cli_arm_e2_leaves_other_arms_unchanged(self):
+        base = CONT_J_ARGS + ('--echo-erle-db', '20')
+        proc, plain = run_cli(*base)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        proc, with_e2 = run_cli(*base, *E2_ARGS)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        p, o = json.loads(plain), json.loads(with_e2)
+        self.assertEqual(sorted(o['arms']), ['A', 'B', 'C', 'D', 'E', 'E2'])
+        for arm in ('A', 'B', 'C', 'D', 'E'):
+            self.assertEqual(canonical(o['arms'][arm]), canonical(p['arms'][arm]), arm)
+        self.assertEqual(o['parameters']['erl2_margin_db'], 6.0)
+        self.assertFalse(any(k.startswith('erl2_') for k in p['parameters']))
+        e2 = json.loads(proc.stdout)['arms']['E2']
+        self.assertEqual(sorted(e2['final_est_db']), ['n', 'p10', 'p50', 'p90'])
+        self.assertIn('valid_trials_with_veto', e2)
+        row = o['arms']['E2']['trials'][0]['trace']
+        self.assertIn('erl2_final_est_db', row)
+        self.assertIn('erl2_lag_ms', row)
+        # E2 flags without --arm-e2 change nothing
+        proc, data = run_cli(*CONT_J_ARGS, *E2_ARGS[1:])
+        self.assertEqual(sha256(data).hexdigest(), CONT_J_SHA256)
+
+    def test_sweep_passes_erle_and_e2(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([sys.executable, '-B', str(BENCH_DIR / 'bargein_sweep.py'), '--seeds', '39', '--trials', '20',
+                            '--echo-model', 'residual', '--echo-continuous', '--echo-erle-db', '20', '--bot-render',
+                            'recorded', '--rhos', '0.9', '--arm-d', '--energy-k-db', '-12', '--energy-min-speech-ms',
+                            '30', *E_ARGS, *E2_ARGS, '--out', tmp], check=True, capture_output=True, timeout=900)
+            res = json.loads(Path(tmp, 'seed-39.json').read_text())
+            self.assertEqual(res['harness'], 'bargein_replay/8')
+            self.assertIn('--echo-erle-db', res['extra_args'])
+            self.assertEqual(sorted(res['arms']), ['A', 'B', 'C0.9', 'D', 'E', 'E2'])
+            self.assertIn('valid_trials_with_veto', res['arms']['E2'])
+            self.assertTrue(res['ab_identical_across_rho_runs'])
+
+
 if __name__ == '__main__':
     unittest.main()

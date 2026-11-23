@@ -1,12 +1,14 @@
-name: z0live barge-in continuous echo, arm D vs re-tuned arm E (CPU, stdlib)
-# A-bargein-J: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml
+name: z0live barge-in AEC-residual continuous echo, arms D / E / E2 (CPU, stdlib)
+# A-bargein-K: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml
 # --ref <branch>` can dispatch it (a new workflow file is not dispatchable until it is on the default branch).
-# It runs voice-adapter/bench/bargein_sweep.py with --echo-model residual --echo-continuous --bot-render recorded
-# --arm-d --arm-e (bargein_replay/7, offline virtual-time sim, Python stdlib only, no network, no secrets) on
-# holdout seed 51 and fresh seeds 7000-7039 under three conditions: S0 unstressed -> out/s0, S1 caller-only
+# It runs voice-adapter/bench/bargein_sweep.py with --echo-model residual --echo-continuous --echo-erle-db 20
+# --bot-render recorded --arm-d --arm-e --arm-e2 (bargein_replay/8, offline virtual-time sim, Python stdlib
+# only, no network, no secrets) on holdout seed 53 and fresh seeds 8000-8039, one seed per shard, with the three
+# conditions run as parallel processes on the runner: S0 unstressed -> out/s0, S1 caller-only
 # (--caller-level-db-range -10,0) -> out/s1, FULL (caller -10,0 and --erl-db-range 0,6) -> out/full.
-# Arms A, B, C rho 0.9 at M 40 ms, D frozen (k -12 dB, M 30 ms), E frozen from dev seed 50 tuning
-# (estimator vetoed, alpha 0.1, prior -12 dB, margin 6 dB, M 30 ms).
+# Arms A, B, C rho 0.9 at M 40 ms, D frozen (k -12 dB, M 30 ms), E frozen from A-bargein-J (estimator vetoed,
+# alpha 0.1, prior -12 dB, margin 6 dB, M 30 ms), E2 least-squares matched-lag ERL fit (margin 6 dB, prior
+# -12 dB, min updates 10, M 30 ms).
 on:
   workflow_dispatch:
     inputs:
@@ -18,15 +20,16 @@ permissions:
   contents: read
 jobs:
   sweep:
-    name: seeds ${{ matrix.seeds }}
+    name: seed ${{ matrix.seed }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 70
     strategy:
       fail-fast: false
+      max-parallel: 10
       matrix:
-        seeds: ["51", 7000-7001, 7002-7003, 7004-7005, 7006-7007, 7008-7009, 7010-7011, 7012-7013, 7014-7015,
-                7016-7017, 7018-7019, 7020-7021, 7022-7023, 7024-7025, 7026-7027, 7028-7029, 7030-7031,
-                7032-7033, 7034-7035, 7036-7037, 7038-7039]
+        seed: [53, 8000, 8001, 8002, 8003, 8004, 8005, 8006, 8007, 8008, 8009, 8010, 8011, 8012, 8013, 8014, 8015,
+               8016, 8017, 8018, 8019, 8020, 8021, 8022, 8023, 8024, 8025, 8026, 8027, 8028, 8029, 8030, 8031,
+               8032, 8033, 8034, 8035, 8036, 8037, 8038, 8039]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,25 +42,36 @@ jobs:
           cpu=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)
           echo "runner CPU: ${cpu:-unknown} ($(uname -m), $(nproc) cpus), $(python --version)" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Sweep
-        timeout-minutes: 40
+        timeout-minutes: 60
         env:
-          SEEDS: ${{ matrix.seeds }}
+          SEED: ${{ matrix.seed }}
         run: |
           set -euo pipefail
           cd voice-adapter
-          common=(--seeds "$SEEDS" --jobs "$(nproc)" --echo-model residual --echo-continuous --bot-render recorded
-                  --rhos 0.9 --arm-d --energy-k-db -12 --energy-min-speech-ms 30
+          common=(--seeds "$SEED" --jobs 1 --echo-model residual --echo-continuous --echo-erle-db 20
+                  --bot-render recorded --rhos 0.9 --arm-d --energy-k-db -12 --energy-min-speech-ms 30
                   --arm-e --erl-estimator vetoed --erl-alpha 0.1 --erl-prior-db=-12 --erl-margin-db=6
-                  --erl-min-speech-ms 30)
-          python -B bench/bargein_sweep.py "${common[@]}" --out ../out/s0 | sed 's/^/s0 /' | tee -a "$GITHUB_STEP_SUMMARY"
-          python -B bench/bargein_sweep.py "${common[@]}" --out ../out/s1 \
-            --caller-level-db-range=-10,0 | sed 's/^/s1 /' | tee -a "$GITHUB_STEP_SUMMARY"
+                  --erl-min-speech-ms 30
+                  --arm-e2 --erl2-margin-db=6 --erl2-prior-db=-12 --erl2-min-updates 10 --erl2-min-speech-ms 30)
+          t0=$(date +%s)
+          python -B bench/bargein_sweep.py "${common[@]}" --out ../out/s0 > ../s0.log &
+          p0=$!
+          python -B bench/bargein_sweep.py "${common[@]}" --out ../out/s1 --caller-level-db-range=-10,0 > ../s1.log &
+          p1=$!
           python -B bench/bargein_sweep.py "${common[@]}" --out ../out/full \
-            --caller-level-db-range=-10,0 --erl-db-range=0,6 | sed 's/^/full /' | tee -a "$GITHUB_STEP_SUMMARY"
+            --caller-level-db-range=-10,0 --erl-db-range=0,6 > ../full.log &
+          p2=$!
+          rc=0
+          wait $p0 || rc=1
+          wait $p1 || rc=1
+          wait $p2 || rc=1
+          for c in s0 s1 full; do sed "s/^/$c /" "../$c.log" | tee -a "$GITHUB_STEP_SUMMARY"; done
+          echo "sweep wall $(( $(date +%s) - t0 )) s" | tee -a "$GITHUB_STEP_SUMMARY"
+          exit $rc
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: sweep-${{ matrix.seeds }}
+          name: sweep-${{ matrix.seed }}
           path: out/
           if-no-files-found: warn
           retention-days: 30
