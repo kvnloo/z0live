@@ -625,6 +625,23 @@ class AnswerDeliveryTest(TimedGuestTest):
         g.flush_answers()
         self.assertEqual(self.speakable("from this call"), 2)
 
+    async def test_a_rest_waits_for_the_callers_open_turn(self):
+        # Take 16, 97.969 s: the rest went out while the caller's turn on that leg was still open (it closed at 98.778).
+        g = self.cut_by_a_friend_asking_tek()
+        self.at(105)
+        g.observe("primary", turn("created", "Okay, nice, that's the one I kept hitting", 5000, 5800, tid="u5"))
+        utterance_ends(g)
+        self.assertEqual(g.floor.owner, "people")
+        self.at(106)
+        g.flush_answers()
+        self.assertEqual(self.speakable("from this call"), 1, "not while the caller's turn is open")
+        self.at(106.5)
+        g.observe("primary", turn("done", "Okay, nice, that's the one I kept hitting", 5000, 6200, tid="u5"))
+        self.at(108.1)
+        g.flush_answers()
+        self.assertEqual(g.floor.owner, "primary")
+        self.assertEqual(self.speakable("from this call"), 2, "once it closed, in the caller's pause")
+
     async def test_teks_answer_cut_by_people_talk_comes_back_to_tek(self):
         # Take 13, line 4 (words changed): three words in, Tek's answer counted as spoken, and line 5 ("Okay,
         # nice") cut it at "the blur". Nothing more was said.
@@ -638,7 +655,7 @@ class AnswerDeliveryTest(TimedGuestTest):
         self.at(101)
         g.observe("guest", turn("created", "", role="assistant", tid="r1"))
         g.observe("guest", output("The shed door stuck, the hinge pin rusted. The new"))
-        self.assertIn("floor.answer_spoken", self.call.traces)
+        self.assertNotIn("floor.answer_spoken", self.call.traces, "begun is not heard: the reply's end decides")
         self.at(103)
         self.call.output_loud_at = 103
         g.observe("primary", turn("created", "Okay, nice, that's good to know", 3000, 3800, tid="u2"))
@@ -738,6 +755,122 @@ class AnswerDeliveryTest(TimedGuestTest):
         g.flush_answers()  # Call.message flushes after every provider event while primary answers wait
         self.assertEqual(self.speakable("Hermes answer for this question."), 1)
         self.assertEqual(self.speakable("Guess for"), 0)
+
+
+class Take16FloorTest(TimedGuestTest):
+    """Take 16, line 3 (words changed)."""
+
+    ANSWER = ("Card t_0b17 has fixed the shed door since Monday, so I won't start a second job. Its steps are to oil "
+              "the hinge, then check it every week.\n\n"
+              "A correction: the pin is brass, not steel.\n\n"
+              "I can only report from this call. The card keeps going on its own.")
+
+    def said_by_a_reply(self, rid, text, start, end):
+        g = self.guest
+        self.at(start)
+        g.observe("primary", turn("created", "", role="assistant", tid=rid))
+        g.observe("primary", output(text))
+        self.at(end)
+        g.observe("primary", turn("done", "", int(start * 1000), int(end * 1000), role="assistant", tid=rid))
+
+    async def test_a_paragraph_a_reply_skipped_comes_back_once_with_one_cue(self):
+        # 98.8-121.2 s: the voice said paragraph 2 and a paraphrase of paragraph 3 and ran its course; paragraph 1
+        # (card t_0a96e2de, "won't start a second run") was credited at answer_spoken 100.365 and never resent.
+        g = self.guest
+        g.set_people(2)
+        g.floor.change("primary", "redirected", 100)
+        self.speak("d3", self.ANSWER)
+        self.said_by_a_reply("r1", "Quick correction, the pin is brass, not steel. The card keeps going on its own.",
+                             100.6, 110)
+        self.assertIn("floor.answer_unsaid", self.call.traces)
+        self.assertNotIn("floor.answer_cut", self.call.traces, "it ran its course: not a cut")
+        self.at(112)
+        g.flush_answers()
+        self.assertEqual(self.speakable("t_0b17"), 2, "paragraph 1 goes back")
+        self.assertEqual(self.speakable("brass"), 1, "and only paragraph 1")
+        self.said_by_a_reply("r2", "The card is fixing the shed door.", 112.5, 115)
+        self.at(120)
+        g.flush_answers()
+        self.assertEqual(self.speakable("t_0b17"), 2, "once: skipped twice, the voice chose to")
+        self.assertEqual([m for m in self.call.sent if str(m).count("To finish what I was saying") > 1], [])
+
+    async def test_a_reply_that_put_the_answer_in_its_own_words_is_heard(self):
+        g = self.guest
+        g.set_people(2)
+        g.floor.change("primary", "redirected", 100)
+        self.speak("d3", "It was a startup-order bug. The app sets up the window before it is built, so the view "
+                         "doesn't exist yet. The fix is merged, but it isn't on your S25 yet.")
+        self.said_by_a_reply("r1", "In short, the app set up the window too early. The fix is merged, not on your S "
+                                   "twenty-five yet.", 100.6, 106)
+        self.assertIn("floor.answer_spoken", self.call.traces)
+        self.assertNotIn("floor.answer_unsaid", self.call.traces)
+        self.at(112)
+        g.flush_answers()
+        self.assertEqual(self.speakable("startup-order"), 1)
+
+    async def test_an_answer_dropped_for_a_new_request_is_not_resent(self):
+        # 51.974 s: floor.answer_dropped (new_request) for line 2's answer, then 16 ms later floor.answer_resent.
+        g = self.guest
+        g.set_people(2)
+        g.floor.change("primary", "redirected", 100)
+        self.speak("d2", "Your laptop is on build four.")  # handed, never said
+        g.floor.answers["primary"].append(Answer("primary", "d2", "Staging is ahead of it.", rest=True))
+        self.at(101)
+        g.observe("primary", turn("done", "Can you get it onto my laptop too?", 1000, 2000, tid="u3"))
+        utterance_ends(g)
+        self.assertIn("floor.answer_dropped", self.call.traces)
+        self.at(110)
+        g.flush_answers()
+        self.assertEqual(self.speakable("build four"), 1)
+        self.assertNotIn("floor.answer_resent", self.call.traces)
+
+    async def test_the_last_word_of_a_request_heard_late_ends_that_request(self):
+        # 52.836 s: line 3's last word "receipts" came 17 ms after the floor decided, became its own utterance, and
+        # gave the floor to the people, muting the reply.
+        for gap, owner in ((200, "primary"), (1400, "people")):
+            with self.subTest(gap=gap):
+                await self.asyncSetUp()
+                g = self.guest
+                g.set_people(2)
+                g.floor.change("primary", "redirected", 100)
+                self.at(101)
+                g.observe("primary", turn("created", "Yeah. Get it onto my phone. Take as long as you need, just send",
+                                          40000, 49800, tid="p3"))
+                utterance_ends(g)
+                self.assertEqual(g.floor.owner, "primary", "fixture: a follow-up request")
+                self.at(101.1)
+                g.observe("primary", {"type": "turn.delta", "turn_id": "p3", "delta": " receipts",
+                                      "start_ms": 49800 + gap, "end_ms": 50000 + gap})
+                utterance_ends(g)
+                self.assertEqual(g.floor.owner, owner)
+                await g.close()
+
+    async def test_a_hand_off_line_is_muted_at_its_promise_until_the_answer(self):
+        # 52.998 s: the reply to line 3 opened "Okay, I'll" and said "Okay, I'll take that".
+        g = self.guest
+        g.set_people(2)
+        g.floor.change("primary", "redirected", 100)
+        self.at(101)
+        g.observe("primary", turn("done", "Can you get it onto my laptop?", 1000, 2000, tid="u3"))
+        utterance_ends(g)
+        await asyncio.sleep(0)
+        [(did, _)] = self.call.delegated
+        self.assertTrue(g.observe("primary", turn("created", " Okay,", role="assistant", tid="r1")))
+        self.assertFalse(g.observe("primary", output(" I'll")))
+        self.assertFalse(g.observe("primary", output(" take that.")))
+        self.assertIn("floor.promise_muted", self.call.traces)
+        self.speak(did, "The laptop is on build four.")
+        self.assertTrue(g.observe("primary", output(" The laptop is on build four.")), "its answer is heard")
+
+    def test_a_muted_line_never_reaches_the_phone_at_its_turn_done(self):
+        # 55.151 s: unmuted before it ended, the reply's turn.done put "Okay, I'll take that" in the phone's transcript.
+        protocol = live.Protocol(host_delegation=True)
+        protocol.from_provider(output(" Okay,"), assistant_audible=True)
+        protocol.from_provider(output(" I'll take that."), assistant_audible=False)
+        protocol.from_provider(output(" The laptop is on build four."), assistant_audible=True)
+        out = protocol.from_provider(turn("done", " Okay, I'll take that. The laptop is on build four.",
+                                          role="assistant", tid="r1"), assistant_audible=True)
+        self.assertNotIn("take that", json.dumps(out))
 
 
 class OneDecisionTest(TimedGuestTest):

@@ -369,9 +369,12 @@ class PeopleOnTheCall(unittest.TestCase):
         # Takes 7 and 9: handing line 3 to Hermes the voice said "Got it, I'll handle that and keep receipts" / "I'm
         # taking that on end-to-end. I'll be back with receipts", and Hermes answered with a report on work already
         # running. The replay flags a promise made before the request's own answer reached the voice.
+        from unittest.mock import patch
         import mobile_live
-        promised = replayed(take7("Got it, I'm taking that on end-to-end. I'll be back with receipts once it's all "
-                                  "buttoned up."))
+        line = "Got it, I'm taking that on end-to-end. I'll be back with receipts once it's all buttoned up."
+        self.assertEqual(replay.report(replayed(take7(line)))["promised"], [], "the floor mutes it at the promise")
+        with patch.object(mobile_live, "opens_promise", lambda text: False):  # heard, it is caught
+            promised = replayed(take7(line))
         self.assertEqual([p["did"] for p in replay.report(promised)["promised"]], ["d3"])
         neutral = replayed(take7("Let me check."))
         report = replay.report(neutral)
@@ -482,19 +485,20 @@ class PeopleOnTheCall(unittest.TestCase):
         self.assertIn("30812", heard_after, "the answer the voice reads reaches the phone")
         self.assertEqual(report["lost"], [])
 
-    def cut_line_3(self, *after):
+    LINE_3 = ("That run is already going as card seven, so I won't start a second one. The receipts so far are a "
+              "signed build and passing screenshot tests. I can't install anything from this call.")
+
+    def cut_line_3(self, *after, answer=LINE_3, line="Let me check."):
         """Take 13, line 3 (words changed): Hermes's answer had played one sentence when the friend's "Hey, Tek.
         While that runs, ..." talked over it; Tek answered, the friend reacted, and the primary voice said nothing
         more. `after` is what the primary voice says once the floor comes back."""
-        answer = ("That run is already going as card seven, so I won't start a second one. The receipts so far are a "
-                  "signed build and passing screenshot tests. I can't install anything from this call.")
         rows = (GUEST
                 + heard(40.2, 52.6, "Hermes, get all of it onto my laptop, prove each one, and send receipts", "p3")
                 + heard(41.6, 52.7, "Hermes, get all of it onto my laptop, prove each one, and send receipts", "g3",
                         "guest")
                 + delegation(52.2, "d3", "Hermes, get all of it onto my laptop, prove each one, and send receipts")
                 + hermes("d3", 8.9, answer)
-                + speech(52.8, 54.0, "Let me check.", "a3")
+                + speech(52.8, 54.0, line, "a3")
                 + [{"t": 61.9, "output_loud": True}, {"t": 66.7, "output_loud": False}]
                 + speech(61.3, 66.6, "It's still going as card seven, so I won't start a second one.", "a4")
                 + heard(64.4, 66.5, "Hey, Tek. While that runs, what caused the crash in PR twelve", "g4", "guest")
@@ -527,6 +531,33 @@ class PeopleOnTheCall(unittest.TestCase):
         self.assertIn("anything from this call", "".join(text for t, text in r.heard if t > 100))
         self.assertEqual(report["lost"], [])
         self.assertEqual(report["repeats"], [])
+
+    def test_a_paragraph_a_reply_that_ran_its_course_skipped_is_lost_until_handed_again(self):
+        # Take 16, line 3 (words changed): the resumed rest's reply said paragraph 2 and paragraph 3 and ran its
+        # course; paragraph 1 and its card id were never said, and replay reported lost: [].
+        from unittest.mock import patch
+        import mobile_live
+        answer = ("That run is already going as card seven, so I won't start a second one. It is card t_0b17, and it "
+                  "updates the laptop from every green build.\n\nOne correction: your laptop is on build four, not "
+                  "five.\n\nI can't install anything from this call.")
+        after = speech(113.9, 119.5, "One correction, your laptop is on build four, not five. I can't install "
+                                     "anything from this call.", "a6")  # reading the rest handed back at 113.4 s
+        r, report = self.cut_line_3(*after, answer=answer)
+        self.assertTrue([t for t, event in r.sent if "t_0b17" in json.dumps(event) and t > 119.4],
+                        "the skipped paragraph goes back to the voice")
+        self.assertEqual(report["lost"], [])
+        with patch.object(mobile_live.GPTGuest, "retell", lambda g, leg: g.ledger.finished(leg)):  # never hands it
+            r, report = self.cut_line_3(*after, answer=answer)
+        self.assertEqual([(x["did"], x["unsaid"][:16]) for x in report["lost"]], [("d3", "It is card t_0b1")])
+
+    def test_a_hand_off_line_is_muted_at_its_promise_and_judged_by_what_reached_the_phone(self):
+        # Take 16, line 3: the reply opened "Okay, I'll take that"; replay listed it as promised although the floor
+        # had muted it. Muted at "I'll", nothing promising reaches the phone (heard, it is still caught: take 7's
+        # test_the_voice_hands_off_neutrally_and_hermes_says_what_happened).
+        r, report = self.cut_line_3(line="Okay, I'll take that.")
+        self.assertIn("floor.promise_muted", [ev for _, ev, _ in r.floor])
+        self.assertNotIn("take that", "".join(text for t, text in r.heard if 52.8 <= t <= 55.0))
+        self.assertEqual(report["promised"], [])
 
     def test_an_answer_the_provider_cut_under_the_callers_words_is_lost_until_handed_back(self):
         # Take 14, line 5 (words changed): the provider ended the reply reading line 3's answer when the friend said

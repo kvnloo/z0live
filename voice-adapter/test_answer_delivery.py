@@ -2,6 +2,7 @@
 timer runs out. Shapes from the 11-20 night calls (words made up: call transcripts stay off GitHub)."""
 import unittest
 
+import answer_delivery
 from answer_delivery import SETTLE_SECONDS, Ledger
 
 
@@ -157,6 +158,62 @@ class LedgerTest(unittest.TestCase):
         self.ledger.reply_done("primary")
         [(_, rest)] = self.ledger.cut("primary")
         self.assertEqual(rest, "The brakes need new pads.")
+
+    # Take 16, line 3 (words changed): the resumed rest's reply said paragraph 2 and a paraphrase of paragraph 3 and
+    # ran its course. Paragraph 1 and its card id were never said, yet the answer counted as spoken.
+    SKIPPED = ("Card t_0b17 has fixed the shed door since Monday, so I won't start a second job. Its steps are to "
+               "oil the hinge, then check it every week.\n\n"
+               "A correction: the pin is brass, not steel.\n\n"
+               "I can only report from this call. The card keeps going on its own.")
+
+    def test_a_reply_that_ran_its_course_owes_the_paragraph_it_skipped_once(self):
+        self.ledger.sent("primary", "d1", self.SKIPPED, 10)
+        self.ledger.heard("primary", "Quick correction, the pin is brass, not steel. The card keeps going on its own.")
+        [(entry, rest)] = self.ledger.finished("primary")
+        self.assertEqual(rest, self.SKIPPED.split("\n\n")[0])
+        self.assertEqual(self.ledger.due("primary", 30, quiet_since=None), [], "handed back, not resent as well")
+        self.ledger.reply_started("primary")
+        self.ledger.sent("primary", "d1", rest, 20)
+        self.ledger.heard("primary", "The card is fixing the shed door.")
+        self.assertEqual(self.ledger.finished("primary")[0][1], "", "skipped twice: the voice chose to")
+
+    def test_a_reply_that_put_an_answer_in_its_own_words_owes_nothing(self):
+        # Take 16, Tek: "In short: blur ran too early and crashed. PR twenty-eight adds a null check. It's in staging,
+        # not on your S twenty-five yet." for an eight-sentence answer that names S25.
+        self.ledger.sent("guest", "g1", "It was a startup-order bug. The app sets up the window before Android has "
+                         "built it, so the view doesn't exist yet. The fix is merged, but it isn't on your S25 yet.", 10)
+        self.ledger.heard("guest", "In short, setup ran too early. It's merged, not on your S twenty-five yet.")
+        [(entry, rest)] = self.ledger.finished("guest")
+        self.assertEqual(rest, "")
+        self.assertEqual([e.did for e in self.ledger.speaking["guest"]], ["g1"], "still with the reply until the next")
+
+    def test_a_cut_keeps_the_paragraphs_of_the_rest(self):
+        self.ledger.sent("primary", "d1", self.SKIPPED, 10)
+        self.ledger.heard("primary", "Card t_0b17 has fixed the shed door since Monday, so it won't start a second")
+        [(_, rest)] = self.ledger.cut("primary")
+        self.assertEqual(rest, "Its steps are to oil the hinge, then check it every week.\n\n"
+                               + "\n\n".join(self.SKIPPED.split("\n\n")[1:]))
+
+    def test_a_reply_stopped_before_it_began_an_answer_was_not_its_chance(self):
+        # floor_sim seed 33: Tek's resumed answer, all words the call had heard, was stopped at "PR twenty" and again
+        # at "PR twenty eight", and dropped as unspoken.
+        self.ledger.heard("guest", "PR twenty eight fixed it")
+        self.ledger.sent("guest", "g1", "PR twenty eight fixed it.", 10)
+        [(entry, _)] = self.ledger.due("guest", 20, quiet_since=None)
+        self.ledger.resent(entry, 20)
+        self.assertEqual(self.ledger.cut("guest"), [])
+        [(_, text)] = self.ledger.due("guest", 30, quiet_since=None)
+        self.assertIsNotNone(text, "resent, not dropped")
+
+    def test_a_dropped_answer_leaves_the_ledger(self):
+        self.ledger.sent("primary", "d1", "The bike chain is fixed.", 10)
+        self.ledger.drop("primary", {"d1"})
+        self.assertEqual(self.ledger.due("primary", 30, quiet_since=None), [])
+
+    def test_anchors_are_identifiers_as_a_voice_says_them(self):
+        self.assertEqual(answer_delivery.anchors("Card t_0b17 is on your S25 since 11:30, PR 41."),
+                         [answer_delivery.spoken("t_0b17"), {"s", "twenty", "five"}])
+        self.assertLessEqual(answer_delivery.spoken("S25"), answer_delivery.spoken("your S twenty-five"))
 
     def test_short_answer_said_in_other_words_is_delivered(self):
         # 113507 at 478 s: "No, I don't have access to your phone's location." was said as "No, I don't have your
