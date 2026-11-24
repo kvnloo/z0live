@@ -249,6 +249,31 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("backup copy", note)
         self.assertNotIn("timers", note)
 
+    async def test_the_gist_tek_hears_never_carries_the_resume_cue(self):
+        # Take 20: Hermes's resumed reply opened "To finish what I was saying, that's already running, it's poteto's
+        # card t, ...". Tek got that as the gist, then its own hand-back with the same cue, and said Hermes's sentence.
+        for spoken, gist in (("To finish what I was saying, that's already running, it's card t_0a96e2de. "
+                              "Install the staging build.", "starting: that's already running, it's card t_0a96e2de."),
+                             ("To finish what I was saying.", None)):
+            with self.subTest(spoken=spoken):
+                self.call.sent.clear()
+                g = self.guest
+                g.observe("primary", turn("created", "", role="assistant", tid="r1"))
+                g.observe("primary", output(spoken))
+                g.observe("primary", turn("done", "", role="assistant", tid="r1"))
+                notes = [c["text"] for e in self.call.sent if isinstance(e, dict)
+                         for c in e.get("content", []) if "Hermes said" in c.get("text", "")]
+                self.assertEqual([n.split("), ", 1)[1] for n in notes], [gist] if gist else [])
+
+    async def test_what_tek_is_sent_is_traced(self):
+        traced = []
+        g = live.GPTGuest(self.call, None)
+        self.call.trace = lambda ev, **data: traced.append((ev, data))
+        g.subscription = SimpleNamespace(channel=SimpleNamespace(readyState="open", send=lambda _: None))
+        g.note("Hermes said (Kevin heard it), starting: That's already running.")
+        self.assertEqual([(ev, d["leg"], d["texts"]) for ev, d in traced],
+                         [("guest.context.sent", "guest", ["Hermes said (Kevin heard it), starting: That's already running."])])
+
     async def test_barge_in_on_either_leg_but_not_echo_or_backchannel(self):
         for source in ("primary", "guest"):
             with self.subTest(source=source):

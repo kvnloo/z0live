@@ -190,6 +190,8 @@ def promises_new_work(text: str) -> bool:
 
 # How a voice's own hand-off line starts a promise (PROMISE): its transcript runs with its audio, so the floor mutes the
 # line at these words, before the rest is heard (takes 15 and 16: "Mm-hm. I'll take that", "Okay, I'll take that").
+# The resume cue as a voice says it ("To finish what I was saying, ..."), at the start of what it said.
+RESUME_CUE = re.compile(r"^\W*" + re.escape(answer_delivery.RESUME_PREFIX.rstrip(": ")) + r"\W*", re.I)
 PROMISE_OPENER = re.compile(r"\b(i'?ll|i will|i'?m (taking|handling|on)|on it)\b", re.I)
 
 
@@ -819,6 +821,7 @@ class GPTGuest:
         channel = self.subscription and self.subscription.channel
         if not self.closed and channel and channel.readyState == "open":
             channel.send(json.dumps(event))
+            context_sent(self.trace, event, 0, leg="guest")
 
     def note(self, text):
         for part in chunks(text):
@@ -1072,9 +1075,12 @@ class GPTGuest:
                     if reply.spoken.strip():
                         target: Leg = "guest" if source == "primary" else "primary"
                         # Only the gist: with the whole reply as context, the other voice re-told it when Kevin
-                        # came back to it (11-21 probe). Its first sentence keeps it oriented.
-                        gist = re.match(r"\s*(.{1,200}?[.!?])(?=\s|$)", reply.spoken)
-                        gist = (gist.group(1) if gist else reply.spoken.strip()[:200]).strip()
+                        # came back to it (11-21 probe). Its first sentence keeps it oriented. Never the resume cue:
+                        # take 20's guest got "starting: To finish what I was saying, that's already running, ..."
+                        # just before its own hand-back, which opens with the same cue, and finished Hermes's sentence.
+                        said = RESUME_CUE.sub("", reply.spoken, count=1)
+                        gist = re.match(r"\s*(.{1,200}?[.!?])(?=\s|$)", said)
+                        gist = (gist.group(1) if gist else said.strip()[:200]).strip()
                         length = min(len(gist), self.note_budget[target])
                         if length:
                             self.note_budget[target] -= length

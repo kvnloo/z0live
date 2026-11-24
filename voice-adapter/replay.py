@@ -440,6 +440,7 @@ def report(replay: Replay) -> dict:
     answer_s = sorted(round(min(t for t in sends if t >= began) - began, 3)
                       for began in replay.started.values() if any(t >= began for t in sends))
     repeats, lost = said_once(replay)
+    repeats += retellings(replay)
     # Own answer: the first final carrying this request's id. A request folded into another request's turn has none
     # ("held"): it hears that turn's answer whenever that turn ends.
     own_s = {did: round(own[did] - began, 3) for did, began in replay.started.items() if did in own}
@@ -700,16 +701,17 @@ def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
                 items = [(at, x, late) for at, x, late in handings[did] if at < t]
                 entry = ledger_entry(items, own, t, {at for d, at in lanes if d == did})
                 if entry.started and len(mine - more) >= 2:
-                    # A cut owes what follows the last sentence said, and, like a reply that ran its course, every
-                    # sentence naming something it never said (take 17: "I won't start another one" said sentence 3
-                    # of line 3's answer, and sentence 2, card t_0a96e2de, was jumped).
+                    # A cut owes what follows the last sentence said, and, as Entry.rest(named=True), every sentence
+                    # before it naming something it never said (take 17: "I won't start another one" said sentence 3
+                    # of line 3's answer, and sentence 2, card t_0a96e2de, was jumped). A jumped sentence that names
+                    # nothing is not owed (take 20: "The goal is what you just said.").
                     # Those it jumped, or skipped by running its course, are owed MAX_RETELLS times per answer: take
                     # 18's voice dropped card t_0a96e2de from the reply and again from the verbatim hand-back, so the
                     # reply to that hand-back owes it once more.
                     after = entry.rest() if cut else ""
                     named = [] if retold.get(did, 0) >= MAX_RETELLS else [
                         x for x in sentences(entry.skipped()) if x not in sentences(after)
-                        and (cut or not retold.get(did) or entry.unheard(x))]  # retold: only what names
+                        and (not (cut or retold.get(did)) or entry.unheard(x))]  # cut or retold: what names
                     if named:
                         retold[did] = retold.get(did, 0) + 1
                     rest = " ".join([after] + named).strip()
@@ -760,6 +762,34 @@ def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
                 elif voiced(p["words"], p["t"]):
                     lost.append({"leg": leg, "did": did, "t": p["t"], "muted": True})
     return repeats, lost
+
+
+def retellings(replay: Replay) -> list[dict]:
+    """Cross-leg retellings: the adapter handed one voice, under the resume cue, a sentence the phone had already
+    heard from the other voice, and that voice then said it. Take 20: at Hermes's turn.done Tek got "Hermes said ...,
+    starting: To finish what I was saying, that's already running, it's poteto's card t, ...", then its own hand-back
+    opening with the same cue, and Tek said Hermes's sentence. A replay speaks the recorded words, so it judges what the
+    adapter handed over: a voice that retells on its own is the live call's to show."""
+    from answer_delivery import RESUME_PREFIX, content, needed, sentences
+    cue = re.compile(re.escape(RESUME_PREFIX.rstrip(": ")) + r"\W*", re.I)
+    heard = list(zip(replay.heard, replay.heard_from))
+    out = []
+    for leg, sent in (("primary", replay.sent), ("guest", replay.sent_guest)):
+        other = "guest" if leg == "primary" else "primary"
+        for t, e in sent:
+            text = "".join(c.get("text", "") for c in e.get("content", []))
+            theirs = [content(s) - content(RESUME_PREFIX) for s in
+                      sentences("".join(x for (at, x), by in heard if by == other and at < t))]
+            for m in cue.finditer(text):
+                first = sentences(text[m.end():])[:1]
+                own = content(first[0]) - content(RESUME_PREFIX) if first else set()
+                said = [(at, content(x)) for (at, x), by in heard if by == leg and at >= t]
+                # Two thirds of its words in one sentence the other voice said, and this voice said them after.
+                if (len(own) >= 3 and any(3 * len(own & s) >= 2 * len(own) for s in theirs)
+                        and len(own & set().union(*(w for _, w in said))) >= needed(len(own))):
+                    at = next(at for at, w in said if w & own)
+                    out.append({"leg": leg, "t": round(at, 3), "sent": round(t, 3), "from": other, "retold": first[0][:80]})
+    return out
 
 
 def ledger_entry(items: list[tuple[float, str, bool]], speech: list[tuple[float, str]], t: float,
