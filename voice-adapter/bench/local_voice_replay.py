@@ -116,6 +116,30 @@ def play_pcm(pcm):
     return np.repeat((np.clip(pcm, -1, 1) * 32767).astype('<i2'), 2)
 
 
+class UtteranceDump:
+    """Opt-in per-utterance receipt for --lure-dump: one 24 kHz int16 WAV per Lure utterance plus a JSONL index row
+    (id, tag, call, turn, input text, complete flag, sample count) so speech can be transcribed utterance by utterance.
+    A barge-in keeps the samples received before the cancel and marks the row complete=false."""
+    def __init__(self, root, tag):
+        self.root, self.tag, self.call, self.turn = Path(root), tag, 'warmup', 0
+        self.root.mkdir(parents=True, exist_ok=True)
+
+    def start_call(self, call):
+        self.call, self.turn = call, 0
+
+    def write(self, text, chunks, complete):
+        uid = f'{self.tag}__{self.call}__t{self.turn:02d}'
+        pcm = np.concatenate(chunks) if chunks else np.zeros(0, '<f4')
+        with wave.open(str(self.root / f'{uid}.wav'), 'wb') as w:
+            w.setparams((1, 2, 24000, 0, 'NONE', 'not compressed'))
+            w.writeframes((np.clip(pcm, -1, 1) * 32767).astype('<i2').tobytes())
+        row = dict(id=uid, tag=self.tag, call=self.call, turn=self.turn, text=text, complete=complete,
+                   samples=len(pcm))
+        with (self.root / 'utterances.jsonl').open('a') as index:
+            index.write(json.dumps(row) + '\n')
+        self.turn += 1
+
+
 class LureTTS:
     """Opt-in Lure TTS through one long-lived helper process (bench/lure_tts_helper.py in an MLX venv).
 
@@ -123,8 +147,8 @@ class LureTTS:
     are frames of a little-endian uint32 sample count followed by that many float32 24 kHz samples; a zero count ends
     an utterance, and one zero count before any request means the helper finished loading and warming up.
     """
-    def __init__(self, argv, log):
-        self.argv, self.log = [str(a) for a in argv], Path(log)
+    def __init__(self, argv, log, dump=None):
+        self.argv, self.log, self.dump = [str(a) for a in argv], Path(log), dump
         self.proc, self.pending = None, False
 
     async def __aenter__(self):
@@ -169,15 +193,19 @@ class LureTTS:
             await self._drain()
         self.pending = True
         self._send({'text': text})
-        done = False
+        done, heard = False, []
         try:
             while (pcm := await self._frame()) is not None:
                 if not np.isfinite(pcm).all():
                     raise RuntimeError('Invalid Lure PCM')
                 if len(pcm):
+                    if self.dump is not None:
+                        heard.append(pcm)
                     yield play_pcm(pcm)
             done, self.pending = True, False
         finally:
+            if self.dump is not None:
+                self.dump.write(text, heard, done)
             if not done and self.proc.returncode is None:
                 with suppress(BrokenPipeError, ConnectionResetError):
                     self._send({'cancel': True})
@@ -367,6 +395,8 @@ async def replay(models, args):
     per, offsets, bc, minutes, errors = {}, [], 0, 0.0, []
     for name in args.calls.split(','):
         try:
+            if models.lure is not None and models.lure.dump is not None:
+                models.lure.dump.start_call(name)
             pcm = dr.replay_input(name, args.clip)
             ai, rows = await conversation(models, pcm, args.vad_db, args.silence_ms)
             (args.out / f'{name}-local.json').write_text(json.dumps(rows, indent=2))
@@ -385,10 +415,18 @@ async def replay(models, args):
         ai['D'] = round(score_d(ai['median_s'], ai['over_1s_pct'], ai['backchannels_per_min']), 3)
     else:
         errors.append('No scored floor-takes')
-    extra = {} if args.tts == 'liquid' else dict(  # default output keys stay exactly as before
-        tts='lure', lure_first_chunk_frames=args.lure_first_chunk_frames, lure_snapshot=args.lure_snapshot)
     return dict(engine='local', calls_done=len(per), errors=errors, minutes=round(minutes, 2),
-                ai=ai, per_call=per, out=str(args.out), **extra)
+                ai=ai, per_call=per, out=str(args.out), **lure_extra(args))
+
+
+def lure_extra(args):
+    """Extra result keys for --tts lure; the default (Liquid) output keys stay exactly as before."""
+    if args.tts == 'liquid':
+        return {}
+    extra = dict(tts='lure', lure_first_chunk_frames=args.lure_first_chunk_frames, lure_snapshot=args.lure_snapshot)
+    if args.lure_dump is not None:
+        extra['lure_dump'] = str(args.lure_dump)
+    return extra
 
 
 def grade(case, text, audible=False):
@@ -473,7 +511,8 @@ async def run(args):
                  '--no-webui', '--reasoning', 'off'], args.out / 'gemma.log', 'listening on {url}'))
             lure = None
             if args.tts == 'lure':
-                lure = await stack.enter_async_context(LureTTS(lure_helper_argv(args), args.out / 'lure.log'))
+                dump = UtteranceDump(args.lure_dump, args.lure_dump_tag) if args.lure_dump is not None else None
+                lure = await stack.enter_async_context(LureTTS(lure_helper_argv(args), args.out / 'lure.log', dump))
             pipe = Models(http, asr, tts[0] if tts else None, gemma, lure)
             warm = [samples async for samples in pipe.tts('What is the capital of France?')]
             if not warm:
@@ -510,9 +549,16 @@ def parse_args(argv=None):
     ap.add_argument('--lure-first-chunk-frames', type=int, default=4, help='codec frames in the first Lure chunk')
     ap.add_argument('--no-lure-snapshot', dest='lure_snapshot', action='store_false',
                     help='disable the decoder-state snapshot (re-prime the codec decoder on every utterance)')
+    ap.add_argument('--lure-dump', type=Path,
+                    help='write each Lure utterance as a 24 kHz WAV plus utterances.jsonl (id, text) into this dir')
+    ap.add_argument('--lure-dump-tag', default='run', help='id prefix for --lure-dump files, e.g. r1_fc4_A')
     args = ap.parse_args(argv)
     if args.tts == 'lure' and not (args.lure_model and args.lure_voice and args.lure_voice_text):
         ap.error('--tts lure needs --lure-model, --lure-voice and --lure-voice-text')
+    if args.lure_dump is not None:
+        if args.tts != 'lure' or not re.fullmatch(r'[a-zA-Z0-9_-]+', args.lure_dump_tag):
+            ap.error('--lure-dump needs --tts lure and a [a-zA-Z0-9_-] --lure-dump-tag')
+        args.lure_dump = args.lure_dump.expanduser().resolve()
     if not 1 <= args.lure_first_chunk_frames <= 32:
         ap.error('--lure-first-chunk-frames must be 1..32')
     args.out = args.out.expanduser().resolve()
