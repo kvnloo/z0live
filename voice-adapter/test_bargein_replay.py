@@ -2302,5 +2302,160 @@ class QuietCallerGateTest(unittest.TestCase):
             self.assertEqual(sorted(res['arms']), ['A', 'B', 'U', 'W'])
 
 
+W19_ARGS = (*U18_ARGS, '--arm-w', '--quiet-rms', '700', '--only-arms', 'U,W')
+W19_SHA256 = 'd0ccb2c2e354e856741b53987905a690681d48b43aba140b28ff0303b7e159b2'  # computed on the unchanged /19 harness
+
+
+class ErleFreezeGateTest(unittest.TestCase):
+    """bargein_replay/20: opt-in arm X, arm U unchanged except ONE adaptation-control rule: once armed (filter
+    placed), a render-active packet whose capture is above the VAD level and whose a-priori residual (the current
+    filter, before this packet adapts it) leaves an ERLE more than dtfreeze_db below the canceller's own long-term
+    ERLE monitor freezes adaptation (Geigel's freeze and hangover) for that packet. No speech, onset or commit rule
+    changes; only the residual the unchanged arm-U decision reads."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nlms = NlmsGateTest('test_harness_id')
+        cls.nlms.setUpClass()
+
+    def x_cfg(self, **overrides):
+        return self.nlms.f_cfg(**({'resid_threshold': 1360.0, 'resid_arm_db': 6.0, 'resid_nlp_db': 3.0,
+                                   'guard_erle_db': 6.0, 'guard_margin_db': 3.0, 'guard_packets': 5,
+                                   'duck_commit_ms': 100, 'duck_window_ms': 300, 'prearm_rms': 5000.0,
+                                   'dtfreeze_db': 6.0} | overrides))
+
+    def test_harness_id(self):
+        self.assertEqual(replay.HARNESS_DTFREEZE, 'bargein_replay/20')
+        self.assertEqual(replay.HARNESS_QUIET, 'bargein_replay/19')
+
+    def test_x_is_u_subclass_reading_one_new_constant(self):
+        import ast
+        import inspect
+        self.assertTrue(issubclass(replay.ErleFreezeGate, replay.NoDuckPreArmGate))
+        self.assertFalse(issubclass(replay.ErleFreezeGate, replay.QuietCallerGate))
+        tree = ast.parse(inspect.getsource(replay.ErleFreezeGate))
+        cfg_attrs = {n.attr for n in ast.walk(tree)
+                     if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == 'cfg'}
+        self.assertEqual(cfg_attrs, {'dtfreeze_db'})
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                self.assertNotIn(node.id, ArmCTest.FORBIDDEN, node.id)
+        # no decision code: X never overrides decide() or step(), so speech/onset/commit rules are U's
+        names = {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+        self.assertNotIn('decide', names)
+        self.assertNotIn('step', names)
+
+    def test_freeze_check_rule(self):
+        g = replay.ErleFreezeGate(self.x_cfg(), 2100)
+        n = 40
+        hot = n * replay.THRESHOLD ** 2
+        g.erle_hat_db = 14.0
+        # a-priori ERLE 4 dB < 14 - 6: freeze; 10 dB: no; capture under the VAD level: no; render idle: no
+        self.assertTrue(g.freeze_check(n, ed=hot * 10, ee=hot * 10 / 10 ** .4, top=hot * 4))
+        self.assertFalse(g.freeze_check(n, ed=hot * 10, ee=hot * 10 / 10 ** 1.0, top=hot * 4))
+        self.assertFalse(g.freeze_check(n, ed=hot * .5, ee=hot * .5, top=hot * 4))
+        self.assertFalse(g.freeze_check(n, ed=hot * 10, ee=hot * 10, top=hot * .5))
+        self.assertFalse(g.freeze_check(n, ed=hot * 10, ee=0.0, top=hot * 4))
+        inf = replay.ErleFreezeGate(self.x_cfg(dtfreeze_db=float('inf')), 2100)
+        inf.erle_hat_db = 14.0
+        self.assertFalse(inf.freeze_check(n, ed=hot * 10, ee=hot * 1e6, top=hot * 4))
+
+    def test_x_equals_u_when_disabled(self):
+        for kw in ({}, {'gain_db': -3.0}, {'caller_from': 300, 'caller_amp': 4000, 'ms': 1800},
+                   {'caller_from': 1500, 'caller_amp': 1100, 'ms': 1800}):
+            u = Recorder(replay.NoDuckPreArmGate(self.x_cfg(), 2100))
+            x = Recorder(replay.ErleFreezeGate(self.x_cfg(dtfreeze_db=float('inf')), 2100))
+            self.nlms.synthetic(u, **kw)
+            self.nlms.synthetic(x, **kw)
+            self.assertEqual(x.events, u.events, kw)
+            self.assertEqual(x.gate.freeze_packets, 0)
+            self.assertEqual(x.gate.w, u.gate.w)
+
+    def test_x_freezes_only_after_arming(self):
+        x = Recorder(replay.ErleFreezeGate(self.x_cfg(), 2100))
+        self.nlms.synthetic(x, caller_from=1500, caller_amp=1100, ms=1800)
+        self.assertTrue(x.gate.armed)
+        self.assertGreater(x.gate.freeze_packets, 0)  # the quiet caller trips the freeze
+        self.assertGreaterEqual(x.gate.freeze_first_ms, x.gate.armed_ms)
+
+    def test_x_keeps_more_quiet_caller_in_the_residual(self):
+        # quiet caller after convergence: with the freeze the canceller adapts less on the caller, so its own
+        # ERLE monitor stays higher than U's at the end of the call
+        u = Recorder(replay.NoDuckPreArmGate(self.x_cfg(prearm_rms=1e9), 2100))
+        x = Recorder(replay.ErleFreezeGate(self.x_cfg(prearm_rms=1e9), 2100))
+        self.nlms.synthetic(u, caller_from=1200, caller_amp=1100, ms=2000)
+        self.nlms.synthetic(x, caller_from=1200, caller_amp=1100, ms=2000)
+        self.assertLess(x.gate.updates, u.gate.updates)
+        self.assertGreater(x.gate.erle_hat_db, u.gate.erle_hat_db)
+
+    def test_x_off_keeps_old_bytes(self):
+        proc, data = run_cli('--seed', '39')
+        self.assertEqual(sha256(data).hexdigest(), REFERENCE_SHA256)
+        proc, data = run_cli(*U18_ARGS)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sha256(data).hexdigest(), U18_SHA256)  # bargein_replay/18 bytes unchanged
+        proc, data = run_cli(*W19_ARGS)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sha256(data).hexdigest(), W19_SHA256)  # bargein_replay/19 bytes unchanged
+        proc, data = run_cli(*R15_ARGS)
+        self.assertEqual(sha256(data).hexdigest(), R15_SHA256)
+
+    def test_cli_arm_x_leaves_other_arms_unchanged(self):
+        proc, base = run_cli(*U18_ARGS)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        proc, data = run_cli(*U18_ARGS, '--arm-x', '--dtfreeze-db', '6', '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIs(json.loads(proc.stdout)['aa_identical'], True)
+        b, x = json.loads(base), json.loads(data)
+        self.assertEqual(x['harness'], 'bargein_replay/20')
+        self.assertEqual(sorted(x['arms']), ['A', 'B', 'O', 'Q', 'S', 'U', 'X'])
+        for arm in ('A', 'B', 'O', 'Q', 'S', 'U'):
+            self.assertEqual(canonical(x['arms'][arm]), canonical(b['arms'][arm]), arm)
+        params = dict(x['parameters'])
+        self.assertEqual(params.pop('dtfreeze_db'), 6.0)
+        self.assertEqual(params, b['parameters'])
+        xa = x['arms']['X']
+        self.assertEqual(xa['latency_definition'], 'time_to_ducked_or_silent')
+        self.assertIn('dtfreeze_packets', xa)
+        self.assertIn('prearm_silent_windows', xa)
+        # a threshold no packet reaches: arm X is arm U trial by trial (freeze count 0, dt fraction unchanged)
+        proc, data = run_cli(*U18_ARGS, '--arm-x', '--dtfreeze-db', '100')
+        arms = json.loads(data)['arms']
+        xa, ua = dict(arms['X']), dict(arms['U'])
+        self.assertEqual(xa.pop('dtfreeze_packets'), 0)
+        self.assertEqual(canonical(xa), canonical(ua))
+        for bad in ((*U18_ARGS, '--arm-x'), (*U18_ARGS, '--arm-x', '--dtfreeze-db', '0'),
+                    (*U18_ARGS, '--arm-x', '--dtfreeze-db', '-3'), (*U18_ARGS, '--arm-x', '--dtfreeze-db', '101')):
+            proc, _ = run_cli(*bad)
+            self.assertNotEqual(proc.returncode, 0, bad)
+        args = [a for a in U18_ARGS if a != '--arm-u']  # --arm-x needs --arm-u
+        proc, _ = run_cli(*args, '--arm-x', '--dtfreeze-db', '6')
+        self.assertNotEqual(proc.returncode, 0)
+
+    def test_only_arms_u_x(self):
+        proc, full = run_cli(*U18_ARGS, '--arm-x', '--dtfreeze-db', '6')
+        proc, part = run_cli(*U18_ARGS, '--arm-x', '--dtfreeze-db', '6', '--only-arms', 'U,X')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        f, p = json.loads(full), json.loads(part)
+        self.assertEqual(sorted(p['arms']), ['A', 'B', 'U', 'X'])
+        for arm in ('A', 'B', 'U', 'X'):
+            self.assertEqual(canonical(p['arms'][arm]), canonical(f['arms'][arm]), arm)
+        self.assertEqual(p['parameters'], f['parameters'])
+
+    def test_sweep_passes_arm_x(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([sys.executable, '-B', str(BENCH_DIR / 'bargein_sweep.py'), '--seeds', '39', '--trials', '10',
+                            '--echo-model', 'residual', '--echo-continuous', '--bot-render', 'recorded', '--rhos',
+                            'none', '--energy-k-db', '-12', '--energy-min-speech-ms', '30',
+                            '--arm-o', '--resid-threshold', '1360', '--guard-packets', '5', '--guard-margin-db', '3',
+                            '--arm-q', '--duck-commit-ms', '100', '--duck-window-ms', '300', '--arm-s',
+                            '--prearm-rms', '5000', '--arm-u', '--arm-x', '--dtfreeze-db', '6', '--only-arms', 'U,X',
+                            '--out', tmp], check=True, capture_output=True, timeout=900)
+            res = json.loads(Path(tmp, 'seed-39.json').read_text())
+            self.assertEqual(res['harness'], 'bargein_replay/20')
+            self.assertEqual(res['extra_args'][-6:], ['--arm-u', '--arm-x', '--dtfreeze-db', '6.0', '--only-arms', 'U,X'])
+            self.assertEqual(sorted(res['arms']), ['A', 'B', 'U', 'X'])
+
+
 if __name__ == '__main__':
     unittest.main()

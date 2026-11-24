@@ -66,7 +66,7 @@ def run_one(seed, rho, m, trials, extra):
 def sweep_seed(seed, m, trials, extra, rhos=RHOS):
     runs = {rho: run_one(seed, rho, m, trials, extra) for rho in rhos}
     base = runs[rhos[0]][1]
-    shared = ("A", "B") + tuple(a for a in ("D", "E", "E2", "F", "F2", "G", "G2", "H", "O", "Q", "R", "S", "U", "W")
+    shared = ("A", "B") + tuple(a for a in ("D", "E", "E2", "F", "F2", "G", "G2", "H", "O", "Q", "R", "S", "U", "W", "X")
                                 if a in base["arms"])  # D, E (opt-in) do not depend on rho
     ab_same = all(json.dumps(r[1]["arms"][a], sort_keys=True) == json.dumps(base["arms"][a], sort_keys=True)
                   for r in runs.values() for a in shared)
@@ -136,6 +136,8 @@ def main():
     p.add_argument("--arm-u", action="store_true", help="also run arm U (S without pre-arm ducking, bargein_replay/18)")
     p.add_argument("--arm-w", action="store_true", help="also run arm W (U + quiet-caller rule, bargein_replay/19)")
     p.add_argument("--quiet-rms", type=float, default=None)
+    p.add_argument("--arm-x", action="store_true", help="also run arm X (U + ERLE-drop adaptation freeze, bargein_replay/20)")
+    p.add_argument("--dtfreeze-db", type=float, default=None)
     p.add_argument("--only-arms", default=None, help="harness run filter pass-through, e.g. U,W (A, B always run)")
     p.add_argument("--bot-render", choices=("periodic", "recorded"), default="periodic")
     p.add_argument("--rhos", default=",".join(map(str, RHOS)), help="arm C rho values, e.g. 0.9 (default 0.7,0.9)")
@@ -200,6 +202,8 @@ def main():
         extra += ["--arm-u"]
     if a.arm_w:  # bargein_replay/19 (A-bargein-W)
         extra += ["--arm-w", "--quiet-rms", str(a.quiet_rms)]
+    if a.arm_x:  # bargein_replay/20 (A-bargein-X)
+        extra += ["--arm-x", "--dtfreeze-db", str(a.dtfreeze_db)]
     if a.only_arms:
         extra += ["--only-arms", a.only_arms]
     if a.caller_level_db_range:

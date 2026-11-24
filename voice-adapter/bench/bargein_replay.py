@@ -117,6 +117,10 @@ Arm U (--arm-u, needs --arm-s, opt-in, output marked bargein_replay/18; arms A-S
   (playout pause) while the gate is not yet armed. An unarmed onset run opens a silent window in which speech still
   adds to the commit count (commit = flush, as in arm Q); playout keeps running so the canceller keeps adapting.
   The first duck happens only once armed. No new constant. See NoDuckPreArmGate.
+Arm X (--arm-x --dtfreeze-db D, needs --arm-u, opt-in, output marked bargein_replay/20; other arms unchanged): arm U
+  whose canceller, once armed, also freezes adaptation (Geigel's freeze and hangover) on a packet whose a-priori
+  ERLE is more than D dB below its own ERLE monitor (quiet double talk the Geigel test misses). The decision rules
+  are U's. See ErleFreezeGate.
 
 Stress flags (opt-in, output marked bargein_replay/5; without them nothing changes):
   --caller-level-db-range LO,HI  per valid trial, caller gain g ~ U(LO, HI) dB
@@ -186,6 +190,7 @@ HARNESS_SPLIT = "bargein_replay/15"  # only with --arm-r
 HARNESS_PREARM = "bargein_replay/16"  # only with --arm-s
 HARNESS_NODUCK = "bargein_replay/18"  # only with --arm-u (17 was arm T, reverted, not on this line)
 HARNESS_QUIET = "bargein_replay/19"  # only with --arm-w
+HARNESS_DTFREEZE = "bargein_replay/20"  # only with --arm-x
 ERL_DB_RANGE = (6, 20)
 REFLECTIONS = 12
 
@@ -1216,6 +1221,62 @@ class QuietCallerGate(NoDuckPreArmGate):
         return super().step(t, speech)
 
 
+class ErleFreezeGate(NoDuckPreArmGate):
+    """Arm X (bargein_replay/20): arm U unchanged (speech rule, pre-arm rule, onset run, silent windows, duck/commit/
+    window, shadow guard, arming) plus ONE adaptation-control rule for the foreground canceller. Once the gate is
+    armed (filter placed, monitor reached resid_arm_db), each packet is first filtered with the current weights
+    BEFORE this packet adapts them (a-priori residual). If render is active, the capture is above the VAD level and
+    the a-priori ERLE 10 log10(capture / residual) is more than dtfreeze_db below the canceller's own long-term ERLE
+    monitor, the packet is treated like a Geigel double-talk packet: adaptation and the delay estimator freeze for it
+    and for nlms_hang_ms after (Geigel's hangover). This catches quiet double talk the Geigel test misses (the capture
+    stays under 0.5 x the render peak), so the canceller does not adapt away a quiet caller. It never touches the
+    decision: no packet is called speech that U would not call speech given the same residual.
+    dtfreeze_db = inf: arm U exactly.
+    """
+
+    def __init__(self, cfg, span_ms):
+        super().__init__(cfg, span_ms)
+        self.freeze_ratio = 10 ** (cfg.dtfreeze_db / 10) if cfg.dtfreeze_db != float("inf") else float("inf")
+        self.freeze_packets = 0
+        self.freeze_first_ms = None
+
+    def freeze_check(self, n, ed, ee, top):
+        """a-priori ERLE (capture ed / residual ee, 4 kHz packet energies) more than dtfreeze_db below the monitor,
+        with render active (top) and the capture above the VAD level."""
+        hot = n * THRESHOLD ** 2
+        if top < hot or ed < hot or not ee:
+            return False
+        return ed * self.freeze_ratio < ee * 10 ** (self.erle_hat_db / 10)
+
+    def observe(self, t, packet):
+        if not self.fired and self.armed and self.delay_ms is not None and self.freeze_ratio != float("inf"):
+            end = t * SAMPLES_MS
+            self.near[end - len(packet):end] = packet  # the same write and decimation the inherited observe does
+            self.advance(end)
+            m1 = end // 4
+            m0 = m1 - len(packet) // 4
+            n = m1 - m0
+            r4, d4, p4 = self.r4, self.d4, self.p4
+            lag4 = self.lag_ms * 4
+            top = max((p4[e] - p4[e - n] for e in range(max(n, m1 - lag4), m1 + 1)), default=0.0)
+            s0 = max(0, self.delay_ms * 4 - self.pre)
+            taps, w = self.length, self.w
+            ee = ed = 0.0
+            for m in range(m0, m1):
+                hi = m - s0 + 1
+                lo = hi - taps
+                x = r4[lo:hi] if lo >= 0 else [0.0] * (-lo) + r4[0:hi] if hi > 0 else [0.0] * taps
+                e = d4[m] - sum(map(mul, w, x))
+                ee += e * e
+                ed += d4[m] * d4[m]
+            if self.freeze_check(n, ed, ee, top):
+                self.dt_until = max(self.dt_until, t + self.hang)  # inherited observe: dt -> no adaptation
+                self.freeze_packets += 1
+                if self.freeze_first_ms is None:
+                    self.freeze_first_ms = t
+        return super().observe(t, packet)
+
+
 def residual_echo(seed, index, kind, erl_db_range=None):
     """bargein_replay/2 per-trial echo path, drawn from its own RNG (erl_db_range: bargein_replay/5)."""
     rng = Random(f"{HARNESS_RESIDUAL}:{seed}:{index}")
@@ -1417,7 +1478,8 @@ def replay(trial, arm, cfg, bot):
              SplitDuckGate(cfg, len(speaker) // SAMPLES_MS) if arm == "R" else
              PreArmGate(cfg, len(speaker) // SAMPLES_MS) if arm == "S" else
              NoDuckPreArmGate(cfg, len(speaker) // SAMPLES_MS) if arm == "U" else
-             QuietCallerGate(cfg, len(speaker) // SAMPLES_MS) if arm == "W" else None)
+             QuietCallerGate(cfg, len(speaker) // SAMPLES_MS) if arm == "W" else
+             ErleFreezeGate(cfg, len(speaker) // SAMPLES_MS) if arm == "X" else None)
     paused = False  # arm Q: playout FIFO paused (ducked); never set for other arms
 
     def post(t, priority, label, payload=None):
@@ -1515,7 +1577,7 @@ def replay(trial, arm, cfg, bot):
                 trace.setdefault("unduck_ms", []).append(t)
             elif fire:
                 trace["nlms_fire_ms"] = t
-                flush(t, "residual_gated_local_vad" if arm in ("G", "G2", "O", "Q", "R", "S", "U", "W") else
+                flush(t, "residual_gated_local_vad" if arm in ("G", "G2", "O", "Q", "R", "S", "U", "W", "X") else
                       "twopath_residual_gated_local_vad" if arm == "H" else "nlms_gated_local_vad")
             # PCM keeps flowing upstream even if bot audio has been muted.
             post(t + trial["ws_up"], 3, "server_pcm", payload)
@@ -1587,9 +1649,9 @@ def replay(trial, arm, cfg, bot):
         trace["nlms_erle_packets"] = len(erle)
         if arm == "H":
             trace["nlms_copies"] = ngate.copies
-        if arm in ("O", "Q", "R", "S", "U", "W"):
+        if arm in ("O", "Q", "R", "S", "U", "W", "X"):
             trace["nlms_swaps"] = ngate.swaps
-        if arm in ("U", "W"):  # bargein_replay/18 (/19 W): adapter time the gate armed (latched), None if never
+        if arm in ("U", "W", "X"):  # bargein_replay/18 (/19 W, /20 X): adapter time the gate armed (latched)
             trace["nlms_armed_ms"] = ngate.armed_ms
     row = dict(trial=trial["id"], kind=kind, latency_ms=latency,
                residual_ms=residual, false_barge_in=kind != "valid" and muted,
@@ -1609,14 +1671,16 @@ def replay(trial, arm, cfg, bot):
         row["_erle"] = erle
     if arm == "S":
         row["_prearm"] = ngate.prearm_packets  # popped by run(): arm S summary only  # popped by run(): pooled packet ERLE summary
-    if arm in ("U", "W"):  # popped by run(): arm U / W summary only
+    if arm in ("U", "W", "X"):  # popped by run(): arm U / W / X summary only
         row["_prearm"] = ngate.prearm_packets
         row["_silent"] = ngate.silent_windows
     if arm == "W":  # popped by run(): arm W summary only
         row["_quiet"] = ngate.quiet_packets
+    if arm == "X":  # popped by run(): arm X summary only
+        row["_freeze"] = ngate.freeze_packets
     if "bot" in trial:
         row["bot_render"] = dict(clip=trial["bot_clip"], offset=trial["bot_offset"], mic_clip=trial["mic_clip"])
-    if arm in ("Q", "R", "S", "U", "W"):  # bargein_replay/14 duck bookkeeping (adapter clock; /15 R, /16 S, /18 U the same)
+    if arm in ("Q", "R", "S", "U", "W", "X"):  # bargein_replay/14 duck bookkeeping (adapter clock; /15 R, /16 S, /18 U the same)
         ducks, unducks = trace.get("duck_ms", []), trace.get("unduck_ms", [])
         row["ducks"] = len(ducks)
         row["duck_false_alarms"] = len(ducks) - (1 if muted and ducks else 0)  # ducks not committed
@@ -1668,12 +1732,15 @@ def run(n, seed, cfg, bot):
     arm_s = getattr(cfg, "arm_s", False)
     arm_u = getattr(cfg, "arm_u", False)
     arm_w = getattr(cfg, "arm_w", False)
+    arm_x = getattr(cfg, "arm_x", False)
     only = getattr(cfg, "only_arms", None)  # run filter (A, B always run); not a parameter, never in the output
     nlms = arm_f or arm_f2 or arm_g or arm_g2 or arm_h or arm_o
     result = dict(seed=seed, trials_per_arm=n, parameters={
         k: v for k, v in vars(cfg).items()
         if k not in ("aa", "output", "seed", "trials", "arm_c", "arm_d", "arm_e", "arm_e2", "arm_f", "arm_f2",
-                     "arm_g", "arm_g2", "arm_h", "arm_o", "arm_q", "arm_r", "arm_s", "arm_u", "arm_w", "only_arms")
+                     "arm_g", "arm_g2", "arm_h", "arm_o", "arm_q", "arm_r", "arm_s", "arm_u", "arm_w", "arm_x",
+                     "only_arms")
+        and (arm_x or not k.startswith("dtfreeze_"))  # bargein_replay/20 only with --arm-x
         and (arm_r or not k.startswith("split_"))  # bargein_replay/15 only with --arm-r
         and (arm_s or not k.startswith("prearm_"))  # bargein_replay/16 only with --arm-s
         and (arm_w or not k.startswith("quiet_"))  # bargein_replay/19 only with --arm-w
@@ -1724,21 +1791,24 @@ def run(n, seed, cfg, bot):
         result["harness"] = HARNESS_NODUCK
     if arm_w:
         result["harness"] = HARNESS_QUIET
+    if arm_x:
+        result["harness"] = HARNESS_DTFREEZE
     arms = ("A", "B", "C") if arm_c else ("A", "B")
     arms += (("D",) if arm_d else ()) + (("E",) if arm_e else ()) + (("E2",) if arm_e2 else ())
     arms += (("F",) if arm_f else ()) + (("F2",) if arm_f2 else ())
     arms += (("G",) if arm_g else ()) + (("G2",) if arm_g2 else ()) + (("H",) if arm_h else ())
     for arm in arms + (("O",) if arm_o else ()) + (("Q",) if arm_q else ()) + (("R",) if arm_r else ()) + (("S",) if arm_s else ()) \
-            + (("U",) if arm_u else ()) + (("W",) if arm_w else ()):
+            + (("U",) if arm_u else ()) + (("W",) if arm_w else ()) + (("X",) if arm_x else ()):
         if only is not None and arm not in ("A", "B") and arm not in only:
             continue  # --only-arms: arm skipped; arms share no state, so the ones that run are unchanged
-        prearm_packets = silent_windows = quiet_packets = 0
+        prearm_packets = silent_windows = quiet_packets = freeze_packets = 0
         rows = []
         for case in cases:
             rows.append(replay(case, arm, cfg, bot))
             prearm_packets += rows[-1].pop("_prearm", 0)
             silent_windows += rows[-1].pop("_silent", 0)
             quiet_packets += rows[-1].pop("_quiet", 0)
+            freeze_packets += rows[-1].pop("_freeze", 0)
         pooled = [v for row in rows for v in row.pop("_erle", ())]
         valid = [row for row in rows if row["kind"] == "valid"]
         result["arms"][arm] = dict(
@@ -1791,7 +1861,7 @@ def run(n, seed, cfg, bot):
                 [row["latency_ms"] for row in valid if row.get("echo_path", {}).get("double_talk")])
             summary["valid_trials_with_veto"] = sum(row["trace"]["erl2_vetoes"] > 0 for row in valid)
             summary["final_est_db"] = quantiles([row["trace"]["erl2_final_est_db"] for row in rows])
-        if arm in ("F", "F2", "G", "G2", "H", "O", "Q", "R", "S", "U", "W"):
+        if arm in ("F", "F2", "G", "G2", "H", "O", "Q", "R", "S", "U", "W", "X"):
             summary = result["arms"][arm]
             summary["double_talk_latency_ms"] = percentiles(
                 [row["latency_ms"] for row in valid if row.get("echo_path", {}).get("double_talk")])
@@ -1806,10 +1876,10 @@ def run(n, seed, cfg, bot):
                                                    for row in rows if row["trace"]["nlms_delay_ms"] is not None])
             if arm == "H":
                 summary["copies_per_trial"] = quantiles([row["trace"]["nlms_copies"] for row in rows])
-            if arm in ("O", "Q", "R", "S", "U", "W"):
+            if arm in ("O", "Q", "R", "S", "U", "W", "X"):
                 summary["swaps_per_trial"] = quantiles([row["trace"]["nlms_swaps"] for row in rows])
                 summary["trials_with_swap"] = sum(row["trace"]["nlms_swaps"] > 0 for row in rows)
-        if arm in ("Q", "R", "S", "U", "W"):  # bargein_replay/14 (/15, /16, /18, /19): latency_ms is time-to-ducked-or-silent
+        if arm in ("Q", "R", "S", "U", "W", "X"):  # bargein_replay/14 (/15, /16, /18, /19, /20): latency_ms is time-to-ducked-or-silent
             summary = result["arms"][arm]
             summary["latency_definition"] = "time_to_ducked_or_silent"
             summary["commit_latency_ms"] = percentiles([row["commit_latency_ms"] for row in valid
@@ -1827,11 +1897,13 @@ def run(n, seed, cfg, bot):
                 < row["trace"]["adapter_onset_frame_receive_ms"] for row in valid)
         if arm == "S":  # bargein_replay/16: packets counted as speech by the pre-arm rule only
             result["arms"][arm]["prearm_speech_packets"] = prearm_packets
-        if arm in ("U", "W"):  # bargein_replay/18: the same count, plus silent (no-duck) pre-arm windows opened
+        if arm in ("U", "W", "X"):  # bargein_replay/18: the same count, plus silent (no-duck) pre-arm windows opened
             result["arms"][arm]["prearm_speech_packets"] = prearm_packets
             result["arms"][arm]["prearm_silent_windows"] = silent_windows
         if arm == "W":  # bargein_replay/19: packets counted as speech by the quiet-caller rule only
             result["arms"][arm]["quiet_speech_packets"] = quiet_packets
+        if arm == "X":  # bargein_replay/20: packets whose a-priori ERLE drop froze the canceller's adaptation
+            result["arms"][arm]["dtfreeze_packets"] = freeze_packets
     return result
 
 
@@ -1961,6 +2033,12 @@ def main():
                              "the commit count")
     parser.add_argument("--quiet-rms", type=float, default=None,
                         help="arm W (required with --arm-w): quiet-caller residual RMS floor, in (0, --resid-threshold]")
+    parser.add_argument("--arm-x", action="store_true",
+                        help="add arm X (bargein_replay/20, needs --arm-u): arm U whose canceller also freezes "
+                             "adaptation (Geigel freeze + hangover) when, once armed, a packet's a-priori ERLE is more "
+                             "than --dtfreeze-db below the canceller's own ERLE monitor (quiet double talk)")
+    parser.add_argument("--dtfreeze-db", type=float, default=None,
+                        help="arm X (required with --arm-x): ERLE drop in dB, in (0, 100]")
     parser.add_argument("--only-arms", type=lambda s: s.split(","), default=None, metavar="X,Y",
                         help="run filter: compute only these opt-in arms (A and B always run); the arms that run "
                              "produce the same output as without the filter")
@@ -2045,7 +2123,11 @@ def main():
         parser.error("--arm-w needs --arm-u (arm W is arm U with a quiet-caller speech rule)")
     if cfg.arm_w and (cfg.quiet_rms is None or not 0 < cfg.quiet_rms <= cfg.resid_threshold):
         parser.error("--quiet-rms is required with --arm-w and must be in (0, --resid-threshold]")
-    known = {"C", "D", "E", "E2", "F", "F2", "G", "G2", "H", "O", "Q", "R", "S", "U", "W"}
+    if cfg.arm_x and not cfg.arm_u:
+        parser.error("--arm-x needs --arm-u (arm X is arm U with an ERLE-drop adaptation freeze)")
+    if cfg.arm_x and (cfg.dtfreeze_db is None or not 0 < cfg.dtfreeze_db <= 100):
+        parser.error("--dtfreeze-db is required with --arm-x and must be in (0, 100]")
+    known = {"C", "D", "E", "E2", "F", "F2", "G", "G2", "H", "O", "Q", "R", "S", "U", "W", "X"}
     if cfg.only_arms is not None and not set(cfg.only_arms) <= known:
         parser.error("--only-arms takes a comma list of opt-in arms from " + ",".join(sorted(known)))
 
