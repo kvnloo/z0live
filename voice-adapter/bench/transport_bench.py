@@ -1,0 +1,741 @@
+"""Track F1 frozen transport benchmark: added latency per stage per 20 ms frame, and CPU, of the adapter's audio path.
+
+Two processes on one host (perf_counter_ns is mach_absolute_time on macOS, so stamps compare across them):
+  adapter (this process): the real mobile_live.Call with engine=grok, its real aiortc peer, AudioBridge, Level,
+           GrokLeg.pump / reader / GrokOutput and a real aiohttp websocket. Nothing in the adapter is replaced;
+           functions are wrapped at class/module level to timestamp them (behaviour unchanged).
+  world    (child, --role world): the phone (aiortc peer sending synthetic speech at real-time 20 ms pacing and
+           receiving the adapter's output) and a fake Grok realtime WS server (session.updated, then reply PCM24
+           deltas paced in real time; records every input_audio_buffer.append).
+
+Uplink:   RTP rx -> jitter buffer -> Opus decode (aiortc thread) -> loop hop -> AudioBridge(input)+Level
+          -> GrokLeg.pump resample 48k->24k -> 100 ms batch -> base64+json -> ws.send_str
+Downlink: ws msg -> GrokLeg.on_event (b64 decode) -> GrokOutput.feed (resample 24k->48k) -> reservoir
+          -> GrokOutput.recv (20 ms pacing) -> AudioBridge(output)+Level -> audio level + executor Opus encode
+          -> RTP packetize -> SRTP + sendto
+
+Usage (from voice-adapter/):
+  Z0LIVE_DESKTOP=$PWD/../desktop env -u PYTHONPATH .venv/bin/python -I bench/transport_bench.py \
+      --seconds 30 --warmup 3 --out /path/run1.json
+  --hops counts asyncio callbacks per frame (adds wrapper overhead; do not mix with the timing runs).
+Stdout: a stage table (p50/p99 us) and CPU %; --out writes the full JSON. Frozen: change the harness only with a
+new version string, never in the same commit as an adapter change.
+"""
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import os
+import resource
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import wave
+from collections import defaultdict
+from pathlib import Path
+
+VERSION = "transport_bench/1"
+NS = time.perf_counter_ns
+HERE = Path(__file__).resolve().parent
+ADAPTER_DIR = HERE.parent
+FRAME = 960  # 20 ms at 48 kHz
+UP_TEXT = ("So I was thinking about the trip next week. We could leave early on Friday, stop for lunch near the lake, "
+           "and still get there before dark. What do you think about that plan? Also remind me to call my sister.")
+REPLY_TEXT = ("Sure. Leaving early on Friday works, and the lake is a good halfway point. I'll remind you to call your "
+              "sister tonight. Do you want me to check the weather for the drive?")
+
+
+# ----------------------------------------------------------------------------------------------- fixtures
+def fixture(path: Path, text: str, rate: int) -> bytes:
+    """Mono PCM16 at `rate`: macOS `say` speech, or a 300/500 Hz tone burst pattern when `say` is missing."""
+    if not path.exists():
+        if shutil.which("say"):
+            subprocess.run(["say", "-v", "Samantha", "-o", str(path), "--file-format=WAVE",
+                            f"--data-format=LEI16@{rate}", text], check=True, timeout=120)
+        else:
+            import math
+            import struct
+            n, out = rate * 12, bytearray()
+            for i in range(n):
+                on = (i // (rate // 2)) % 3 != 2
+                out += struct.pack("<h", int(8000 * math.sin(2 * math.pi * (300 + 200 * (i // rate % 2)) * i / rate))
+                                   if on else 0)
+            with wave.open(str(path), "wb") as w:
+                w.setnchannels(1), w.setsampwidth(2), w.setframerate(rate), w.writeframes(bytes(out))
+    with wave.open(str(path), "rb") as w:
+        assert w.getnchannels() == 1 and w.getsampwidth() == 2 and w.getframerate() == rate, path
+        return w.readframes(w.getnframes())
+
+
+def pct(values, q):
+    if not values:
+        return None
+    s = sorted(values)
+    k = (len(s) - 1) * q
+    lo = int(k)
+    hi = min(lo + 1, len(s) - 1)
+    return s[lo] + (s[hi] - s[lo]) * (k - lo)
+
+
+def stat(ns_values):
+    us = [v / 1000 for v in ns_values]
+    return {"n": len(us), "p50_us": round(pct(us, .5), 1) if us else None, "p99_us": round(pct(us, .99), 1) if us else None,
+            "mean_us": round(sum(us) / len(us), 1) if us else None, "max_us": round(max(us), 1) if us else None}
+
+
+# ----------------------------------------------------------------------------------------------- world (child)
+async def world(args):
+    import aiohttp
+    from aiohttp import web
+    from fractions import Fraction
+    import av
+    from aiortc import RTCPeerConnection, RTCSessionDescription, RTCConfiguration, MediaStreamTrack
+    from aiortc.codecs import opus as aopus
+
+    fix = Path(args.fixtures)
+    up = fixture(fix / "up48.wav", UP_TEXT, 48000)
+    reply = fixture(fix / "reply24.wav", REPLY_TEXT, 24000)
+    rec = {"capture": [], "enc": [], "rx": [], "appends": [], "deltas": [], "errors": 0}
+
+    orig_encode = aopus.OpusEncoder.encode
+
+    def encode(self, frame, force_keyframe=False):
+        pts = frame.pts
+        out = orig_encode(self, frame, force_keyframe)
+        rec["enc"].append((pts, out[1], NS()))
+        return out
+    aopus.OpusEncoder.encode = encode
+
+    class Speech(MediaStreamTrack):
+        """The phone microphone: the fixture looped with 1 s of silence, 20 ms frames at real-time deadlines."""
+        kind = "audio"
+
+        def __init__(self):
+            super().__init__()
+            self.pcm = up + bytes(48000 * 2)
+            self.pts = 0
+            self.start = None
+
+        async def recv(self):
+            if self.start is None:
+                self.start = NS()
+            due = self.start + self.pts * 1_000_000_000 // 48000
+            wait = (due - NS()) / 1e9
+            if wait > 0:
+                await asyncio.sleep(wait)
+            off = (self.pts * 2) % len(self.pcm)
+            chunk = (self.pcm[off:off + FRAME * 2] + self.pcm[:FRAME * 2])[:FRAME * 2]
+            frame = av.AudioFrame(format="s16", layout="mono", samples=FRAME)
+            frame.planes[0].update(chunk)
+            frame.sample_rate, frame.pts, frame.time_base = 48000, self.pts, Fraction(1, 48000)
+            rec["capture"].append((self.pts, NS()))
+            self.pts += FRAME
+            return frame
+
+    # Fake Grok realtime server.
+    async def ws_handler(request):
+        ws = web.WebSocketResponse(max_msg_size=4 * 1024 * 1024)
+        await ws.prepare(request)
+        streamer = None
+
+        async def stream_reply():
+            await asyncio.sleep(args.reply_delay)
+            chunk = int(24000 * args.reply_chunk_ms / 1000) * 2
+            pcm = reply + bytes(24000 * 2)  # reply then 1 s of silence, looped
+            pos = sent = 0
+            t0 = NS()
+            while not ws.closed:
+                part = (pcm[pos:pos + chunk] + pcm[:chunk])[:chunk]
+                pos = (pos + chunk) % len(pcm)
+                import base64
+                msg = json.dumps({"type": "response.output_audio.delta", "response_id": "r1",
+                                  "delta": base64.b64encode(part).decode()})
+                rec["deltas"].append((sent, len(part), NS()))
+                await ws.send_str(msg)
+                sent += len(part)
+                due = t0 + sent // 2 * 1_000_000_000 // 24000
+                wait = (due - NS()) / 1e9
+                if wait > 0:
+                    await asyncio.sleep(wait)
+
+        async for msg in ws:
+            if msg.type != aiohttp.WSMsgType.TEXT:
+                continue
+            t = NS()
+            if msg.data.startswith('{"type": "input_audio_buffer.append"'):
+                ev = json.loads(msg.data)
+                import base64
+                rec["appends"].append((t, len(base64.b64decode(ev["audio"]))))
+                if streamer is None:
+                    streamer = asyncio.create_task(stream_reply())
+            else:
+                ev = json.loads(msg.data)
+                if ev.get("type") == "session.update":
+                    await ws.send_str(json.dumps({"type": "session.updated", "session": {}}))
+        if streamer:
+            streamer.cancel()
+        return ws
+
+    app = web.Application()
+    app.router.add_get("/v1/realtime", ws_handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    port = site._server.sockets[0].getsockname()[1]
+
+    phone = RTCPeerConnection(RTCConfiguration(iceServers=[]))
+    phone.addTrack(Speech())
+    phone.createDataChannel("oai-events")
+
+    async def consume(track):
+        try:
+            while True:
+                frame = await track.recv()
+                t = NS()
+                import numpy as np
+                pcm = np.frombuffer(frame.planes[0], dtype=np.int16)
+                rec["rx"].append((frame.pts, t, int(np.abs(pcm).max()) if pcm.size else 0))
+        except Exception:  # noqa: BLE001 - track ended
+            pass
+
+    @phone.on("track")
+    def on_track(track):
+        if track.kind == "audio":
+            asyncio.ensure_future(consume(track))
+
+    await phone.setLocalDescription(await phone.createOffer())
+    out = sys.stdout
+    out.write(json.dumps({"offer": phone.localDescription.sdp, "ws_port": port}) + "\n")
+    out.flush()
+    loop = asyncio.get_running_loop()
+    reader = asyncio.StreamReader()
+    await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin)
+    answer = json.loads(await reader.readline())
+    await phone.setRemoteDescription(RTCSessionDescription(sdp=answer["answer"], type="answer"))
+    await reader.readline()  # stop
+    ru = resource.getrusage(resource.RUSAGE_SELF)
+    rec["cpu_s"] = ru.ru_utime + ru.ru_stime
+    Path(args.world_out).write_text(json.dumps(rec))
+    await phone.close()
+    await runner.cleanup()
+    out.write(json.dumps({"done": True}) + "\n")
+    out.flush()
+
+
+# ----------------------------------------------------------------------------------------------- isolated
+def isolated(fixtures: str, frames: int = 500) -> dict:
+    """Single-thread service time of each stage on the same fixture, no loop and no GIL contention.
+
+    Real adapter/aiortc functions (unwrapped: runs before install()). The gap between these and the in-call
+    numbers is contention (GIL, thread wakeups), not compute. `numpy_*` rows are candidate rewrites, not shipped.
+    """
+    import base64
+    from fractions import Fraction
+    import av
+    import numpy as np
+    import aiortc.rtp as artp
+    from aiortc.codecs import opus as aopus
+    from aiortc.jitterbuffer import JitterFrame
+    import mobile_live as live
+    import grok_leg
+
+    up = fixture(Path(fixtures) / "up48.wav", UP_TEXT, 48000)
+    reply = fixture(Path(fixtures) / "reply24.wav", REPLY_TEXT, 24000)
+    T = defaultdict(list)
+    enc, dec = aopus.OpusEncoder(), aopus.OpusDecoder()
+    rs_up = av.AudioResampler(format="s16", layout="mono", rate=24000)
+    stereo = av.AudioResampler(format="s16", layout="stereo", rate=48000, frame_size=960)
+    out = grok_leg.GrokOutput()
+
+    class Dummy:
+        muted = False
+        trace = staticmethod(lambda *a, **k: None)
+    level = live.Level(Dummy(), "input")
+    level.call.trace.t0 = 0
+    packets, decoded = [], []
+    n = min(frames, len(up) // (FRAME * 2))
+    for i in range(n):
+        f = av.AudioFrame(format="s16", layout="mono", samples=FRAME)
+        f.planes[0].update(up[i * FRAME * 2:(i + 1) * FRAME * 2])
+        f.sample_rate, f.pts, f.time_base = 48000, i * FRAME, Fraction(1, 48000)
+        t0 = NS()
+        payloads, ts = enc.encode(f)
+        T["opus_encode (aiortc OpusEncoder: mono->stereo + libopus 96k)"].append(NS() - t0)
+        t0 = NS()
+        for s in stereo.resample(f):
+            pass
+        T["  mono->stereo resampler alone"].append(NS() - t0)
+        t0 = NS()
+        artp.compute_audio_level_dbov(f)
+        T["compute_audio_level_dbov (pure-Python RFC 6465 loop)"].append(NS() - t0)
+        t0 = NS()
+        pcm = np.frombuffer(f.planes[0], dtype=np.int16, count=FRAME).astype(np.float64)
+        float(np.sqrt(np.dot(pcm, pcm) / (FRAME * 32767 * 32767)))
+        T["  numpy_dbov candidate"].append(NS() - t0)
+        for p in payloads:
+            packets.append((p, ts))
+    for p, ts in packets:
+        t0 = NS()
+        frs = dec.decode(JitterFrame(p, ts))
+        T["opus_decode (aiortc OpusDecoder, stereo s16 out)"].append(NS() - t0)
+        decoded.extend(frs)
+    buf = bytearray()
+    for fr in decoded:
+        t0 = NS()
+        level.frame(fr)
+        T["Level.frame (peak)"].append(NS() - t0)
+        t0 = NS()
+        for o in rs_up.resample(fr):
+            buf += bytes(o.planes[0])[: o.samples * 2]
+        T["resample 48k stereo -> 24k mono + bytes copy (pump)"].append(NS() - t0)
+    for i in range(0, len(buf) - 4800, 4800):
+        chunk = buf[i:i + 4800]
+        t0 = NS()
+        json.dumps({"type": "input_audio_buffer.append", "audio": base64.b64encode(bytes(chunk)).decode()})
+        T["b64+json per 100 ms append"].append(NS() - t0)
+    for i in range(0, min(len(reply), n * 960) - 960, 960):
+        part = reply[i:i + 960]
+        msg = json.dumps({"type": "response.output_audio.delta", "delta": base64.b64encode(part).decode()})
+        t0 = NS()
+        ev = json.loads(msg)
+        out.feed(base64.b64decode(ev["delta"]))
+        T["json.loads + b64decode + GrokOutput.feed (24k->48k) per 20 ms"].append(NS() - t0)
+    # Same single thread, but idle 20 ms between frames like the call: separates wake-from-idle cost (cold caches,
+    # clock ramp) from GIL/thread contention.
+    enc2, dec2 = aopus.OpusEncoder(), aopus.OpusDecoder()
+    for i in range(min(200, n)):
+        time.sleep(0.02)
+        f = av.AudioFrame(format="s16", layout="mono", samples=FRAME)
+        f.planes[0].update(up[i * FRAME * 2:(i + 1) * FRAME * 2])
+        f.sample_rate, f.pts, f.time_base = 48000, i * FRAME, Fraction(1, 48000)
+        t0 = NS()
+        payloads, ts = enc2.encode(f)
+        t1 = NS()
+        artp.compute_audio_level_dbov(f)
+        t2 = NS()
+        frs = [fr for p in payloads for fr in dec2.decode(JitterFrame(p, ts))]
+        t3 = NS()
+        for fr in frs:
+            level.frame(fr)
+        t4 = NS()
+        T["paced20ms opus_encode"].append(t1 - t0)
+        T["paced20ms compute_audio_level_dbov"].append(t2 - t1)
+        if frs:
+            T["paced20ms opus_decode"].append(t3 - t2)
+            T["paced20ms Level.frame"].append(t4 - t3)
+    return {k: stat(v[5:]) for k, v in T.items()}  # drop codec warmup
+
+
+# ----------------------------------------------------------------------------------------------- adapter
+class Probe:
+    def __init__(self, hops: bool):
+        self.r = defaultdict(list)
+        self.hops = hops
+        self.callbacks = 0
+        self.pending_up = []      # uplink frame pts resampled since the last append
+        self.fed = 0              # downlink bytes fed to GrokOutput (48 kHz)
+        self.feeds = []           # (start_byte, end_byte, t_end)
+
+    def add(self, key, *row):
+        self.r[key].append(row)
+
+
+def install(probe: Probe):
+    """Class/module-level wrappers that timestamp the real code paths. Behaviour is unchanged."""
+    import asyncio.events as aev
+    import aiohttp
+    import av
+    import aiortc.rtp as artp
+    from aiortc import rtcrtpreceiver, rtcdtlstransport
+    from aiortc.codecs import opus as aopus
+    import mobile_live as live
+    import grok_leg
+
+    add = probe.add
+
+    orig_rx = rtcrtpreceiver.RTCRtpReceiver._handle_rtp_packet
+
+    async def handle_rtp(self, packet, arrival_time_ms):
+        add("rx", packet.timestamp, packet.sequence_number, NS())
+        return await orig_rx(self, packet, arrival_time_ms)
+    rtcrtpreceiver.RTCRtpReceiver._handle_rtp_packet = handle_rtp
+
+    orig_dec = aopus.OpusDecoder.decode
+
+    def decode(self, encoded_frame):
+        t0 = NS()
+        out = orig_dec(self, encoded_frame)
+        add("dec", encoded_frame.timestamp, t0, NS())
+        return out
+    aopus.OpusDecoder.decode = decode
+
+    orig_track = rtcrtpreceiver.RemoteStreamTrack.recv
+
+    async def track_recv(self):
+        frame = await orig_track(self)
+        add("track", frame.pts, NS())
+        return frame
+    rtcrtpreceiver.RemoteStreamTrack.recv = track_recv
+
+    orig_level = live.Level.frame
+
+    def level(self, frame, speaker=None):
+        t0 = NS()
+        out = orig_level(self, frame, speaker)
+        add("level_" + self.direction, frame.pts, t0, NS())
+        return out
+    live.Level.frame = level
+
+    orig_bridge = live.AudioBridge.recv
+
+    async def bridge(self):
+        frame = await orig_bridge(self)
+        add("bridge_" + self.direction, frame.pts, NS())
+        return frame
+    live.AudioBridge.recv = bridge
+
+    class Resampler:
+        """Proxy for av.AudioResampler inside grok_leg: same object, timed .resample()."""
+        def __init__(self, *a, **k):
+            self._r = av.AudioResampler(*a, **k)
+            self._rate = k.get("rate")
+
+        def resample(self, frame):
+            t0 = NS()
+            out = self._r.resample(frame)
+            t1 = NS()
+            if self._rate == grok_leg.RATE_IN:
+                add("rs_up", frame.pts, t0, t1)
+                probe.pending_up.append((frame.pts, t1))
+            else:
+                add("rs_down", t0, t1)
+            return out
+
+    class AvShim:
+        def __getattr__(self, name):
+            return Resampler if name == "AudioResampler" else getattr(av, name)
+    grok_leg.av = AvShim()
+
+    orig_feed = grok_leg.GrokOutput.feed
+
+    def feed(self, pcm24):
+        t0 = NS()
+        before = len(self.buf)
+        orig_feed(self, pcm24)
+        t1 = NS()
+        n = len(self.buf) - before
+        probe.feeds.append((probe.fed, probe.fed + n, t1))
+        probe.fed += n
+        add("feed", t0, t1)
+    grok_leg.GrokOutput.feed = feed
+
+    orig_out = grok_leg.GrokOutput.recv
+
+    async def out_recv(self):
+        t_call = NS()
+        frame = await orig_out(self)
+        t1 = NS()
+        consumed = probe.fed - len(self.buf)
+        add("gout", frame.pts, t_call, t1, consumed, self.started)
+        return frame
+    grok_leg.GrokOutput.recv = out_recv
+
+    orig_event = grok_leg.GrokLeg.on_event
+
+    def on_event(self, ev):
+        t0 = NS()
+        orig_event(self, ev)
+        if ev.get("type") == "response.output_audio.delta":
+            add("event", t0, NS())
+    grok_leg.GrokLeg.on_event = on_event
+
+    orig_send = aiohttp.ClientWebSocketResponse.send_str
+
+    async def send_str(self, data, compress=None):
+        t0 = NS()
+        await orig_send(self, data, compress)
+        if data.startswith('{"type": "input_audio_buffer.append"'):
+            frames, probe.pending_up = probe.pending_up, []
+            add("append", t0, NS(), len(data), frames)
+    aiohttp.ClientWebSocketResponse.send_str = send_str
+
+    orig_lvl = artp.compute_audio_level_dbov
+
+    def level_dbov(frame):
+        t0 = NS()
+        out = orig_lvl(frame)
+        add("dbov", frame.pts, t0, NS())
+        return out
+    artp.compute_audio_level_dbov = level_dbov
+
+    orig_enc = aopus.OpusEncoder.encode
+
+    def encode(self, frame, force_keyframe=False):
+        pts, t0 = frame.pts, NS()
+        out = orig_enc(self, frame, force_keyframe)
+        add("enc", pts, out[1], t0, NS())
+        return out
+    aopus.OpusEncoder.encode = encode
+
+    orig_srtp = rtcdtlstransport.RTCDtlsTransport._send_rtp
+
+    async def send_rtp(self, data):
+        t0 = NS()
+        await orig_srtp(self, data)
+        if not artp.is_rtcp(data):
+            add("rtp", int.from_bytes(data[4:8], "big"), t0, NS())
+    rtcdtlstransport.RTCDtlsTransport._send_rtp = send_rtp
+
+    if probe.hops:
+        orig_run = aev.Handle._run
+
+        def run(self):
+            probe.callbacks += 1
+            return orig_run(self)
+        aev.Handle._run = run
+
+
+def analyse(p: Probe, w: dict, t_lo: int, t_hi: int, wall_s: float, cpu_s: float, mono_off: int):
+    r = p.r
+    inwin = lambda t: t_lo <= t <= t_hi  # noqa: E731
+    errors = {}
+    # ---------------- uplink: key = mapped RTP ts == decoded frame pts
+    rx = {}
+    for ts, _seq, t in r["rx"]:
+        rx.setdefault(ts, t)
+    first_raw = r["rx"][0][0] if r["rx"] else 0
+    dec = {ts: (t0, t1) for ts, t0, t1 in r["dec"]}
+    track = {pts: t for pts, t in r["track"]}
+    bridge_in = {pts: t for pts, t in r["bridge_input"]}
+    level_in = {pts: (t0, t1) for pts, t0, t1 in r["level_input"]}
+    rs_up = {pts: (t0, t1) for pts, t0, t1 in r["rs_up"]}
+    append_of = {}
+    marshal, ws_send = [], []
+    for t0, t1, nbytes, frames in r["append"]:
+        if frames and inwin(t0):
+            marshal.append(t0 - frames[-1][1])
+            ws_send.append(t1 - t0)
+        for pts, _ in frames:
+            append_of[pts] = (t0, t1)
+    U = defaultdict(list)
+    for ts, t_rx in rx.items():
+        pts = (ts - first_raw) % (1 << 32)
+        if not inwin(t_rx):
+            continue
+        if pts not in dec or pts not in track or pts not in bridge_in or pts not in rs_up or pts not in append_of:
+            errors["uplink_incomplete"] = errors.get("uplink_incomplete", 0) + 1
+            continue
+        d0, d1 = dec[pts]
+        U["U1 rx -> decode start (jitter buffer + thread wake)"].append(d0 - t_rx)
+        U["U2 Opus decode (decoder thread)"].append(d1 - d0)
+        U["U3 decoder thread -> loop (run_coroutine_threadsafe + queue)"].append(track[pts] - d1)
+        U["U4 AudioBridge.recv input (incl. Level)"].append(bridge_in[pts] - track[pts])
+        if pts in level_in:
+            U["U4a   Level.frame input"].append(level_in[pts][1] - level_in[pts][0])
+        U["U5 bridge -> pump resample start"].append(rs_up[pts][0] - bridge_in[pts])
+        U["U6 resample 48k->24k"].append(rs_up[pts][1] - rs_up[pts][0])
+        U["U7 batch dwell (wait for 100 ms append)"].append(append_of[pts][0] - rs_up[pts][1])
+        U["U_total_service adapter uplink excl. jitter+batch"].append(
+            (d1 - d0) + (track[pts] - d1) + (bridge_in[pts] - track[pts]) + (rs_up[pts][0] - bridge_in[pts])
+            + (rs_up[pts][1] - rs_up[pts][0]))
+        U["U_total adapter rx -> ws written"].append(append_of[pts][1] - t_rx)
+    U["U8 base64+json marshal (per append)"] = marshal
+    U["U9 ws.send_str (per append)"] = ws_send
+    # world side of the uplink: phone capture -> adapter rx, and -> provider append arrival
+    cap = {pts: t for pts, t in w["capture"]}
+    enc_w = [(pts, ts, t) for pts, ts, t in w["enc"] if ts is not None]
+    if enc_w:
+        first_ts = enc_w[0][1]
+        ts_to_cap = {ts - first_ts: cap.get(pts) for pts, ts, _ in enc_w}
+        for ts, t_rx in rx.items():
+            pts = (ts - first_raw) % (1 << 32)
+            c = ts_to_cap.get(pts)
+            if c and inwin(t_rx):
+                U["W1 phone capture -> adapter rx (phone encode + UDP)"].append(t_rx - c)
+        # provider append arrival: append k contains frames in adapter order
+        arrivals = [t for t, _ in w["appends"]]
+        if len(arrivals) == len(r["append"]):
+            for (t0, _t1, _n, frames), t_arr in zip(r["append"], arrivals):
+                for pts, _ in frames:
+                    c = ts_to_cap.get(pts)
+                    if c and inwin(t0):
+                        U["W_e2e phone capture -> provider has frame"].append(t_arr - c)
+        else:
+            errors["append_count_mismatch"] = (len(r["append"]), len(arrivals))
+    # ---------------- downlink: key = GrokOutput frame pts
+    D = defaultdict(list)
+    D["D1 on_event delta (json done -> b64 decode + feed)"] = [t1 - t0 for t0, t1 in r["event"] if inwin(t0)]
+    D["D1a resample 24k->48k (per 20 ms delta)"] = [t1 - t0 for t0, t1 in r["rs_down"] if inwin(t0)]
+    bridge_out = {pts: t for pts, t in r["bridge_output"]}
+    level_out = {pts: (t0, t1) for pts, t0, t1 in r["level_output"]}
+    dbov = {pts: (t0, t1) for pts, t0, t1 in r["dbov"]}
+    enc = {pts: (ets, t0, t1) for pts, ets, t0, t1 in r["enc"]}
+    enc_by_ts = {ets: pts for pts, ets, t0, t1 in r["enc"] if ets is not None}
+    first_enc = next((ets for _p, ets, _a, _b in r["enc"] if ets is not None), None)
+    rtp = {}
+    first_rtp = r["rtp"][0][0] if r["rtp"] else None
+    for raw, t0, t1 in r["rtp"]:
+        ets = (raw - first_rtp + first_enc) % (1 << 32)
+        rtp.setdefault(enc_by_ts.get(ets), (t0, t1))
+    feeds = p.feeds
+    fi = 0
+    prev_consumed = 0
+    voiced_frames = 0
+    for pts, t_call, t1, consumed, started in r["gout"]:
+        start_byte, prev_consumed = prev_consumed, consumed
+        if not inwin(t1):
+            continue
+        if pts not in bridge_out or pts not in enc or pts not in rtp:
+            errors["downlink_incomplete"] = errors.get("downlink_incomplete", 0) + 1
+            continue
+        D["D3 GrokOutput.recv return - deadline (pacing lateness)"].append(
+            t1 - (int(started * 1e9) + mono_off + pts * 1_000_000_000 // 48000))
+        if consumed > start_byte:  # the frame carries provider audio: its first byte's feed time
+            while fi + 1 < len(feeds) and feeds[fi][1] <= start_byte:
+                fi += 1
+            if feeds and feeds[fi][0] <= start_byte < feeds[fi][1]:
+                D["D2 reservoir dwell (feed end -> frame out)"].append(t1 - feeds[fi][2])
+                voiced_frames += 1
+        D["D4 AudioBridge.recv output (incl. Level)"].append(bridge_out[pts] - t1)
+        if pts in level_out:
+            D["D4a   Level.frame output"].append(level_out[pts][1] - level_out[pts][0])
+        _ets, e0, e1 = enc[pts]
+        if pts in dbov:
+            D["D5a   compute_audio_level_dbov"].append(dbov[pts][1] - dbov[pts][0])
+        D["D5 bridge -> encode start (audio level + executor hop)"].append(e0 - bridge_out[pts])
+        D["D6 Opus encode (executor thread, incl. mono->stereo)"].append(e1 - e0)
+        s0, s1 = rtp[pts]
+        D["D7 encode end -> _send_rtp (loop hop + packetize)"].append(s0 - e1)
+        D["D8 SRTP protect + sendto"].append(s1 - s0)
+        D["D_total adapter frame out -> RTP sent (excl. reservoir)"].append(s1 - t1)
+    # world: adapter RTP sent -> phone frame decoded
+    rx_w = w["rx"]
+    if rx_w and first_enc is not None:
+        for pts_p, t, _peak in rx_w:
+            pts = enc_by_ts.get((pts_p + first_enc) % (1 << 32))
+            if pts in rtp and inwin(rtp[pts][1]):
+                D["W2 adapter RTP sent -> phone decoded frame (UDP + phone jitter/decode)"].append(t - rtp[pts][1])
+    out = {"uplink": {k: stat(v) for k, v in U.items()}, "downlink": {k: stat(v) for k, v in D.items()}}
+    up_frames = sum(1 for _ts, t in rx.items() if inwin(t))
+    down_frames = sum(1 for row in r["gout"] if inwin(row[2]))
+    appended = sum(n for _t0, _t1, n, f in r["append"] if inwin(_t0))
+    out["work"] = {"uplink_frames": up_frames, "downlink_frames": down_frames, "voiced_downlink_frames": voiced_frames,
+                   "appends": len(marshal), "append_json_bytes": appended,
+                   "provider_appends_received": len(w["appends"]),
+                   "provider_pcm24_bytes_received": sum(n for _t, n in w["appends"]),
+                   "phone_frames_received": len(rx_w),
+                   "phone_voiced_frames": sum(1 for _p, _t, pk in rx_w if pk >= 800),
+                   "errors": errors}
+    out["cpu"] = {"adapter_cpu_s": round(cpu_s, 3), "wall_s": round(wall_s, 3),
+                  "adapter_cpu_pct_one_core": round(100 * cpu_s / wall_s, 2),
+                  "adapter_cpu_us_per_20ms_tick": round(cpu_s / wall_s * 20000, 1)}
+    if p.hops:
+        out["asyncio_callbacks_per_20ms_tick"] = round(p.callbacks / (wall_s / 0.02), 2)
+    return out
+
+
+async def adapter(args):
+    os.environ.update({"HERMES_VOICE_ENGINE": "grok", "HERMES_MOBILE_VOICE_LANES": "0", "HERMES_MOBILE_VOICE_CHAT": "0",
+                       "VOICE_WARM_HAIKU": "0", "HERMES_VOICE_HANDOFF": "off",
+                       "HERMES_MOBILE_VOICE_TRACE_DIR": str(Path(args.workdir) / "traces")})
+    os.environ.setdefault("Z0LIVE_DESKTOP", str(ADAPTER_DIR.parent / "desktop"))
+    sys.path.insert(0, str(ADAPTER_DIR))
+    import mobile_live as live
+    import grok_leg
+    from aiohttp import ClientSession
+
+    if args.qos != "default":  # diagnostic knob (F3 lead): threads created later inherit the main thread's QoS
+        import ctypes
+        qos = {"interactive": 0x21, "initiated": 0x19, "utility": 0x11}[args.qos]
+        rc = ctypes.CDLL("/usr/lib/libSystem.B.dylib").pthread_set_qos_class_self_np(qos, 0)
+        assert rc == 0, rc
+    iso = isolated(args.fixtures)
+    probe = Probe(args.hops)
+    install(probe)
+    world_out = Path(args.workdir) / "world.json"
+    child = await asyncio.create_subprocess_exec(
+        sys.executable, "-I", str(Path(__file__).resolve()), "--role", "world", "--fixtures", args.fixtures,
+        "--world-out", str(world_out), "--reply-chunk-ms", str(args.reply_chunk_ms),
+        "--reply-delay", str(args.reply_delay),
+        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE)
+    hello = json.loads(await asyncio.wait_for(child.stdout.readline(), 60))
+    grok_leg.URL = f"ws://127.0.0.1:{hello['ws_port']}/v1/realtime"
+    grok_leg.mint_secret = lambda: "bench"
+    async with ClientSession() as http:
+        manager = live.Manager(http)
+        call = live.Call(manager)
+        manager.calls[call.id] = call
+        assert call.leg is not None, "engine must be grok"
+        result = await call.start(hello["offer"], [])
+        child.stdin.write((json.dumps({"answer": result["transport"]["sdp"]}) + "\n").encode())
+        await child.stdin.drain()
+        async with asyncio.timeout(30):
+            while not (call.mobile.connectionState == "connected" and call.leg.ready and probe.r["append"]):
+                await asyncio.sleep(0.05)
+        await asyncio.sleep(args.warmup + args.reply_delay)
+        mono_off = NS() - int(time.monotonic() * 1e9)
+        ru0, t_lo = resource.getrusage(resource.RUSAGE_SELF), NS()
+        await asyncio.sleep(args.seconds)
+        ru1, t_hi = resource.getrusage(resource.RUSAGE_SELF), NS()
+        cpu = (ru1.ru_utime + ru1.ru_stime) - (ru0.ru_utime + ru0.ru_stime)
+        await asyncio.sleep(0.5)  # let in-flight frames of the window land
+        child.stdin.write(b'{"stop": true}\n')
+        await child.stdin.drain()
+        await asyncio.wait_for(child.stdout.readline(), 30)
+        await call.close("bench_done")
+    await asyncio.wait_for(child.wait(), 30)
+    w = json.loads(world_out.read_text())
+    res = analyse(probe, w, t_lo, t_hi, (t_hi - t_lo) / 1e9, cpu, mono_off)
+    res["isolated"] = iso
+    res["version"] = VERSION
+    res["config"] = {"seconds": args.seconds, "warmup": args.warmup, "reply_chunk_ms": args.reply_chunk_ms,
+                     "hops": args.hops, "qos": args.qos, "python": sys.version.split()[0], "engine": "grok", "frame_ms": 20}
+    return res
+
+
+def report(res):
+    print(f"{res['version']}  window {res['cpu']['wall_s']} s  adapter CPU {res['cpu']['adapter_cpu_pct_one_core']} % "
+          f"of one core ({res['cpu']['adapter_cpu_us_per_20ms_tick']} us per 20 ms tick)")
+    for side in ("uplink", "downlink", "isolated"):
+        print(f"\n{side:<70} {'n':>6} {'p50_us':>10} {'p99_us':>10}")
+        for k, v in res[side].items():
+            print(f"{k:<70} {v['n']:>6} {v['p50_us'] if v['p50_us'] is not None else '-':>10} "
+                  f"{v['p99_us'] if v['p99_us'] is not None else '-':>10}")
+    print("\nwork:", json.dumps(res["work"]))
+    if "asyncio_callbacks_per_20ms_tick" in res:
+        print("asyncio callbacks per 20 ms tick:", res["asyncio_callbacks_per_20ms_tick"])
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--role", default="adapter", choices=["adapter", "world"])
+    ap.add_argument("--seconds", type=float, default=30)
+    ap.add_argument("--warmup", type=float, default=3)
+    ap.add_argument("--reply-chunk-ms", type=int, default=20)
+    ap.add_argument("--reply-delay", type=float, default=1.0)
+    ap.add_argument("--hops", action="store_true")
+    ap.add_argument("--qos", default="default", choices=["default", "interactive", "initiated", "utility"],
+                    help="diagnostic only: macOS QoS class of the adapter process threads (baseline = default)")
+    ap.add_argument("--fixtures", default=str(Path(os.environ.get("TMPDIR", tempfile.gettempdir())) / "transport_bench_fx"))
+    ap.add_argument("--workdir", default="")
+    ap.add_argument("--world-out", default="")
+    ap.add_argument("--out", default="")
+    args = ap.parse_args()
+    Path(args.fixtures).mkdir(parents=True, exist_ok=True)
+    if args.role == "world":
+        asyncio.run(world(args))
+        return
+    with tempfile.TemporaryDirectory(prefix="tbench") as tmp:
+        args.workdir = args.workdir or tmp
+        res = asyncio.run(adapter(args))
+    report(res)
+    if args.out:
+        Path(args.out).write_text(json.dumps(res, indent=1))
+
+
+if __name__ == "__main__":
+    main()
