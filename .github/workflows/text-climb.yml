@@ -1,14 +1,14 @@
-name: z0live barge-in A-bargein-V replication, arm U vs arm Q on fresh seeds 30000-30119 (S0, FULL; CPU, stdlib)
-# A-bargein-V: confirmatory replication slot. Same harness and the same flags as the A-bargein-U slot
-# (bargein_replay/18, offline virtual-time sim, Python stdlib only, no network, no secrets); only the seeds, the
-# conditions and the sharding differ. This branch reuses the registered text-climb.yml file name so
+name: z0live barge-in A-bargein-W, arm W (quiet-caller commit rule) vs arm U on fresh seeds 31000-31095 (S1, S0, FULL; CPU, stdlib)
+# A-bargein-W: one change on top of arm U (bargein_replay/19, offline virtual-time sim, Python stdlib only, no network,
+# no secrets). Arm W = arm U plus a commit-side rule: once armed, a packet whose residual RMS is >= --quiet-rms (below
+# --resid-threshold) and not explained as echo (the canceller removed < --nlms-margin-db of it) adds to the commit
+# count while a duck or silent window is already open. This branch reuses the registered text-climb.yml file name so
 # `gh workflow run text-climb.yml --ref <branch>` can dispatch it.
-# Arms: the sweep always runs A and B; --arm-q needs --arm-o and --arm-u needs --arm-s, so O, Q, S and U all run.
-# Q (reference) and U (candidate) are the compared arms; O and S are reported only.
-# Seeds 30000-30119 (never used before), two seeds per shard (matrix value = first seed, second = first + 1),
-# 60 shards. Both conditions run as parallel processes on the runner (two seeds x two conditions = four processes
-# on four vCPUs): S0 unstressed -> out/s0, FULL (--caller-level-db-range -10,0 and --erl-db-range 0,6) -> out/full.
-# No S1 and no holdout seed in this slot.
+# --only-arms U,W skips the reference arms O, Q and S (A and B always run); the arms that run are byte-identical to
+# a run without the filter (unit-tested), it only saves runner time.
+# Seeds 31000-31095 (never used before), four seeds per shard (matrix value = first seed, the shard runs first..+3),
+# 24 shards. Three conditions per shard as parallel processes: S1 quiet caller (--caller-level-db-range -10,0) ->
+# out/s1, S0 unstressed -> out/s0, FULL (S1 + --erl-db-range 0,6) -> out/full. No holdout seed in this slot.
 on:
   workflow_dispatch:
     inputs:
@@ -20,14 +20,15 @@ permissions:
   contents: read
 jobs:
   sweep:
-    name: seeds ${{ matrix.first }}+1
+    name: seeds ${{ matrix.first }}+3
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 50
     strategy:
       fail-fast: false
-      max-parallel: 5
+      max-parallel: 6
       matrix:
-        first: [30096, 30098, 30100, 30102, 30104, 30106, 30108, 30110, 30112, 30114, 30116, 30118]
+        first: [31000, 31004, 31008, 31012, 31016, 31020, 31024, 31028, 31032, 31036, 31040, 31044,
+                31048, 31052, 31056, 31060, 31064, 31068, 31072, 31076, 31080, 31084, 31088, 31092]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,27 +41,31 @@ jobs:
           cpu=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)
           echo "runner CPU: ${cpu:-unknown} ($(uname -m), $(nproc) cpus), $(python --version)" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Sweep
-        timeout-minutes: 35
+        timeout-minutes: 45
         env:
           FIRST: ${{ matrix.first }}
         run: |
           set -euo pipefail
           cd voice-adapter
-          seeds="$FIRST,$((FIRST + 1))"
+          seeds="$FIRST-$((FIRST + 3))"
           common=(--seeds "$seeds" --jobs 2 --echo-model residual --echo-continuous
                   --bot-render recorded --rhos none --energy-k-db -12 --energy-min-speech-ms 30
                   --resid-threshold 1360 --arm-o --guard-erle-db 6 --guard-margin-db 3 --guard-packets 5
-                  --arm-q --duck-commit-ms 100 --duck-window-ms 300 --arm-s --prearm-rms 5000 --arm-u)
+                  --arm-q --duck-commit-ms 100 --duck-window-ms 300 --arm-s --prearm-rms 5000 --arm-u
+                  --arm-w --quiet-rms 700 --only-arms U,W)
           t0=$(date +%s)
+          python -B bench/bargein_sweep.py "${common[@]}" --out ../out/s1 --caller-level-db-range=-10,0 > ../s1.log &
+          p1=$!
           python -B bench/bargein_sweep.py "${common[@]}" --out ../out/s0 > ../s0.log &
           p0=$!
           python -B bench/bargein_sweep.py "${common[@]}" --out ../out/full \
             --caller-level-db-range=-10,0 --erl-db-range=0,6 > ../full.log &
           p2=$!
           rc=0
+          wait $p1 || rc=1
           wait $p0 || rc=1
           wait $p2 || rc=1
-          for c in s0 full; do sed "s/^/$c /" "../$c.log" | tee -a "$GITHUB_STEP_SUMMARY"; done
+          for c in s1 s0 full; do sed "s/^/$c /" "../$c.log" | tee -a "$GITHUB_STEP_SUMMARY"; done
           echo "sweep wall $(( $(date +%s) - t0 )) s" | tee -a "$GITHUB_STEP_SUMMARY"
           exit $rc
       - uses: actions/upload-artifact@v4
@@ -86,5 +91,5 @@ jobs:
           NOTE: ${{ inputs.note }}
         run: |
           set -euo pipefail
-          { [ -n "${NOTE}" ] && echo "note: ${NOTE}"; echo '```'; (cd results && ls s0/seed-*.json full/seed-*.json | wc -l && sha256sum s0/seed-*.json full/seed-*.json); echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          (cd results && sha256sum s0/seed-*.json full/seed-*.json)
+          { [ -n "${NOTE}" ] && echo "note: ${NOTE}"; echo '```'; (cd results && ls s1/seed-*.json s0/seed-*.json full/seed-*.json | wc -l && sha256sum s1/seed-*.json s0/seed-*.json full/seed-*.json); echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          (cd results && sha256sum s1/seed-*.json s0/seed-*.json full/seed-*.json)

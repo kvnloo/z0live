@@ -2122,5 +2122,185 @@ class NoDuckPreArmGateTest(unittest.TestCase):
             self.assertEqual(sorted(res['arms']), ['A', 'B', 'O', 'Q', 'S', 'U'])
 
 
+U18_ARGS = ('--seed', '39', '--trials', '20', '--echo-model', 'residual', '--echo-continuous', '--bot-render',
+            'recorded', '--energy-k-db=-12', '--energy-min-speech-ms', '30', '--resid-threshold', '1360', '--arm-o',
+            '--guard-packets', '5', '--arm-q', '--duck-window-ms', '300', '--arm-s', '--prearm-rms', '5000', '--arm-u',
+            '--caller-level-db-range=-10,0')
+U18_SHA256 = 'f272e708ada3a5f2c15be7457a4b3e39127bf03083ff33d93bc2e33b66fdcaff'  # computed on the unchanged /18 harness
+
+
+class QuietCallerGateTest(unittest.TestCase):
+    """bargein_replay/19: opt-in arm W, arm U unchanged except ONE commit-side rule: once armed, a packet whose
+    residual RMS is >= quiet_rms (below resid_threshold) and not below the capture adds to the commit count while a
+    duck or silent window is open (never starts one). Plus --only-arms, a run filter that skips opt-in arms without
+    touching the arms that run."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nlms = NlmsGateTest('test_harness_id')
+        cls.nlms.setUpClass()
+
+    def w_cfg(self, **overrides):
+        return self.nlms.f_cfg(**({'resid_threshold': 1360.0, 'resid_arm_db': 6.0, 'resid_nlp_db': 3.0,
+                                   'guard_erle_db': 6.0, 'guard_margin_db': 3.0, 'guard_packets': 5,
+                                   'duck_commit_ms': 100, 'duck_window_ms': 300, 'prearm_rms': 5000.0,
+                                   'quiet_rms': 600.0} | overrides))
+
+    def test_harness_id(self):
+        self.assertEqual(replay.HARNESS_QUIET, 'bargein_replay/19')
+        self.assertEqual(replay.HARNESS_NODUCK, 'bargein_replay/18')
+
+    def test_w_is_u_subclass_reading_one_new_constant(self):
+        import ast
+        import inspect
+        self.assertTrue(issubclass(replay.QuietCallerGate, replay.NoDuckPreArmGate))
+        tree = ast.parse(inspect.getsource(replay.QuietCallerGate))
+        cfg_attrs = {n.attr for n in ast.walk(tree)
+                     if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == 'cfg'}
+        self.assertEqual(cfg_attrs, {'quiet_rms'})
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                self.assertNotIn(node.id, ArmCTest.FORBIDDEN, node.id)
+
+    def test_decide_flags_quiet_packets_without_calling_them_speech(self):
+        n = 40
+        lvl = lambda rms: n * rms * rms
+        g = replay.QuietCallerGate(self.w_cfg(), 2100)
+        g.delay_ms, g.erle_hat_db = 30, 10.0  # placed, monitor above resid_arm_db: arms on the first decide
+        # quiet residual the canceller did not reduce (residual == capture): flagged quiet, not speech for the onset
+        self.assertFalse(g.decide(n, lvl(800), lvl(800), 0.0, 0.0))
+        self.assertTrue(g.armed and g.quiet)
+        # residual above the capture (canceller added energy): quiet as well
+        g.decide(n, lvl(800), lvl(700), 0.0, 0.0)
+        self.assertTrue(g.quiet)
+        # same residual level but the canceller removed 1 dB / 10 dB: not quiet
+        g.decide(n, lvl(800), lvl(800) * 10 ** .1, 0.0, 0.0)
+        self.assertFalse(g.quiet)
+        g.decide(n, lvl(800), lvl(800) * 10.0, 0.0, 0.0)
+        self.assertFalse(g.quiet)
+        # unexplained but below the floor
+        g.decide(n, lvl(500), lvl(500), 0.0, 0.0)
+        self.assertFalse(g.quiet)
+        # above resid_threshold: speech by arm Q's rule, not quiet
+        self.assertTrue(g.decide(n, lvl(1500), lvl(1500) * 100, 0.0, 0.0))
+        self.assertFalse(g.quiet)
+        # unarmed (not placed): never quiet; pre-arm rule (5000) not reached either
+        h = replay.QuietCallerGate(self.w_cfg(), 2100)
+        self.assertFalse(h.decide(n, lvl(800), lvl(800), 0.0, 0.0))
+        self.assertFalse(h.armed or h.quiet)
+
+    def test_step_quiet_counts_only_inside_an_open_duck(self):
+        u = replay.NoDuckPreArmGate(self.w_cfg(), 2100)
+        w = replay.QuietCallerGate(self.w_cfg(), 2100)
+        u.armed = w.armed = True
+        # quiet packets alone never start an onset: no duck, no commit
+        w.quiet = True
+        self.assertEqual({w.step(t, False) for t in range(10, 200, 10)}, {None})
+        self.assertEqual((w.ducks, w.quiet_packets, w.fired), (0, 0, False))
+        # 30 ms of strong speech ducks both; then the caller fades under resid_threshold (quiet, unexplained)
+        ev_u = [u.step(t, True) for t in (210, 220, 230)]
+        ev_w = [w.step(t, True) for t in (210, 220, 230)]
+        self.assertEqual(ev_u[-1], 'duck')
+        self.assertEqual(ev_w, ev_u)
+        rest_u, rest_w = [], []
+        for t in range(240, 560, 10):
+            rest_u.append(u.step(t, False))
+            w.quiet = True
+            rest_w.append(w.step(t, False))
+        self.assertIn('unduck', rest_u)  # U: 30 ms of evidence, window lapses
+        self.assertNotIn('commit', rest_u)
+        self.assertIn('commit', rest_w)  # W: quiet packets fill the commit count to 100 ms
+        self.assertEqual(rest_w.index('commit'), 6)  # 30 + 7 x 10 = 100 ms at t = 300
+        self.assertEqual(w.quiet_packets, 7)
+
+    def test_w_equals_u_when_floor_is_resid_threshold(self):
+        for kw in ({}, {'gain_db': -3.0}, {'caller_from': 300, 'caller_amp': 4000, 'ms': 1800},
+                   {'caller_from': 1500, 'caller_amp': 1500, 'ms': 1800}):
+            u = Recorder(replay.NoDuckPreArmGate(self.w_cfg(), 2100))
+            w = Recorder(replay.QuietCallerGate(self.w_cfg(quiet_rms=1360.0), 2100))
+            self.nlms.synthetic(u, **kw)
+            self.nlms.synthetic(w, **kw)
+            self.assertEqual(w.events, u.events, kw)
+
+    def test_w_never_ducks_earlier_than_u_on_synthetics(self):
+        for kw in ({}, {'gain_db': -3.0}, {'caller_from': 1200, 'caller_amp': 1100, 'ms': 2000},
+                   {'caller_from': 1200, 'caller_amp': 3000, 'ms': 2000}):
+            # no pre-arm level (no silent windows): the first duck comes from arm Q's onset run in both arms
+            u = Recorder(replay.NoDuckPreArmGate(self.w_cfg(prearm_rms=1e9), 2100))
+            w = Recorder(replay.QuietCallerGate(self.w_cfg(prearm_rms=1e9), 2100))
+            self.nlms.synthetic(u, **kw)
+            self.nlms.synthetic(w, **kw)
+            first = lambda r: next((t for t, e in r.events if e in ('duck', 'commit')), None)
+            self.assertEqual(first(w), first(u), kw)  # the onset is U's; only the commit side can differ
+
+    def test_w_off_keeps_old_bytes(self):
+        proc, data = run_cli('--seed', '39')
+        self.assertEqual(sha256(data).hexdigest(), REFERENCE_SHA256)
+        proc, data = run_cli(*U18_ARGS)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sha256(data).hexdigest(), U18_SHA256)  # bargein_replay/18 bytes unchanged
+        proc, data = run_cli(*R15_ARGS)
+        self.assertEqual(sha256(data).hexdigest(), R15_SHA256)
+
+    def test_cli_arm_w_leaves_other_arms_unchanged(self):
+        proc, base = run_cli(*U18_ARGS)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        proc, data = run_cli(*U18_ARGS, '--arm-w', '--quiet-rms', '700', '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIs(json.loads(proc.stdout)['aa_identical'], True)
+        b, w = json.loads(base), json.loads(data)
+        self.assertEqual(w['harness'], 'bargein_replay/19')
+        self.assertEqual(sorted(w['arms']), ['A', 'B', 'O', 'Q', 'S', 'U', 'W'])
+        for arm in ('A', 'B', 'O', 'Q', 'S', 'U'):
+            self.assertEqual(canonical(w['arms'][arm]), canonical(b['arms'][arm]), arm)
+        params = dict(w['parameters'])
+        self.assertEqual(params.pop('quiet_rms'), 700.0)
+        self.assertEqual(params, b['parameters'])
+        wa = w['arms']['W']
+        self.assertEqual(wa['latency_definition'], 'time_to_ducked_or_silent')
+        self.assertIn('quiet_speech_packets', wa)
+        self.assertIn('prearm_silent_windows', wa)
+        # floor == resid_threshold: arm W is arm U trial by trial
+        proc, data = run_cli(*U18_ARGS, '--arm-w', '--quiet-rms', '1360')
+        arms = json.loads(data)['arms']
+        wa, ua = dict(arms['W']), dict(arms['U'])
+        self.assertEqual(wa.pop('quiet_speech_packets'), 0)
+        self.assertEqual(canonical(wa), canonical(ua))
+        for bad in ((*U18_ARGS, '--arm-w'), (*U18_ARGS, '--arm-w', '--quiet-rms', '2000'),
+                    (*U18_ARGS[:-2], '--caller-level-db-range=-10,0', '--arm-w', '--quiet-rms', '-1')):
+            proc, _ = run_cli(*bad)
+            self.assertNotEqual(proc.returncode, 0, bad)
+        args = [a for a in U18_ARGS if a != '--arm-u']  # --arm-w needs --arm-u
+        proc, _ = run_cli(*args, '--arm-w', '--quiet-rms', '700')
+        self.assertNotEqual(proc.returncode, 0)
+
+    def test_only_arms_skips_without_changing_the_rest(self):
+        proc, full = run_cli(*U18_ARGS, '--arm-w', '--quiet-rms', '700')
+        proc, part = run_cli(*U18_ARGS, '--arm-w', '--quiet-rms', '700', '--only-arms', 'U,W')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        f, p = json.loads(full), json.loads(part)
+        self.assertEqual(sorted(p['arms']), ['A', 'B', 'U', 'W'])
+        for arm in ('A', 'B', 'U', 'W'):
+            self.assertEqual(canonical(p['arms'][arm]), canonical(f['arms'][arm]), arm)
+        self.assertEqual(p['parameters'], f['parameters'])  # a run filter, not a parameter
+        self.assertEqual(p['harness'], f['harness'])
+        proc, _ = run_cli(*U18_ARGS, '--only-arms', 'U,Z')
+        self.assertNotEqual(proc.returncode, 0)
+
+    def test_sweep_passes_arm_w_and_only_arms(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([sys.executable, '-B', str(BENCH_DIR / 'bargein_sweep.py'), '--seeds', '39', '--trials', '10',
+                            '--echo-model', 'residual', '--echo-continuous', '--bot-render', 'recorded', '--rhos',
+                            'none', '--energy-k-db', '-12', '--energy-min-speech-ms', '30',
+                            '--arm-o', '--resid-threshold', '1360', '--guard-packets', '5', '--guard-margin-db', '3',
+                            '--arm-q', '--duck-commit-ms', '100', '--duck-window-ms', '300', '--arm-s',
+                            '--prearm-rms', '5000', '--arm-u', '--arm-w', '--quiet-rms', '700', '--only-arms', 'U,W',
+                            '--out', tmp], check=True, capture_output=True, timeout=900)
+            res = json.loads(Path(tmp, 'seed-39.json').read_text())
+            self.assertEqual(res['harness'], 'bargein_replay/19')
+            self.assertEqual(res['extra_args'][-6:], ['--arm-u', '--arm-w', '--quiet-rms', '700.0', '--only-arms', 'U,W'])
+            self.assertEqual(sorted(res['arms']), ['A', 'B', 'U', 'W'])
+
+
 if __name__ == '__main__':
     unittest.main()
