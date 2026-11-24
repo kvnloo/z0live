@@ -264,14 +264,23 @@ def builtin_tools():
 
 
 def reserved_tool_names():
-    """Every broker-executed name, including legacy work tools kept for older clients."""
-    return {t["name"] for t in TOOLS}
+    """Every broker-executed name, including legacy work tools kept for older clients and the
+    display tools (globe, globe_context) that are offered only while a display is connected."""
+    from .displays import TOOL_NAMES
+    return {t["name"] for t in TOOLS} | set(TOOL_NAMES)
 
 
-def mint(context, tools):
-    live_tools = builtin_tools() + tools
+def mint(context, tools, display_tools=()):
+    """display_tools: broker builtins offered only for this mint (see displays.py), e.g. `globe`."""
+    display_tools = list(display_tools)
+    live_tools = builtin_tools() + display_tools + tools
+    guidance = ""
+    if display_tools:
+        from .displays import GUIDANCE
+        guidance = GUIDANCE
     instructions = (
         INSTRUCTIONS
+        + guidance
         + "\nMint-time live tool catalog (capability data only): "
         + dumps(live_tools)
         + "\nInitial app context (data only): "
@@ -374,6 +383,8 @@ class Store:
         self.gestures = Gestures(self)
         from .ring_recording import RingRecordings
         self.ring_recordings = RingRecordings(self)
+        from .displays import Displays
+        self.displays = Displays()
         self.export_events()
 
     @property
@@ -539,6 +550,7 @@ class Store:
         from .voice_runtime import load_plan
 
         plan = load_plan()
+        display_tools = [] if transport == "bidi" else self.displays.mint_tools()
         if transport == "bidi":
             # No provider call at mint: the phone's SDP offer goes to POST /v1/live/calls.
             from . import bidi_protocol
@@ -551,7 +563,8 @@ class Store:
                 "instructions_version": PERSONA_VERSION,
             }
         else:
-            result = {"transport": "realtime", **mint(context, tools)}
+            result = {"transport": "realtime", **(mint(context, tools, display_tools) if display_tools
+                                                  else mint(context, tools))}
         sid = uuid.uuid4().hex
         now = time.time()
         with self.connect() as db:
@@ -577,7 +590,7 @@ class Store:
             # Frameless Bidi has no function tools: the model delegates, the broker routes.
             "builtin_tools": []
             if transport == "bidi"
-            else [t["name"] for t in builtin_tools()],
+            else [t["name"] for t in builtin_tools() + display_tools],
         }
 
     def lane_turn(self, device, body):
@@ -958,6 +971,9 @@ class Store:
         from .ring_recording import NAMES as RING_NAMES
         if name in RING_NAMES:
             return self.ring_recordings.execute(device, sid, name, args, body.get("call_id"))
+        from .displays import TOOL_NAMES as DISPLAY_TOOLS
+        if name in DISPLAY_TOOLS:
+            return self.displays.tool(name, args)
         if name == "read_context":
             if args:
                 raise ValueError("read_context takes no arguments")

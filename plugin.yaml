@@ -7,7 +7,7 @@ author: "kvnloo"
 license: GPL-3.0-only
 homepage: "https://github.com/kvnloo/z0live"
 tags: ["voice", "realtime", "gpt-live", "grok", "lanes", "z0live"]
-requires_env: []  # Z0LIVE_PROGRESS_TOKEN is optional (z0live_say only); read via get_secret
+requires_env: []  # Z0LIVE_PROGRESS_TOKEN (z0live_say) and Z0LIVE_TOKEN (z0live_globe) are optional; read via get_secret
 requires_hermes: ">=0.21.5"
 config_schema:
   z0live_repo: {type: str, default: "", label: "z0live checkout", description: "Checkout whose bin/z0live picks the engine; empty = this plugin's own tree"}
@@ -15,6 +15,8 @@ config_schema:
   tiers_file: {type: str, default: "~/.config/z0live/tiers.json", label: "Lane tiers override", description: "fast/medium/slow model lists; absent = z0live defaults"}
   voices_file: {type: str, default: "~/.config/z0live/voices.json", label: "Second voice", description: "{\"guest\": \"grok\"} adds Grok to GPT-Live calls"}
   traces_dir: {type: str, default: "~/.local/share/z0live/voice-traces", label: "Call traces", description: "Per-call JSONL event traces written by the voice adapter"}
+  broker_url: {type: str, default: "http://127.0.0.1:8791", label: "Desktop broker", description: "Broker URL for z0live_globe (display bridge)"}
+  device_token_file: {type: str, default: "~/.config/z0live/hermes-mobile-relay.token", label: "Device token file", description: "Private paired-device token z0live_globe uses when the Z0LIVE_TOKEN secret is unset"}
   lane_url: {type: str, default: "http://127.0.0.1:8646", label: "Lane server", description: "HTTP URL on 127.0.0.1 or [::1] for the lane server's /health probe"}
-provides_tools: ["z0live_status", "z0live_configure", "z0live_lanes", "z0live_say"]
+provides_tools: ["z0live_status", "z0live_configure", "z0live_lanes", "z0live_say", "z0live_globe"]
 provides_hooks: []

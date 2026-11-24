@@ -34,6 +34,8 @@ DEFAULTS = {
     "voices_file": "~/.config/z0live/voices.json",
     "traces_dir": "~/.local/share/z0live/voice-traces",
     "lane_url": "http://127.0.0.1:8646",
+    "broker_url": "http://127.0.0.1:8791",
+    "device_token_file": "~/.config/z0live/hermes-mobile-relay.token",
 }
 
 
@@ -237,6 +239,51 @@ def make_say(lines):
     return handle
 
 
+GLOBE_TOKEN_ENV = "Z0LIVE_TOKEN"
+
+
+def _globe_token(cfg):
+    """Paired-device token: the profile secret, else the private token file. Never returned to the model."""
+    token = (_secret(GLOBE_TOKEN_ENV) or "").strip()
+    if token:
+        return token
+    try:
+        return _path(cfg("device_token_file")).read_text().strip()
+    except OSError:
+        return ""
+
+
+def make_globe(cfg):
+    def handle(args: Dict[str, Any], **_kw: Any) -> str:
+        try:
+            args = args or {}
+            action, action_args = args.get("action"), args.get("args") or {}
+            if action is not None and (not isinstance(action, str) or not action.strip()):
+                return json.dumps({"ok": False, "error": "action must be a display action name"})
+            if not isinstance(action_args, dict):
+                return json.dumps({"ok": False, "error": "args must be an object"})
+            token = _globe_token(cfg)
+            if not token:
+                return json.dumps({"ok": False, "error": "no z0live device token for this profile"})
+            displays = _desktop_module("displays")
+            return json.dumps(displays.globe(action, action_args, token=token, base=cfg("broker_url")),
+                              ensure_ascii=False)
+        except Exception as exc:  # a tool handler never raises
+            return json.dumps({"ok": False, "error": f"z0live_globe failed: {type(exc).__name__}"})
+    return handle
+
+
+GLOBE_SCHEMA = {
+    "name": "z0live_globe",
+    "description": ("Drive the God's Eye View globe the owner has open on his screen (the same display his z0live "
+                    "voice call controls). Omit action to read the current view and the list of actions; otherwise "
+                    "pass one listed action and its args, e.g. {action:'fly-to', args:{query:'Tokyo'}}. "
+                    "Only an ok result means the globe changed; timeout means unknown."),
+    "parameters": {"type": "object", "additionalProperties": False, "properties": {
+        "action": {"type": "string"}, "args": {"type": "object"}}},
+}
+
+
 STATUS_SCHEMA = {
     "name": "z0live_status",
     "description": ("Show the z0live voice stack on this machine: the voice engine the next call uses, whether a "
@@ -295,6 +342,9 @@ def register(ctx) -> None:
                       emoji="🎛️")
     ctx.register_tool(name="z0live_lanes", toolset=TOOLSET, schema=LANES_SCHEMA, handler=lanes_tool,
                       check_fn=installed, description="Show or set the desktop helper-lane board", emoji="🎚️")
+    ctx.register_tool(name="z0live_globe", toolset=TOOLSET, schema=GLOBE_SCHEMA, handler=make_globe(cfg),
+                      check_fn=lambda: installed() and bool(_globe_token(cfg)),
+                      description="Move the owner's God's Eye View globe display", emoji="🌐")
     lines = _read_json(ROOT / "voice-adapter/progress_lines.json") or []
     ctx.register_tool(name="z0live_say", toolset=TOOLSET, handler=make_say(lines),
                       check_fn=lambda: bool(lines and _secret(PROGRESS_TOKEN_ENV)),
