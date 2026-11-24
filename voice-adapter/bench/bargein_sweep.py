@@ -66,7 +66,7 @@ def run_one(seed, rho, m, trials, extra):
 def sweep_seed(seed, m, trials, extra, rhos=RHOS):
     runs = {rho: run_one(seed, rho, m, trials, extra) for rho in rhos}
     base = runs[rhos[0]][1]
-    shared = ("A", "B") + tuple(a for a in ("D", "E", "E2", "F", "F2", "G", "G2", "H", "O", "Q", "R", "S")
+    shared = ("A", "B") + tuple(a for a in ("D", "E", "E2", "F", "F2", "G", "G2", "H", "O", "Q", "R", "S", "U")
                                 if a in base["arms"])  # D, E (opt-in) do not depend on rho
     ab_same = all(json.dumps(r[1]["arms"][a], sort_keys=True) == json.dumps(base["arms"][a], sort_keys=True)
                   for r in runs.values() for a in shared)
@@ -133,6 +133,7 @@ def main():
     p.add_argument("--split-duck-rms", type=float, default=None)
     p.add_argument("--arm-s", action="store_true", help="also run arm S (Q + pre-arm speech rule, bargein_replay/16)")
     p.add_argument("--prearm-rms", type=float, default=None)
+    p.add_argument("--arm-u", action="store_true", help="also run arm U (S without pre-arm ducking, bargein_replay/18)")
     p.add_argument("--bot-render", choices=("periodic", "recorded"), default="periodic")
     p.add_argument("--rhos", default=",".join(map(str, RHOS)), help="arm C rho values, e.g. 0.9 (default 0.7,0.9)")
     p.add_argument("--arm-d", action="store_true", help="also run arm D (energy-ratio gate, bargein_replay/4)")
@@ -192,6 +193,8 @@ def main():
         extra += ["--arm-r", "--split-duck-rms", str(a.split_duck_rms)]
     if a.arm_s:  # bargein_replay/16 (A-bargein-S)
         extra += ["--arm-s", "--prearm-rms", str(a.prearm_rms)]
+    if a.arm_u:  # bargein_replay/18 (A-bargein-U)
+        extra += ["--arm-u"]
     if a.caller_level_db_range:
         extra += ["--caller-level-db-range=" + a.caller_level_db_range]  # "=": the value starts with "-"
     if a.erl_db_range:

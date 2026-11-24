@@ -1941,5 +1941,186 @@ class PreArmGateTest(unittest.TestCase):
             self.assertEqual(sorted(res['arms']), ['A', 'B', 'D', 'O', 'Q', 'S'])
 
 
+S16_ARGS = (*R15_ARGS, '--arm-s', '--prearm-rms', '2000')
+S16_SHA256 = '264e88cd9910c30198070f96b3450799fe078593cac2a3c9a4949defcd60ed1d'  # computed on the unchanged /16 harness
+
+
+class ArmRecorder(Recorder):
+    """Recorder that also notes whether the gate was armed when each event fired."""
+
+    def observe(self, t, packet):
+        event = self.gate.observe(t, packet)
+        if event:
+            self.events.append((t, event, self.gate.armed))
+        return False
+
+
+class NoDuckPreArmGateTest(unittest.TestCase):
+    """bargein_replay/18: opt-in arm U, arm S unchanged (pre-arm speech rule, canceller, arming, commit count and
+    window) except that playout is never ducked (paused) while the gate is not yet armed: an unarmed onset run opens
+    a silent window in which speech still counts toward the commit; the first duck can only happen once armed."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nlms = NlmsGateTest('test_harness_id')
+        cls.nlms.setUpClass()
+
+    def u_cfg(self, **overrides):
+        return self.nlms.f_cfg(**({'resid_threshold': 1360.0, 'resid_arm_db': 6.0, 'resid_nlp_db': 3.0,
+                                   'guard_erle_db': 6.0, 'guard_margin_db': 3.0, 'guard_packets': 5,
+                                   'duck_commit_ms': 100, 'duck_window_ms': 300, 'prearm_rms': 2000.0}
+                                  | overrides))
+
+    def test_harness_id(self):
+        self.assertEqual(replay.HARNESS_NODUCK, 'bargein_replay/18')
+        self.assertEqual(replay.HARNESS_PREARM, 'bargein_replay/16')
+
+    def test_u_is_s_with_no_new_constant(self):
+        import ast
+        import inspect
+        self.assertTrue(issubclass(replay.NoDuckPreArmGate, replay.PreArmGate))
+        tree = ast.parse(inspect.getsource(replay.NoDuckPreArmGate))
+        cfg_attrs = {n.attr for n in ast.walk(tree)
+                     if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == 'cfg'}
+        self.assertEqual(cfg_attrs, set())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                self.assertNotIn(node.id, ArmCTest.FORBIDDEN, node.id)
+
+    def test_step_unarmed_never_ducks_but_commits_on_evidence(self):
+        g = replay.NoDuckPreArmGate(self.u_cfg(), 2100)
+        self.assertFalse(g.armed)
+        events = [g.step(t, True) for t in range(10, 110, 10)]
+        self.assertNotIn('duck', events)
+        self.assertEqual(events[-1], 'commit')  # 100 ms of pre-arm speech commits without any duck
+        self.assertEqual(events[:-1], [None] * 9)
+        self.assertEqual(g.ducks, 0)
+        self.assertEqual(g.silent_windows, 1)
+
+    def test_step_unarmed_window_lapses_silently(self):
+        g = replay.NoDuckPreArmGate(self.u_cfg(), 2100)
+        events = [g.step(t, t <= 40) for t in range(10, 400, 10)]  # 40 ms burst, then nothing
+        self.assertEqual(set(events), {None})  # no duck, no unduck, no commit
+        self.assertEqual((g.ducks, g.unducks, g.fired), (0, 0, False))
+        self.assertFalse(g.ducked)
+        self.assertEqual(g.silent_windows, 1)
+
+    def test_step_armed_is_q(self):
+        u = replay.NoDuckPreArmGate(self.u_cfg(), 2100)
+        q = replay.DuckConfirmGate(self.u_cfg(), 2100)
+        u.armed = q.armed = True
+        pattern = [1, 1, 1, 0, 0, 1, 0] + [0] * 40 + [1] * 12
+        eu = [u.step(10 * (i + 1), bool(v)) for i, v in enumerate(pattern)]
+        eq = [q.step(10 * (i + 1), bool(v)) for i, v in enumerate(pattern)]
+        self.assertEqual(eu, eq)
+        self.assertIn('duck', eu)
+        self.assertIn('unduck', eu)
+
+    def test_step_arming_inside_silent_window_ducks_and_keeps_evidence(self):
+        g = replay.NoDuckPreArmGate(self.u_cfg(), 2100)
+        events = [g.step(t, True) for t in (10, 20, 30, 40)]  # unarmed: 40 ms counted, silent window open
+        self.assertEqual(events, [None] * 4)
+        g.armed = True
+        self.assertEqual(g.step(50, True), 'duck')  # armed speech inside the window: duck now
+        self.assertEqual(g.ducks, 1)
+        out = [g.step(t, True) for t in (60, 70, 80, 90, 100)]
+        self.assertEqual(out[-1], 'commit')  # the pre-arm 40 ms still counted toward the 100 ms
+        self.assertEqual(out[:-1], [None] * 4)
+
+    def test_u_never_ducks_before_armed_on_synthetics(self):
+        for kw in ({}, {'gain_db': -3.0}, {'gain_db': 0.0}, {'caller_from': 0, 'caller_amp': 5000, 'ms': 1800},
+                   {'caller_from': 200, 'caller_amp': 5000, 'ms': 1800},
+                   {'caller_from': 300, 'caller_amp': 4000, 'ms': 1800},
+                   {'caller_from': 1500, 'caller_amp': 6000, 'ms': 1800}):
+            u = ArmRecorder(replay.NoDuckPreArmGate(self.u_cfg(prearm_rms=1500.0), 2100))
+            self.nlms.synthetic(u, **kw)
+            for t, event, armed in u.events:
+                if event in ('duck', 'unduck'):
+                    self.assertTrue(armed, (kw, t, event))
+
+    def test_u_equals_q_when_prearm_never_reached(self):
+        for kw in ({}, {'gain_db': -3.0}, {'caller_from': 300, 'caller_amp': 4000, 'ms': 1800},
+                   {'caller_from': 1500, 'caller_amp': 6000, 'ms': 1800}):
+            q = Recorder(replay.DuckConfirmGate(self.u_cfg(), 2100))
+            u = Recorder(replay.NoDuckPreArmGate(self.u_cfg(prearm_rms=1e9), 2100))
+            self.nlms.synthetic(q, **kw)
+            self.nlms.synthetic(u, **kw)
+            self.assertEqual(u.events, q.events, kw)
+
+    def test_u_commits_an_early_caller_q_misses(self):
+        found = []
+        for start in (0, 100, 200, 300, 400):
+            kw = {'caller_from': start, 'caller_amp': 5000, 'ms': 1800}
+            q = Recorder(replay.DuckConfirmGate(self.u_cfg(), 2100))
+            u = ArmRecorder(replay.NoDuckPreArmGate(self.u_cfg(prearm_rms=3000.0), 2100))
+            self.nlms.synthetic(q, **kw)
+            self.nlms.synthetic(u, **kw)
+            if not any(e == 'commit' for _, e in q.events) and any(e == 'commit' for _, e, _ in u.events):
+                found.append(start)
+        self.assertTrue(found)
+
+    def test_cli_arm_u_leaves_other_arms_unchanged(self):
+        proc, s16 = run_cli(*S16_ARGS)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sha256(s16).hexdigest(), S16_SHA256)  # bargein_replay/16 bytes unchanged
+        proc, data = run_cli(*S16_ARGS, '--arm-u', '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        b, u = json.loads(s16), json.loads(data)
+        self.assertEqual(u['harness'], 'bargein_replay/18')
+        self.assertEqual(sorted(u['arms']), ['A', 'B', 'C', 'D', 'E', 'F', 'F2', 'G', 'G2', 'H', 'O', 'Q', 'R', 'S',
+                                             'U'])
+        for arm in ('A', 'B', 'C', 'D', 'E', 'F', 'F2', 'G', 'G2', 'H', 'O', 'Q', 'R', 'S'):
+            self.assertEqual(canonical(u['arms'][arm]), canonical(b['arms'][arm]), arm)
+        self.assertIs(json.loads(proc.stdout)['aa_identical'], True)
+        self.assertEqual(u['parameters'], b['parameters'])  # no new parameter
+        ua = u['arms']['U']
+        self.assertEqual(ua['latency_definition'], 'time_to_ducked_or_silent')
+        self.assertIn('prearm_speech_packets', ua)
+        self.assertIn('prearm_silent_windows', ua)
+        for row in ua['trials']:  # no duck while unarmed: every duck is at or after the arming time
+            ducks = row['trace'].get('duck_ms', [])
+            if ducks:
+                self.assertIsNotNone(row['trace']['nlms_armed_ms'], row['trial'])
+                self.assertGreaterEqual(ducks[0], row['trace']['nlms_armed_ms'], row['trial'])
+        # a pre-arm threshold no packet reaches: arm U is arm Q trial by trial
+        proc, data = run_cli(*R15_ARGS, '--arm-s', '--prearm-rms', '1000000', '--arm-u')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        arms = json.loads(data)['arms']
+        ua = dict(arms['U'])
+        self.assertEqual(ua.pop('prearm_speech_packets'), 0)
+        self.assertEqual(ua.pop('prearm_silent_windows'), 0)
+        qa = arms['Q']
+        for rq, ru in zip(qa['trials'], ua.pop('trials')):
+            ru = dict(ru)
+            ru['trace'] = {k: v for k, v in ru['trace'].items() if k != 'nlms_armed_ms'}
+            self.assertEqual(canonical(ru), canonical(rq), rq['trial'])
+        self.assertEqual(canonical(ua), canonical({k: v for k, v in qa.items() if k != 'trials'}))
+        # --arm-u without --arm-s is an error
+        proc, _ = run_cli(*R15_ARGS, '--arm-u')
+        self.assertNotEqual(proc.returncode, 0)
+
+    def test_default_and_cont_j_bytes_unchanged(self):
+        proc, data = run_cli('--seed', '39')
+        self.assertEqual(sha256(data).hexdigest(), REFERENCE_SHA256)
+        proc, data = run_cli(*CONT_J_ARGS)
+        self.assertEqual(sha256(data).hexdigest(), CONT_J_SHA256)
+        proc, data = run_cli(*R15_ARGS)
+        self.assertEqual(sha256(data).hexdigest(), R15_SHA256)
+
+    def test_sweep_passes_arm_u(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([sys.executable, '-B', str(BENCH_DIR / 'bargein_sweep.py'), '--seeds', '39', '--trials', '10',
+                            '--echo-model', 'residual', '--echo-continuous', '--bot-render', 'recorded', '--rhos',
+                            'none', '--energy-k-db', '-12', '--energy-min-speech-ms', '30',
+                            '--arm-o', '--resid-threshold', '1360', '--guard-packets', '5', '--guard-margin-db', '3',
+                            '--arm-q', '--duck-commit-ms', '100', '--duck-window-ms', '300', '--arm-s',
+                            '--prearm-rms', '3000', '--arm-u', '--out', tmp],
+                           check=True, capture_output=True, timeout=900)
+            res = json.loads(Path(tmp, 'seed-39.json').read_text())
+            self.assertEqual(res['harness'], 'bargein_replay/18')
+            self.assertEqual(res['extra_args'][-4:], ['--arm-s', '--prearm-rms', '3000.0', '--arm-u'])
+            self.assertEqual(sorted(res['arms']), ['A', 'B', 'O', 'Q', 'S', 'U'])
+
+
 if __name__ == '__main__':
     unittest.main()

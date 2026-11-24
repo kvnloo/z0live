@@ -1,18 +1,20 @@
-name: z0live barge-in arm S (arm Q + pre-arm speech rule), raw continuous echo, arms D / O / Q / S (CPU, stdlib)
-# A-bargein-S: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml
+name: z0live barge-in arm U (arm S without pre-arm ducking), raw continuous echo, arms O / Q / S / U (CPU, stdlib)
+# A-bargein-U: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml
 # --ref <branch>` can dispatch it (a new workflow file is not dispatchable until it is on the default branch).
 # It runs voice-adapter/bench/bargein_sweep.py with --echo-model residual --echo-continuous (raw echo, NO
-# --echo-erle-db) --bot-render recorded --rhos none (no arm C) --arm-d --arm-o --arm-q --arm-s (bargein_replay/16,
-# offline virtual-time sim, Python stdlib only, no network, no secrets) on holdout seed 68 and fresh seeds
-# 17000-17039, one seed per shard, with the three conditions run as parallel processes on the runner: S0
+# --echo-erle-db) --bot-render recorded --rhos none (no arm C, no arm D) --arm-o --arm-q --arm-s --arm-u (bargein_replay/18,
+# offline virtual-time sim, Python stdlib only, no network, no secrets) on holdout seed 70 and fresh seeds
+# 20000-20039, one seed per shard, with the three conditions run as parallel processes on the runner: S0
 # unstressed -> out/s0, S1 caller-only (--caller-level-db-range -10,0) -> out/s1, FULL (caller -10,0 and
 # --erl-db-range 0,6) -> out/full.
-# Arms A, B (always run by the sweep), D frozen (k -12 dB, M 30 ms), O = A-bargein-O's arm (NLMS canceller with the
+# Arms A, B (always run by the sweep), O = A-bargein-O's arm (NLMS canceller with the
 # Geigel 0.5 freeze + Geigel-free shadow stall guard 5 pkt / 3 dB / 6 dB, residual RMS >= 1360, 30 ms onset run,
 # armed at monitored ERLE 6 dB; the control), Q = arm O whose 30 ms onset only ducks (pauses) playout; the flush is
 # committed after 100 ms of cumulative residual speech within 300 ms of the duck, else playout resumes
 # (A-bargein-Q; reference), S = arm Q plus a pre-arm rule: while the residual gate is not yet armed, residual RMS
-# >= 5000 (prearm_rms, tuned on dev seeds) also counts as speech for the onset/duck run and commit (candidate).
+# >= 5000 also counts as speech for the onset/duck run and commit (A-bargein-S; reference), U = arm S that never
+# ducks (pauses) playout before the gate is armed: unarmed speech opens a silent window that still counts toward
+# the commit, so the render keeps feeding the canceller (candidate; no new constant).
 on:
   workflow_dispatch:
     inputs:
@@ -31,9 +33,9 @@ jobs:
       fail-fast: false
       max-parallel: 10
       matrix:
-        seed: [68, 17000, 17001, 17002, 17003, 17004, 17005, 17006, 17007, 17008, 17009, 17010, 17011, 17012, 17013,
-               17014, 17015, 17016, 17017, 17018, 17019, 17020, 17021, 17022, 17023, 17024, 17025, 17026, 17027,
-               17028, 17029, 17030, 17031, 17032, 17033, 17034, 17035, 17036, 17037, 17038, 17039]
+        seed: [70, 20000, 20001, 20002, 20003, 20004, 20005, 20006, 20007, 20008, 20009, 20010, 20011, 20012, 20013,
+               20014, 20015, 20016, 20017, 20018, 20019, 20020, 20021, 20022, 20023, 20024, 20025, 20026, 20027,
+               20028, 20029, 20030, 20031, 20032, 20033, 20034, 20035, 20036, 20037, 20038, 20039]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -53,9 +55,9 @@ jobs:
           set -euo pipefail
           cd voice-adapter
           common=(--seeds "$SEED" --jobs 1 --echo-model residual --echo-continuous
-                  --bot-render recorded --rhos none --arm-d --energy-k-db -12 --energy-min-speech-ms 30
+                  --bot-render recorded --rhos none --energy-k-db -12 --energy-min-speech-ms 30
                   --resid-threshold 1360 --arm-o --guard-erle-db 6 --guard-margin-db 3 --guard-packets 5
-                  --arm-q --duck-commit-ms 100 --duck-window-ms 300 --arm-s --prearm-rms 5000)
+                  --arm-q --duck-commit-ms 100 --duck-window-ms 300 --arm-s --prearm-rms 5000 --arm-u)
           t0=$(date +%s)
           python -B bench/bargein_sweep.py "${common[@]}" --out ../out/s0 > ../s0.log &
           p0=$!
