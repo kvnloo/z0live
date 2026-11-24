@@ -16,5 +16,7 @@ class CatalogDisclosuresTests(unittest.TestCase):
                 for term in ("~/.codex/auth.json", "chatgpt.com", "Codex Desktop",
                              "every local Hermes profile", "state.db", "read-only",
                              "desktop/hermes_relay.py", "gateway", "session.steer",
-                             "prompt.submit"):
+                             "prompt.submit", "Passthru", "adb", "calendar", "notifications",
+                             "headless Chromium", "relays", "private-network-access checks", "CSP",
+                             "Z0LIVE_PASSTHRU=off"):
                     self.assertIn(term, body)

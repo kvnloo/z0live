@@ -15,6 +15,16 @@ the Hermes plugin's tools:
   the gateway. It can steer a running turn (`session.steer`) or submit a
   prompt (`prompt.submit`) for the next turn. The database access is read-only,
   but relaying prompts can change what a session does.
+- Passthru (on by default) lets the live call join the user's other meeting
+  (Meet, Zoom web, Teams or any WebRTC page). It reads join links over `adb`
+  from the paired Android phone's calendar, notifications and foreground
+  screen, opens the link in a headless Chromium on this machine, and relays
+  audio both ways between that meeting and the voice call; "share my screen"
+  streams the phone screen into the meeting via `adb screenrecord`. That
+  throwaway browser profile runs with Chromium's private-network-access checks
+  disabled and the page's CSP bypassed, so the injected script can reach the
+  adapter on loopback. Turn it off with `Z0LIVE_PASSTHRU=off` in the adapter's
+  service env. See [PASSTHRU.md](PASSTHRU.md).
 
 ## Host installation
 

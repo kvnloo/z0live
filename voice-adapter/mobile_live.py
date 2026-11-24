@@ -20,6 +20,7 @@ import signal
 from pathlib import Path
 
 from claude_env import child_env
+from codex_env import codex_env
 import selectors
 import shutil
 import sqlite3
@@ -302,12 +303,9 @@ def run_hermes(request: str, profile: str, own_lane: bool = False) -> str:
 def refresh_codex_login():
     """Let the installed Codex auth owner refresh itself; never write its token file."""
     binary = shutil.which("codex") or str(Path.home() / ".local/bin/codex")
-    env = os.environ.copy()
-    for key in ("OPENAI_API_KEY", "CODEX_API_KEY"):
-        env.pop(key, None)
     proc = subprocess.Popen([binary, "app-server", "--listen", "stdio://"],
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                            stderr=subprocess.DEVNULL, env=env)
+                            stderr=subprocess.DEVNULL, env=codex_env())
     selector = selectors.DefaultSelector()
     selector.register(proc.stdout, selectors.EVENT_READ)
     deadline, buffer = time.monotonic() + 18, b""

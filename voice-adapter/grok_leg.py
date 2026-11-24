@@ -43,7 +43,7 @@ TIMED = {"input_audio_buffer.speech_started", "input_audio_buffer.speech_stopped
 
 
 def mint_secret() -> str:
-    """A short-lived client secret from Hermes's xAI login (xai_secret.py under the Hermes runtime)."""
+    """A short-lived client secret minted from the service env's XAI_API_KEY (xai_secret.py)."""
     runtime = json.loads(subprocess.check_output([HERMES_BIN, "--print-runtime-command"], text=True, timeout=20))
     out = subprocess.run([runtime[0], "-I", str(SECRET_SCRIPT)], capture_output=True, text=True, timeout=30)
     if out.returncode != 0:

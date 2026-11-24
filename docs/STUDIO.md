@@ -255,7 +255,7 @@ schedulers. The host creates a private profile-specific API key. The guest uses 
 per call. It never falls back to the primary's chat if its host is unavailable. If you change the host's
 `--port`, match it with `Z0LIVE_GUEST_HOST_PORT` in the voice adapter.
 
-`{"guest": "grok"}` still selects Grok (requires `hermes auth add xai-oauth`; no guest Hermes tools).
+`{"guest": "grok"}` still selects Grok (requires `XAI_API_KEY` in the service env; no guest Hermes tools).
 `{"guest": ""}` disables the guest. `Z0LIVE_VOICES_FILE` selects an alternate file for a probe without touching
 live config. `Z0LIVE_GUEST=off` disables the guest for that adapter process.
 
@@ -298,13 +298,13 @@ cap, allow at least 65 seconds before the follow-up ask. Look for `call.renewed`
 
 ```sh
 bin/z0live engine            # show
-bin/z0live engine grok       # Grok Voice (grok-voice-latest) via Hermes's xAI login
+bin/z0live engine grok       # Grok Voice (grok-voice-latest) via XAI_API_KEY in the service env
 bin/z0live engine gpt-live   # GPT-Live over the ChatGPT subscription (default)
 ```
 
 It sets `lanes.voice.actor` in the lanes config (validated write, hot-reloaded); the next call uses it.
-Grok needs `hermes auth add xai-oauth --type oauth` once. `voice-adapter/xai_secret.py` runs under the
-Hermes runtime and hands the adapter a client secret that expires in minutes; the login never leaves Hermes.
+Grok needs `XAI_API_KEY` in the adapter's service env (`~/.config/z0live/voice.env`). `voice-adapter/xai_secret.py`
+trades it for a client secret that expires in minutes; it does not read Hermes's xAI OAuth login.
 `HERMES_VOICE_ENGINE` in the adapter's environment overrides the config.
 
 ## Verify
