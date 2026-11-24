@@ -1941,5 +1941,151 @@ class PreArmGateTest(unittest.TestCase):
             self.assertEqual(sorted(res['arms']), ['A', 'B', 'D', 'O', 'Q', 'S'])
 
 
+S16_ARGS = (*R15_ARGS, '--arm-s', '--prearm-rms', '2000')
+S16_SHA256 = '264e88cd9910c30198070f96b3450799fe078593cac2a3c9a4949defcd60ed1d'  # computed on the unchanged /16 harness (45cf28e)
+
+
+class PreArmEchoGateTest(unittest.TestCase):
+    """bargein_replay/17: opt-in arm T, arm S unchanged except that the pre-arm rule is echo-aware: while the gate
+    is NOT yet armed, a packet counts as pre-arm speech only when its residual RMS >= --prearm-rms AND its residual
+    energy >= 10^(--prearm-echo-db/10) x the predicted residual echo (max render-window energy over the lag window x
+    the echo return sum(ee)/sum(top) learned on earlier unarmed, render-active, non-speech packets). Once armed, arm
+    Q exactly (as arm S)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nlms = NlmsGateTest('test_harness_id')
+        cls.nlms.setUpClass()
+
+    def t_cfg(self, **overrides):
+        return self.nlms.f_cfg(**({'resid_threshold': 1360.0, 'resid_arm_db': 6.0, 'resid_nlp_db': 3.0,
+                                   'guard_erle_db': 6.0, 'guard_margin_db': 3.0, 'guard_packets': 5,
+                                   'duck_commit_ms': 100, 'duck_window_ms': 300, 'prearm_rms': 2000.0,
+                                   'prearm_echo_db': 0.0} | overrides))
+
+    def test_harness_id(self):
+        self.assertEqual(replay.HARNESS_PREARM_ECHO, 'bargein_replay/17')
+        self.assertEqual(replay.HARNESS_PREARM, 'bargein_replay/16')
+
+    def test_t_is_s_with_echo_term_only(self):
+        import ast
+        import inspect
+        self.assertTrue(issubclass(replay.PreArmEchoGate, replay.PreArmGate))
+        tree = ast.parse(inspect.getsource(replay.PreArmEchoGate))
+        cfg_attrs = {n.attr for n in ast.walk(tree)
+                     if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == 'cfg'}
+        self.assertEqual(cfg_attrs, {'prearm_echo_db'})
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                self.assertNotIn(node.id, ArmCTest.FORBIDDEN, node.id)
+
+    def test_decide_unarmed_needs_level_and_predicted_echo_margin(self):
+        n = 40
+        top = n * 4000.0 ** 2  # render window energy: RMS 4000 (render-active)
+        g = replay.PreArmEchoGate(self.t_cfg(prearm_echo_db=6.0), 2100)
+        # nothing measured yet: echo return assumed 1 (0 dB), so RMS >= 4000 x 10^(6/20) = 7981 is needed
+        self.assertFalse(g.decide(n, n * 7900.0 ** 2, 0.0, 0.0, top))  # >= U, < render + 6 dB: learnt as echo
+        self.assertFalse(g.speech)
+        self.assertEqual((g.echo_resid, g.echo_top), (n * 7900.0 ** 2, top))
+        g = replay.PreArmEchoGate(self.t_cfg(prearm_echo_db=6.0), 2100)
+        self.assertFalse(g.decide(n, n * 100.0 ** 2, 0.0, 0.0, top))  # render on, echo not back yet: not learnt
+        self.assertEqual((g.echo_resid, g.echo_top, g.heard), (0.0, 0.0, False))
+        self.assertFalse(g.decide(n, n * 2000.0 ** 2, 0.0, 0.0, top))  # learnt: echo return (2000/4000)^2
+        self.assertEqual((g.echo_resid, g.echo_top), (n * 2000.0 ** 2, top))
+        # predicted residual echo RMS 2000 at render 4000; +6 dB margin -> RMS >= ~3991
+        self.assertTrue(g.decide(n, n * 4100.0 ** 2, 0.0, 0.0, top))  # >= U and >= predicted + 6 dB
+        self.assertTrue(g.speech)
+        self.assertEqual((g.echo_resid, g.echo_top), (n * 2000.0 ** 2, top))  # speech packets teach nothing
+        self.assertFalse(g.decide(n, n * 3800.0 ** 2, 0.0, 0.0, top))  # >= U, < predicted + 6 dB: learnt as echo
+        self.assertFalse(g.speech)
+        self.assertEqual((g.echo_resid, g.echo_top), (n * 2000.0 ** 2 + n * 3800.0 ** 2, 2 * top))
+        self.assertTrue(g.decide(n, n * 2000.0 ** 2, 0.0, 0.0, 0.0))  # silent render: predicted 0, U alone
+        self.assertFalse(g.decide(n, n * 1999.0 ** 2, 0.0, 0.0, 0.0))  # below U; not render-active: not learnt
+        self.assertEqual(g.echo_top, 2 * top)
+        self.assertEqual(g.prearm_packets, 2)
+        # arm S on the same render-active packets: every packet >= U counts (T counted 1 of these 3)
+        s = replay.PreArmGate(self.t_cfg(), 2100)
+        for ee in (2000.0, 4100.0, 3800.0):
+            s.decide(n, n * ee ** 2, 0.0, 0.0, top)
+        self.assertEqual(s.prearm_packets, 3)
+        g.delay_ms, g.erle_hat_db = 100, 7.0  # placed and monitor >= 6 dB: arms (latched) on the next decide
+        self.assertTrue(g.decide(n, n * 1400.0 ** 2, 0.0, 0.0, top))  # armed: Q's 1360 rule, echo estimate ignored
+        self.assertTrue(g.armed)
+        self.assertFalse(g.decide(n, n * 1300.0 ** 2, 0.0, 0.0, 0.0))
+        self.assertEqual(g.prearm_packets, 2)
+
+    def test_t_equals_s_when_echo_term_never_binds(self):
+        for kw in ({}, {'gain_db': 0.0}, {'caller_from': 300, 'caller_amp': 4000, 'ms': 1800},
+                   {'caller_from': 100, 'caller_amp': 6000, 'ms': 1800, 'gain_db': -3.0}):
+            s = Recorder(replay.PreArmGate(self.t_cfg(), 2100))
+            t = Recorder(replay.PreArmEchoGate(self.t_cfg(prearm_echo_db=-200.0), 2100))
+            self.nlms.synthetic(s, **kw)
+            self.nlms.synthetic(t, **kw)
+            self.assertEqual(t.events, s.events, kw)
+            self.assertEqual((s.gate.log, s.gate.swaps, s.gate.prearm_packets),
+                             (t.gate.log, t.gate.swaps, t.gate.prearm_packets), kw)
+
+    def test_t_skips_loud_echo_prearm_ducks_s_takes(self):
+        fewer = []
+        for gain_db in (0.0, -2.0, -4.0):
+            s = Recorder(replay.PreArmGate(self.t_cfg(), 2100))
+            t = Recorder(replay.PreArmEchoGate(self.t_cfg(prearm_echo_db=6.0), 2100))
+            self.nlms.synthetic(s, gain_db=gain_db, ms=1800)  # echo only, no caller
+            self.nlms.synthetic(t, gain_db=gain_db, ms=1800)
+            self.assertTrue(s.events and s.gate.prearm_packets >= 3, gain_db)  # S ducks on pre-arm echo
+            self.assertLessEqual(t.gate.prearm_packets, s.gate.prearm_packets, gain_db)
+            if t.gate.prearm_packets < 3 and (not t.events or t.events[0][0] > s.events[0][0]):
+                fewer.append(gain_db)  # T took no pre-arm echo duck where S did
+        self.assertEqual(fewer, [0.0, -2.0, -4.0])
+
+    def test_cli_arm_t_leaves_other_arms_unchanged(self):
+        proc, s16 = run_cli(*S16_ARGS)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sha256(s16).hexdigest(), S16_SHA256)  # bargein_replay/16 bytes unchanged
+        proc, data = run_cli(*S16_ARGS, '--arm-t', '--prearm-echo-db', '-200', '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        b, t = json.loads(s16), json.loads(data)
+        self.assertEqual(t['harness'], 'bargein_replay/17')
+        self.assertEqual(sorted(t['arms']), ['A', 'B', 'C', 'D', 'E', 'F', 'F2', 'G', 'G2', 'H', 'O', 'Q', 'R', 'S',
+                                             'T'])
+        for arm in ('A', 'B', 'C', 'D', 'E', 'F', 'F2', 'G', 'G2', 'H', 'O', 'Q', 'R', 'S'):
+            self.assertEqual(canonical(t['arms'][arm]), canonical(b['arms'][arm]), arm)
+        self.assertIs(json.loads(proc.stdout)['aa_identical'], True)
+        self.assertEqual(t['parameters']['prearm_echo_db'], -200.0)
+        self.assertNotIn('prearm_echo_db', b['parameters'])
+        # an echo margin that never binds: arm T is arm S trial by trial
+        self.assertEqual(canonical(t['arms']['T']), canonical(t['arms']['S']))
+        # flag without --arm-t changes nothing; --arm-t needs --arm-s and --prearm-echo-db
+        proc, data = run_cli(*S16_ARGS, '--prearm-echo-db', '0')
+        self.assertEqual(sha256(data).hexdigest(), S16_SHA256)
+        proc, _ = run_cli(*R15_ARGS, '--arm-t', '--prearm-echo-db', '0')
+        self.assertNotEqual(proc.returncode, 0)
+        proc, _ = run_cli(*S16_ARGS, '--arm-t')  # the echo margin has no default
+        self.assertNotEqual(proc.returncode, 0)
+        proc, _ = run_cli(*S16_ARGS, '--arm-t', '--prearm-echo-db', '100')  # out of range
+        self.assertNotEqual(proc.returncode, 0)
+
+    def test_default_and_cont_j_bytes_unchanged(self):
+        proc, data = run_cli('--seed', '39', '--prearm-echo-db', '0')
+        self.assertEqual(sha256(data).hexdigest(), REFERENCE_SHA256)
+        proc, data = run_cli(*CONT_J_ARGS, '--prearm-echo-db', '0')
+        self.assertEqual(sha256(data).hexdigest(), CONT_J_SHA256)
+
+    def test_sweep_passes_arm_t(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([sys.executable, '-B', str(BENCH_DIR / 'bargein_sweep.py'), '--seeds', '39', '--trials', '10',
+                            '--echo-model', 'residual', '--echo-continuous', '--bot-render', 'recorded', '--rhos',
+                            'none', '--energy-k-db', '-12', '--energy-min-speech-ms', '30',
+                            '--arm-o', '--resid-threshold', '1360', '--guard-packets', '5', '--guard-margin-db', '3',
+                            '--arm-q', '--duck-commit-ms', '100', '--duck-window-ms', '300', '--arm-s',
+                            '--prearm-rms', '3000', '--arm-t', '--prearm-echo-db', '-1.5', '--out', tmp],
+                           check=True, capture_output=True, timeout=900)
+            res = json.loads(Path(tmp, 'seed-39.json').read_text())
+            self.assertEqual(res['harness'], 'bargein_replay/17')
+            self.assertEqual(res['extra_args'][-5:], ['--arm-s', '--prearm-rms', '3000.0', '--arm-t',
+                                                      '--prearm-echo-db=-1.5'])
+            self.assertEqual(sorted(res['arms']), ['A', 'B', 'O', 'Q', 'S', 'T'])
+
+
 if __name__ == '__main__':
     unittest.main()
