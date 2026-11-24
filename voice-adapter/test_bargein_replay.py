@@ -1809,5 +1809,137 @@ class SplitDuckGateTest(unittest.TestCase):
             self.assertTrue(res['ab_identical_across_rho_runs'])
 
 
+R15_ARGS = (*Q14_ARGS, '--arm-r', '--split-duck-rms', '480')
+R15_SHA256 = '52e1e78dfee7e521c921632c4ac95b2ff33d863ea50feca78531ea3a02d51404'  # computed on the unchanged /15 harness
+
+
+class PreArmGateTest(unittest.TestCase):
+    """bargein_replay/16: opt-in arm S, arm Q unchanged except that while the gate is NOT yet armed (filter not placed
+    or its ERLE monitor never reached --resid-arm-db), a packet whose residual RMS >= --prearm-rms also counts as
+    speech for Q's onset/duck run and commit count. Once armed, arm Q exactly."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nlms = NlmsGateTest('test_harness_id')
+        cls.nlms.setUpClass()
+
+    def s_cfg(self, **overrides):
+        return self.nlms.f_cfg(**({'resid_threshold': 1360.0, 'resid_arm_db': 6.0, 'resid_nlp_db': 3.0,
+                                   'guard_erle_db': 6.0, 'guard_margin_db': 3.0, 'guard_packets': 5,
+                                   'duck_commit_ms': 100, 'duck_window_ms': 300, 'prearm_rms': 2000.0}
+                                  | overrides))
+
+    def test_harness_id(self):
+        self.assertEqual(replay.HARNESS_PREARM, 'bargein_replay/16')
+        self.assertEqual(replay.HARNESS_SPLIT, 'bargein_replay/15')
+
+    def test_s_is_q_with_prearm_only(self):
+        import ast
+        import inspect
+        self.assertTrue(issubclass(replay.PreArmGate, replay.DuckConfirmGate))
+        tree = ast.parse(inspect.getsource(replay.PreArmGate))
+        cfg_attrs = {n.attr for n in ast.walk(tree)
+                     if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == 'cfg'}
+        self.assertEqual(cfg_attrs, {'prearm_rms'})
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                self.assertNotIn(node.id, ArmCTest.FORBIDDEN, node.id)
+
+    def test_decide_unarmed_uses_prearm_threshold_then_q(self):
+        g = replay.PreArmGate(self.s_cfg(), 2100)
+        n = 40
+        self.assertFalse(g.decide(n, n * 1900.0 ** 2, 0.0, 0.0, 0.0))  # unarmed, below U
+        self.assertFalse(g.speech)
+        self.assertTrue(g.decide(n, n * 2000.0 ** 2, 0.0, 0.0, 0.0))  # unarmed, at U
+        self.assertTrue(g.speech)
+        self.assertFalse(g.armed)
+        self.assertEqual(g.prearm_packets, 1)
+        g.delay_ms, g.erle_hat_db = 100, 7.0  # placed and monitor >= 6 dB: arms (latched) on the next decide
+        self.assertTrue(g.decide(n, n * 1400.0 ** 2, 0.0, 0.0, 0.0))  # armed: Q's 1360 rule
+        self.assertTrue(g.armed)
+        self.assertFalse(g.decide(n, n * 1300.0 ** 2, 0.0, 0.0, 0.0))
+        g.erle_hat_db = 0.0  # latched: stays armed, the pre-arm rule never comes back
+        self.assertFalse(g.decide(n, n * 1300.0 ** 2, 0.0, 0.0, 0.0))
+        self.assertEqual(g.prearm_packets, 1)
+
+    def test_s_equals_q_when_prearm_never_reached(self):
+        for kw in ({}, {'gain_db': -3.0}, {'caller_from': 300, 'caller_amp': 4000, 'ms': 1800},
+                   {'caller_from': 1500, 'caller_amp': 2400, 'ms': 1800},
+                   {'caller_from': 1500, 'caller_amp': 6000, 'ms': 1800}):
+            q = Recorder(replay.DuckConfirmGate(self.s_cfg(), 2100))
+            s = Recorder(replay.PreArmGate(self.s_cfg(prearm_rms=1e9), 2100))
+            self.nlms.synthetic(q, **kw)
+            self.nlms.synthetic(s, **kw)
+            self.assertEqual(s.events, q.events, kw)
+            self.assertEqual((q.gate.log, q.gate.swaps), (s.gate.log, s.gate.swaps), kw)
+
+    def test_s_catches_an_early_caller_q_misses(self):
+        found = []
+        for start in (0, 100, 200, 300, 400):
+            kw = {'caller_from': start, 'caller_amp': 5000, 'ms': 1800}
+            q = Recorder(replay.DuckConfirmGate(self.s_cfg(), 2100))
+            s = Recorder(replay.PreArmGate(self.s_cfg(prearm_rms=3000.0), 2100))
+            self.nlms.synthetic(q, **kw)
+            self.nlms.synthetic(s, **kw)
+            if not any(e == 'commit' for _, e in q.events) and any(e == 'commit' for _, e in s.events):
+                found.append(start)
+        self.assertTrue(found)
+
+    def test_cli_arm_s_leaves_other_arms_unchanged(self):
+        proc, r15 = run_cli(*R15_ARGS)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sha256(r15).hexdigest(), R15_SHA256)  # bargein_replay/15 bytes unchanged
+        proc, data = run_cli(*R15_ARGS, '--arm-s', '--prearm-rms', '1000000', '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        b, s = json.loads(r15), json.loads(data)
+        self.assertEqual(s['harness'], 'bargein_replay/16')
+        self.assertEqual(sorted(s['arms']), ['A', 'B', 'C', 'D', 'E', 'F', 'F2', 'G', 'G2', 'H', 'O', 'Q', 'R', 'S'])
+        for arm in ('A', 'B', 'C', 'D', 'E', 'F', 'F2', 'G', 'G2', 'H', 'O', 'Q', 'R'):
+            self.assertEqual(canonical(s['arms'][arm]), canonical(b['arms'][arm]), arm)
+        self.assertIs(json.loads(proc.stdout)['aa_identical'], True)
+        self.assertEqual(s['parameters']['prearm_rms'], 1000000.0)
+        self.assertFalse(any(k.startswith('prearm_') for k in b['parameters']))
+        # a pre-arm threshold no packet reaches: arm S is arm Q trial by trial
+        sa = dict(s['arms']['S'])
+        self.assertEqual(sa.pop('prearm_speech_packets'), 0)
+        self.assertEqual(canonical(sa), canonical(s['arms']['Q']))
+        # a reachable pre-arm threshold: S ducks no later than Q (pre-arm speech only adds speech packets)
+        proc, data = run_cli(*R15_ARGS, '--arm-s', '--prearm-rms', '2000')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        arms = json.loads(data)['arms']
+        sa, qa = arms['S'], arms['Q']
+        self.assertEqual(sa['latency_definition'], 'time_to_ducked_or_silent')
+        self.assertLessEqual(sa['missed_valid'], qa['missed_valid'])
+        # prearm flag without --arm-s changes nothing; --arm-s needs --arm-q and --prearm-rms >= --resid-threshold
+        proc, data = run_cli(*R15_ARGS, '--prearm-rms', '2000')
+        self.assertEqual(sha256(data).hexdigest(), R15_SHA256)
+        proc, _ = run_cli(*CONT_J_ARGS, *F_ARGS[:2], *G_ARGS, '--arm-o', '--arm-s', '--prearm-rms', '2000')
+        self.assertNotEqual(proc.returncode, 0)
+        proc, _ = run_cli(*Q14_ARGS, '--arm-s', '--prearm-rms', '400')  # below the commit threshold (480)
+        self.assertNotEqual(proc.returncode, 0)
+        proc, _ = run_cli(*Q14_ARGS, '--arm-s')  # the pre-arm threshold has no default
+        self.assertNotEqual(proc.returncode, 0)
+
+    def test_default_and_cont_j_bytes_unchanged(self):
+        proc, data = run_cli('--seed', '39', '--prearm-rms', '2000')
+        self.assertEqual(sha256(data).hexdigest(), REFERENCE_SHA256)
+        proc, data = run_cli(*CONT_J_ARGS, '--prearm-rms', '2000')
+        self.assertEqual(sha256(data).hexdigest(), CONT_J_SHA256)
+
+    def test_sweep_passes_arm_s(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([sys.executable, '-B', str(BENCH_DIR / 'bargein_sweep.py'), '--seeds', '39', '--trials', '10',
+                            '--echo-model', 'residual', '--echo-continuous', '--bot-render', 'recorded', '--rhos',
+                            'none', '--arm-d', '--energy-k-db', '-12', '--energy-min-speech-ms', '30',
+                            '--arm-o', '--resid-threshold', '1360', '--guard-packets', '5', '--guard-margin-db', '3',
+                            '--arm-q', '--duck-commit-ms', '100', '--duck-window-ms', '300', '--arm-s',
+                            '--prearm-rms', '3000', '--out', tmp],
+                           check=True, capture_output=True, timeout=900)
+            res = json.loads(Path(tmp, 'seed-39.json').read_text())
+            self.assertEqual(res['harness'], 'bargein_replay/16')
+            self.assertEqual(res['extra_args'][-3:], ['--arm-s', '--prearm-rms', '3000.0'])
+            self.assertEqual(sorted(res['arms']), ['A', 'B', 'D', 'O', 'Q', 'S'])
+
+
 if __name__ == '__main__':
     unittest.main()
