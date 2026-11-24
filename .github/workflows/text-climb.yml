@@ -19,11 +19,11 @@ concurrency:
   cancel-in-progress: false
 env:
   LLAMA_TAG: b12527            # same llama.cpp build as the Studio bench (slm_bench default)
-  LLAMA_SHA256: fc1895f37f14884bf35776bd98029d9e21096c7f0e1d4398355504178a35f696
+  LLAMA_SHA256: c2758c87b9dd41293653e665fa3b06f5853d69243443d5d06d930683a55e35e4   # llama-b12527-bin-ubuntu-arm64.tar.gz
 jobs:
   bench:
     name: ${{ matrix.cfg.model }} ${{ matrix.cfg.quant }} ${{ matrix.brief }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm   # GitHub arm64 runner: one CPU family per job (x64 pool mixes Intel/AMD, GH4)
     timeout-minutes: 50
     strategy:
       fail-fast: false
@@ -41,11 +41,20 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: llama.cpp ${{ env.LLAMA_TAG }} (prebuilt ubuntu x64 CPU)
+      - name: Runner CPU (lscpu)
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          lscpu
+          cpu=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)
+          echo "CPU_MODEL=${cpu:-unknown} ($(uname -m), $(nproc) cpus)" >> "$GITHUB_ENV"
+          echo "runner CPU: ${cpu:-unknown} ($(uname -m), $(nproc) cpus)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: llama.cpp ${{ env.LLAMA_TAG }} (prebuilt ubuntu arm64 CPU)
+        timeout-minutes: 10
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/llama" && cd "$RUNNER_TEMP/llama"
-          curl -fsSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_TAG}/llama-${LLAMA_TAG}-bin-ubuntu-x64.tar.gz"
+          curl -fsSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_TAG}/llama-${LLAMA_TAG}-bin-ubuntu-arm64.tar.gz"
           echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
           tar xzf llama.tgz
           server=$(find "$RUNNER_TEMP/llama" -type f -name llama-server | head -1)
@@ -83,6 +92,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Bench
+        timeout-minutes: 40
         env:
           MODEL: ${{ matrix.cfg.model }}
           QUANT: ${{ matrix.cfg.quant }}
@@ -94,7 +104,7 @@ jobs:
           python -m pip install --quiet "aiohttp>=3.9,<4"   # tiers.py imports aiohttp.ClientTimeout
           if [ "$BRIEF" = full ]; then SUITES=slm-v1,slm-v2; else SUITES=slm-v2-model1100; fi
           mkdir -p out
-          meta=$(python -c 'import json,os;print(json.dumps({k.lower():os.environ[k] for k in ("MODEL","QUANT","REPO","FILE","BRIEF")}))')
+          meta=$(python -c 'import json,os;print(json.dumps({k.lower():os.environ[k] for k in ("MODEL","QUANT","REPO","FILE","BRIEF","CPU_MODEL")}))')
           Z0_VENDOR=voice-adapter python voice-adapter/bench/ghci/ci_bench.py --gguf "$RUNNER_TEMP/models/$FILE" --name "$MODEL-$QUANT" --suites "$SUITES" \
             --meta "$meta" --out "out/$MODEL-$QUANT-$BRIEF.json"
       - uses: actions/upload-artifact@v4
