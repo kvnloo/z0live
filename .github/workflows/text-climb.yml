@@ -1,13 +1,23 @@
-name: z0live barge-in A-bargein-Z2, per-trial S1 recompute of A-bargein-Z (arms Q,U, --clip-set multi, seeds 34000/34002 + 34004-34095; CPU, stdlib)
-# A-bargein-Z2: diagnostic only. No harness change (bargein_replay/22 as in A-bargein-Z), no new arm. Recomputes the
-# S1 (quiet caller, --caller-level-db-range -10,0) condition with the FULL per-trial output for each seed, so the
-# misses can be broken down by caller speaker, clip, gain, ERL and double-talk. The simulator is deterministic: each
-# file's sha256 must equal the full_output_sha256 recorded by the A-bargein-Z sweep. This branch reuses the
-# registered text-climb.yml file name so `gh workflow run text-climb.yml --ref <branch>` can dispatch it.
-# 24 shards; shard k runs the seeds at positions k, k+24, k+48, k+72 of the seed list (<= 4 seeds, parallel processes).
+name: z0live barge-in A-bargein-AA, arm Z (U + floor-relative onset level rule) vs arm U, --clip-set multi, fresh seeds 35000-35095 (S1, S0, FULL; CPU, stdlib)
+# A-bargein-AA: one change on the onset/level side (bargein_replay/23, offline virtual-time sim, Python stdlib only,
+# no network, no secrets). Arm Z = arm U plus one rule: once the residual gate is armed it tracks a running residual
+# floor (EWMA 0.1 in dB of the armed packets it did not call speech); an armed packet U does not call speech is
+# speech when its residual RMS >= --floor-rms 1100 AND it is >= --floor-k-db 12 above that floor. Default bytes
+# unchanged. This branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml --ref
+# <branch>` can dispatch it.
+# input set=main: seeds 35000-35095, two seeds per shard, 48 shards, max-parallel 6.
+# input set=aa: an independent A/A dispatch of seeds 35000-35031 (16 shards, max-parallel 2); 6 + 2 <= 8 jobs.
+# Three conditions per shard as parallel processes: S1 quiet caller (--caller-level-db-range -10,0) -> out/s1,
+# S0 unstressed -> out/s0, FULL (S1 + --erl-db-range 0,6) -> out/full.
 on:
   workflow_dispatch:
     inputs:
+      set:
+        description: "main (35000-35095) or aa (A/A re-run of 35000-35031)"
+        required: true
+        default: main
+        type: choice
+        options: [main, aa]
       note:
         description: "free-text label for this run (shown in the summary)"
         required: false
@@ -15,15 +25,15 @@ on:
 permissions:
   contents: read
 jobs:
-  pertrial:
-    name: shard ${{ matrix.shard }}
+  sweep:
+    name: seeds ${{ matrix.first }}+1
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 45
     strategy:
       fail-fast: false
-      max-parallel: 24
+      max-parallel: ${{ inputs.set == 'aa' && 2 || 6 }}
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+        first: ${{ fromJSON(inputs.set == 'aa' && '[35000,35002,35004,35006,35008,35010,35012,35014,35016,35018,35020,35022,35024,35026,35028,35030]' || '[35000,35002,35004,35006,35008,35010,35012,35014,35016,35018,35020,35022,35024,35026,35028,35030,35032,35034,35036,35038,35040,35042,35044,35046,35048,35050,35052,35054,35056,35058,35060,35062,35064,35066,35068,35070,35072,35074,35076,35078,35080,35082,35084,35086,35088,35090,35092,35094]') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -31,59 +41,39 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Runner CPU
-        run: |
-          cpu=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)
-          echo "runner CPU: ${cpu:-unknown} ($(uname -m), $(nproc) cpus), $(python --version)" | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: Per-trial S1
-        timeout-minutes: 36
+      - name: Sweep
+        timeout-minutes: 40
         env:
-          SHARD: ${{ matrix.shard }}
+          FIRST: ${{ matrix.first }}
         run: |
           set -euo pipefail
+          echo "runner: $(nproc) cpus, $(python --version)" | tee -a "$GITHUB_STEP_SUMMARY"
           cd voice-adapter
-          all=(34000 34002 $(seq 34004 34095))
-          base=(--echo-model residual --echo-continuous --bot-render recorded --clip-set multi --energy-k-db=-12.0
-                --energy-min-speech-ms 30 --nlms-mu 0.5 --nlms-delta 1000.0 --nlms-pre-ms 15 --nlms-post-ms 65
-                --nlms-geigel 0.5 --nlms-hang-ms 30 --nlms-min-updates 10 --nlms-margin-db=6.0 --nlms-converged-db=6.0
-                --resid-threshold 1360.0 --resid-arm-db=6.0 --resid-nlp-db=3.0 --arm-o --guard-erle-db=6.0
-                --guard-margin-db=3.0 --guard-packets 5 --arm-q --duck-commit-ms 100 --duck-window-ms 300 --arm-s
-                --prearm-rms 5000.0 --arm-u --only-arms Q,U)
-          mkdir -p ../out/s1
+          seeds="$FIRST-$((FIRST + 1))"
+          common=(--seeds "$seeds" --jobs 2 --echo-model residual --echo-continuous --bot-render recorded
+                  --clip-set multi --rhos none --energy-k-db -12 --energy-min-speech-ms 30 --resid-threshold 1360
+                  --arm-o --guard-erle-db 6 --guard-margin-db 3 --guard-packets 5 --arm-q --duck-commit-ms 100
+                  --duck-window-ms 300 --arm-s --prearm-rms 5000 --arm-u --arm-z --floor-rms 1100 --floor-k-db 12
+                  --only-arms U,Z)
           t0=$(date +%s)
-          pids=()
-          for ((i = SHARD; i < ${#all[@]}; i += 24)); do
-            s=${all[$i]}
-            python -B bench/bargein_replay.py --seed "$s" --trials 200 "${base[@]}" --caller-level-db-range=-10,0 \
-              --output "../out/s1/seed-$s.json" > "../out/s1/seed-$s.log" 2>&1 &
-            pids+=($!)
-          done
+          python -B bench/bargein_sweep.py "${common[@]}" --out ../out/s1 --caller-level-db-range=-10,0 > ../s1.log &
+          p1=$!
+          python -B bench/bargein_sweep.py "${common[@]}" --out ../out/s0 > ../s0.log &
+          p0=$!
+          python -B bench/bargein_sweep.py "${common[@]}" --out ../out/full \
+            --caller-level-db-range=-10,0 --erl-db-range=0,6 > ../full.log &
+          p2=$!
           rc=0
-          for p in "${pids[@]}"; do wait "$p" || rc=1; done
-          (cd ../out/s1 && sha256sum seed-*.json) | tee -a "$GITHUB_STEP_SUMMARY"
-          echo "wall $(( $(date +%s) - t0 )) s" | tee -a "$GITHUB_STEP_SUMMARY"
+          wait $p1 || rc=1
+          wait $p0 || rc=1
+          wait $p2 || rc=1
+          for c in s1 s0 full; do sed "s/^/$c /" "../$c.log" | tee -a "$GITHUB_STEP_SUMMARY"; done
+          echo "sweep wall $(( $(date +%s) - t0 )) s" | tee -a "$GITHUB_STEP_SUMMARY"
           exit $rc
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: pertrial-${{ matrix.shard }}
+          name: sweep-${{ matrix.first }}
           path: out/
           if-no-files-found: warn
           retention-days: 30
-  summary:
-    needs: pertrial
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: pertrial-*
-          path: results
-          merge-multiple: true
-      - name: Hashes
-        env:
-          NOTE: ${{ inputs.note }}
-        run: |
-          set -euo pipefail
-          { [ -n "${NOTE}" ] && echo "note: ${NOTE}"; echo '```'; (cd results && ls s1/seed-*.json | wc -l && sha256sum s1/seed-*.json); echo '```'; } >> "$GITHUB_STEP_SUMMARY"

@@ -2735,5 +2735,184 @@ class MultiSpeakerClipSetTest(unittest.TestCase):
             self.assertEqual(sorted(res['arms']), ['A', 'B', 'Q', 'U'])
 
 
+QU22_SHA256 = '199306aced73147891fd9df92e2f62c164f687169c762c062cc4d0092d83e5c9'  # seed 34900 QU_MULTI_ARGS, unchanged /22
+Z23_FLAGS = ('--arm-z', '--floor-rms', '900', '--floor-k-db=9')
+
+
+class FloorRelativeGateTest(unittest.TestCase):
+    """bargein_replay/23: opt-in arm Z, arm U plus ONE onset/level rule. Once the residual gate is armed it keeps a
+    running residual floor (EWMA 0.1, dB domain, of the residual level of armed packets it did NOT call speech).
+    An armed packet that U does not call speech is speech when its residual RMS is >= floor_rms AND its level is
+    >= floor_k_db above that floor. Same speech flag feeds the onset run and the commit count (no other change).
+    floor_rms == resid_threshold: arm U exactly."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nlms = NlmsGateTest('test_harness_id')
+        cls.nlms.setUpClass()
+
+    def z_cfg(self, **overrides):
+        return self.nlms.f_cfg(**({'resid_threshold': 1360.0, 'resid_arm_db': 6.0, 'resid_nlp_db': 3.0,
+                                   'guard_erle_db': 6.0, 'guard_margin_db': 3.0, 'guard_packets': 5,
+                                   'duck_commit_ms': 100, 'duck_window_ms': 300, 'prearm_rms': 5000.0,
+                                   'floor_rms': 700.0, 'floor_k_db': 9.0} | overrides))
+
+    def test_harness_id(self):
+        self.assertEqual(replay.HARNESS_FLOOR, 'bargein_replay/23')
+        self.assertEqual(replay.HARNESS_SPEAKERS, 'bargein_replay/22')
+
+    def test_z_is_u_subclass_reading_two_new_constants(self):
+        import ast
+        import inspect
+        self.assertTrue(issubclass(replay.FloorRelativeGate, replay.NoDuckPreArmGate))
+        tree = ast.parse(inspect.getsource(replay.FloorRelativeGate))
+        cfg_attrs = {n.attr for n in ast.walk(tree)
+                     if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == 'cfg'}
+        self.assertEqual(cfg_attrs, {'floor_rms', 'floor_k_db'})
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                self.assertNotIn(node.id, ArmCTest.FORBIDDEN, node.id)
+            elif isinstance(node, ast.Attribute):
+                self.assertNotIn(node.attr, {'caller_gain_db', 'erl_db', 'gain', 'taps', 'mic'}, node.attr)
+        names = {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+        self.assertNotIn('step', names)  # duck/commit/window logic is U's
+
+    def test_decide_rule(self):
+        n = 40
+        g = replay.FloorRelativeGate(self.z_cfg(), 2100)
+        g.armed, g.delay_ms, g.erle_hat_db = True, 20, 10.0
+        # first armed non-speech packet seeds the floor (RMS 100 -> 40 dB)
+        self.assertFalse(g.decide(n, n * 100.0 ** 2, 1.0, 0.0, 0.0))
+        self.assertAlmostEqual(g.floor_db, 40.0)
+        # 800 RMS: >= floor_rms 700 and 18 dB over the floor -> speech by the floor rule; floor not updated
+        g.speech = False
+        self.assertTrue(g.decide(n, n * 800.0 ** 2, 1.0, 0.0, 0.0))
+        self.assertTrue(g.speech)
+        self.assertEqual(g.floor_packets, 1)
+        self.assertAlmostEqual(g.floor_db, 40.0)
+        # 650 RMS: under floor_rms -> not speech; floor moves 10 % toward 56.26 dB
+        self.assertFalse(g.decide(n, n * 650.0 ** 2, 1.0, 0.0, 0.0))
+        self.assertAlmostEqual(g.floor_db, 40.0 + 0.1 * (20 * replay.log10(650.0) - 40.0))
+        # U speech (>= resid_threshold) stays speech and is not counted as a floor packet
+        self.assertTrue(g.decide(n, n * 1400.0 ** 2, 1.0, 0.0, 0.0))
+        self.assertEqual(g.floor_packets, 1)
+        # high floor: 800 RMS within floor_k_db of a 61 dB floor -> not speech
+        g.floor_db = 61.0
+        self.assertFalse(g.decide(n, n * 800.0 ** 2, 1.0, 0.0, 0.0))
+        # unarmed: U's rule only, floor untouched
+        h = replay.FloorRelativeGate(self.z_cfg(), 2100)
+        self.assertFalse(h.decide(n, n * 1000.0 ** 2, 1.0, 0.0, 0.0))
+        self.assertIsNone(h.floor_db)
+        self.assertEqual(h.floor_packets, 0)
+
+    def test_z_equals_u_when_floor_rms_is_resid_threshold(self):
+        for kw in ({}, {'caller_from': 1500, 'caller_amp': 1000, 'ms': 1800},
+                   {'caller_from': 1200, 'caller_amp': 3000, 'ms': 2000}):
+            u = Recorder(replay.NoDuckPreArmGate(self.z_cfg(), 2100))
+            z = Recorder(replay.FloorRelativeGate(self.z_cfg(floor_rms=1360.0), 2100))
+            self.nlms.synthetic(u, **kw)
+            self.nlms.synthetic(z, **kw)
+            self.assertEqual(z.events, u.events, kw)
+            self.assertEqual(z.gate.w, u.gate.w)
+            self.assertEqual(z.gate.floor_packets, 0)
+
+    def test_z_commits_a_quiet_caller_u_never_hears_at_a_duck_cost(self):
+        cfg_z = self.z_cfg(floor_rms=900.0, floor_k_db=6.0)
+        u = Recorder(replay.NoDuckPreArmGate(self.z_cfg(), 2100))
+        z = Recorder(replay.FloorRelativeGate(cfg_z, 2100))
+        self.nlms.synthetic(u, caller_from=1500, caller_amp=1000, ms=1800)
+        self.nlms.synthetic(z, caller_from=1500, caller_amp=1000, ms=1800)
+        self.assertEqual(u.events, [])  # residual RMS < resid_threshold: U never starts an onset
+        self.assertIn('commit', [e for _, e in z.events])
+        self.assertGreaterEqual([t for t, e in z.events if e == 'commit'][0], 1500 + 100)
+        self.assertGreater(z.gate.floor_packets, 0)
+        # no caller: Z never commits, but the lower onset level costs an echo-only duck that lapses (the price the
+        # duck-FA guard measures)
+        z0 = Recorder(replay.FloorRelativeGate(cfg_z, 2100))
+        self.nlms.synthetic(z0)
+        self.assertNotIn('commit', [e for _, e in z0.events])
+        self.assertEqual([e for _, e in z0.events], ['duck', 'unduck'])
+        # the frozen sweep setting (1100 RMS, 12 dB) adds no event on this synthetic, with or without the caller
+        for kw in ({}, {'caller_from': 1500, 'caller_amp': 1000, 'ms': 1800}):
+            zf = Recorder(replay.FloorRelativeGate(self.z_cfg(floor_rms=1100.0, floor_k_db=12.0), 2100))
+            self.nlms.synthetic(zf, **kw)
+            self.assertEqual(zf.events, [], kw)
+
+    def test_z_off_keeps_old_bytes(self):
+        proc, data = run_cli('--seed', '39')
+        self.assertEqual(sha256(data).hexdigest(), REFERENCE_SHA256)
+        proc, data = run_cli(*U18_ARGS)
+        self.assertEqual(sha256(data).hexdigest(), U18_SHA256)
+        proc, data = run_cli(*Y21_ARGS)
+        self.assertEqual(sha256(data).hexdigest(), Y21_SHA256)
+        proc, data = run_cli('--seed', '34900', *QU_MULTI_ARGS)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sha256(data).hexdigest(), QU22_SHA256)  # bargein_replay/22 multi bytes unchanged
+
+    def test_cli_arm_z_leaves_other_arms_unchanged(self):
+        base_args = (*QU_MULTI_ARGS[:-3], '--caller-level-db-range=-10,0')  # drop --only-arms Q,U
+        proc, base = run_cli('--seed', '34900', *base_args)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        proc, data = run_cli('--seed', '34900', *base_args, *Z23_FLAGS, '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIs(json.loads(proc.stdout)['aa_identical'], True)
+        b, z = json.loads(base), json.loads(data)
+        self.assertEqual(z['harness'], 'bargein_replay/23')
+        self.assertEqual(sorted(z['arms']), ['A', 'B', 'O', 'Q', 'S', 'U', 'Z'])
+        for arm in ('A', 'B', 'O', 'Q', 'S', 'U'):
+            self.assertEqual(canonical(z['arms'][arm]), canonical(b['arms'][arm]), arm)
+        params = dict(z['parameters'])
+        self.assertEqual(params.pop('floor_rms'), 900.0)
+        self.assertEqual(params.pop('floor_k_db'), 9.0)
+        self.assertEqual(params, b['parameters'])
+        za = z['arms']['Z']
+        self.assertEqual(za['latency_definition'], 'time_to_ducked_or_silent')
+        self.assertIn('floor_speech_packets', za)
+        self.assertIn('prearm_silent_windows', za)
+        # floor_rms == resid_threshold: Z is U trial for trial
+        proc, data = run_cli('--seed', '34900', *base_args, '--arm-z', '--floor-rms', '1360', '--floor-k-db=9',
+                             '--only-arms', 'U,Z')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        arms = json.loads(data)['arms']
+        za = dict(arms['Z'])
+        self.assertEqual(za.pop('floor_speech_packets'), 0)
+        self.assertEqual(canonical(za), canonical(arms['U']))
+        for bad in ((*base_args, '--arm-z'), (*base_args, '--arm-z', '--floor-rms', '1400', '--floor-k-db=9'),
+                    (*base_args, '--arm-z', '--floor-rms', '0', '--floor-k-db=9'),
+                    (*base_args, '--arm-z', '--floor-rms', '900', '--floor-k-db=0'),
+                    (*base_args, '--arm-z', '--floor-rms', '900'),
+                    ('--trials', '10', '--echo-model', 'residual', '--arm-z', '--floor-rms', '900',
+                     '--floor-k-db=9')):  # --arm-z needs --arm-u
+            proc, _ = run_cli('--seed', '39', *bad)
+            self.assertNotEqual(proc.returncode, 0, bad)
+
+    def test_only_arms_u_z(self):
+        base_args = (*QU_MULTI_ARGS[:-3], '--caller-level-db-range=-10,0')
+        proc, full = run_cli('--seed', '34900', *base_args, *Z23_FLAGS)
+        proc, part = run_cli('--seed', '34900', *base_args, *Z23_FLAGS, '--only-arms', 'U,Z')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        f, p = json.loads(full), json.loads(part)
+        self.assertEqual(sorted(p['arms']), ['A', 'B', 'U', 'Z'])
+        for arm in ('A', 'B', 'U', 'Z'):
+            self.assertEqual(canonical(p['arms'][arm]), canonical(f['arms'][arm]), arm)
+        self.assertEqual(p['parameters'], f['parameters'])
+
+    def test_sweep_passes_arm_z(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([sys.executable, '-B', str(BENCH_DIR / 'bargein_sweep.py'), '--seeds', '39', '--trials', '10',
+                            '--echo-model', 'residual', '--echo-continuous', '--bot-render', 'recorded',
+                            '--clip-set', 'multi', '--rhos', 'none', '--energy-k-db', '-12',
+                            '--energy-min-speech-ms', '30', '--arm-o', '--resid-threshold', '1360',
+                            '--guard-packets', '5', '--guard-margin-db', '3', '--arm-q', '--duck-commit-ms', '100',
+                            '--duck-window-ms', '300', '--arm-s', '--prearm-rms', '5000', '--arm-u', '--arm-z',
+                            '--floor-rms', '900', '--floor-k-db', '9', '--only-arms', 'U,Z', '--out', tmp],
+                           check=True, capture_output=True, timeout=900)
+            res = json.loads(Path(tmp, 'seed-39.json').read_text())
+            self.assertEqual(res['harness'], 'bargein_replay/23')
+            self.assertEqual(res['extra_args'][-7:], ['--arm-u', '--arm-z', '--floor-rms', '900.0',
+                                                      '--floor-k-db=9.0', '--only-arms', 'U,Z'])
+            self.assertEqual(sorted(res['arms']), ['A', 'B', 'U', 'Z'])
+
+
 if __name__ == '__main__':
     unittest.main()

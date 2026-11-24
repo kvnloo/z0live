@@ -66,7 +66,7 @@ def run_one(seed, rho, m, trials, extra):
 def sweep_seed(seed, m, trials, extra, rhos=RHOS):
     runs = {rho: run_one(seed, rho, m, trials, extra) for rho in rhos}
     base = runs[rhos[0]][1]
-    shared = ("A", "B") + tuple(a for a in ("D", "E", "E2", "F", "F2", "G", "G2", "H", "O", "Q", "R", "S", "U", "W", "X", "Y")
+    shared = ("A", "B") + tuple(a for a in ("D", "E", "E2", "F", "F2", "G", "G2", "H", "O", "Q", "R", "S", "U", "W", "X", "Y", "Z")
                                 if a in base["arms"])  # D, E (opt-in) do not depend on rho
     ab_same = all(json.dumps(r[1]["arms"][a], sort_keys=True) == json.dumps(base["arms"][a], sort_keys=True)
                   for r in runs.values() for a in shared)
@@ -140,6 +140,9 @@ def main():
     p.add_argument("--dtfreeze-db", type=float, default=None)
     p.add_argument("--arm-y", action="store_true", help="also run arm Y (X + capture-over-predicted-echo cue, bargein_replay/21)")
     p.add_argument("--twocue-db", type=float, default=None)
+    p.add_argument("--arm-z", action="store_true", help="also run arm Z (U + floor-relative onset level rule, bargein_replay/23)")
+    p.add_argument("--floor-rms", type=float, default=None)
+    p.add_argument("--floor-k-db", type=float, default=None)
     p.add_argument("--only-arms", default=None, help="harness run filter pass-through, e.g. U,W (A, B always run)")
     p.add_argument("--bot-render", choices=("periodic", "recorded"), default="periodic")
     p.add_argument("--clip-set", choices=("single", "multi"), default="single",
@@ -212,6 +215,8 @@ def main():
         extra += ["--arm-x", "--dtfreeze-db", str(a.dtfreeze_db)]
     if a.arm_y:  # bargein_replay/21 (A-bargein-Y)
         extra += ["--arm-y", "--twocue-db", str(a.twocue_db)]
+    if a.arm_z:  # bargein_replay/23 (A-bargein-AA)
+        extra += ["--arm-z", "--floor-rms", str(a.floor_rms), "--floor-k-db=" + str(a.floor_k_db)]
     if a.only_arms:
         extra += ["--only-arms", a.only_arms]
     if a.caller_level_db_range:
