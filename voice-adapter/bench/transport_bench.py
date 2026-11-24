@@ -20,6 +20,20 @@ Usage (from voice-adapter/):
   --hops counts asyncio callbacks per frame (adds wrapper overhead; do not mix with the timing runs).
 Stdout: a stage table (p50/p99 us) and CPU %; --out writes the full JSON. Frozen: change the harness only with a
 new version string, never in the same commit as an adapter change.
+
+transport_bench/2 (track F4a) adds, without changing any /1 key:
+  --condition  a deterministic seeded network shaper on the phone's outgoing RTP (world side, after SRTP protect, so
+               it acts like the network between phone and adapter): clean | jitter5 | jitter25 | loss1_jitter5 |
+               freeze300_loss1. The schedule is a pure function of (--seed, condition, packet index), so every arm
+               sees the same delays/losses. The first 50 packets (1 s) are never shaped. RTCP is not shaped.
+  --prefetch N sets the adapter's phone-audio aiortc JitterBuffer prefetch before receive starts (stock 4).
+  --adaptive   sets Z0LIVE_ADAPTIVE_UPLINK_JITTER=1 (R10 clocked buffer; requires stock prefetch 4).
+  result["shaped"]: added latency per frame = provider-ws written (adapter) - unshaped phone send time (world),
+               missing frames (= concealment demand: nothing in this path synthesises PLC), longest delivery gap at the
+               provider ws, frames delivered/expected.
+transport_bench/3: measurement identical to /2. --prefetch unset now means the adapter's own default
+               (Z0LIVE_UPLINK_PREFETCH, 2 since F4a); --prefetch N pins both that knob and the receiver, so the
+               stock-aiortc arm is `--prefetch 4`. config.jitter_buffer records the buffer type/prefetch actually used.
 """
 from __future__ import annotations
 
@@ -27,6 +41,7 @@ import argparse
 import asyncio
 import json
 import os
+import random
 import resource
 import shutil
 import subprocess
@@ -37,7 +52,7 @@ import wave
 from collections import defaultdict
 from pathlib import Path
 
-VERSION = "transport_bench/1"
+VERSION = "transport_bench/3"
 NS = time.perf_counter_ns
 HERE = Path(__file__).resolve().parent
 ADAPTER_DIR = HERE.parent
@@ -46,6 +61,39 @@ UP_TEXT = ("So I was thinking about the trip next week. We could leave early on 
            "and still get there before dark. What do you think about that plan? Also remind me to call my sister.")
 REPLY_TEXT = ("Sure. Leaving early on Friday works, and the lake is a good halfway point. I'll remind you to call your "
               "sister tonight. Do you want me to check the weather for the drive?")
+
+
+# ----------------------------------------------------------------------------------------------- shaper
+# scale = R10 SIM.md jitter model: delay = scale * (0.5 N(0,1) + 0.35 Lomax(2.5)), plus a constant 1.5*scale floor so
+# the max(0, .) clip is rare (the constant is a pure offset, identical for every arm).
+CONDITIONS = {
+    "clean": {"scale": 0, "loss": 0.0, "freeze": False},
+    "jitter5": {"scale": 5, "loss": 0.0, "freeze": False},
+    "jitter25": {"scale": 25, "loss": 0.0, "freeze": False},
+    "loss1_jitter5": {"scale": 5, "loss": 0.01, "freeze": False},
+    "freeze300_loss1": {"scale": 0, "loss": 0.01, "freeze": True},
+}
+SHAPE_HEAD = 50          # first 1 s unshaped: stable origin for aiortc's jitter buffer and timestamp mapper
+FREEZE_AT_MS = 15000     # media time of the freeze start (inside the scored window for --warmup 3 --seconds 30)
+FREEZE_MS = 300
+
+
+def shape_schedule(condition: str, seed: int, n: int) -> list:
+    """Per packet index: extra one-way delay in ms, or None = lost. Deterministic in (seed, condition, index)."""
+    c = CONDITIONS[condition]
+    rng = random.Random(f"{seed}:{condition}")
+    scale, out = c["scale"], []
+    for i in range(n):
+        g, lomax, u = rng.gauss(0.0, 1.0), rng.paretovariate(2.5) - 1.0, rng.random()  # common draws
+        d = max(0.0, scale * (1.5 + 0.5 * g + 0.35 * lomax)) if scale else 0.0
+        a = 20.0 * i + d
+        if c["freeze"] and FREEZE_AT_MS <= a < FREEZE_AT_MS + FREEZE_MS:
+            a = FREEZE_AT_MS + FREEZE_MS
+        if i < SHAPE_HEAD:
+            out.append(0.0)
+        else:
+            out.append(None if u < c["loss"] else a - 20.0 * i)
+    return out
 
 
 # ----------------------------------------------------------------------------------------------- fixtures
@@ -98,7 +146,33 @@ async def world(args):
     fix = Path(args.fixtures)
     up = fixture(fix / "up48.wav", UP_TEXT, 48000)
     reply = fixture(fix / "reply24.wav", REPLY_TEXT, 24000)
-    rec = {"capture": [], "enc": [], "rx": [], "appends": [], "deltas": [], "errors": 0}
+    rec = {"capture": [], "enc": [], "rx": [], "appends": [], "deltas": [], "errors": 0, "shape": []}
+
+    # Network shaper on the phone's outgoing RTP (RTCP untouched). Delayed packets are SRTP-protected at their
+    # nominal send time and handed to ICE later, i.e. the delay sits on the wire, not in the phone.
+    from aiortc import rtcdtlstransport
+    from aiortc.rtp import is_rtcp
+    sched = shape_schedule(args.condition, args.seed, 50 * 900)
+    first_seq = []
+    orig_send_rtp = rtcdtlstransport.RTCDtlsTransport._send_rtp
+
+    async def send_rtp(self, data):
+        if is_rtcp(data):
+            return await orig_send_rtp(self, data)
+        seq, ts, t = int.from_bytes(data[2:4], "big"), int.from_bytes(data[4:8], "big"), NS()
+        if not first_seq:
+            first_seq.append(seq)
+        idx = (seq - first_seq[0]) % 65536
+        d = sched[idx] if idx < len(sched) else 0.0
+        rec["shape"].append((ts, seq, t, -1.0 if d is None else d))
+        if d is None:
+            return
+        if d <= 0:
+            return await orig_send_rtp(self, data)
+        protected = self._tx_srtp.protect(data)
+        loop = asyncio.get_running_loop()
+        loop.call_at(loop.time() + d / 1000, lambda p=protected, s=self: asyncio.ensure_future(s.transport._send(p)))
+    rtcdtlstransport.RTCDtlsTransport._send_rtp = send_rtp
 
     orig_encode = aopus.OpusEncoder.encode
 
@@ -499,6 +573,48 @@ def install(probe: Probe):
         aev.Handle._run = run
 
 
+def shaped(p: Probe, w: dict, t_lo: int, t_hi: int, grace_ns: int = 1_000_000_000) -> dict:
+    """Per uplink frame the phone sent in [t_lo, t_hi - grace] (unshaped send time): delivered to the provider ws
+    (and when), or missing. Missing = lost on the network or dropped by the receiver (late/overflow)."""
+    r = p.r
+    if not r["rx"] or not w.get("shape"):
+        return {}
+    first_raw = r["rx"][0][0]
+    written = {}
+    for _t0, t1, _n, frames in r["append"]:
+        for pts, _ in frames:
+            written.setdefault(pts, t1)
+    added, missing_idx, lost_net = [], [], 0
+    sent = [row for row in w["shape"] if t_lo <= row[2] <= t_hi - grace_ns]
+    for k, (ts, _seq, t_nom, d) in enumerate(sent):
+        pts = (ts - first_raw) % (1 << 32)
+        if pts in written:
+            added.append(written[pts] - t_nom)
+        else:
+            missing_idx.append(k)
+            lost_net += d < 0
+    run = best = 0
+    prev = None
+    for k in missing_idx:
+        run = run + 1 if prev is not None and k == prev + 1 else 1
+        best, prev = max(best, run), k
+
+    def gap(ts):
+        ts = sorted(ts)
+        return round(max((b - a for a, b in zip(ts, ts[1:])), default=0) / 1e6, 2)
+    ms = [v / 1e6 for v in added]
+
+    def q(x):
+        return round(pct(ms, x), 2) if ms else None
+    return {"frames_expected": len(sent), "frames_delivered": len(added), "missing_frames": len(missing_idx),
+            "missing_lost_on_network": lost_net, "missing_dropped_by_receiver": len(missing_idx) - lost_net,
+            "longest_missing_run_ms": 20 * best,
+            "longest_provider_gap_ms": gap([t for t, _n in w["appends"] if t_lo <= t <= t_hi]),
+            "longest_ws_write_gap_ms": gap([t1 for _t0, t1, _n, _f in r["append"] if t_lo <= t1 <= t_hi]),
+            "added_ms": {"p50": q(.5), "p95": q(.95), "p99": q(.99),
+                         "mean": round(sum(ms) / len(ms), 2) if ms else None, "max": round(max(ms), 2) if ms else None}}
+
+
 def analyse(p: Probe, w: dict, t_lo: int, t_hi: int, wall_s: float, cpu_s: float, mono_off: int):
     r = p.r
     inwin = lambda t: t_lo <= t <= t_hi  # noqa: E731
@@ -644,9 +760,26 @@ async def adapter(args):
                        "HERMES_MOBILE_VOICE_TRACE_DIR": str(Path(args.workdir) / "traces")})
     os.environ.setdefault("Z0LIVE_DESKTOP", str(ADAPTER_DIR.parent / "desktop"))
     sys.path.insert(0, str(ADAPTER_DIR))
+    if args.adaptive:
+        assert args.prefetch in (None, 4), "--adaptive replaces the stock prefetch-4 buffer; do not combine with --prefetch"
+        args.prefetch = 4
+        os.environ["Z0LIVE_ADAPTIVE_UPLINK_JITTER"] = "1"
+    else:
+        os.environ.pop("Z0LIVE_ADAPTIVE_UPLINK_JITTER", None)
     import mobile_live as live
     import grok_leg
     from aiohttp import ClientSession
+    from aiortc import rtcrtpreceiver
+
+    if args.prefetch is not None:  # pin both the adapter knob and the receiver's JitterBuffer before receive starts
+        os.environ["Z0LIVE_UPLINK_PREFETCH"] = str(args.prefetch)
+        orig_init = rtcrtpreceiver.RTCRtpReceiver.__init__
+
+        def rx_init(self, kind, transport):
+            orig_init(self, kind, transport)
+            if kind == "audio":
+                self._RTCRtpReceiver__jitter_buffer._prefetch = args.prefetch
+        rtcrtpreceiver.RTCRtpReceiver.__init__ = rx_init
 
     if args.qos != "default":  # diagnostic knob (F3 lead): threads created later inherit the main thread's QoS
         import ctypes
@@ -660,7 +793,7 @@ async def adapter(args):
     child = await asyncio.create_subprocess_exec(
         sys.executable, "-I", str(Path(__file__).resolve()), "--role", "world", "--fixtures", args.fixtures,
         "--world-out", str(world_out), "--reply-chunk-ms", str(args.reply_chunk_ms),
-        "--reply-delay", str(args.reply_delay),
+        "--reply-delay", str(args.reply_delay), "--condition", args.condition, "--seed", str(args.seed),
         stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE)
     hello = json.loads(await asyncio.wait_for(child.stdout.readline(), 60))
     grok_leg.URL = f"ws://127.0.0.1:{hello['ws_port']}/v1/realtime"
@@ -677,10 +810,15 @@ async def adapter(args):
             while not (call.mobile.connectionState == "connected" and call.leg.ready and probe.r["append"]):
                 await asyncio.sleep(0.05)
         await asyncio.sleep(args.warmup + args.reply_delay)
+        jbs = [t.receiver._RTCRtpReceiver__jitter_buffer for t in call.mobile.getTransceivers() if t.kind == "audio"]
+        jb_info = [{"type": type(j).__name__, "prefetch": j._prefetch, "capacity": j.capacity} for j in jbs]
+        pilot = list(getattr(call, "uplink_jitter", []))
+        c0 = [dict(j.counts) for j in pilot]
         mono_off = NS() - int(time.monotonic() * 1e9)
         ru0, t_lo = resource.getrusage(resource.RUSAGE_SELF), NS()
         await asyncio.sleep(args.seconds)
         ru1, t_hi = resource.getrusage(resource.RUSAGE_SELF), NS()
+        c1 = [dict(j.counts) for j in pilot]
         cpu = (ru1.ru_utime + ru1.ru_stime) - (ru0.ru_utime + ru0.ru_stime)
         await asyncio.sleep(0.5)  # let in-flight frames of the window land
         child.stdin.write(b'{"stop": true}\n')
@@ -693,7 +831,17 @@ async def adapter(args):
     res["isolated"] = iso
     res["version"] = VERSION
     res["config"] = {"seconds": args.seconds, "warmup": args.warmup, "reply_chunk_ms": args.reply_chunk_ms,
-                     "hops": args.hops, "qos": args.qos, "python": sys.version.split()[0], "engine": "grok", "frame_ms": 20}
+                     "hops": args.hops, "qos": args.qos, "python": sys.version.split()[0], "engine": "grok", "frame_ms": 20,
+                     "condition": args.condition, "seed": args.seed, "shaper": CONDITIONS[args.condition],
+                     "prefetch": args.prefetch, "adaptive": args.adaptive, "jitter_buffer": jb_info}
+    sh = shaped(probe, w, t_lo, t_hi)
+    if sh:
+        t_first = w["shape"][0][2]
+        sh["freeze_in_window"] = bool(CONDITIONS[args.condition]["freeze"]
+                                      and t_lo <= t_first + FREEZE_AT_MS * 1_000_000 <= t_hi - 1_000_000_000)
+        sh["cpu_pct_one_core"] = res["cpu"]["adapter_cpu_pct_one_core"]
+        sh["adaptive_counts_window"] = [{k: b.get(k, 0) - a.get(k, 0) for k in b} for a, b in zip(c0, c1)]
+    res["shaped"] = sh
     return res
 
 
@@ -706,6 +854,8 @@ def report(res):
             print(f"{k:<70} {v['n']:>6} {v['p50_us'] if v['p50_us'] is not None else '-':>10} "
                   f"{v['p99_us'] if v['p99_us'] is not None else '-':>10}")
     print("\nwork:", json.dumps(res["work"]))
+    if res.get("shaped"):
+        print("shaped:", json.dumps(res["shaped"]))
     if "asyncio_callbacks_per_20ms_tick" in res:
         print("asyncio callbacks per 20 ms tick:", res["asyncio_callbacks_per_20ms_tick"])
 
@@ -720,6 +870,12 @@ def main():
     ap.add_argument("--hops", action="store_true")
     ap.add_argument("--qos", default="default", choices=["default", "interactive", "initiated", "utility"],
                     help="diagnostic only: macOS QoS class of the adapter process threads (baseline = default)")
+    ap.add_argument("--condition", default="clean", choices=sorted(CONDITIONS))
+    ap.add_argument("--seed", type=int, default=4100)
+    ap.add_argument("--prefetch", type=int, default=None,
+                    help="pin the adapter phone-audio aiortc JitterBuffer prefetch (aiortc stock = 4); unset = adapter "
+                         "default (Z0LIVE_UPLINK_PREFETCH, 2 since F4a). The used value is in config.jitter_buffer.")
+    ap.add_argument("--adaptive", action="store_true", help="Z0LIVE_ADAPTIVE_UPLINK_JITTER=1 (R10 clocked buffer)")
     ap.add_argument("--fixtures", default=str(Path(os.environ.get("TMPDIR", tempfile.gettempdir())) / "transport_bench_fx"))
     ap.add_argument("--workdir", default="")
     ap.add_argument("--world-out", default="")
