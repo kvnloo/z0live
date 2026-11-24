@@ -1,20 +1,14 @@
-name: z0live barge-in arm U (arm S without pre-arm ducking), raw continuous echo, arms O / Q / S / U (CPU, stdlib)
-# A-bargein-U: this branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml
-# --ref <branch>` can dispatch it (a new workflow file is not dispatchable until it is on the default branch).
-# It runs voice-adapter/bench/bargein_sweep.py with --echo-model residual --echo-continuous (raw echo, NO
-# --echo-erle-db) --bot-render recorded --rhos none (no arm C, no arm D) --arm-o --arm-q --arm-s --arm-u (bargein_replay/18,
-# offline virtual-time sim, Python stdlib only, no network, no secrets) on holdout seed 70 and fresh seeds
-# 20000-20039, one seed per shard, with the three conditions run as parallel processes on the runner: S0
-# unstressed -> out/s0, S1 caller-only (--caller-level-db-range -10,0) -> out/s1, FULL (caller -10,0 and
-# --erl-db-range 0,6) -> out/full.
-# Arms A, B (always run by the sweep), O = A-bargein-O's arm (NLMS canceller with the
-# Geigel 0.5 freeze + Geigel-free shadow stall guard 5 pkt / 3 dB / 6 dB, residual RMS >= 1360, 30 ms onset run,
-# armed at monitored ERLE 6 dB; the control), Q = arm O whose 30 ms onset only ducks (pauses) playout; the flush is
-# committed after 100 ms of cumulative residual speech within 300 ms of the duck, else playout resumes
-# (A-bargein-Q; reference), S = arm Q plus a pre-arm rule: while the residual gate is not yet armed, residual RMS
-# >= 5000 also counts as speech for the onset/duck run and commit (A-bargein-S; reference), U = arm S that never
-# ducks (pauses) playout before the gate is armed: unarmed speech opens a silent window that still counts toward
-# the commit, so the render keeps feeding the canceller (candidate; no new constant).
+name: z0live barge-in A-bargein-V replication, arm U vs arm Q on fresh seeds 30000-30119 (S0, FULL; CPU, stdlib)
+# A-bargein-V: confirmatory replication slot. Same harness and the same flags as the A-bargein-U slot
+# (bargein_replay/18, offline virtual-time sim, Python stdlib only, no network, no secrets); only the seeds, the
+# conditions and the sharding differ. This branch reuses the registered text-climb.yml file name so
+# `gh workflow run text-climb.yml --ref <branch>` can dispatch it.
+# Arms: the sweep always runs A and B; --arm-q needs --arm-o and --arm-u needs --arm-s, so O, Q, S and U all run.
+# Q (reference) and U (candidate) are the compared arms; O and S are reported only.
+# Seeds 30000-30119 (never used before), two seeds per shard (matrix value = first seed, second = first + 1),
+# 60 shards. Both conditions run as parallel processes on the runner (two seeds x two conditions = four processes
+# on four vCPUs): S0 unstressed -> out/s0, FULL (--caller-level-db-range -10,0 and --erl-db-range 0,6) -> out/full.
+# No S1 and no holdout seed in this slot.
 on:
   workflow_dispatch:
     inputs:
@@ -26,16 +20,18 @@ permissions:
   contents: read
 jobs:
   sweep:
-    name: seed ${{ matrix.seed }}
+    name: seeds ${{ matrix.first }}+1
     runs-on: ubuntu-24.04
-    timeout-minutes: 65
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       max-parallel: 10
       matrix:
-        seed: [70, 20000, 20001, 20002, 20003, 20004, 20005, 20006, 20007, 20008, 20009, 20010, 20011, 20012, 20013,
-               20014, 20015, 20016, 20017, 20018, 20019, 20020, 20021, 20022, 20023, 20024, 20025, 20026, 20027,
-               20028, 20029, 20030, 20031, 20032, 20033, 20034, 20035, 20036, 20037, 20038, 20039]
+        first: [30000, 30002, 30004, 30006, 30008, 30010, 30012, 30014, 30016, 30018, 30020, 30022, 30024, 30026,
+                30028, 30030, 30032, 30034, 30036, 30038, 30040, 30042, 30044, 30046, 30048, 30050, 30052, 30054,
+                30056, 30058, 30060, 30062, 30064, 30066, 30068, 30070, 30072, 30074, 30076, 30078, 30080, 30082,
+                30084, 30086, 30088, 30090, 30092, 30094, 30096, 30098, 30100, 30102, 30104, 30106, 30108, 30110,
+                30112, 30114, 30116, 30118]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,35 +44,33 @@ jobs:
           cpu=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)
           echo "runner CPU: ${cpu:-unknown} ($(uname -m), $(nproc) cpus), $(python --version)" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Sweep
-        timeout-minutes: 60
+        timeout-minutes: 35
         env:
-          SEED: ${{ matrix.seed }}
+          FIRST: ${{ matrix.first }}
         run: |
           set -euo pipefail
           cd voice-adapter
-          common=(--seeds "$SEED" --jobs 1 --echo-model residual --echo-continuous
+          seeds="$FIRST,$((FIRST + 1))"
+          common=(--seeds "$seeds" --jobs 2 --echo-model residual --echo-continuous
                   --bot-render recorded --rhos none --energy-k-db -12 --energy-min-speech-ms 30
                   --resid-threshold 1360 --arm-o --guard-erle-db 6 --guard-margin-db 3 --guard-packets 5
                   --arm-q --duck-commit-ms 100 --duck-window-ms 300 --arm-s --prearm-rms 5000 --arm-u)
           t0=$(date +%s)
           python -B bench/bargein_sweep.py "${common[@]}" --out ../out/s0 > ../s0.log &
           p0=$!
-          python -B bench/bargein_sweep.py "${common[@]}" --out ../out/s1 --caller-level-db-range=-10,0 > ../s1.log &
-          p1=$!
           python -B bench/bargein_sweep.py "${common[@]}" --out ../out/full \
             --caller-level-db-range=-10,0 --erl-db-range=0,6 > ../full.log &
           p2=$!
           rc=0
           wait $p0 || rc=1
-          wait $p1 || rc=1
           wait $p2 || rc=1
-          for c in s0 s1 full; do sed "s/^/$c /" "../$c.log" | tee -a "$GITHUB_STEP_SUMMARY"; done
+          for c in s0 full; do sed "s/^/$c /" "../$c.log" | tee -a "$GITHUB_STEP_SUMMARY"; done
           echo "sweep wall $(( $(date +%s) - t0 )) s" | tee -a "$GITHUB_STEP_SUMMARY"
           exit $rc
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: sweep-${{ matrix.seed }}
+          name: sweep-${{ matrix.first }}
           path: out/
           if-no-files-found: warn
           retention-days: 30
@@ -96,5 +90,5 @@ jobs:
           NOTE: ${{ inputs.note }}
         run: |
           set -euo pipefail
-          { [ -n "${NOTE}" ] && echo "note: ${NOTE}"; echo '```'; (cd results && ls s0/seed-*.json s1/seed-*.json full/seed-*.json | wc -l && sha256sum s0/seed-*.json s1/seed-*.json full/seed-*.json); echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          (cd results && sha256sum s0/seed-*.json s1/seed-*.json full/seed-*.json)
+          { [ -n "${NOTE}" ] && echo "note: ${NOTE}"; echo '```'; (cd results && ls s0/seed-*.json full/seed-*.json | wc -l && sha256sum s0/seed-*.json full/seed-*.json); echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          (cd results && sha256sum s0/seed-*.json full/seed-*.json)
