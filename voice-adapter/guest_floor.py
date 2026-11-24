@@ -12,8 +12,8 @@ FOLLOW_UP_SECONDS = 20.0  # with people on the call, an unnamed request this soo
 _WORD = r"[\w\u0b80-\u0bff]"
 # A request or question in the words, not only a remark ("Get all of it onto my S25", "can you check"). Used only to keep
 # an unnamed follow-up with the bot that just answered, when more than one person is on the call.
-_REQUEST = re.compile(
-    r"\?|(?:^|[.!;,]\s*|\b(?:and|so|now|then|also)\s+)(?:please\s+)?(?:get|make|put|install|check|show|tell|find|"
+_REQUEST = re.compile(  # a "?" asks only after a word: take 15's line 5 opened with line 4's "?"
+    r"(?<=\w)\?|(?:^|[.!;,]\s*|\b(?:and|so|now|then|also)\s+)(?:please\s+)?(?:get|make|put|install|check|show|tell|find|"
     r"send|give|run|start|stop|look|pull|open|fix|prove|try|ship|merge|deploy|update|keep|move|add|remove|delete|"
     r"write|read|can you|could you|would you|will you|i need you|i want you)\b", re.I)
 _BACKCHANNEL = re.compile(r"(?:m+|h?m+|mm[ -]mm|uh|um|uh[ -]huh|m+[ -]?h+m+|yeah|yep|right|okay|ok|thanks|thank you|got it|sure)(?:[.!?, ]*)$", re.I)
@@ -79,6 +79,8 @@ class Answer:
     delegation_id: str | None
     text: str
     lane: bool = False  # a fast lane's guess; Hermes's own answer to the same delegation supersedes it
+    rest: bool = False  # the unheard rest of an answer whose playback stopped: waits until the caller is quiet
+    retold: bool = False  # a rest the voice skipped in a reply that ran its course: waits for the other voice's answers
 
 
 @dataclass
@@ -124,9 +126,10 @@ class Floor:
     def follow_up(self, text: str, began: float) -> bool:
         """With people on the call: an unnamed turn is the next request to the bot that holds the floor when it is a
         request that began while one of that bot's replies played or within FOLLOW_UP_SECONDS after one ended. A
-        reply the bot began after the caller started (and the caller cut off) does not count against it (take 8)."""
-        return self.owner != "people" and request(text) and any(
-            start <= began and (end is None or began - end <= FOLLOW_UP_SECONDS) for start, end in self.heard)
+        reply the bot began after the caller started does not count (take 8); a bot named holds it from its name."""
+        named = self.reason in ("redirected", "guest_addressed") and not self.heard and began >= self.since
+        return self.owner != "people" and request(text) and (
+            (named and began - self.since <= FOLLOW_UP_SECONDS) or any(start <= began and (end is None or began - end <= FOLLOW_UP_SECONDS) for start, end in self.heard))
 
     def reply_started(self, leg: Leg, now: float) -> None:
         if leg == self.owner:
@@ -150,12 +153,13 @@ class Floor:
 
     def answer_ready(self, pending: Callable[[Leg], bool], now: float) -> bool:
         """While the people talk, a bot with an answer to give takes the floor in their next pause (the caller asked
-        it earlier). Returns whether the floor moved."""
-        for leg in ("primary", "guest"):
-            if self.answers[leg] or pending(leg):
-                self.change(leg, "answer_ready", now)
-                return True
-        return False
+        it earlier). Sentences a voice skipped wait for the other voice's answer (take 16: Tek's stopped answer had
+        waited since line 5 when Hermes's resumed reply skipped paragraph 1). Returns whether the floor moved."""
+        legs: list[Leg] = [leg for leg in ("primary", "guest") if self.answers[leg] or pending(leg)]
+        legs.sort(key=lambda leg: not pending(leg) and all(a.retold for a in self.answers[leg]))
+        if legs:
+            self.change(legs[0], "answer_ready", now)
+        return bool(legs)
 
     def failed(self, name: str, now: float) -> None:
         self.available = False

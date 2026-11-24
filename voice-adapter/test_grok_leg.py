@@ -87,5 +87,64 @@ class GrokLegTests(unittest.IsolatedAsyncioTestCase):
                           ("response.output_audio.delta", "r1", None)])
 
 
+class Mic:
+    """A phone track: N 20 ms 48 kHz stereo frames of a deterministic ramp, then the track ends."""
+
+    def __init__(self, n):
+        import numpy as np
+        self.frames, self.n, self.np = [], n, np
+
+    async def recv(self):
+        import av
+        from fractions import Fraction
+        np = self.np
+        i = len(self.frames)
+        if i >= self.n:
+            raise EOFError
+        pcm = ((np.arange(960 * 2, dtype=np.int64) + i * 7919) % 20000 - 10000).astype(np.int16).reshape(1, -1)
+        f = av.AudioFrame.from_ndarray(pcm, format="s16", layout="stereo")
+        f.sample_rate, f.pts, f.time_base = 48000, i * 960, Fraction(1, 48000)
+        self.frames.append(f)
+        return f
+
+
+def resampled(frames):
+    import av
+    r = av.AudioResampler(format="s16", layout="mono", rate=grok_leg.RATE_IN)
+    return b"".join(bytes(o.planes[0])[: o.samples * 2] for f in frames for o in r.resample(f))
+
+
+class UplinkAppendTests(unittest.IsolatedAsyncioTestCase):
+    async def pump(self, per_packet, n=25, backlog=0):
+        import base64
+        from unittest.mock import patch
+        leg = Leg()
+        leg.ready = True
+        mic = Mic(n)
+        with patch.object(grok_leg, "APPEND_PER_PACKET", per_packet), \
+                patch.object(grok_leg.GrokLeg, "send_backlog", lambda self: backlog):
+            await leg.pump(mic)
+        sent = [base64.b64decode(e["audio"]) for e in leg.sent if e["type"] == "input_audio_buffer.append"]
+        return sent, resampled(mic.frames)
+
+    async def test_per_packet_flushes_each_frame_and_keeps_every_byte(self):
+        sent, want = await self.pump(True)
+        self.assertGreaterEqual(len(sent), 24)  # one append per received frame (resampler may hold the first)
+        self.assertTrue(all(len(s) <= 2 * 960 for s in sent))
+        self.assertEqual(b"".join(sent), want)
+
+    async def test_backed_up_socket_coalesces_to_100ms_without_loss(self):
+        sent, want = await self.pump(True, backlog=4096)
+        self.assertTrue(all(len(s) >= grok_leg.BATCH_BYTES for s in sent))
+        self.assertEqual(b"".join(sent), want[: len(b"".join(sent))])
+        self.assertLess(len(want) - len(b"".join(sent)), grok_leg.BATCH_BYTES)
+
+    async def test_batching_off_sends_100ms_appends(self):
+        sent, want = await self.pump(False)
+        self.assertEqual(len(sent), 4)
+        self.assertTrue(all(len(s) >= grok_leg.BATCH_BYTES for s in sent))
+        self.assertEqual(b"".join(sent), want[: len(b"".join(sent))])
+
+
 if __name__ == "__main__":
     unittest.main()

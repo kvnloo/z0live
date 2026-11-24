@@ -12,7 +12,9 @@ from pathlib import Path
 import re
 import signal
 import socket
+import struct
 import subprocess
+import sys
 import time
 import wave
 
@@ -109,9 +111,116 @@ def audio_message(pcm):
         'format': 'wav', 'data': base64.b64encode(buf.getvalue()).decode()}}]
 
 
+def play_pcm(pcm):
+    """24 kHz float PCM -> 48 kHz int16 playout samples (sample repeat, as the Liquid path always did)."""
+    return np.repeat((np.clip(pcm, -1, 1) * 32767).astype('<i2'), 2)
+
+
+class UtteranceDump:
+    """Opt-in per-utterance receipt for --lure-dump: one 24 kHz int16 WAV per Lure utterance plus a JSONL index row
+    (id, tag, call, turn, input text, complete flag, sample count) so speech can be transcribed utterance by utterance.
+    A barge-in keeps the samples received before the cancel and marks the row complete=false."""
+    def __init__(self, root, tag):
+        self.root, self.tag, self.call, self.turn = Path(root), tag, 'warmup', 0
+        self.root.mkdir(parents=True, exist_ok=True)
+
+    def start_call(self, call):
+        self.call, self.turn = call, 0
+
+    def write(self, text, chunks, complete):
+        uid = f'{self.tag}__{self.call}__t{self.turn:02d}'
+        pcm = np.concatenate(chunks) if chunks else np.zeros(0, '<f4')
+        with wave.open(str(self.root / f'{uid}.wav'), 'wb') as w:
+            w.setparams((1, 2, 24000, 0, 'NONE', 'not compressed'))
+            w.writeframes((np.clip(pcm, -1, 1) * 32767).astype('<i2').tobytes())
+        row = dict(id=uid, tag=self.tag, call=self.call, turn=self.turn, text=text, complete=complete,
+                   samples=len(pcm))
+        with (self.root / 'utterances.jsonl').open('a') as index:
+            index.write(json.dumps(row) + '\n')
+        self.turn += 1
+
+
+class LureTTS:
+    """Opt-in Lure TTS through one long-lived helper process (bench/lure_tts_helper.py in an MLX venv).
+
+    Requests are JSON lines on stdin ({"text": ...}; {"cancel": true} stops the current utterance). Replies on stdout
+    are frames of a little-endian uint32 sample count followed by that many float32 24 kHz samples; a zero count ends
+    an utterance, and one zero count before any request means the helper finished loading and warming up.
+    """
+    def __init__(self, argv, log, dump=None):
+        self.argv, self.log, self.dump = [str(a) for a in argv], Path(log), dump
+        self.proc, self.pending = None, False
+
+    async def __aenter__(self):
+        with self.log.open('ab') as stream:
+            self.proc = await asyncio.create_subprocess_exec(
+                *self.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stream)
+        try:
+            await asyncio.wait_for(self._drain(), 300)
+        except BaseException:
+            await self.__aexit__(None, None, None)
+            raise
+        return self
+
+    async def __aexit__(self, *exc):
+        if self.proc and self.proc.returncode is None:
+            with suppress(BrokenPipeError, ConnectionResetError):
+                self.proc.stdin.close()
+            try:
+                await asyncio.wait_for(self.proc.wait(), 10)
+            except TimeoutError:
+                with suppress(ProcessLookupError):
+                    self.proc.kill()
+                await self.proc.wait()
+
+    async def _frame(self):
+        try:
+            n, = struct.unpack('<I', await self.proc.stdout.readexactly(4))
+            return np.frombuffer(await self.proc.stdout.readexactly(4 * n), '<f4') if n else None
+        except asyncio.IncompleteReadError:
+            raise RuntimeError(f'Lure helper exited; see {self.log}') from None
+
+    async def _drain(self):
+        while await self._frame() is not None:
+            pass
+        self.pending = False
+
+    def _send(self, obj):
+        self.proc.stdin.write((json.dumps(obj) + '\n').encode())
+
+    async def tts(self, text):
+        if self.pending:  # the previous turn was cut off: discard what the helper sent after the cancel
+            await self._drain()
+        self.pending = True
+        self._send({'text': text})
+        done, heard = False, []
+        try:
+            while (pcm := await self._frame()) is not None:
+                if not np.isfinite(pcm).all():
+                    raise RuntimeError('Invalid Lure PCM')
+                if len(pcm):
+                    if self.dump is not None:
+                        heard.append(pcm)
+                    yield play_pcm(pcm)
+            done, self.pending = True, False
+        finally:
+            if self.dump is not None:
+                self.dump.write(text, heard, done)
+            if not done and self.proc.returncode is None:
+                with suppress(BrokenPipeError, ConnectionResetError):
+                    self._send({'cancel': True})
+
+
+def lure_helper_argv(args):
+    argv = [args.lure_python, '-I', HERE / 'lure_tts_helper.py', '--model', args.lure_model,
+            '--voice', args.lure_voice, '--voice-text', args.lure_voice_text, '--seed', str(args.lure_seed),
+            '--first-chunk-frames', str(args.lure_first_chunk_frames)]
+    return [str(a) for a in argv] + ([] if args.lure_snapshot else ['--no-snapshot'])
+
+
 class Models:
-    def __init__(self, http, asr_url, tts_url, gemma):
-        self.http, self.asr_url, self.tts_url, self.gemma = http, asr_url, tts_url, gemma
+    def __init__(self, http, asr_url, tts_url, gemma, lure=None):
+        self.http, self.asr_url, self.tts_url, self.gemma, self.lure = http, asr_url, tts_url, gemma, lure
 
     async def text(self, url, messages, marks, name, **options):
         chunks = []
@@ -135,6 +244,11 @@ class Models:
                                chat_template_kwargs={'enable_thinking': False})
 
     async def tts(self, text):
+        if self.lure is not None:
+            async with aclosing(self.lure.tts(text)) as stream:
+                async for samples in stream:
+                    yield samples
+            return
         msgs = [message('system', 'Perform TTS. Use the US male voice.'), message('user', text)]
         async with aclosing(deltas(self.http, self.tts_url, msgs, reset_context=True, max_tokens=152)) as stream:
             async for delta in stream:
@@ -145,7 +259,7 @@ class Models:
                     if not np.isfinite(pcm).all():
                         raise RuntimeError('Invalid Liquid PCM')
                     if len(pcm):
-                        yield np.repeat((np.clip(pcm, -1, 1) * 32767).astype('<i2'), 2)
+                        yield play_pcm(pcm)
 
 
 class Endpointer:
@@ -281,6 +395,8 @@ async def replay(models, args):
     per, offsets, bc, minutes, errors = {}, [], 0, 0.0, []
     for name in args.calls.split(','):
         try:
+            if models.lure is not None and models.lure.dump is not None:
+                models.lure.dump.start_call(name)
             pcm = dr.replay_input(name, args.clip)
             ai, rows = await conversation(models, pcm, args.vad_db, args.silence_ms)
             (args.out / f'{name}-local.json').write_text(json.dumps(rows, indent=2))
@@ -300,7 +416,17 @@ async def replay(models, args):
     else:
         errors.append('No scored floor-takes')
     return dict(engine='local', calls_done=len(per), errors=errors, minutes=round(minutes, 2),
-                ai=ai, per_call=per, out=str(args.out))
+                ai=ai, per_call=per, out=str(args.out), **lure_extra(args))
+
+
+def lure_extra(args):
+    """Extra result keys for --tts lure; the default (Liquid) output keys stay exactly as before."""
+    if args.tts == 'liquid':
+        return {}
+    extra = dict(tts='lure', lure_first_chunk_frames=args.lure_first_chunk_frames, lure_snapshot=args.lure_snapshot)
+    if args.lure_dump is not None:
+        extra['lure_dump'] = str(args.lure_dump)
+    return extra
 
 
 def grade(case, text, audible=False):
@@ -377,12 +503,17 @@ async def run(args):
             liquid_args = ['-c', '2048', '-ngl', 'all', '-s', '42', '-m', models / LIQUID,
                            '-mm', models / ('mmproj-' + LIQUID), '-mv', models / ('vocoder-' + LIQUID),
                            '--tts-speaker-file', models / ('tokenizer-' + LIQUID)]
-            asr, tts = [await stack.enter_async_context(server(liquid, liquid_args, args.out / f'{mode}.log',
-                                                              'Server ready at {url}')) for mode in ('asr', 'tts')]
+            modes = ('asr', 'tts') if args.tts == 'liquid' else ('asr',)  # Lure replaces only Liquid's TTS role
+            asr, *tts = [await stack.enter_async_context(server(liquid, liquid_args, args.out / f'{mode}.log',
+                                                               'Server ready at {url}')) for mode in modes]
             gemma = await stack.enter_async_context(server(args.llama_server,
                 ['-m', args.gemma.expanduser().resolve(strict=True), '-c', '4096', '-ngl', '99', '-np', '1', '--jinja',
                  '--no-webui', '--reasoning', 'off'], args.out / 'gemma.log', 'listening on {url}'))
-            pipe = Models(http, asr, tts, gemma)
+            lure = None
+            if args.tts == 'lure':
+                dump = UtteranceDump(args.lure_dump, args.lure_dump_tag) if args.lure_dump is not None else None
+                lure = await stack.enter_async_context(LureTTS(lure_helper_argv(args), args.out / 'lure.log', dump))
+            pipe = Models(http, asr, tts[0] if tts else None, gemma, lure)
             warm = [samples async for samples in pipe.tts('What is the capital of France?')]
             if not warm:
                 raise RuntimeError('Warm-up produced no audio')
@@ -394,7 +525,7 @@ async def run(args):
         loop.remove_signal_handler(signal.SIGTERM)
 
 
-def main():
+def parse_args(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--out', type=Path, required=True, help='new private receipt directory outside this worktree')
     ap.add_argument('--calls', default=','.join(dr.DEFAULT_CALLS))
@@ -407,7 +538,29 @@ def main():
                     '.local/opt/llama.cpp/b12527/llama-b12527/llama-server')), type=Path)
     ap.add_argument('--slm', action='store_true', help='speak and grade the frozen slm-v1 suite instead')
     ap.add_argument('--limit', type=int, help='limit spoken cases for a smoke run')
-    args = ap.parse_args()
+    ap.add_argument('--tts', choices=('liquid', 'lure'), default='liquid',
+                    help='TTS engine; lure runs bench/lure_tts_helper.py under --lure-python (ASR stays Liquid)')
+    ap.add_argument('--lure-python', default=os.environ.get('LURE_PYTHON', sys.executable),
+                    help='python of a venv with lure_tts and mlx installed')
+    ap.add_argument('--lure-model', type=Path, help='Lure Turbo model directory')
+    ap.add_argument('--lure-voice', type=Path, help='reference voice audio for Lure voice cloning')
+    ap.add_argument('--lure-voice-text', help='transcript of --lure-voice')
+    ap.add_argument('--lure-seed', type=int, default=1234)
+    ap.add_argument('--lure-first-chunk-frames', type=int, default=4, help='codec frames in the first Lure chunk')
+    ap.add_argument('--no-lure-snapshot', dest='lure_snapshot', action='store_false',
+                    help='disable the decoder-state snapshot (re-prime the codec decoder on every utterance)')
+    ap.add_argument('--lure-dump', type=Path,
+                    help='write each Lure utterance as a 24 kHz WAV plus utterances.jsonl (id, text) into this dir')
+    ap.add_argument('--lure-dump-tag', default='run', help='id prefix for --lure-dump files, e.g. r1_fc4_A')
+    args = ap.parse_args(argv)
+    if args.tts == 'lure' and not (args.lure_model and args.lure_voice and args.lure_voice_text):
+        ap.error('--tts lure needs --lure-model, --lure-voice and --lure-voice-text')
+    if args.lure_dump is not None:
+        if args.tts != 'lure' or not re.fullmatch(r'[a-zA-Z0-9_-]+', args.lure_dump_tag):
+            ap.error('--lure-dump needs --tts lure and a [a-zA-Z0-9_-] --lure-dump-tag')
+        args.lure_dump = args.lure_dump.expanduser().resolve()
+    if not 1 <= args.lure_first_chunk_frames <= 32:
+        ap.error('--lure-first-chunk-frames must be 1..32')
     args.out = args.out.expanduser().resolve()
     if args.out.is_relative_to(HERE.parents[1]):
         ap.error('--out must be outside the worktree')
@@ -416,6 +569,11 @@ def main():
         ap.error('invalid clip, VAD threshold, silence window or suite limit')
     if not all(re.fullmatch(r'[a-zA-Z0-9_-]+', name) for name in args.calls.split(',')):
         ap.error('invalid call name')
+    return args
+
+
+def main():
+    args = parse_args()
     os.umask(0o077)
     args.out.mkdir(parents=True, exist_ok=False)
     result = asyncio.run(run(args))

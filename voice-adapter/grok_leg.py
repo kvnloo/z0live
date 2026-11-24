@@ -38,6 +38,12 @@ TOOL = {"type": "function", "name": "ask_hermes",
         "description": "Hand real work to Hermes, the user's agent: anything about his data, files, sessions, phone "
                        "or screen, or anything you can't answer from the conversation. Say a few words first.",
         "parameters": {"type": "object", "properties": {"request": {"type": "string"}}, "required": ["request"]}}
+# Uplink appends: one input_audio_buffer.append per received phone packet (20 ms) instead of a 100 ms batch,
+# which added 40 ms mean / 80 ms worst dwell before Grok heard the audio (transport_bench F1/F4b). While the
+# websocket's transport still holds unsent bytes, frames coalesce up to BATCH_BYTES so a slow link sends fewer,
+# larger appends. GROK_APPEND_PER_PACKET=0 restores fixed 100 ms batching.
+APPEND_PER_PACKET = os.environ.get("GROK_APPEND_PER_PACKET", "1") != "0"
+BATCH_BYTES = RATE_IN // 10 * 2  # 100 ms of 24 kHz PCM16
 TIMED = {"input_audio_buffer.speech_started", "input_audio_buffer.speech_stopped", "input_audio_buffer.committed",
          "response.created", "response.done"}
 
@@ -134,11 +140,18 @@ class GrokLeg:
                     continue
                 for out in resampler.resample(frame):
                     buf += bytes(out.planes[0])[: out.samples * 2]
-                if len(buf) >= RATE_IN // 10 * 2 and self.ready:  # ~100 ms per append
+                if self.ready and buf and (len(buf) >= BATCH_BYTES or APPEND_PER_PACKET and not self.send_backlog()):
                     await self.raw({"type": "input_audio_buffer.append", "audio": base64.b64encode(bytes(buf)).decode()})
                     buf.clear()
         except Exception as exc:  # noqa: BLE001 - track ended or socket closed; the call closes separately
             LOG.info("grok input ended: %s", type(exc).__name__)
+
+    def send_backlog(self) -> int:
+        """Bytes written to the provider socket but not yet sent by the kernel (0 when unknown)."""
+        try:
+            return self.ws._writer.transport.get_write_buffer_size()
+        except Exception:  # noqa: BLE001 - no socket yet, closed, or another aiohttp layout
+            return 0
 
     async def reader(self):
         try:
