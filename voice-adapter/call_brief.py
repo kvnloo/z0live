@@ -74,8 +74,10 @@ def people(history) -> int:
     return max(counts, default=1)
 
 
-def build(history, chat: str = "") -> str:
-    body = written(chat) or digest(history)
+def build(history, chat: str = "", note: str | None = None) -> str:
+    """`note` is the written brief already read for this call (`written(chat)`), so every voice and Hermes on the
+    call works from the same one."""
+    body = (written(chat) if note is None else note) or digest(history)
     return FRAME + CAPABILITY + ("\n\n" + body if body else "") + "\n</call_brief>"
 
 

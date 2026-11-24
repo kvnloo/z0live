@@ -1,6 +1,9 @@
 """Replays of tonight's failure shapes through the real adapter (replay.py). Each fixture copies the event order and
 timing of a real call; the words are made up, because call transcripts stay off GitHub."""
+import json
 import os
+from pathlib import Path
+import tempfile
 import unittest
 
 os.environ.setdefault("HERMES_VOICE_ENGINE", "gpt-live")  # never the owner's lanes config
@@ -50,6 +53,33 @@ class ReplayContract(unittest.TestCase):
         self.assertEqual(report["backgrounded"], 2)
         self.assertEqual(report["held"], [])
         self.assertEqual(report["unanswered"], [])
+
+    def test_a_request_past_the_side_bound_is_queued_not_folded_into_the_running_turn(self):
+        # Take 7 of the 11-22 film call, chat path: the owner's long-run ask waited behind a running turn while the voice
+        # said "Got it, I'll handle that". With the chat turn and SIDE_MAX background agents busy, the next request
+        # was still submitted into the busy chat: the dashboard redirected the running turn, so that request had no
+        # answer of its own and the first request was answered with the redirect's words. Now it waits for a free
+        # agent, the voice says at once that it is queued and its place in line, and it gets its own answer.
+        import mobile_live as live
+        rows = (turn(5, 10, "user", "Install every merged build on my phone", "u1") + delegation(9.8, "d1", "install")
+                + turn(10, 11, "assistant", "On it.", "a1") + hermes("d1", 120, "Every merged build is on the phone."))
+        for i, t in enumerate((20, 30, 40, 50), start=2):
+            rows += (turn(t - 5, t, "user", f"Question number {i} about the studio", f"u{i}")
+                     + delegation(t - 0.2, f"d{i}", f"question {i}") + turn(t, t + 1, "assistant", "Checking.", f"a{i}")
+                     + hermes(f"d{i}", 60 if i < 5 else 5, f"Answer number {i}."))
+        self.assertEqual(live.SIDE_MAX, 3, "fixture: d2-d4 fill the background agents, d5 is past the bound")
+        report = run(rows)
+        self.assertEqual(report["held"], [], "a request past the bound was folded into the running turn")
+        self.assertEqual(report["unanswered"], [])
+        self.assertEqual(report["backgrounded"], 4, "d5 runs as its own background agent once one is free")
+        queued = report["queued_s"]
+        self.assertIn("d5", queued, "the voice was never told d5 is queued")
+        self.assertLess(queued["d5"], 1.0, "the queued notice is prompt")
+        self.assertNotIn("d5", report["receipt_s"], "'still working on it' is not true of a queued request")
+        # d5 starts when the first background agent (d2, 60 s from 19.8 s) finishes, and gets its own answer.
+        self.assertGreaterEqual(report["own_answer_s"]["d5"], 79.8 - 49.8)
+        self.assertEqual(report["answers"]["d1"], "Every merged build is on the phone.")
+        self.assertEqual(report["answers"]["d5"], "Answer number 5.")
 
     def test_side_by_side_requests_with_the_same_answer_are_spoken_once(self):
         rows = (turn(5, 10, "user", "How much disk is free on the studio?", "u1") + delegation(9.8, "d1", "disk")
@@ -151,16 +181,18 @@ class ReplayContract(unittest.TestCase):
         return r.submitted
 
 
-def speech(t0, t1, text, tid):
-    """A voice reply as the provider streams it: turn.created, one output_transcript.added per word, turn.done."""
+def speech(t0, t1, text, tid, *, span=False):
+    """A voice reply as the provider streams it: turn.created, one output_transcript.added per word, turn.done.
+    `span`: turn.done carries the reply's start_ms/end_ms on the provider clock (heard()'s: t - 0.6 s)."""
     parts = text.split()
     step = (t1 - t0) / max(len(parts), 1)
     rows = [{"t": t0, "src": "provider", "rx": {"type": "turn.created", "turn": {"id": tid, "role": "assistant"}}}]
     rows += [{"t": round(t0 + i * step, 3), "src": "provider", "rx": {"type": "output_transcript.added",
                                                                      "item": {"text": " " + word}}}
              for i, word in enumerate(parts)]
+    clock = {"start_ms": int((t0 - 0.6) * 1000), "end_ms": int((t1 - 0.6) * 1000)} if span else {}
     return rows + [{"t": t1, "src": "provider", "rx": {"type": "turn.done", "turn": {
-        "id": tid, "role": "assistant", "transcript": text}}}]
+        "id": tid, "role": "assistant", "transcript": text, **clock}}}]
 
 
 GUEST = [{"t": 1.4, "src": "guest", "rx": {"type": "session.started"}}]  # a second voice (Tek) on the call
@@ -242,11 +274,10 @@ PEOPLE = [{"role": "user", "content": [{"type": "input_text", "text": "status on
                                              "Sam talk to each other, stay quiet."}]}]
 
 
-class PeopleOnTheCall(unittest.TestCase):
-    def test_bots_stay_quiet_while_the_people_talk_to_each_other(self):
-        # Take 7: the friend's "Is the glass theme on your phone yet?" (to the owner) ran a Hermes job that checked the
-        # phone, Tek drafted a reply, and the owner's "No, I think it's still last night's build" got bot speech too.
-        rows = (GUEST
+def take7(handoff="Got it, I'll handle that and keep receipts."):
+    """Take 7 of the 11-22 film call, both legs; `handoff` is the voice's own line as it hands line 3 to Hermes. Lines 0, 1 and 5 are the people talking to each other; 2 and 3 are
+    to Hermes (by name, then the next request in that exchange); 4 is to Tek by name."""
+    return (GUEST
                 # 0. friend -> the owner
                 + heard(6.2, 12.3, "Hey, wait, is the dark mode on your laptop yet? I don't see it on mine", "g0", "guest")
                 + heard(6.8, 12.9, "Hey, wait, is the dark mode on your laptop yet? I don't see it on mine", "p0")
@@ -277,7 +308,7 @@ class PeopleOnTheCall(unittest.TestCase):
                 + guest_delegation(51.8, "gd3", "Yeah. Shipped isn't done. Get all of it onto my laptop")
                 + delegation(52.2, "d3", "Yeah. Shipped isn't done. Get all of it onto my laptop")
                 + hermes("d3", 30, "That run is already going as card 7; the last receipt is the signed build.")
-                + speech(52.8, 56.0, "Got it, I'll handle that and keep receipts.", "a3")
+                + speech(52.8, 56.0, handoff, "a3")
                 # 4. friend -> Tek, by name
                 + heard(65.0, 71.7, "Hey, Tek. While that runs, what actually caused the dark mode crash in PR twelve",
                         "g4", "guest")
@@ -293,9 +324,20 @@ class PeopleOnTheCall(unittest.TestCase):
                 + delegation(97.0, "d5", ", nice. That's the one I kept hitting")
                 + speech(97.3, 106.4, "Thanks, I'll check. Yeah, the crash is fixed in the beta.", "a5")
                 + guest_speech(97.5, 100.6, "Thanks, I'll recheck with that in mind.", "ga6"))
-        r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows, history=PEOPLE)
-        import asyncio
-        asyncio.run(r.run())
+
+
+def replayed(rows, history=PEOPLE):
+    import asyncio
+    r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows, history=history)
+    asyncio.run(r.run())
+    return r
+
+
+class PeopleOnTheCall(unittest.TestCase):
+    def test_bots_stay_quiet_while_the_people_talk_to_each_other(self):
+        # Take 7: the friend's "Is the glass theme on your phone yet?" (to the owner) ran a Hermes job that checked the
+        # phone, Tek drafted a reply, and the owner's "No, I think it's still last night's build" got bot speech too.
+        r = replayed(take7())
         self.assertEqual([did for did, _ in r.requests], ["d2", "d3"], "Hermes runs only the two requests to it")
         self.assertEqual(len(r.guest_asked), 1, "Tek's Hermes runs only the question to Tek")
         self.assertIn("crash in PR twelve", r.guest_asked[0][1])
@@ -303,6 +345,310 @@ class PeopleOnTheCall(unittest.TestCase):
         self.assertEqual(before, "", "nothing the bots said while the people talked reached the phone")
         after_tek = "".join(text for t, text in r.heard if 96.5 <= t < 120 and "PR twelve" not in text)
         self.assertNotIn("I'll check", after_tek)
+
+    def test_with_hermes_the_only_bot_it_stays_quiet_while_the_people_talk_to_each_other(self):
+        # Take 7's lines with no second voice on the call (the owner, a friend and Hermes). The people gate lived only in
+        # the two-voice path, so here Hermes still ran the friend's question to the owner and answered the owner's reply.
+        r = replayed([row for row in take7() if row.get("src") != "guest"])
+        self.assertEqual([did for did, _ in r.requests], ["d2", "d3"],
+                         "Hermes runs its named request and the next request in that exchange, nothing else")
+        self.assertNotIn("last night's build", r.requests[0][1], "words the people said to each other never join "
+                         "Hermes's next request")
+        before = "".join(text for t, text in r.heard if t < 27.8)
+        self.assertEqual(before, "", "nothing Hermes said while the people talked reached the phone")
+        after = "".join(text for t, text in r.heard if t >= 92.2)
+        self.assertEqual(after, "", "the friend's reaction to Tek gets no reply from Hermes")
+
+    def test_with_one_person_on_the_call_an_unnamed_question_still_goes_to_hermes(self):
+        # Control: the gate is for calls with more than one person. Alone with Hermes, the owner never says its name.
+        r = replayed([row for row in take7() if row.get("src") != "guest"], history=None)
+        self.assertIn("d0", [did for did, _ in r.requests])
+        self.assertTrue("".join(text for t, text in r.heard if t < 27.8), "Hermes answers out loud")
+
+    def test_the_voice_hands_off_neutrally_and_hermes_says_what_happened(self):
+        # Takes 7 and 9: handing line 3 to Hermes the voice said "Got it, I'll handle that and keep receipts" / "I'm
+        # taking that on end-to-end. I'll be back with receipts", and Hermes answered with a report on work already
+        # running. The replay flags a promise made before the request's own answer reached the voice.
+        from unittest.mock import patch
+        import mobile_live
+        line = "Got it, I'm taking that on end-to-end. I'll be back with receipts once it's all buttoned up."
+        self.assertEqual(replay.report(replayed(take7(line)))["promised"], [], "the floor mutes it at the promise")
+        with patch.object(mobile_live, "opens_promise", lambda text: False):  # heard, it is caught
+            promised = replayed(take7(line))
+        # d2 too: its reply said "I'll" muted, and once unmuted the phone heard "take a quick look" (take 19).
+        self.assertEqual([p["did"] for p in replay.report(promised)["promised"]], ["d2", "d3"])
+        neutral = replayed(take7("Let me check."))
+        report = replay.report(neutral)
+        self.assertEqual(report["promised"], [])
+        self.assertEqual([did for did, _ in neutral.requests], ["d2", "d3"], "line 3 still reaches Hermes")
+        self.assertEqual("".join(text for t, text in neutral.heard if t < 27.8), "", "lines 0-1 stay quiet")
+        # What happened reaches the voice from Hermes, as d3's own Agent Final Message, and the adapter's own words
+        # about d3 never promise new work either.
+        self.assertIn("d3", report["own_answer_s"])
+        about = ["".join(c.get("text", "") for c in e.get("content", []))
+                 for _, e in neutral.sent if e.get("delegation_item_id") == "d3" and e.get("channel") == "speakable"]
+        answers = [text for text in about if mobile_live.RECEIPT not in text]  # the receipt: the run really runs
+        self.assertTrue(answers[0].startswith(replay.FINAL) and "already going as card 7" in answers[0], about)
+        self.assertFalse([text for text in about if mobile_live.promises_new_work(text)])
+
+    def test_a_request_the_bot_talks_over_is_judged_on_the_whole_utterance(self):
+        # Take 10: the owner began his long-run ask 12 ms after Hermes's answer ended; 1.4 s in, Hermes's voice said
+        # "Right" over him. That output committed his turn as final at "Yeah, merged isn't" (no request in it yet), so
+        # it was taken for people talk and the ask never reached Hermes. His turn.done came 8 s later with all of it.
+        ask = "Yeah, merged isn't done. Get all of it onto my laptop, prove each one, and make it update itself"
+        rows = (GUEST
+                + heard(23.2, 27.8, "Hermes, what's actually on my laptop right now versus the beta", "p2")
+                + heard(22.6, 27.9, "Hermes, what's actually on my laptop right now versus the beta", "g2", "guest")
+                + delegation(27.0, "d2", "Hermes, what's actually on my laptop right now versus the beta")
+                + hermes("d2", 12, "Your laptop runs build 9. The beta has twenty newer changes.")
+                + speech(27.8, 42.6, "Comparing those now. Your laptop runs build 9. The beta has twenty newer "
+                                     "changes.", "a2")
+                + [{"t": 42.63, "src": "provider", "rx": {"type": "turn.created", "turn": {
+                    "id": "p3", "role": "user", "transcript": " Yeah", "start_ms": 41800, "end_ms": 42000}}},
+                   {"t": 43.35, "src": "provider", "rx": {"type": "turn.delta", "turn_id": "p3",
+                                                          "delta": ", merged isn't", "start_ms": 42000,
+                                                          "end_ms": 42700}}]
+                + speech(44.0, 45.0, "Right.", "a3")
+                + [{"t": 47.0, "src": "provider", "rx": {"type": "turn.delta", "turn_id": "p3",
+                                                         "delta": " done. Get all of it onto my laptop",
+                                                         "start_ms": 42700, "end_ms": 46000}}]
+                + delegation(52.1, "d3", ask)
+                + [{"t": 52.3, "src": "provider", "rx": {"type": "turn.done", "turn": {
+                    "id": "p3", "role": "user", "transcript": ask, "start_ms": 41800, "end_ms": 51400}}}]
+                + hermes("d3", 20, "That run is already going as card 7.")
+                # The owner's mic stayed loud through his ask while its words trailed (the trace's input spans)
+                + [{"t": 42.4, "input_loud": True}, {"t": 51.4, "input_loud": False}])
+        r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows, history=PEOPLE)
+        import asyncio
+        asyncio.run(r.run())
+        # On the call the voice obeyed the people note sent at 44.0 s and never delegated; the replay's recorded voice
+        # delegates anyway, so the contract is that no such note goes out while the ask is still being spoken.
+        notes = [t for t, event in r.sent if "talking to each other" in json.dumps(event)]
+        self.assertEqual(notes, [], "no people-talk note while the owner's request to Hermes is still being spoken")
+        self.assertEqual([did for did, _ in r.requests], ["d2", "d3"], "the long-run ask reaches Hermes")
+
+    def test_an_answer_waits_until_the_caller_has_finished_the_next_request(self):
+        # Take 11: Hermes's answer to line 2 reached the voice at 51.0 s, 8 s into the owner's long-run ask (turn.done at
+        # 52.1). The voice answered the ask from it and never handed the ask to Hermes.
+        ask = "Yeah, merged isn't done. Get all of it onto my laptop, prove each one, and make it update itself"
+        words = ask.split()
+        rows = (GUEST
+                + heard(23.2, 27.8, "Hermes, what's actually on my laptop right now versus the beta", "p2")
+                + heard(22.6, 27.9, "Hermes, what's actually on my laptop right now versus the beta", "g2", "guest")
+                + delegation(27.0, "d2", "Hermes, what's actually on my laptop right now versus the beta")
+                + hermes("d2", 24, "Your laptop is on build 30812 from 3:15 this morning, per the card's receipts.")
+                + speech(27.8, 40.9, "Comparing those now. Your laptop is still on last night's build.", "a2")
+                + [{"t": 41.0, "src": "provider", "rx": {"type": "turn.created", "turn": {
+                    "id": "p3", "role": "user", "transcript": "", "start_ms": 40400, "end_ms": 40600}}}]
+                + [{"t": round(41.2 + i * 0.6, 3), "src": "provider", "rx": {
+                    "type": "turn.delta", "turn_id": "p3", "delta": " " + word,
+                    "start_ms": 40600 + i * 600, "end_ms": 41200 + i * 600}} for i, word in enumerate(words)]
+                + delegation(52.0, "d3", ask)
+                + [{"t": 52.1, "src": "provider", "rx": {"type": "turn.done", "turn": {
+                    "id": "p3", "role": "user", "transcript": ask, "start_ms": 40400, "end_ms": 51400}}}]
+                + hermes("d3", 20, "That run is already going as card 7."))
+        r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows, history=PEOPLE)
+        import asyncio
+        asyncio.run(r.run())
+        handed = [t for t, event in r.sent if event.get("type") == "delegation.context.append"]
+        self.assertTrue(handed, "the line-2 answer still reaches the voice")
+        # Until the voice hands the ask on (its delegation at 52.0 s ends the caller's turn), nothing reaches it.
+        self.assertEqual([t for t in handed if 41.0 <= t < 52.0], [], "nothing handed to the voice mid-request")
+        self.assertEqual([did for did, _ in r.requests], ["d2", "d3"])
+
+    def test_an_answer_handed_back_after_people_talk_reaches_the_phone(self):
+        # Take 12, line 3: Hermes's answer came back while Tek spoke, and the friend's reaction to Tek gave the floor
+        # to the people. The primary voice began reading the answer before answer_ready gave it the floor back, and
+        # that reply stayed muted: the phone was silent from 95 s to the end and the answer was dropped as unspoken.
+        answer = "That run is already going as card seven. Your laptop has been on build 30812 since 3:15 this morning."
+        rows = (GUEST
+                + heard(40.2, 52.6, "Hermes, get all of it onto my laptop, prove each one, and send receipts", "p3")
+                + heard(41.6, 52.7, "Hermes, get all of it onto my laptop, prove each one, and send receipts", "g3",
+                        "guest")
+                + delegation(52.2, "d3", "Hermes, get all of it onto my laptop, prove each one, and send receipts")
+                + hermes("d3", 40, answer)
+                + speech(52.8, 56.0, "Let me look into that.", "a3")
+                + heard(65.0, 71.7, "Hey, Tek. While that runs, what actually caused the crash in PR twelve", "g4",
+                        "guest")
+                + heard(65.4, 72.0, "Hey, Tek. While that runs, what actually caused the crash in PR twelve", "p4")
+                + guest_delegation(70.8, "gd4", "Hey Tek, while that runs, what actually caused the crash in PR 12")
+                + guest_speech(72.0, 75.2, "I'll pull that up.", "ga4")
+                + guest_speech(87.2, 93.4, "PR twelve fixed a theme lookup that crashed on launch.", "ga5")
+                # the friend's reaction to Tek; the primary leg's final for it trails by 2 s (take 12: 96.2, 99.0)
+                + heard(93.5, 96.2, "Okay, nice. That's the one I kept hitting", "g5", "guest")
+                + heard(93.6, 99.0, "Okay, nice. That's the one I kept hitting", "p5")
+                + speech(98.98, 112.0, "That's already going as card seven. One correction: your laptop has been on "
+                                       "build 30812 since 3:15 this morning.", "a6"))
+        r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows, history=PEOPLE)
+        import asyncio
+        report = asyncio.run(r.run())
+        heard_after = "".join(text for t, text in r.heard if t >= 98.9)
+        self.assertIn("30812", heard_after, "the answer the voice reads reaches the phone")
+        self.assertEqual(report["lost"], [])
+
+    LINE_3 = ("That run is already going as card seven, so I won't start a second one. The receipts so far are a "
+              "signed build and passing screenshot tests. I can't install anything from this call.")
+
+    def cut_line_3(self, *after, answer=LINE_3, line="Let me check."):
+        """Take 13, line 3 (words changed): Hermes's answer had played one sentence when the friend's "Hey, Tek.
+        While that runs, ..." talked over it; Tek answered, the friend reacted, and the primary voice said nothing
+        more. `after` is what the primary voice says once the floor comes back."""
+        rows = (GUEST
+                + heard(40.2, 52.6, "Hermes, get all of it onto my laptop, prove each one, and send receipts", "p3")
+                + heard(41.6, 52.7, "Hermes, get all of it onto my laptop, prove each one, and send receipts", "g3",
+                        "guest")
+                + delegation(52.2, "d3", "Hermes, get all of it onto my laptop, prove each one, and send receipts")
+                + hermes("d3", 8.9, answer)
+                + speech(52.8, 54.0, line, "a3")
+                + [{"t": 61.9, "output_loud": True}, {"t": 66.7, "output_loud": False}]
+                + speech(61.3, 66.6, "It's still going as card seven, so I won't start a second one.", "a4")
+                + heard(64.4, 66.5, "Hey, Tek. While that runs, what caused the crash in PR twelve", "g4", "guest")
+                + heard(64.8, 66.9, "Hey, Tek. While that runs, what caused the crash in PR twelve", "p4")
+                + guest_delegation(66.8, "gd4", "Hey Tek, while that runs, what caused the crash in PR twelve")
+                + guest_speech(72.0, 75.2, "I'll pull that up.", "ga4")
+                + guest_speech(87.2, 93.4, "PR twelve fixed a theme lookup that crashed on launch.", "ga5")
+                + heard(93.5, 96.2, "Okay, nice. That's the one I kept hitting", "g5", "guest")
+                + heard(93.6, 99.0, "Okay, nice. That's the one I kept hitting", "p5")
+                + list(after)
+                + [{"t": 130.0, "src": "guest", "rx": {"type": "session.usage.updated"}}])
+        r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows, history=PEOPLE)
+        import asyncio
+        return r, asyncio.run(r.run())
+
+    def test_an_answer_a_barge_in_cut_is_lost_unless_its_rest_comes_back(self):
+        from unittest.mock import patch
+        import mobile_live
+        r, report = self.cut_line_3()
+        self.assertIn("floor.barge_in", [ev for _, ev, _ in r.floor], "fixture: the friend's words cut the answer")
+        resumed = [t for t, event in r.sent if "anything from this call" in json.dumps(event) and t > 99]
+        self.assertTrue(resumed, "the rest goes back to the voice once the floor does")
+        self.assertEqual(report["lost"], [], "handed back: the recorded voice never had that hand-back to say")
+        with patch.object(mobile_live.GPTGuest, "cut", lambda g, leg: g.ledger.cut(leg)):  # drops the rest
+            r, report = self.cut_line_3()
+        self.assertEqual([(x["did"], x.get("cut")) for x in report["lost"]], [("d3", True)])
+        r, report = self.cut_line_3(*speech(101.5, 108.0, "The receipts so far are a signed build and passing "
+                                                          "screenshot tests. I can't install anything from this "
+                                                          "call.", "a6"))
+        self.assertIn("anything from this call", "".join(text for t, text in r.heard if t > 100))
+        self.assertEqual(report["lost"], [])
+        self.assertEqual(report["repeats"], [])
+
+    def test_a_paragraph_a_reply_that_ran_its_course_skipped_is_lost_until_handed_again(self):
+        # Take 16, line 3 (words changed): the resumed rest's reply said paragraph 2 and paragraph 3 and ran its
+        # course; paragraph 1 and its card id were never said, and replay reported lost: [].
+        from unittest.mock import patch
+        import mobile_live
+        answer = ("That run is already going as card seven, so I won't start a second one. It is card t_0b17, and it "
+                  "updates the laptop from every green build.\n\nOne correction: your laptop is on build four, not "
+                  "five.\n\nI can't install anything from this call.")
+        after = speech(113.9, 119.5, "One correction, your laptop is on build four, not five. I can't install "
+                                     "anything from this call.", "a6")  # reading the rest handed back at 113.4 s
+        r, report = self.cut_line_3(*after, answer=answer)
+        self.assertTrue([t for t, event in r.sent if "t_0b17" in json.dumps(event) and t > 119.4],
+                        "the skipped paragraph goes back to the voice")
+        self.assertEqual(report["lost"], [])
+        with patch.object(mobile_live.GPTGuest, "retell", lambda g, leg: g.ledger.finished(leg)):  # never hands it
+            r, report = self.cut_line_3(*after, answer=answer)
+        self.assertEqual([(x["did"], x["unsaid"][:16]) for x in report["lost"]], [("d3", "It is card t_0b1")])
+
+    def test_a_hand_off_line_is_muted_at_its_promise_and_judged_by_what_reached_the_phone(self):
+        # Take 16, line 3: the reply opened "Okay, I'll take that"; replay listed it as promised although the floor
+        # had muted it. Muted at "I'll", nothing promising reaches the phone (heard, it is still caught: take 7's
+        # test_the_voice_hands_off_neutrally_and_hermes_says_what_happened).
+        r, report = self.cut_line_3(line="Okay, I'll take that.")
+        self.assertIn("floor.promise_muted", [ev for _, ev, _ in r.floor])
+        self.assertNotIn("take that", "".join(text for t, text in r.heard if 52.8 <= t <= 55.0))
+        self.assertEqual(report["promised"], [])
+
+    def test_an_answer_the_provider_cut_under_the_callers_words_is_lost_until_handed_back(self):
+        # Take 14, line 5 (words changed): the provider ended the reply reading line 3's answer when the friend said
+        # "Okay, nice". No barge-in fired, that turn never closed, the rest was never handed back, and the replay credited
+        # the answer as spoken (floor.answer_spoken) and reported lost: [].
+        answer = ("That run is already going as card seven, so I won't start a second one. The receipts so far are a "
+                  "signed build and passing screenshot tests. I can't install anything from this call.")
+        ask = "Hermes, get all of it onto my laptop, prove each one, and send receipts"
+        okay = {"id": "p5", "role": "user", "transcript": "Okay", "start_ms": 65800, "end_ms": 66000}
+        rows = (GUEST + heard(40.2, 52.6, ask, "p3") + heard(41.6, 52.7, ask, "g3", "guest")
+                + delegation(52.2, "d3", ask) + hermes("d3", 8.9, answer) + speech(52.8, 54.0, "Let me check.", "a3")
+                + speech(61.3, 66.6, "It's still going as card seven, so I won't start a second one.", "a4", span=True)
+                + [{"t": 66.65, "src": "provider", "rx": {"type": "turn.created", "turn": okay}},
+                   {"t": 90.0, "src": "guest", "rx": {"type": "session.usage.updated"}}])
+        r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows, history=PEOPLE)
+        import asyncio
+        report = asyncio.run(r.run())
+        self.assertNotIn("floor.barge_in", [ev for _, ev, d in r.floor if d.get("by") != "provider"],
+                         "fixture: no barge-in of the adapter's own")
+        resumed = [t for t, event in r.sent if "anything from this call" in json.dumps(event) and t > 66.6]
+        self.assertTrue(resumed, "the rest goes back to the voice in the caller's pause")
+        self.assertEqual(report["lost"], [])
+        from unittest.mock import patch
+        import mobile_live
+        with patch.object(mobile_live.GPTGuest, "cut", lambda g, leg: g.ledger.cut(leg)):  # drops the rest
+            report = asyncio.run(replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}]
+                                               + rows, history=PEOPLE).run())
+        self.assertEqual([(x["did"], x.get("cut")) for x in report["lost"]], [("d3", True)])
+
+    def test_a_question_to_tek_heard_as_tech_reaches_teks_hermes(self):
+        # Takes 9 and 14: both legs transcribed "Hey, Tek" as "Hey, Tech", the floor took line 4 for people talk,
+        # and Tek's Hermes was never asked about PR 28.
+        rows = [json.loads(json.dumps(row).replace("Hey, Tek.", "Hey, Tech.").replace("Hey Tek,", "Hey Tech,"))
+                for row in take7()]
+        r = replayed(rows)
+        report = replay.report(r)
+        self.assertTrue(any("dark mode crash" in request for _, request in r.guest_asked), r.guest_asked)
+        self.assertEqual(report["unasked"], [])
+
+    def test_a_fixture_keeps_when_the_phone_heard_output_and_teks_answers(self):
+        # Without the loud output a replay never sees a barge-in, and without Tek's answer it hears a made-up one.
+        with tempfile.TemporaryDirectory() as tmp:
+            trace = Path(tmp) / "call.jsonl"
+            trace.write_text("".join(json.dumps(row) + "\n" for row in [
+                {"t": 61.919, "ev": "audio.on", "dir": "output", "peak": 3628},
+                {"t": 62.2, "ev": "audio.on", "dir": "input", "peak": 4138},
+                {"t": 67.005, "ev": "audio.off", "dir": "output", "at": 66.704},
+                {"t": 71.9, "ev": "guest.delegation.start", "did": "gd4"},
+                {"t": 90.6, "ev": "guest.delegation.done", "did": "gd4", "answer": "A startup timing bug."}]))
+            rows = replay.fixture(trace)
+        self.assertEqual(rows, [{"t": 61.919, "output_loud": True}, {"t": 62.2, "input_loud": True},
+                                {"t": 66.704, "output_loud": False},
+                                {"t": 90.6, "cost": "guest", "work": 18.7, "answer": "A startup timing bug."}])
+
+    def test_a_fixture_keeps_the_calls_people_count(self):
+        # Take 12's people count came from the chat the call opened on; a fixture cut from its trace replayed it as a
+        # call with one person, so the floor never went to the people and the muted answer was never seen.
+        with tempfile.TemporaryDirectory() as tmp:
+            trace = Path(tmp) / "call.jsonl"
+            trace.write_text(json.dumps({"t": 0.7, "ev": "floor.people", "people": 2}) + "\n")
+            rows = replay.fixture(trace)
+        self.assertEqual(rows, [{"t": 0.7, "people": 2}])
+        r = replay.Replay(rows + [{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}])
+        import call_brief
+        self.assertEqual(call_brief.people(r.history), 2)
+
+    def test_a_question_named_to_tek_on_one_leg_stays_with_tek_when_the_other_leg_mishears_the_name(self):
+        # Take 9: Hermes's leg heard "Hey Tek, while" and gave Tek the floor mid-line; Tek's own leg heard "Hey Tech,
+        # while that runs ..." and its delegation (that leg's final) found no name in it, so the same utterance was
+        # taken for people talk: the floor went to the people, Tek's Hermes was never asked and Tek stayed silent.
+        rows = (GUEST
+                + heard(23.2, 27.8, "Hermes, what's actually on my laptop right now versus the beta", "p2")
+                + heard(22.6, 27.9, "Hermes, what's actually on my laptop right now versus the beta", "g2", "guest")
+                + delegation(27.0, "d2", "Hermes, what's actually on my laptop right now versus the beta")
+                + hermes("d2", 12, "Your laptop runs build 9. The beta has twenty newer changes.")
+                + speech(28.0, 40.9, "Your laptop runs build 9. The beta has twenty newer changes.", "a2")
+                + heard(65.0, 71.7, "Hey Tek, while that runs, what actually caused the dark mode crash in PR "
+                                    "twelve", "p4")
+                # Tek's leg kept the turn open: no turn.done, no reply of its own after its delegation (take 9).
+                + heard(65.4, 72.0, "Hey Tech, while that runs, what actually caused the dark mode crash in PR "
+                                    "twelve", "g4", "guest")[:2]
+                + guest_delegation(71.6, "gd4", "Tech, while that runs, what actually caused the dark mode crash "
+                                                "in PR twelve")
+                + [{"t": 90.0, "src": "guest", "rx": {"type": "session.usage.updated"}}])
+        r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows, history=PEOPLE)
+        import asyncio
+        asyncio.run(r.run())
+        self.assertEqual([did for did, _ in r.requests], ["d2"], "Hermes runs only the request to it")
+        self.assertEqual(len(r.guest_asked), 1, "Tek's Hermes runs the question to Tek")
+        self.assertIn("crash in PR twelve", r.guest_asked[0][1])
 
 
 if __name__ == "__main__":
