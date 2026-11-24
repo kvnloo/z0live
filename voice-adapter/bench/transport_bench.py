@@ -34,6 +34,11 @@ transport_bench/2 (track F4a) adds, without changing any /1 key:
 transport_bench/3: measurement identical to /2. --prefetch unset now means the adapter's own default
                (Z0LIVE_UPLINK_PREFETCH, 2 since F4a); --prefetch N pins both that knob and the receiver, so the
                stock-aiortc arm is `--prefetch 4`. config.jitter_buffer records the buffer type/prefetch actually used.
+transport_bench/4 (track F4c): measurement identical to /3; the five /2 schedules are byte-identical.
+  --condition reorder  3 % of packets (seeded, separate RNG stream) delayed 65 ms, no loss, no jitter.
+  --drain      sets Z0LIVE_UPLINK_DRAIN=1 (R13 drain-1 buffer, audio_drain.py; replaces the stock buffer, so the
+               prefetch knob does not apply). Its counters appear in shaped.adaptive_counts_window (key kept from /2).
+  Worst inter-append pause at the provider = shaped.longest_provider_gap_ms (unchanged since /2).
 """
 from __future__ import annotations
 
@@ -52,7 +57,7 @@ import wave
 from collections import defaultdict
 from pathlib import Path
 
-VERSION = "transport_bench/3"
+VERSION = "transport_bench/4"
 NS = time.perf_counter_ns
 HERE = Path(__file__).resolve().parent
 ADAPTER_DIR = HERE.parent
@@ -72,6 +77,8 @@ CONDITIONS = {
     "jitter25": {"scale": 25, "loss": 0.0, "freeze": False},
     "loss1_jitter5": {"scale": 5, "loss": 0.01, "freeze": False},
     "freeze300_loss1": {"scale": 0, "loss": 0.01, "freeze": True},
+    # /4: 3 % of packets (seeded, own RNG stream) arrive 65 ms late = reordered ~3 places; no loss, no jitter.
+    "reorder": {"scale": 0, "loss": 0.0, "freeze": False, "reorder": 0.03, "reorder_ms": 65.0},
 }
 SHAPE_HEAD = 50          # first 1 s unshaped: stable origin for aiortc's jitter buffer and timestamp mapper
 FREEZE_AT_MS = 15000     # media time of the freeze start (inside the scored window for --warmup 3 --seconds 30)
@@ -83,9 +90,13 @@ def shape_schedule(condition: str, seed: int, n: int) -> list:
     c = CONDITIONS[condition]
     rng = random.Random(f"{seed}:{condition}")
     scale, out = c["scale"], []
+    reorder = c.get("reorder", 0.0)
+    rrng = random.Random(f"{seed}:{condition}:reorder")  # separate stream: /2-/3 conditions keep their schedules
     for i in range(n):
         g, lomax, u = rng.gauss(0.0, 1.0), rng.paretovariate(2.5) - 1.0, rng.random()  # common draws
         d = max(0.0, scale * (1.5 + 0.5 * g + 0.35 * lomax)) if scale else 0.0
+        if reorder and rrng.random() < reorder:
+            d += c["reorder_ms"]
         a = 20.0 * i + d
         if c["freeze"] and FREEZE_AT_MS <= a < FREEZE_AT_MS + FREEZE_MS:
             a = FREEZE_AT_MS + FREEZE_MS
@@ -766,6 +777,11 @@ async def adapter(args):
         os.environ["Z0LIVE_ADAPTIVE_UPLINK_JITTER"] = "1"
     else:
         os.environ.pop("Z0LIVE_ADAPTIVE_UPLINK_JITTER", None)
+    if args.drain:
+        assert not args.adaptive and args.prefetch is None, "--drain replaces the stock buffer; use it alone"
+        os.environ["Z0LIVE_UPLINK_DRAIN"] = "1"
+    else:
+        os.environ.pop("Z0LIVE_UPLINK_DRAIN", None)
     import mobile_live as live
     import grok_leg
     from aiohttp import ClientSession
@@ -833,7 +849,7 @@ async def adapter(args):
     res["config"] = {"seconds": args.seconds, "warmup": args.warmup, "reply_chunk_ms": args.reply_chunk_ms,
                      "hops": args.hops, "qos": args.qos, "python": sys.version.split()[0], "engine": "grok", "frame_ms": 20,
                      "condition": args.condition, "seed": args.seed, "shaper": CONDITIONS[args.condition],
-                     "prefetch": args.prefetch, "adaptive": args.adaptive, "jitter_buffer": jb_info}
+                     "prefetch": args.prefetch, "adaptive": args.adaptive, "drain": args.drain, "jitter_buffer": jb_info}
     sh = shaped(probe, w, t_lo, t_hi)
     if sh:
         t_first = w["shape"][0][2]
@@ -876,6 +892,7 @@ def main():
                     help="pin the adapter phone-audio aiortc JitterBuffer prefetch (aiortc stock = 4); unset = adapter "
                          "default (Z0LIVE_UPLINK_PREFETCH, 2 since F4a). The used value is in config.jitter_buffer.")
     ap.add_argument("--adaptive", action="store_true", help="Z0LIVE_ADAPTIVE_UPLINK_JITTER=1 (R10 clocked buffer)")
+    ap.add_argument("--drain", action="store_true", help="Z0LIVE_UPLINK_DRAIN=1 (R13 drain-1 buffer, prefetch 1)")
     ap.add_argument("--fixtures", default=str(Path(os.environ.get("TMPDIR", tempfile.gettempdir())) / "transport_bench_fx"))
     ap.add_argument("--workdir", default="")
     ap.add_argument("--world-out", default="")
