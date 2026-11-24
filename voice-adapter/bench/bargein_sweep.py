@@ -142,6 +142,8 @@ def main():
     p.add_argument("--twocue-db", type=float, default=None)
     p.add_argument("--only-arms", default=None, help="harness run filter pass-through, e.g. U,W (A, B always run)")
     p.add_argument("--bot-render", choices=("periodic", "recorded"), default="periodic")
+    p.add_argument("--clip-set", choices=("single", "multi"), default="single",
+                   help="bargein_replay/22 pass-through: multi = six-speaker clip set (needs --bot-render recorded)")
     p.add_argument("--rhos", default=",".join(map(str, RHOS)), help="arm C rho values, e.g. 0.9 (default 0.7,0.9)")
     p.add_argument("--arm-d", action="store_true", help="also run arm D (energy-ratio gate, bargein_replay/4)")
     p.add_argument("--energy-k-db", type=float, default=-6.0)
@@ -167,6 +169,8 @@ def main():
         extra += ["--echo-erle-db", a.echo_erle_db]
     if a.bot_render != "periodic":
         extra += ["--bot-render", a.bot_render]
+    if a.clip_set != "single":  # bargein_replay/22 (A-bargein-Z)
+        extra += ["--clip-set", a.clip_set]
     if a.arm_d:
         extra += ["--arm-d", "--energy-k-db", str(a.energy_k_db), "--energy-min-speech-ms", str(a.energy_min_speech_ms)]
     if a.arm_e:

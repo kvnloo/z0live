@@ -126,6 +126,12 @@ Arm Y (--arm-y --twocue-db M, needs --arm-x and shares its --dtfreeze-db, opt-in
   exceed the canceller's own a-priori echo prediction (current filter applied to the render) by more than M dB, so
   an ERLE dip on echo alone no longer freezes adaptation. The decision rules are U's. See ErleTwoCueGate.
 
+Clip set (--clip-set multi, opt-in, needs --bot-render recorded, output marked bargein_replay/22; every arm, gate and
+  constant unchanged): caller and bot clips come from fixtures/bargein/multi/ (0.85 s LibriSpeech dev-clean excerpts of
+  six speakers other than 2277, three male and three female) instead of the two 2277 clips, and the bot render is a
+  seeded rotation (own RNG stream) of a clip whose SPEAKER differs from the caller clip's; trial rows log bot_speaker
+  and mic_speaker. The default (single) set is untouched, so default bytes are unchanged.
+
 Stress flags (opt-in, output marked bargein_replay/5; without them nothing changes):
   --caller-level-db-range LO,HI  per valid trial, caller gain g ~ U(LO, HI) dB
             relative to the fixture level (bot render stays at its level), drawn
@@ -196,6 +202,8 @@ HARNESS_NODUCK = "bargein_replay/18"  # only with --arm-u (17 was arm T, reverte
 HARNESS_QUIET = "bargein_replay/19"  # only with --arm-w
 HARNESS_DTFREEZE = "bargein_replay/20"  # only with --arm-x
 HARNESS_TWOCUE = "bargein_replay/21"  # only with --arm-y
+HARNESS_SPEAKERS = "bargein_replay/22"  # only with --clip-set multi
+ASSETS_MULTI = ASSETS / "multi"  # --clip-set multi; ASSETS.glob("*.wav") is not recursive, so the default set is unchanged
 ERL_DB_RANGE = (6, 20)
 REFLECTIONS = 12
 
@@ -1371,6 +1379,25 @@ def recorded_bot(seed, index, clips, names, exclude):
     return names[k], offset, bot
 
 
+def speaker_of(name):
+    """LibriSpeech speaker id of a fixture file name (<speaker>-<chapter>-<utterance>.wav)."""
+    return name.split("-")[0]
+
+
+def multi_speaker_bot(seed, index, clips, names, exclude):
+    """bargein_replay/22 bot render: a seeded rotation of a multi-set clip whose SPEAKER is not `exclude` (the
+    caller's speaker; None on negative trials). Own RNG stream, like bargein_replay/3."""
+    candidates = [k for k, name in enumerate(names) if speaker_of(name) != exclude]
+    assert candidates, "no recorded bot clip from a speaker other than the caller's"
+    rng = Random(f"{HARNESS_SPEAKERS}:bot:{seed}:{index}")
+    k = rng.choice(candidates)
+    source = clips[k]
+    offset = rng.randrange(len(source))
+    bot = array("h", (source[(offset + i) % len(source)] for i in range(BOT_MS * SAMPLES_MS)))
+    assert speaker_of(names[k]) != exclude
+    return names[k], offset, bot
+
+
 def caller_gain_db(seed, index, level_range):
     """bargein_replay/5 per-trial caller gain in dB, from its own RNG (other streams untouched)."""
     return Random(f"{HARNESS_STRESS}:caller:{seed}:{index}").uniform(*level_range)
@@ -1381,9 +1408,13 @@ def scaled(samples, gain_db):
     return array("h", (max(-32768, min(32767, round(v * scale))) for v in samples))
 
 
-def stimuli(n, seed, echo_model="copy", bot_render="periodic", caller_level_db_range=None, erl_db_range=None):
+def stimuli(n, seed, echo_model="copy", bot_render="periodic", caller_level_db_range=None, erl_db_range=None,
+            clip_set="single"):
+    multi = clip_set == "multi"  # bargein_replay/22: other-speaker clip set, bot speaker != caller speaker
+    if clip_set not in ("single", "multi") or (multi and bot_render != "recorded"):
+        raise ValueError("clip_set multi needs bot_render recorded")
     rng = Random(seed)
-    paths = sorted(ASSETS.glob("*.wav"))
+    paths = sorted((ASSETS_MULTI if multi else ASSETS).glob("*.wav"))
     names = [path.name for path in paths]
     clips = [clip(path) for path in paths]
     if not clips:
@@ -1415,7 +1446,15 @@ def stimuli(n, seed, echo_model="copy", bot_render="periodic", caller_level_db_r
             mic_clip = next((names[k] for k, c in enumerate(clips) if c is mic), None)
             assert (mic_clip is not None) == (kind == "valid")
             trial["mic_clip"] = mic_clip
-            trial["bot_clip"], trial["bot_offset"], trial["bot"] = recorded_bot(seed, index, clips, names, mic_clip)
+            if multi:
+                trial["mic_speaker"] = speaker_of(mic_clip) if mic_clip is not None else None
+                trial["bot_clip"], trial["bot_offset"], trial["bot"] = multi_speaker_bot(
+                    seed, index, clips, names, trial["mic_speaker"])
+                trial["bot_speaker"] = speaker_of(trial["bot_clip"])
+                assert trial["bot_speaker"] != trial["mic_speaker"]  # never the caller's speaker
+            else:
+                trial["bot_clip"], trial["bot_offset"], trial["bot"] = recorded_bot(seed, index, clips, names,
+                                                                                     mic_clip)
             assert trial["bot_clip"] != mic_clip  # bot render never reuses the caller's onset clip
         if caller_level_db_range and kind == "valid":
             trial["caller_gain_db"] = caller_gain_db(seed, index, caller_level_db_range)
@@ -1741,6 +1780,8 @@ def replay(trial, arm, cfg, bot):
         row["_veto"] = ngate.twocue_vetoed
     if "bot" in trial:
         row["bot_render"] = dict(clip=trial["bot_clip"], offset=trial["bot_offset"], mic_clip=trial["mic_clip"])
+        if "bot_speaker" in trial:  # bargein_replay/22 only
+            row["bot_render"].update(bot_speaker=trial["bot_speaker"], mic_speaker=trial["mic_speaker"])
     if arm in ("Q", "R", "S", "U", "W", "X", "Y"):  # bargein_replay/14 duck bookkeeping (adapter clock; /15 R, /16 S, /18 U the same)
         ducks, unducks = trace.get("duck_ms", []), trace.get("unduck_ms", [])
         row["ducks"] = len(ducks)
@@ -1774,7 +1815,10 @@ def run(n, seed, cfg, bot):
     recorded = bot_render == "recorded"
     stress = {k: getattr(cfg, k, None) for k in ("caller_level_db_range", "erl_db_range")}
     stress = {k: tuple(v) for k, v in stress.items() if v is not None}
-    if stress:
+    multi = getattr(cfg, "clip_set", "single") == "multi"  # bargein_replay/22
+    if multi:
+        cases = list(stimuli(n, seed, echo_model, bot_render, **stress, clip_set="multi"))
+    elif stress:
         cases = list(stimuli(n, seed, echo_model, bot_render, **stress))
     else:
         cases = list(stimuli(n, seed, echo_model, bot_render)) if recorded else list(stimuli(n, seed, echo_model))
@@ -1818,6 +1862,7 @@ def run(n, seed, cfg, bot):
         and (arm_e or not k.startswith("erl_") or k == "erl_db_range")  # erl_db_range: bargein_replay/5 stress
         and (k != "echo_model" or echo_model != "copy")
         and (k != "bot_render" or recorded)
+        and (k != "clip_set" or multi)  # bargein_replay/22 only when multi
         and (k not in ("caller_level_db_range", "erl_db_range") or v is not None)
         and (k != "echo_continuous" or v)  # bargein_replay/7 only when on
         and (k != "echo_erle_db" or v is not None)  # bargein_replay/8 only when set
@@ -1858,6 +1903,8 @@ def run(n, seed, cfg, bot):
         result["harness"] = HARNESS_DTFREEZE
     if arm_y:
         result["harness"] = HARNESS_TWOCUE
+    if multi:
+        result["harness"] = HARNESS_SPEAKERS
     arms = ("A", "B", "C") if arm_c else ("A", "B")
     arms += (("D",) if arm_d else ()) + (("E",) if arm_e else ()) + (("E2",) if arm_e2 else ())
     arms += (("F",) if arm_f else ()) + (("F2",) if arm_f2 else ())
@@ -2126,6 +2173,9 @@ def main():
                         "the bot plays, not only in the event window")
     parser.add_argument("--bot-render", choices=("periodic", "recorded"), default="periodic",
                         help="recorded: bargein_replay/3 LibriSpeech bot render disjoint from the caller clip")
+    parser.add_argument("--clip-set", choices=("single", "multi"), default="single",
+                        help="multi (bargein_replay/22, needs --bot-render recorded): caller and bot clips from the "
+                             "bundled six-speaker set in fixtures/bargein/multi, bot speaker never the caller's")
     parser.add_argument("--caller-level-db-range", type=db_range, default=None, metavar="LO,HI",
                         help="bargein_replay/5: per valid trial caller gain U(LO, HI) dB, own RNG stream")
     parser.add_argument("--erl-db-range", type=db_range, default=None, metavar="LO,HI",
@@ -2156,6 +2206,8 @@ def main():
     if cfg.erl_db_range and (cfg.echo_model != "residual" or not 0 <= cfg.erl_db_range[0] <= cfg.erl_db_range[1] <= 60):
         parser.error("ERL range needs --echo-model residual and 0 <= LO <= HI <= 60 dB")
 
+    if cfg.clip_set == "multi" and cfg.bot_render != "recorded":
+        parser.error("--clip-set multi needs --bot-render recorded")
     if cfg.echo_continuous and cfg.echo_model != "residual":
         parser.error("--echo-continuous needs --echo-model residual")
 

@@ -1,12 +1,12 @@
-name: z0live barge-in A-bargein-Y, arm Y (two-cue ERLE-drop adaptation freeze) vs arm U on fresh seeds 33000-33095 (S1, S0, FULL; CPU, stdlib)
-# A-bargein-Y: one change on top of arm X (bargein_replay/21, offline virtual-time sim, Python stdlib only, no network,
-# no secrets). Arm Y = arm X whose adaptation freeze also needs the packet's capture energy to exceed the canceller's
-# own a-priori echo prediction (current filter applied to the render) by more than --twocue-db, so an ERLE dip on
-# echo alone no longer freezes. No speech, onset or commit rule changes. This branch reuses the registered
-# text-climb.yml file name so `gh workflow run text-climb.yml --ref <branch>` can dispatch it.
-# --only-arms U,Y skips the arms O, Q, S and X (A and B always run); unit-tested not to change the arms that run.
-# Seeds 33000-33095 (never used before), two seeds per shard (matrix value = first seed, the shard runs first..+1),
-# 48 shards in seed order, so the first shards (holding the local-recompute seeds 33000 and 33004) start first.
+name: z0live barge-in A-bargein-Z, arm U vs arm Q with different-speaker caller/bot clips (--clip-set multi) on fresh seeds 34000-34095 (S1, S0, FULL; CPU, stdlib)
+# A-bargein-Z: one change on the stimulus side (bargein_replay/22, offline virtual-time sim, Python stdlib only, no
+# network, no secrets). --clip-set multi draws caller and bot clips from a bundled set of six LibriSpeech dev-clean
+# speakers other than 2277 (three male, three female), and the bot clip's speaker always differs from the caller
+# clip's. No arm, gate or constant changes. This branch reuses the registered text-climb.yml file name so
+# `gh workflow run text-climb.yml --ref <branch>` can dispatch it.
+# --only-arms Q,U skips the arms O and S (A and B always run); unit-tested not to change the arms that run.
+# Seeds 34000-34095 (never used before), two seeds per shard (matrix value = first seed, the shard runs first..+1),
+# 48 shards in seed order, so the first shards (holding the local-recompute seeds 34000 and 34002) start first.
 # Three conditions per shard as parallel processes: S1 quiet caller (--caller-level-db-range -10,0) -> out/s1,
 # S0 unstressed -> out/s0, FULL (S1 + --erl-db-range 0,6) -> out/full. No holdout seed in this slot.
 on:
@@ -27,10 +27,10 @@ jobs:
       fail-fast: false
       max-parallel: 10
       matrix:
-        first: [33000, 33002, 33004, 33006, 33008, 33010, 33012, 33014, 33016, 33018, 33020, 33022,
-                33024, 33026, 33028, 33030, 33032, 33034, 33036, 33038, 33040, 33042, 33044, 33046,
-                33048, 33050, 33052, 33054, 33056, 33058, 33060, 33062, 33064, 33066, 33068, 33070,
-                33072, 33074, 33076, 33078, 33080, 33082, 33084, 33086, 33088, 33090, 33092, 33094]
+        first: [34000, 34002, 34004, 34006, 34008, 34010, 34012, 34014, 34016, 34018, 34020, 34022,
+                34024, 34026, 34028, 34030, 34032, 34034, 34036, 34038, 34040, 34042, 34044, 34046,
+                34048, 34050, 34052, 34054, 34056, 34058, 34060, 34062, 34064, 34066, 34068, 34070,
+                34072, 34074, 34076, 34078, 34080, 34082, 34084, 34086, 34088, 34090, 34092, 34094]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -51,10 +51,10 @@ jobs:
           cd voice-adapter
           seeds="$FIRST-$((FIRST + 1))"
           common=(--seeds "$seeds" --jobs 2 --echo-model residual --echo-continuous
-                  --bot-render recorded --rhos none --energy-k-db -12 --energy-min-speech-ms 30
+                  --bot-render recorded --clip-set multi --rhos none --energy-k-db -12 --energy-min-speech-ms 30
                   --resid-threshold 1360 --arm-o --guard-erle-db 6 --guard-margin-db 3 --guard-packets 5
                   --arm-q --duck-commit-ms 100 --duck-window-ms 300 --arm-s --prearm-rms 5000 --arm-u
-                  --arm-x --dtfreeze-db 8 --arm-y --twocue-db 1 --only-arms U,Y)
+                  --only-arms Q,U)
           t0=$(date +%s)
           python -B bench/bargein_sweep.py "${common[@]}" --out ../out/s1 --caller-level-db-range=-10,0 > ../s1.log &
           p1=$!

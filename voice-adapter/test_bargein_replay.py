@@ -2602,5 +2602,138 @@ class ErleTwoCueGateTest(unittest.TestCase):
             self.assertEqual(sorted(res['arms']), ['A', 'B', 'U', 'Y'])
 
 
+Y21_ARGS = (*X20_ARGS[:-2], '--arm-y', '--twocue-db', '1.5', '--only-arms', 'U,Y')
+Y21_SHA256 = 'a7ac3b36805722f4765ed64bea24ca7ecbcea658c5568a7eb28117915ccb5a47'  # computed on the unchanged /21 harness
+# bundled multi-speaker set (LibriSpeech dev-clean SPEAKERS.TXT sex column); none is 2277, the default clips' speaker
+MULTI_SPEAKERS = {'1272': 'M', '174': 'M', '2803': 'M', '84': 'F', '1462': 'F', '5338': 'F'}
+QU_MULTI_ARGS = ('--trials', '20', '--echo-model', 'residual', '--echo-continuous', '--bot-render', 'recorded',
+                 '--clip-set', 'multi', '--energy-k-db=-12', '--energy-min-speech-ms', '30', '--resid-threshold',
+                 '1360', '--arm-o', '--guard-packets', '5', '--arm-q', '--duck-window-ms', '300', '--arm-s',
+                 '--prearm-rms', '5000', '--arm-u', '--only-arms', 'Q,U', '--caller-level-db-range=-10,0')
+
+
+class MultiSpeakerClipSetTest(unittest.TestCase):
+    """bargein_replay/22: opt-in --clip-set multi (needs --bot-render recorded). Caller and bot clips come from a
+    bundled set of 0.85 s LibriSpeech dev-clean excerpts of six other speakers (three male, three female) in
+    fixtures/bargein/multi/, and the bot clip is always a different SPEAKER from the caller clip (the default set
+    has one speaker, so its bot clip is only a different clip). No gate, arm or constant changes."""
+
+    def test_harness_id(self):
+        self.assertEqual(replay.HARNESS_SPEAKERS, 'bargein_replay/22')
+
+    def test_multi_set_loads_six_speakers_both_sexes(self):
+        paths = sorted(replay.ASSETS_MULTI.glob('*.wav'))
+        speakers = {replay.speaker_of(p.name) for p in paths}
+        self.assertEqual(speakers, set(MULTI_SPEAKERS))
+        self.assertGreaterEqual(len(speakers), 4)
+        self.assertNotIn('2277', speakers)
+        self.assertEqual(set(MULTI_SPEAKERS.values()), {'M', 'F'})
+        self.assertLess(sum(p.stat().st_size for p in paths), 1_000_000)
+        for p in paths:
+            with replay.wave.open(str(p), 'rb') as w:
+                self.assertEqual((w.getframerate(), w.getnchannels(), w.getsampwidth(), w.getnframes()),
+                                 (16000, 1, 2, 13600), p.name)
+            samples = replay.clip(p)
+            self.assertEqual(max(map(abs, samples)), 17500)  # peak-normalized like the default clips
+            # onset- and level-matched to the 2277 clips: speech within the first 20 ms, normalized RMS >= 3645
+            # and >= 71 % of frames >= 1360 RMS (checked with 1 % slack for the harness's integer rounding)
+            self.assertGreaterEqual(sum(v * v for v in samples) / len(samples), (0.99 * 3645) ** 2, p.name)
+            frames = [samples[i:i + 160] for i in range(0, len(samples) - 159, 160)]
+            hot = [sum(v * v for v in f) >= 160 * 1360 ** 2 for f in frames]
+            self.assertGreaterEqual(sum(hot), 0.70 * len(frames), p.name)
+            self.assertTrue(hot[0] or hot[1], p.name)
+        readme = (replay.ASSETS / 'README.md').read_text()
+        for p in paths:
+            self.assertIn(p.name, readme)
+        # the default glob is not recursive: the default set still has exactly the two 2277 clips
+        self.assertEqual(sorted(p.name for p in replay.ASSETS.glob('*.wav')),
+                         ['2277-149896-0005.wav', '2277-149896-0026.wav'])
+
+    def test_bot_speaker_never_caller_speaker(self):
+        clips = {p.name: replay.clip(p) for p in sorted(replay.ASSETS_MULTI.glob('*.wav'))}
+        for seed in (39, 34900, 34901):
+            trials = list(replay.stimuli(200, seed, 'residual', 'recorded', clip_set='multi'))
+            valid = [t for t in trials if t['kind'] == 'valid']
+            self.assertEqual(len(valid), 140)
+            for t in trials:
+                self.assertIn(t['bot_clip'], clips)
+                self.assertEqual(t['bot_speaker'], replay.speaker_of(t['bot_clip']))
+                source, off = clips[t['bot_clip']], t['bot_offset']
+                self.assertEqual(list(t['bot'][:800]), [source[(off + i) % len(source)] for i in range(800)])
+                if t['kind'] == 'valid':
+                    self.assertEqual(clips[t['mic_clip']], t['mic'])
+                    self.assertEqual(t['mic_speaker'], replay.speaker_of(t['mic_clip']))
+                    self.assertNotEqual(t['bot_speaker'], t['mic_speaker'])
+                else:
+                    self.assertIsNone(t['mic_clip'])
+                    self.assertIsNone(t['mic_speaker'])
+            self.assertGreaterEqual(len({t['mic_speaker'] for t in valid}), 4)
+            self.assertGreaterEqual(len({t['bot_speaker'] for t in trials}), 4)
+        with self.assertRaises(AssertionError):
+            names = ['84-1-1.wav', '84-1-2.wav']
+            replay.multi_speaker_bot(39, 0, [clips['84-121123-0018.wav']] * 2, names, exclude='84')
+        with self.assertRaises(ValueError):
+            list(replay.stimuli(10, 39, 'residual', 'periodic', clip_set='multi'))
+
+    def test_default_set_unchanged(self):
+        plain = list(replay.stimuli(60, 39, 'residual', 'recorded'))
+        single = list(replay.stimuli(60, 39, 'residual', 'recorded', clip_set='single'))
+        self.assertEqual([(t['mic_clip'], t['bot_clip'], t['bot_offset'], t['bot'], t['mic']) for t in plain],
+                         [(t['mic_clip'], t['bot_clip'], t['bot_offset'], t['bot'], t['mic']) for t in single])
+        self.assertNotIn('bot_speaker', plain[0])
+        proc, data = run_cli('--seed', '39')
+        self.assertEqual(sha256(data).hexdigest(), REFERENCE_SHA256)
+        proc, data = run_cli(*U18_ARGS)
+        self.assertEqual(sha256(data).hexdigest(), U18_SHA256)
+        proc, data = run_cli(*Y21_ARGS)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sha256(data).hexdigest(), Y21_SHA256)  # bargein_replay/21 bytes unchanged
+        proc, data = run_cli(*Y21_ARGS, '--clip-set', 'single')
+        self.assertEqual(sha256(data).hexdigest(), Y21_SHA256)  # explicit default == no flag
+
+    def test_cli_multi_marks_v22_aa_and_speakers(self):
+        proc, data = run_cli('--seed', '34900', *QU_MULTI_ARGS, '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIs(json.loads(proc.stdout)['aa_identical'], True)
+        d = json.loads(data)
+        self.assertEqual(d['harness'], 'bargein_replay/22')
+        self.assertEqual(d['parameters']['clip_set'], 'multi')
+        self.assertEqual(sorted(d['arms']), ['A', 'B', 'Q', 'U'])
+        for arm in ('Q', 'U'):
+            for row in d['arms'][arm]['trials']:
+                br = row['bot_render']
+                self.assertEqual(br['bot_speaker'], br['clip'].split('-')[0])
+                if row['kind'] == 'valid':
+                    self.assertNotEqual(br['bot_speaker'], br['mic_speaker'])
+        proc2, again = run_cli('--seed', '34900', *QU_MULTI_ARGS)
+        self.assertEqual(sha256(again).hexdigest(), sha256(data).hexdigest())
+        # without --clip-set the same flags give the old harness id and no clip_set parameter
+        args = list(QU_MULTI_ARGS)
+        del args[7:9]
+        proc, old = run_cli('--seed', '34900', *args)
+        o = json.loads(old)
+        self.assertEqual(o['harness'], 'bargein_replay/18')
+        self.assertNotIn('clip_set', o['parameters'])
+        self.assertNotIn('bot_speaker', o['arms']['U']['trials'][0]['bot_render'])
+        proc, _ = run_cli('--seed', '39', '--trials', '10', '--echo-model', 'residual', '--clip-set', 'multi')
+        self.assertNotEqual(proc.returncode, 0)  # multi needs --bot-render recorded
+
+    def test_sweep_passes_clip_set(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([sys.executable, '-B', str(BENCH_DIR / 'bargein_sweep.py'), '--seeds', '39', '--trials', '10',
+                            '--echo-model', 'residual', '--echo-continuous', '--bot-render', 'recorded',
+                            '--clip-set', 'multi', '--rhos', 'none', '--energy-k-db', '-12',
+                            '--energy-min-speech-ms', '30', '--arm-o', '--resid-threshold', '1360',
+                            '--guard-packets', '5', '--guard-margin-db', '3', '--arm-q', '--duck-commit-ms', '100',
+                            '--duck-window-ms', '300', '--arm-s', '--prearm-rms', '5000', '--arm-u',
+                            '--only-arms', 'Q,U', '--out', tmp],
+                           check=True, capture_output=True, timeout=900)
+            res = json.loads(Path(tmp, 'seed-39.json').read_text())
+            self.assertEqual(res['harness'], 'bargein_replay/22')
+            self.assertEqual(res['extra_args'][:7], ['--echo-model', 'residual', '--echo-continuous', '--bot-render',
+                                                     'recorded', '--clip-set', 'multi'])
+            self.assertEqual(sorted(res['arms']), ['A', 'B', 'Q', 'U'])
+
+
 if __name__ == '__main__':
     unittest.main()
