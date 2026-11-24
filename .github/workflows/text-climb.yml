@@ -1,12 +1,12 @@
-name: z0live barge-in A-bargein-X, arm X (ERLE-drop adaptation freeze) vs arm U on fresh seeds 32000-32095 (S1, S0, FULL; CPU, stdlib)
-# A-bargein-X: one change on top of arm U (bargein_replay/20, offline virtual-time sim, Python stdlib only, no network,
-# no secrets). Arm X = arm U whose NLMS canceller, once armed, also freezes adaptation (Geigel freeze + hangover) on
-# a packet whose a-priori ERLE is more than --dtfreeze-db below the canceller's own ERLE monitor, so quiet double
-# talk is not adapted away. No speech, onset or commit rule changes. This branch reuses the registered
+name: z0live barge-in A-bargein-Y, arm Y (two-cue ERLE-drop adaptation freeze) vs arm U on fresh seeds 33000-33095 (S1, S0, FULL; CPU, stdlib)
+# A-bargein-Y: one change on top of arm X (bargein_replay/21, offline virtual-time sim, Python stdlib only, no network,
+# no secrets). Arm Y = arm X whose adaptation freeze also needs the packet's capture energy to exceed the canceller's
+# own a-priori echo prediction (current filter applied to the render) by more than --twocue-db, so an ERLE dip on
+# echo alone no longer freezes. No speech, onset or commit rule changes. This branch reuses the registered
 # text-climb.yml file name so `gh workflow run text-climb.yml --ref <branch>` can dispatch it.
-# --only-arms U,X skips the reference arms O, Q and S (A and B always run); unit-tested not to change the arms that run.
-# Seeds 32000-32095 (never used before), two seeds per shard (matrix value = first seed, the shard runs first..+1),
-# 48 shards in seed order, so the first shards (holding the local-recompute seeds 32000 and 32004) start first.
+# --only-arms U,Y skips the arms O, Q, S and X (A and B always run); unit-tested not to change the arms that run.
+# Seeds 33000-33095 (never used before), two seeds per shard (matrix value = first seed, the shard runs first..+1),
+# 48 shards in seed order, so the first shards (holding the local-recompute seeds 33000 and 33004) start first.
 # Three conditions per shard as parallel processes: S1 quiet caller (--caller-level-db-range -10,0) -> out/s1,
 # S0 unstressed -> out/s0, FULL (S1 + --erl-db-range 0,6) -> out/full. No holdout seed in this slot.
 on:
@@ -27,10 +27,10 @@ jobs:
       fail-fast: false
       max-parallel: 10
       matrix:
-        first: [32000, 32002, 32004, 32006, 32008, 32010, 32012, 32014, 32016, 32018, 32020, 32022,
-                32024, 32026, 32028, 32030, 32032, 32034, 32036, 32038, 32040, 32042, 32044, 32046,
-                32048, 32050, 32052, 32054, 32056, 32058, 32060, 32062, 32064, 32066, 32068, 32070,
-                32072, 32074, 32076, 32078, 32080, 32082, 32084, 32086, 32088, 32090, 32092, 32094]
+        first: [33000, 33002, 33004, 33006, 33008, 33010, 33012, 33014, 33016, 33018, 33020, 33022,
+                33024, 33026, 33028, 33030, 33032, 33034, 33036, 33038, 33040, 33042, 33044, 33046,
+                33048, 33050, 33052, 33054, 33056, 33058, 33060, 33062, 33064, 33066, 33068, 33070,
+                33072, 33074, 33076, 33078, 33080, 33082, 33084, 33086, 33088, 33090, 33092, 33094]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,7 +54,7 @@ jobs:
                   --bot-render recorded --rhos none --energy-k-db -12 --energy-min-speech-ms 30
                   --resid-threshold 1360 --arm-o --guard-erle-db 6 --guard-margin-db 3 --guard-packets 5
                   --arm-q --duck-commit-ms 100 --duck-window-ms 300 --arm-s --prearm-rms 5000 --arm-u
-                  --arm-x --dtfreeze-db 8 --only-arms U,X)
+                  --arm-x --dtfreeze-db 8 --arm-y --twocue-db 1 --only-arms U,Y)
           t0=$(date +%s)
           python -B bench/bargein_sweep.py "${common[@]}" --out ../out/s1 --caller-level-db-range=-10,0 > ../s1.log &
           p1=$!

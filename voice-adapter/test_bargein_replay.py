@@ -2457,5 +2457,150 @@ class ErleFreezeGateTest(unittest.TestCase):
             self.assertEqual(sorted(res['arms']), ['A', 'B', 'U', 'X'])
 
 
+X20_ARGS = (*U18_ARGS, '--arm-x', '--dtfreeze-db', '8', '--only-arms', 'U,X')
+X20_SHA256 = '2ece7ced45b7c7530eabb43e3cb1af63d6aafeb5d914921f0c54c20b2d995010'  # computed on the unchanged /20 harness
+
+
+class ErleTwoCueGateTest(unittest.TestCase):
+    """bargein_replay/21: opt-in arm Y, arm X with ONE extra condition on its freeze: the packet's capture energy must
+    also exceed the canceller's own a-priori echo prediction (the current filter applied to the render, i.e. render
+    level times the learned echo return) by more than twocue_db. An ERLE dip on echo alone (capture about equal to
+    the predicted echo) no longer freezes adaptation. No speech, onset or commit rule changes."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nlms = NlmsGateTest('test_harness_id')
+        cls.nlms.setUpClass()
+
+    def y_cfg(self, **overrides):
+        return self.nlms.f_cfg(**({'resid_threshold': 1360.0, 'resid_arm_db': 6.0, 'resid_nlp_db': 3.0,
+                                   'guard_erle_db': 6.0, 'guard_margin_db': 3.0, 'guard_packets': 5,
+                                   'duck_commit_ms': 100, 'duck_window_ms': 300, 'prearm_rms': 5000.0,
+                                   'dtfreeze_db': 6.0, 'twocue_db': 1.0} | overrides))
+
+    def test_harness_id(self):
+        self.assertEqual(replay.HARNESS_TWOCUE, 'bargein_replay/21')
+        self.assertEqual(replay.HARNESS_DTFREEZE, 'bargein_replay/20')
+
+    def test_y_is_x_subclass_reading_one_new_constant(self):
+        import ast
+        import inspect
+        self.assertTrue(issubclass(replay.ErleTwoCueGate, replay.ErleFreezeGate))
+        tree = ast.parse(inspect.getsource(replay.ErleTwoCueGate))
+        cfg_attrs = {n.attr for n in ast.walk(tree)
+                     if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == 'cfg'}
+        self.assertEqual(cfg_attrs, {'twocue_db'})
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                self.assertNotIn(node.id, ArmCTest.FORBIDDEN, node.id)
+        names = {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+        self.assertNotIn('decide', names)
+        self.assertNotIn('step', names)
+        self.assertNotIn('freeze_check', names)  # the ERLE cue is X's, unchanged
+
+    def test_excess_check_rule(self):
+        g = replay.ErleTwoCueGate(self.y_cfg(twocue_db=1.0), 2100)
+        # capture 2 dB over the predicted echo: passes; 0.5 dB over: no; under: no; no prediction at all: passes
+        self.assertTrue(g.excess_check(ed=10 ** .2, ey=1.0))
+        self.assertFalse(g.excess_check(ed=10 ** .05, ey=1.0))
+        self.assertFalse(g.excess_check(ed=0.5, ey=1.0))
+        self.assertTrue(g.excess_check(ed=1.0, ey=0.0))
+
+    def test_y_equals_x_with_permissive_excess_and_u_with_strict(self):
+        for kw in ({}, {'caller_from': 1500, 'caller_amp': 1100, 'ms': 1800},
+                   {'caller_from': 1200, 'caller_amp': 1100, 'ms': 2000}):
+            x = Recorder(replay.ErleFreezeGate(self.y_cfg(), 2100))
+            y = Recorder(replay.ErleTwoCueGate(self.y_cfg(twocue_db=-100.0), 2100))
+            self.nlms.synthetic(x, **kw)
+            self.nlms.synthetic(y, **kw)
+            self.assertEqual(y.events, x.events, kw)
+            self.assertEqual(y.gate.w, x.gate.w)
+            self.assertEqual(y.gate.freeze_packets, x.gate.freeze_packets)
+            self.assertEqual(y.gate.twocue_vetoed, 0)
+            u = Recorder(replay.NoDuckPreArmGate(self.y_cfg(), 2100))
+            y = Recorder(replay.ErleTwoCueGate(self.y_cfg(twocue_db=100.0), 2100))
+            self.nlms.synthetic(u, **kw)
+            self.nlms.synthetic(y, **kw)
+            self.assertEqual(y.events, u.events, kw)
+            self.assertEqual(y.gate.w, u.gate.w)
+            self.assertEqual(y.gate.freeze_packets, 0)
+
+    def test_y_vetoes_some_x_freezes_and_keeps_caller_freezes(self):
+        x = Recorder(replay.ErleFreezeGate(self.y_cfg(), 2100))
+        y = Recorder(replay.ErleTwoCueGate(self.y_cfg(), 2100))
+        self.nlms.synthetic(x, caller_from=1500, caller_amp=1100, ms=1800)
+        self.nlms.synthetic(y, caller_from=1500, caller_amp=1100, ms=1800)
+        self.assertGreater(y.gate.freeze_packets, 0)  # the quiet caller still trips both cues
+        self.assertGreaterEqual(y.gate.freeze_first_ms, y.gate.armed_ms)
+        self.assertLessEqual(y.gate.freeze_packets, x.gate.freeze_packets)
+
+    def test_y_off_keeps_old_bytes(self):
+        proc, data = run_cli('--seed', '39')
+        self.assertEqual(sha256(data).hexdigest(), REFERENCE_SHA256)
+        proc, data = run_cli(*U18_ARGS)
+        self.assertEqual(sha256(data).hexdigest(), U18_SHA256)
+        proc, data = run_cli(*X20_ARGS)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sha256(data).hexdigest(), X20_SHA256)  # bargein_replay/20 bytes unchanged
+
+    def test_cli_arm_y_leaves_other_arms_unchanged(self):
+        proc, base = run_cli(*X20_ARGS[:-2])
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        proc, data = run_cli(*X20_ARGS[:-2], '--arm-y', '--twocue-db', '1.5', '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIs(json.loads(proc.stdout)['aa_identical'], True)
+        b, y = json.loads(base), json.loads(data)
+        self.assertEqual(y['harness'], 'bargein_replay/21')
+        self.assertEqual(sorted(y['arms']), ['A', 'B', 'O', 'Q', 'S', 'U', 'X', 'Y'])
+        for arm in ('A', 'B', 'O', 'Q', 'S', 'U', 'X'):
+            self.assertEqual(canonical(y['arms'][arm]), canonical(b['arms'][arm]), arm)
+        params = dict(y['parameters'])
+        self.assertEqual(params.pop('twocue_db'), 1.5)
+        self.assertEqual(params, b['parameters'])
+        ya = y['arms']['Y']
+        self.assertEqual(ya['latency_definition'], 'time_to_ducked_or_silent')
+        self.assertIn('dtfreeze_packets', ya)
+        self.assertIn('twocue_vetoed_packets', ya)
+        self.assertIn('prearm_silent_windows', ya)
+        # permissive excess margin: Y is X trial for trial (veto count 0)
+        proc, data = run_cli(*X20_ARGS[:-2], '--arm-y', '--twocue-db', '-100', '--only-arms', 'X,Y')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        arms = json.loads(data)['arms']
+        ya = dict(arms['Y'])
+        self.assertEqual(ya.pop('twocue_vetoed_packets'), 0)
+        self.assertEqual(canonical(ya), canonical(arms['X']))
+        for bad in ((*X20_ARGS[:-2], '--arm-y'), (*X20_ARGS[:-2], '--arm-y', '--twocue-db', '101'),
+                    (*X20_ARGS[:-2], '--arm-y', '--twocue-db', '-101'),
+                    (*U18_ARGS, '--arm-y', '--twocue-db', '1')):  # --arm-y needs --arm-x
+            proc, _ = run_cli(*bad)
+            self.assertNotEqual(proc.returncode, 0, bad)
+
+    def test_only_arms_u_y(self):
+        proc, full = run_cli(*X20_ARGS[:-2], '--arm-y', '--twocue-db', '1.5')
+        proc, part = run_cli(*X20_ARGS[:-2], '--arm-y', '--twocue-db', '1.5', '--only-arms', 'U,Y')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        f, p = json.loads(full), json.loads(part)
+        self.assertEqual(sorted(p['arms']), ['A', 'B', 'U', 'Y'])
+        for arm in ('A', 'B', 'U', 'Y'):
+            self.assertEqual(canonical(p['arms'][arm]), canonical(f['arms'][arm]), arm)
+        self.assertEqual(p['parameters'], f['parameters'])
+
+    def test_sweep_passes_arm_y(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([sys.executable, '-B', str(BENCH_DIR / 'bargein_sweep.py'), '--seeds', '39', '--trials', '10',
+                            '--echo-model', 'residual', '--echo-continuous', '--bot-render', 'recorded', '--rhos',
+                            'none', '--energy-k-db', '-12', '--energy-min-speech-ms', '30',
+                            '--arm-o', '--resid-threshold', '1360', '--guard-packets', '5', '--guard-margin-db', '3',
+                            '--arm-q', '--duck-commit-ms', '100', '--duck-window-ms', '300', '--arm-s',
+                            '--prearm-rms', '5000', '--arm-u', '--arm-x', '--dtfreeze-db', '8', '--arm-y',
+                            '--twocue-db', '1.5', '--only-arms', 'U,Y', '--out', tmp],
+                           check=True, capture_output=True, timeout=900)
+            res = json.loads(Path(tmp, 'seed-39.json').read_text())
+            self.assertEqual(res['harness'], 'bargein_replay/21')
+            self.assertEqual(res['extra_args'][-9:], ['--arm-u', '--arm-x', '--dtfreeze-db', '8.0', '--arm-y',
+                                                      '--twocue-db', '1.5', '--only-arms', 'U,Y'])
+            self.assertEqual(sorted(res['arms']), ['A', 'B', 'U', 'Y'])
+
+
 if __name__ == '__main__':
     unittest.main()
