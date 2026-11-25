@@ -275,6 +275,87 @@ class FloorModeTests(unittest.TestCase):
         self.assertEqual(doc["echo"]["floor_mode"], "p50")
 
 
+def hindsight_call(talk=((85, 156),), down_frames=100, lead=25, tail=50):
+    """Downlink span from lead*20 ms for down_frames frames; echo uplink 20 dB under it; caller at -15 dBFS over
+    each [a, b) frame range in `talk` (frame indices on the shared 20 ms grid)."""
+    down = [FLOOR] * lead + [speechy(i) for i in range(down_frames)] + [FLOOR] * tail
+    up = [round(d - 20, 1) if d > FLOOR else -70.0 for d in down]
+    for a, b in talk:
+        for i in range(a, min(b, len(up))):
+            up[i] = -15.0
+    return down, up
+
+
+class HindsightTests(unittest.TestCase):
+    """onset_mode hindsight: a caller still talking after the downlink span -> trace back to the in-span onset."""
+
+    def onsets(self, down, up, **kw):
+        return score(call(down, up), onset_mode="hindsight", **kw)["bargein"]["onsets"]
+
+    def test_default_onset_mode_is_run(self):
+        self.assertEqual(lr.Params().onset_mode, "run")
+        self.assertEqual(set(lr.ONSET_MODES), {"run", "hindsight"})
+
+    def test_unknown_onset_mode_is_rejected(self):
+        down, up = hindsight_call()
+        with self.assertRaises(ValueError):
+            score(call(down, up), onset_mode="oracle")
+
+    def test_continuing_caller_is_traced_back_to_the_in_span_onset(self):
+        down, up = hindsight_call()                     # caller from frame 85 (1700 ms) to 3100 ms
+        for k in (6.0, 9.0, 12.0):
+            with self.subTest(k=k):
+                got = self.onsets(down, up, hindsight_db=k)
+                self.assertEqual(len(got), 1, got)
+                self.assertEqual(got[0]["t_ms"], 1700)
+                self.assertEqual(got[0]["span_start_ms"], 500)
+                self.assertEqual(got[0]["rel_ms"], 1200)
+                self.assertEqual(got[0]["max_rms_db"], -15.0)
+
+    def test_caller_who_stops_before_the_span_ends_gives_no_onset(self):
+        down, up = hindsight_call(talk=((85, 115),))     # stops at 2300 ms, downlink ends 2500 ms
+        self.assertEqual(self.onsets(down, up, hindsight_db=9.0), [])
+
+    def test_echo_only_gives_no_onset(self):
+        down, up = hindsight_call(talk=())
+        self.assertEqual(self.onsets(down, up, hindsight_db=6.0), [])
+
+    def test_caller_starting_after_the_span_gives_no_onset(self):
+        down, up = hindsight_call(talk=((141, 170),))    # after active_until (2800 ms): not a barge-in
+        self.assertEqual(self.onsets(down, up, hindsight_db=9.0), [])
+
+    def test_pause_shorter_than_gap_bridges_longer_pause_breaks(self):
+        down, up = hindsight_call(talk=((85, 95), (105, 156)))   # 200 ms pause: bridged -> 1700
+        self.assertEqual([o["t_ms"] for o in self.onsets(down, up, hindsight_db=9.0)], [1700])
+        down, up = hindsight_call(talk=((85, 95), (115, 156)))   # 400 ms pause (> 300): onset 2300
+        self.assertEqual([o["t_ms"] for o in self.onsets(down, up, hindsight_db=9.0)], [2300])
+
+    def test_open_span_gives_no_onset(self):
+        down, up = hindsight_call(tail=0, talk=((85, 125),))     # trace ends while the downlink still plays
+        self.assertEqual(self.onsets(down, up, hindsight_db=9.0), [])
+
+    def test_run_mode_output_is_unchanged_by_the_new_fields(self):
+        down, up, _ = double_talk_call()
+        a = score(call(down, up), floor_mode="p50")
+        b = score(call(down, up), floor_mode="p50", onset_mode="run", hindsight_db=3.0)
+        self.assertEqual(a["bargein"], b["bargein"])
+        self.assertEqual(a["echo"], b["echo"])
+
+    def test_cli_onset_mode(self):
+        down, up = hindsight_call()
+        out = io.StringIO()
+        old = sys.stdin
+        try:
+            sys.stdin = io.StringIO("\n".join(call(down, up)) + "\n")
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(lr.main(["--json", "--onset-mode", "hindsight", "--hindsight-db", "9"]), 0)
+        finally:
+            sys.stdin = old
+        doc = json.loads(out.getvalue())
+        self.assertEqual(doc["params"]["onset_mode"], "hindsight")
+        self.assertEqual([o["t_ms"] for o in doc["bargein"]["onsets"]], [1700])
+
+
 class AdapterRoundTripTests(unittest.TestCase):
     def test_real_level_events_parse_and_spans_match_audio_on_off(self):
         """Frames through mobile_live.Level (flag on) -> Trace-format JSONL -> scorer: frame counts and the

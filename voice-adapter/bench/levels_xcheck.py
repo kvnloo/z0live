@@ -230,10 +230,11 @@ def summarise(rows):
     }
 
 
-def run(seeds=SEEDS, trials=TRIALS, arms=ARMS, floor_mode=None):
-    """Primary verdict from arms[0]; the other arms are reported as breakdowns only. floor_mode None = scorer
-    default."""
-    params = lr.Params(rate=RATE) if floor_mode is None else lr.Params(rate=RATE, floor_mode=floor_mode)
+def run(seeds=SEEDS, trials=TRIALS, arms=ARMS, floor_mode=None, onset_mode=None, hindsight_db=None):
+    """Primary verdict from arms[0]; the other arms are reported as breakdowns only. None = scorer default."""
+    kw = {k: v for k, v in (("floor_mode", floor_mode), ("onset_mode", onset_mode), ("hindsight_db", hindsight_db))
+          if v is not None}
+    params = lr.Params(rate=RATE, **kw)
     out = {"schema": SCHEMA, "sim": {"pin": SIM_PIN, "flags": list(SIM_FLAGS), "primary_arm": arms[0],
                                      "arms": list(arms), "seeds": list(seeds), "trials_per_seed": trials},
            "scorer": {"params": asdict(params)}, "match_window_ms": [MATCH_LO_MS, MATCH_HI_MS], "arms": {}}
@@ -260,9 +261,12 @@ def main(argv=None):
     ap.add_argument("--trials", type=int, default=TRIALS, help="trials per seed (prereg: 30)")
     ap.add_argument("--arms", type=str, default=",".join(ARMS), help="comma list, first is primary (prereg: none,A)")
     ap.add_argument("--floor-mode", choices=lr.FLOOR_MODES, help="levels_replay echo-floor estimator (default: its)")
+    ap.add_argument("--onset-mode", choices=lr.ONSET_MODES, help="levels_replay onset rule (default: its)")
+    ap.add_argument("--hindsight-db", type=float, help="levels_replay hindsight hot dB (default: its)")
     ap.add_argument("--output", type=Path, help="write the full JSON here")
     a = ap.parse_args(argv)
-    res = run(tuple(int(s) for s in a.seeds.split(",")), a.trials, tuple(a.arms.split(",")), a.floor_mode)
+    res = run(tuple(int(s) for s in a.seeds.split(",")), a.trials, tuple(a.arms.split(",")), a.floor_mode,
+              a.onset_mode, a.hindsight_db)
     text = json.dumps(res, sort_keys=True, indent=1) + "\n"
     if a.output:
         a.output.write_text(text, encoding="utf-8")

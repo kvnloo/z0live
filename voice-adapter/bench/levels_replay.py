@@ -25,6 +25,10 @@ Metrics (energy only, like the adapter's Level; no speech recognition):
   double talk     uplink frames, downlink active, with RMS > echo floor + --margin-db.
   barge-in        candidate onsets: the first frame of each double-talk run lasting >= --min-run-ms (a run breaks
                   on a non-double-talk frame or a gap), reported with the containing downlink span's start.
+                  --onset-mode hindsight (offline only, non-causal) replaces these: per closed span, if the caller
+                  is still talking in the 400 ms after the span's off decision (>= min-run of frames above the
+                  span's first-200 ms uplink p50 + --hindsight-db), trace back through the span to the earliest
+                  such frame, bridging pauses up to 300 ms.
 
 Output: a human summary, or --json (schema levels_replay/1, sorted keys, deterministic). stdlib + numpy only.
 
@@ -56,11 +60,51 @@ class Params:
     up: str = UP
     down: str = DOWN
     floor_mode: str = "p95"     # echo-floor estimator, one of FLOOR_MODES
+    onset_mode: str = "run"     # barge-in onset rule, one of ONSET_MODES
+    hindsight_db: float = 9.0   # onset_mode hindsight: dB above the span's early uplink p50 that counts as hot
 
 
 FLOOR_MODES = ("p95", "p50", "min", "early")
 EARLY_MS = 200.0    # floor_mode early: echo frames this close to their span start (before a caller can react)
 EARLY_MIN_FRAMES = 5
+ONSET_MODES = ("run", "hindsight")
+POST_MS = 400.0     # onset_mode hindsight: window after a span's off decision that shows the caller still talking
+GAP_MS = 300.0      # onset_mode hindsight: a non-hot stretch longer than this ends the back-trace
+
+
+def hindsight_onsets(ut, urms, u_span, u_active, spans, up_ms, p):
+    """Non-causal (offline only) onsets: per closed downlink span k, reference r = p50 uplink RMS of the span's first
+    EARLY_MS; hot = RMS > r + hindsight_db. If >= ceil(min_run_ms / up_ms) uplink frames in [active_until,
+    active_until + POST_MS) (downlink inactive) are hot, walk the span's uplink frames back from the last one and keep
+    the earliest hot frame reached before a non-hot stretch (or time gap) longer than GAP_MS. No hot frame -> none."""
+    out = []
+    need = math.ceil(p.min_run_ms / up_ms)
+    for k, (s0, _end, until, is_open) in enumerate(spans):
+        if is_open:
+            continue
+        idx = np.flatnonzero(u_span == k)
+        if not idx.size:
+            continue
+        early = urms[idx[(ut[idx] - s0) < EARLY_MS]]
+        if early.size < EARLY_MIN_FRAMES:
+            continue
+        hot_db = float(np.percentile(early, 50)) + p.hindsight_db
+        post = (ut >= until) & (ut < until + POST_MS) & ~u_active
+        if int(np.count_nonzero(urms[post] > hot_db)) < need:
+            continue
+        hot = idx[urms[idx] > hot_db]
+        if not hot.size:
+            continue
+        first = last = hot[-1]
+        for h in hot[-2::-1]:
+            if ut[first] - ut[h] - up_ms > GAP_MS:
+                break
+            first = h
+        s0 = int(s0)
+        out.append({"t_ms": int(ut[first]), "span_start_ms": s0, "rel_ms": int(ut[first]) - s0,
+                    "run_ms": int(ut[last] - ut[first] + up_ms),
+                    "max_rms_db": round(float(urms[first:last + 1].max()), 1)})
+    return out
 
 
 def echo_floor(echo, rel_ms, span, mode):
@@ -240,6 +284,8 @@ def score(tr, p=None):
     p = p or Params()
     if p.floor_mode not in FLOOR_MODES:
         raise ValueError(f"floor_mode {p.floor_mode!r} not in {FLOOR_MODES}")
+    if p.onset_mode not in ONSET_MODES:
+        raise ValueError(f"onset_mode {p.onset_mode!r} not in {ONSET_MODES}")
     names = sorted(set(tr.dirs) | {p.up, p.down})
     integ = {name: integrity(tr.direction(name), p.rate) for name in names}
     up, down = tr.direction(p.up), tr.direction(p.down)
@@ -292,6 +338,8 @@ def score(tr, p=None):
                     s0 = int(starts[u_span[a]])
                     onsets.append({"t_ms": int(ut[a]), "span_start_ms": s0, "rel_ms": int(ut[a]) - s0,
                                    "run_ms": run_ms, "max_rms_db": round(float(urms[a:b + 1].max()), 1)})
+    if p.onset_mode == "hindsight":  # replaces the run rule's onsets; floor, threshold and double talk unchanged
+        onsets = hindsight_onsets(ut, urms, u_span, u_active, spans, up_ms, p)
 
     return {
         "schema": SCHEMA,
@@ -348,9 +396,13 @@ def main(argv=None):
     ap.add_argument("--up-dir", default=d.up)
     ap.add_argument("--down-dir", default=d.down)
     ap.add_argument("--floor-mode", choices=FLOOR_MODES, default=d.floor_mode, help="echo-floor estimator")
+    ap.add_argument("--onset-mode", choices=ONSET_MODES, default=d.onset_mode,
+                    help="barge-in onset rule (hindsight: offline back-trace from a caller still talking after a span)")
+    ap.add_argument("--hindsight-db", type=float, default=d.hindsight_db, help="hindsight hot dB over span-start p50")
     a = ap.parse_args(argv)
     p = Params(on_db=a.on_db, hangover_ms=a.hangover_ms, margin_db=a.margin_db, min_run_ms=a.min_run_ms,
-               rate=a.rate, up=a.up_dir, down=a.down_dir, floor_mode=a.floor_mode)
+               rate=a.rate, up=a.up_dir, down=a.down_dir, floor_mode=a.floor_mode,
+               onset_mode=a.onset_mode, hindsight_db=a.hindsight_db)
     if a.trace == "-":
         tr = parse(sys.stdin)
     else:
