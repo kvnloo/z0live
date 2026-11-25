@@ -66,7 +66,7 @@ def run_one(seed, rho, m, trials, extra):
 def sweep_seed(seed, m, trials, extra, rhos=RHOS):
     runs = {rho: run_one(seed, rho, m, trials, extra) for rho in rhos}
     base = runs[rhos[0]][1]
-    shared = ("A", "B") + tuple(a for a in ("D", "E", "E2", "F", "F2", "G", "G2", "H", "O", "Q", "R", "S", "U", "W", "X", "Y", "Z")
+    shared = ("A", "B") + tuple(a for a in ("D", "E", "E2", "F", "F2", "G", "G2", "H", "O", "Q", "R", "S", "U", "W", "X", "Y", "Z", "Z2")
                                 if a in base["arms"])  # D, E (opt-in) do not depend on rho
     ab_same = all(json.dumps(r[1]["arms"][a], sort_keys=True) == json.dumps(base["arms"][a], sort_keys=True)
                   for r in runs.values() for a in shared)
@@ -143,6 +143,8 @@ def main():
     p.add_argument("--arm-z", action="store_true", help="also run arm Z (U + floor-relative onset level rule, bargein_replay/23)")
     p.add_argument("--floor-rms", type=float, default=None)
     p.add_argument("--floor-k-db", type=float, default=None)
+    p.add_argument("--arm-z2", action="store_true", help="also run arm Z2 (Z + longer run for floor-only packets, bargein_replay/24)")
+    p.add_argument("--floor-min-run-ms", type=int, default=None)
     p.add_argument("--only-arms", default=None, help="harness run filter pass-through, e.g. U,W (A, B always run)")
     p.add_argument("--bot-render", choices=("periodic", "recorded"), default="periodic")
     p.add_argument("--clip-set", choices=("single", "multi"), default="single",
@@ -217,6 +219,8 @@ def main():
         extra += ["--arm-y", "--twocue-db", str(a.twocue_db)]
     if a.arm_z:  # bargein_replay/23 (A-bargein-AA)
         extra += ["--arm-z", "--floor-rms", str(a.floor_rms), "--floor-k-db=" + str(a.floor_k_db)]
+    if a.arm_z2:  # bargein_replay/24 (A-bargein-AB)
+        extra += ["--arm-z2", "--floor-min-run-ms", str(a.floor_min_run_ms)]
     if a.only_arms:
         extra += ["--only-arms", a.only_arms]
     if a.caller_level_db_range:

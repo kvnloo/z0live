@@ -2914,5 +2914,183 @@ class FloorRelativeGateTest(unittest.TestCase):
             self.assertEqual(sorted(res['arms']), ['A', 'B', 'U', 'Z'])
 
 
+Z23_PIN_ARGS = (*QU_MULTI_ARGS[:-3], '--caller-level-db-range=-10,0', *Z23_FLAGS, '--only-arms', 'U,Z')
+Z23_SHA256 = 'ba43ca1c18dcb764d5ffb7433aed82a9e2b067f9f3901f348fdeb8f67b035a0c'  # seed 34900, computed on unchanged /23
+Z24_FLAGS = ('--arm-z2', '--floor-min-run-ms', '60')
+
+
+class FloorRunGateTest(unittest.TestCase):
+    """bargein_replay/24: opt-in arm Z2, arm Z whose floor-only packets (speech by Z's floor-relative rule but not
+    by U's rule) need a longer consecutive speech run (floor_min_run_ms) before they count for the onset or the
+    commit. Packets U calls speech keep U's rule (onset_ms run, commit count). floor_min_run_ms 0: arm Z exactly;
+    floor_rms == resid_threshold: arm U exactly."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nlms = NlmsGateTest('test_harness_id')
+        cls.nlms.setUpClass()
+
+    def z_cfg(self, **overrides):
+        return self.nlms.f_cfg(**({'resid_threshold': 1360.0, 'resid_arm_db': 6.0, 'resid_nlp_db': 3.0,
+                                   'guard_erle_db': 6.0, 'guard_margin_db': 3.0, 'guard_packets': 5,
+                                   'duck_commit_ms': 100, 'duck_window_ms': 300, 'prearm_rms': 5000.0,
+                                   'floor_rms': 900.0, 'floor_k_db': 6.0, 'floor_min_run_ms': 60} | overrides))
+
+    def test_harness_id(self):
+        self.assertEqual(replay.HARNESS_FLOORRUN, 'bargein_replay/24')
+        self.assertEqual(replay.HARNESS_FLOOR, 'bargein_replay/23')
+
+    def test_z2_is_z_subclass_reading_one_new_constant(self):
+        import ast
+        import inspect
+        self.assertTrue(issubclass(replay.FloorRunGate, replay.FloorRelativeGate))
+        tree = ast.parse(inspect.getsource(replay.FloorRunGate))
+        cfg_attrs = {n.attr for n in ast.walk(tree)
+                     if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == 'cfg'}
+        self.assertEqual(cfg_attrs, {'floor_min_run_ms'})
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                self.assertNotIn(node.id, ArmCTest.FORBIDDEN, node.id)
+            elif isinstance(node, ast.Attribute):
+                self.assertNotIn(node.attr, {'caller_gain_db', 'erl_db', 'gain', 'taps', 'mic'}, node.attr)
+
+    def drive(self, gate, flags, t0=1000):
+        """Feed step() armed packets: 'U' = U speech, 'F' = floor-only speech, '.' = not speech."""
+        gate.armed = True
+        events = []
+        for i, f in enumerate(flags):
+            gate.floor_only = f == 'F'
+            e = gate.step(t0 + 10 * i, f != '.')
+            if e:
+                events.append((10 * i, e))
+        return events
+
+    def test_step_rule(self):
+        def mk(m=60):
+            return replay.FloorRunGate(self.z_cfg(floor_min_run_ms=m), 2100)
+        # 50 ms of floor-only speech: Z ducks at 30 ms, Z2 (60 ms) does not
+        self.assertEqual(self.drive(mk(0), 'FFFFF.'), [(20, 'duck')])
+        self.assertEqual(self.drive(mk(), 'FFFFF.'), [])
+        # a sustained floor-only run ducks once it reaches 60 ms, with the whole run as commit evidence
+        g = mk()
+        self.assertEqual(self.drive(g, 'FFFFFF'), [(50, 'duck')])
+        self.assertEqual(g.acc, 60)
+        # U speech keeps U's 30 ms onset run (floor packets before it count, as in Z)
+        self.assertEqual(self.drive(mk(), 'UUU'), [(20, 'duck')])
+        self.assertEqual(self.drive(mk(), 'FFUUU'), [(40, 'duck')])
+        self.assertEqual(self.drive(mk(), 'FUU'), [])  # U run 20 ms, whole run 30 ms < 60: no onset
+        # ducked: a floor-only packet adds to the commit count only inside a >= 60 ms speech run
+        g = mk()
+        self.drive(g, 'UUU')
+        acc = g.acc
+        self.drive(g, '.F.F', t0=1100)
+        self.assertEqual(g.acc, acc)
+        self.assertGreater(g.floor_held, 0)
+        g = mk()
+        # run >= 60 ms from the 6th packet on: floor packets count again, 30 + 7 x 10 = 100 ms commits
+        self.assertEqual(self.drive(g, 'UUU' + 'F' * 9), [(20, 'duck'), (110, 'commit')])
+
+    def test_z2_equals_z_at_zero_and_u_at_resid_threshold(self):
+        for kw in ({}, {'caller_from': 1500, 'caller_amp': 1000, 'ms': 1800},
+                   {'caller_from': 1500, 'caller_amp': 1000, 'ms': 1800, 'caller_to': 1560},
+                   {'caller_from': 1200, 'caller_amp': 3000, 'ms': 2000}):
+            z = Recorder(replay.FloorRelativeGate(self.z_cfg(), 2100))
+            z2 = Recorder(replay.FloorRunGate(self.z_cfg(floor_min_run_ms=0), 2100))
+            self.nlms.synthetic(z, **kw)
+            self.nlms.synthetic(z2, **kw)
+            self.assertEqual(z2.events, z.events, kw)
+            self.assertEqual(z2.gate.floor_packets, z.gate.floor_packets)
+            self.assertEqual(z2.gate.floor_held, 0)
+            u = Recorder(replay.NoDuckPreArmGate(self.z_cfg(), 2100))
+            z2u = Recorder(replay.FloorRunGate(self.z_cfg(floor_rms=1360.0), 2100))
+            self.nlms.synthetic(u, **kw)
+            self.nlms.synthetic(z2u, **kw)
+            self.assertEqual(z2u.events, u.events, kw)
+            self.assertEqual(z2u.gate.floor_packets, 0)
+
+    def test_z2_keeps_the_sustained_quiet_caller_and_drops_the_echo_duck(self):
+        z = Recorder(replay.FloorRelativeGate(self.z_cfg(), 2100))
+        z2 = Recorder(replay.FloorRunGate(self.z_cfg(floor_min_run_ms=60), 2100))
+        self.nlms.synthetic(z, caller_from=1500, caller_amp=1000, ms=1800)
+        self.nlms.synthetic(z2, caller_from=1500, caller_amp=1000, ms=1800)
+        # quiet caller (floor-only packets FFFFFF.FF.FF..): Z commits; Z2 ducks on the first 60 ms run, later than
+        # Z's 30 ms duck, and its gapped floor packets after that are held (the price on S1 the dev grid measures)
+        self.assertEqual([e for _, e in z.events][-2:], ['duck', 'commit'])
+        z_duck = [t for t, e in z.events if e == 'duck'][-1]
+        self.assertEqual([e for _, e in z2.events], ['duck'])
+        self.assertEqual(z2.events[0][0], z_duck + 30)
+        self.assertGreater(z2.gate.floor_held, 0)
+        # no caller: Z's echo-only duck (a short floor-only run) is gone
+        z0 = Recorder(replay.FloorRelativeGate(self.z_cfg(), 2100))
+        z20 = Recorder(replay.FloorRunGate(self.z_cfg(floor_min_run_ms=60), 2100))
+        self.nlms.synthetic(z0)
+        self.nlms.synthetic(z20)
+        self.assertEqual([e for _, e in z0.events], ['duck', 'unduck'])
+        self.assertEqual(z20.events, [])
+
+    def test_z2_off_keeps_old_bytes(self):
+        proc, data = run_cli('--seed', '39')
+        self.assertEqual(sha256(data).hexdigest(), REFERENCE_SHA256)
+        proc, data = run_cli(*U18_ARGS)
+        self.assertEqual(sha256(data).hexdigest(), U18_SHA256)
+        proc, data = run_cli('--seed', '34900', *QU_MULTI_ARGS)
+        self.assertEqual(sha256(data).hexdigest(), QU22_SHA256)
+        proc, data = run_cli('--seed', '34900', *Z23_PIN_ARGS)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sha256(data).hexdigest(), Z23_SHA256)  # bargein_replay/23 arm Z bytes unchanged
+
+    def test_cli_arm_z2_leaves_other_arms_unchanged(self):
+        base_args = (*QU_MULTI_ARGS[:-3], '--caller-level-db-range=-10,0', *Z23_FLAGS)
+        proc, base = run_cli('--seed', '34900', *base_args, '--only-arms', 'U,Z')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        proc, data = run_cli('--seed', '34900', *base_args, *Z24_FLAGS, '--only-arms', 'U,Z,Z2', '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIs(json.loads(proc.stdout)['aa_identical'], True)
+        b, z = json.loads(base), json.loads(data)
+        self.assertEqual(z['harness'], 'bargein_replay/24')
+        self.assertEqual(sorted(z['arms']), ['A', 'B', 'U', 'Z', 'Z2'])
+        for arm in ('A', 'B', 'U', 'Z'):
+            self.assertEqual(canonical(z['arms'][arm]), canonical(b['arms'][arm]), arm)
+        params = dict(z['parameters'])
+        self.assertEqual(params.pop('floor_min_run_ms'), 60)
+        self.assertEqual(params, b['parameters'])
+        za = z['arms']['Z2']
+        self.assertEqual(za['latency_definition'], 'time_to_ducked_or_silent')
+        self.assertIn('floor_speech_packets', za)
+        self.assertIn('floor_held_packets', za)
+        # floor_min_run_ms 0: Z2 is Z trial for trial
+        proc, data = run_cli('--seed', '34900', *base_args, '--arm-z2', '--floor-min-run-ms', '0',
+                             '--only-arms', 'Z,Z2')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        arms = json.loads(data)['arms']
+        za = dict(arms['Z2'])
+        self.assertEqual(za.pop('floor_held_packets'), 0)
+        self.assertEqual(canonical(za), canonical(arms['Z']))
+        for bad in ((*base_args, '--arm-z2'), (*base_args, '--arm-z2', '--floor-min-run-ms', '-10'),
+                    (*base_args, '--arm-z2', '--floor-min-run-ms', '1010'),
+                    (*base_args, '--arm-z2', '--floor-min-run-ms', '55'),
+                    (*QU_MULTI_ARGS[:-3], *Z24_FLAGS)):  # --arm-z2 needs --arm-z
+            proc, _ = run_cli('--seed', '39', '--trials', '5', *bad)
+            self.assertNotEqual(proc.returncode, 0, bad)
+
+    def test_sweep_passes_arm_z2(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([sys.executable, '-B', str(BENCH_DIR / 'bargein_sweep.py'), '--seeds', '39', '--trials', '10',
+                            '--echo-model', 'residual', '--echo-continuous', '--bot-render', 'recorded',
+                            '--clip-set', 'multi', '--rhos', 'none', '--energy-k-db', '-12',
+                            '--energy-min-speech-ms', '30', '--arm-o', '--resid-threshold', '1360',
+                            '--guard-packets', '5', '--guard-margin-db', '3', '--arm-q', '--duck-commit-ms', '100',
+                            '--duck-window-ms', '300', '--arm-s', '--prearm-rms', '5000', '--arm-u', '--arm-z',
+                            '--floor-rms', '1100', '--floor-k-db', '12', '--arm-z2', '--floor-min-run-ms', '60',
+                            '--only-arms', 'U,Z2', '--out', tmp],
+                           check=True, capture_output=True, timeout=900)
+            res = json.loads(Path(tmp, 'seed-39.json').read_text())
+            self.assertEqual(res['harness'], 'bargein_replay/24')
+            self.assertEqual(res['extra_args'][-10:], ['--arm-u', '--arm-z', '--floor-rms', '1100.0',
+                                                       '--floor-k-db=12.0', '--arm-z2', '--floor-min-run-ms', '60',
+                                                       '--only-arms', 'U,Z2'])
+            self.assertEqual(sorted(res['arms']), ['A', 'B', 'U', 'Z2'])
+
+
 if __name__ == '__main__':
     unittest.main()

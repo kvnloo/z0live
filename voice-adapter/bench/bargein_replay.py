@@ -204,6 +204,7 @@ HARNESS_DTFREEZE = "bargein_replay/20"  # only with --arm-x
 HARNESS_TWOCUE = "bargein_replay/21"  # only with --arm-y
 HARNESS_SPEAKERS = "bargein_replay/22"  # only with --clip-set multi
 HARNESS_FLOOR = "bargein_replay/23"  # only with --arm-z
+HARNESS_FLOORRUN = "bargein_replay/24"  # only with --arm-z2
 ASSETS_MULTI = ASSETS / "multi"  # --clip-set multi; ASSETS.glob("*.wav") is not recursive, so the default set is unchanged
 ERL_DB_RANGE = (6, 20)
 REFLECTIONS = 12
@@ -1375,6 +1376,58 @@ class FloorRelativeGate(NoDuckPreArmGate):
         return False
 
 
+class FloorRunGate(FloorRelativeGate):
+    """Arm Z2 (bargein_replay/24): arm Z unchanged (U's rules plus Z's floor-relative level rule and floor EWMA)
+    except that a FLOOR-ONLY packet (speech by Z's floor rule, not by U's rule) counts only inside a sustained
+    speech run. The run is the consecutive speech packets (U or floor-only) ending at this packet; it restarts
+    where Z's onset run restarts (a non-speech packet, an un-duck, a lapsed silent window). Once armed and not
+    ducked, the onset fires on U's rule (onset_ms of consecutive U speech) or on a run of
+    max(onset_ms, floor_min_run_ms); the commit count starts at the run, as in Z. While ducked (or silent), a
+    floor-only packet adds to the commit count only when the run is >= floor_min_run_ms. One new constant.
+    floor_min_run_ms 0: arm Z exactly; floor_rms == resid_threshold: arm U exactly.
+    """
+
+    def __init__(self, cfg, span_ms):
+        super().__init__(cfg, span_ms)
+        self.floor_min_run_ms = cfg.floor_min_run_ms
+        self.floor_only = False
+        self.run_any = 0
+        self.run_u = 0
+        self.was_ducked = False
+        self.floor_held = 0
+
+    def decide(self, n, ee, ed, ey, top):
+        before = self.floor_packets
+        speech = super().decide(n, ee, ed, ey, top)  # arm Z's decision (floor EWMA unchanged)
+        self.floor_only = self.floor_packets > before
+        return speech
+
+    def observe(self, t, packet):
+        self.floor_only = False
+        return super().observe(t, packet)
+
+    def step(self, t, speech):
+        if self.fired:  # committed: terminal
+            return None
+        if self.was_ducked and not self.ducked:  # Z's onset run restarts after an un-duck or a lapsed window
+            self.run_any = self.run_u = 0
+        floor_only = speech and self.floor_only
+        self.run_any = self.run_any + CAPTURE_MS if speech else 0
+        self.run_u = self.run_u + CAPTURE_MS if speech and not floor_only else 0
+        if self.armed and not self.ducked:
+            event = None
+            if self.run_u >= self.onset_ms or self.run_any >= max(self.onset_ms, self.floor_min_run_ms):
+                self.onset_run = self.run_any - CAPTURE_MS  # Q's onset step adds this packet: acc = the run
+                event = super().step(t, True)
+        else:
+            if floor_only and self.run_any < self.floor_min_run_ms:
+                speech = False
+                self.floor_held += 1
+            event = super().step(t, speech)
+        self.was_ducked = self.ducked
+        return event
+
+
 def residual_echo(seed, index, kind, erl_db_range=None):
     """bargein_replay/2 per-trial echo path, drawn from its own RNG (erl_db_range: bargein_replay/5)."""
     rng = Random(f"{HARNESS_RESIDUAL}:{seed}:{index}")
@@ -1610,7 +1663,8 @@ def replay(trial, arm, cfg, bot):
              QuietCallerGate(cfg, len(speaker) // SAMPLES_MS) if arm == "W" else
              ErleFreezeGate(cfg, len(speaker) // SAMPLES_MS) if arm == "X" else
              ErleTwoCueGate(cfg, len(speaker) // SAMPLES_MS) if arm == "Y" else
-             FloorRelativeGate(cfg, len(speaker) // SAMPLES_MS) if arm == "Z" else None)
+             FloorRelativeGate(cfg, len(speaker) // SAMPLES_MS) if arm == "Z" else
+             FloorRunGate(cfg, len(speaker) // SAMPLES_MS) if arm == "Z2" else None)
     paused = False  # arm Q: playout FIFO paused (ducked); never set for other arms
 
     def post(t, priority, label, payload=None):
@@ -1708,7 +1762,7 @@ def replay(trial, arm, cfg, bot):
                 trace.setdefault("unduck_ms", []).append(t)
             elif fire:
                 trace["nlms_fire_ms"] = t
-                flush(t, "residual_gated_local_vad" if arm in ("G", "G2", "O", "Q", "R", "S", "U", "W", "X", "Y", "Z") else
+                flush(t, "residual_gated_local_vad" if arm in ("G", "G2", "O", "Q", "R", "S", "U", "W", "X", "Y", "Z", "Z2") else
                       "twopath_residual_gated_local_vad" if arm == "H" else "nlms_gated_local_vad")
             # PCM keeps flowing upstream even if bot audio has been muted.
             post(t + trial["ws_up"], 3, "server_pcm", payload)
@@ -1780,9 +1834,9 @@ def replay(trial, arm, cfg, bot):
         trace["nlms_erle_packets"] = len(erle)
         if arm == "H":
             trace["nlms_copies"] = ngate.copies
-        if arm in ("O", "Q", "R", "S", "U", "W", "X", "Y", "Z"):
+        if arm in ("O", "Q", "R", "S", "U", "W", "X", "Y", "Z", "Z2"):
             trace["nlms_swaps"] = ngate.swaps
-        if arm in ("U", "W", "X", "Y", "Z"):  # bargein_replay/18 (/19 W, /20 X): adapter time the gate armed (latched)
+        if arm in ("U", "W", "X", "Y", "Z", "Z2"):  # bargein_replay/18 (/19 W, /20 X): adapter time the gate armed (latched)
             trace["nlms_armed_ms"] = ngate.armed_ms
     row = dict(trial=trial["id"], kind=kind, latency_ms=latency,
                residual_ms=residual, false_barge_in=kind != "valid" and muted,
@@ -1802,7 +1856,7 @@ def replay(trial, arm, cfg, bot):
         row["_erle"] = erle
     if arm == "S":
         row["_prearm"] = ngate.prearm_packets  # popped by run(): arm S summary only  # popped by run(): pooled packet ERLE summary
-    if arm in ("U", "W", "X", "Y", "Z"):  # popped by run(): arm U / W / X summary only
+    if arm in ("U", "W", "X", "Y", "Z", "Z2"):  # popped by run(): arm U / W / X summary only
         row["_prearm"] = ngate.prearm_packets
         row["_silent"] = ngate.silent_windows
     if arm == "W":  # popped by run(): arm W summary only
@@ -1811,13 +1865,15 @@ def replay(trial, arm, cfg, bot):
         row["_freeze"] = ngate.freeze_packets
     if arm == "Y":  # popped by run(): arm Y summary only
         row["_veto"] = ngate.twocue_vetoed
-    if arm == "Z":  # popped by run(): arm Z summary only
+    if arm in ("Z", "Z2"):  # popped by run(): arm Z / Z2 summary only
         row["_floor"] = ngate.floor_packets
+    if arm == "Z2":  # popped by run(): arm Z2 summary only
+        row["_held"] = ngate.floor_held
     if "bot" in trial:
         row["bot_render"] = dict(clip=trial["bot_clip"], offset=trial["bot_offset"], mic_clip=trial["mic_clip"])
         if "bot_speaker" in trial:  # bargein_replay/22 only
             row["bot_render"].update(bot_speaker=trial["bot_speaker"], mic_speaker=trial["mic_speaker"])
-    if arm in ("Q", "R", "S", "U", "W", "X", "Y", "Z"):  # bargein_replay/14 duck bookkeeping (adapter clock; /15 R, /16 S, /18 U the same)
+    if arm in ("Q", "R", "S", "U", "W", "X", "Y", "Z", "Z2"):  # bargein_replay/14 duck bookkeeping (adapter clock; /15 R, /16 S, /18 U the same)
         ducks, unducks = trace.get("duck_ms", []), trace.get("unduck_ms", [])
         row["ducks"] = len(ducks)
         row["duck_false_alarms"] = len(ducks) - (1 if muted and ducks else 0)  # ducks not committed
@@ -1875,16 +1931,18 @@ def run(n, seed, cfg, bot):
     arm_x = getattr(cfg, "arm_x", False)
     arm_y = getattr(cfg, "arm_y", False)
     arm_z = getattr(cfg, "arm_z", False)
+    arm_z2 = getattr(cfg, "arm_z2", False)
     only = getattr(cfg, "only_arms", None)  # run filter (A, B always run); not a parameter, never in the output
     nlms = arm_f or arm_f2 or arm_g or arm_g2 or arm_h or arm_o
     result = dict(seed=seed, trials_per_arm=n, parameters={
         k: v for k, v in vars(cfg).items()
         if k not in ("aa", "output", "seed", "trials", "arm_c", "arm_d", "arm_e", "arm_e2", "arm_f", "arm_f2",
                      "arm_g", "arm_g2", "arm_h", "arm_o", "arm_q", "arm_r", "arm_s", "arm_u", "arm_w", "arm_x",
-                     "arm_y", "arm_z", "only_arms")
+                     "arm_y", "arm_z", "arm_z2", "only_arms")
         and (arm_x or not k.startswith("dtfreeze_"))  # bargein_replay/20 only with --arm-x
         and (arm_y or not k.startswith("twocue_"))  # bargein_replay/21 only with --arm-y
         and (arm_z or not k.startswith("floor_"))  # bargein_replay/23 only with --arm-z
+        and (arm_z2 or k != "floor_min_run_ms")  # bargein_replay/24 only with --arm-z2
         and (arm_r or not k.startswith("split_"))  # bargein_replay/15 only with --arm-r
         and (arm_s or not k.startswith("prearm_"))  # bargein_replay/16 only with --arm-s
         and (arm_w or not k.startswith("quiet_"))  # bargein_replay/19 only with --arm-w
@@ -1944,16 +2002,18 @@ def run(n, seed, cfg, bot):
         result["harness"] = HARNESS_SPEAKERS
     if arm_z:
         result["harness"] = HARNESS_FLOOR
+    if arm_z2:
+        result["harness"] = HARNESS_FLOORRUN
     arms = ("A", "B", "C") if arm_c else ("A", "B")
     arms += (("D",) if arm_d else ()) + (("E",) if arm_e else ()) + (("E2",) if arm_e2 else ())
     arms += (("F",) if arm_f else ()) + (("F2",) if arm_f2 else ())
     arms += (("G",) if arm_g else ()) + (("G2",) if arm_g2 else ()) + (("H",) if arm_h else ())
     for arm in arms + (("O",) if arm_o else ()) + (("Q",) if arm_q else ()) + (("R",) if arm_r else ()) + (("S",) if arm_s else ()) \
             + (("U",) if arm_u else ()) + (("W",) if arm_w else ()) + (("X",) if arm_x else ()) \
-            + (("Y",) if arm_y else ()) + (("Z",) if arm_z else ()):
+            + (("Y",) if arm_y else ()) + (("Z",) if arm_z else ()) + (("Z2",) if arm_z2 else ()):
         if only is not None and arm not in ("A", "B") and arm not in only:
             continue  # --only-arms: arm skipped; arms share no state, so the ones that run are unchanged
-        prearm_packets = silent_windows = quiet_packets = freeze_packets = veto_packets = floor_packets = 0
+        prearm_packets = silent_windows = quiet_packets = freeze_packets = veto_packets = floor_packets = held_packets = 0
         rows = []
         for case in cases:
             rows.append(replay(case, arm, cfg, bot))
@@ -1963,6 +2023,7 @@ def run(n, seed, cfg, bot):
             freeze_packets += rows[-1].pop("_freeze", 0)
             veto_packets += rows[-1].pop("_veto", 0)
             floor_packets += rows[-1].pop("_floor", 0)
+            held_packets += rows[-1].pop("_held", 0)
         pooled = [v for row in rows for v in row.pop("_erle", ())]
         valid = [row for row in rows if row["kind"] == "valid"]
         result["arms"][arm] = dict(
@@ -2015,7 +2076,7 @@ def run(n, seed, cfg, bot):
                 [row["latency_ms"] for row in valid if row.get("echo_path", {}).get("double_talk")])
             summary["valid_trials_with_veto"] = sum(row["trace"]["erl2_vetoes"] > 0 for row in valid)
             summary["final_est_db"] = quantiles([row["trace"]["erl2_final_est_db"] for row in rows])
-        if arm in ("F", "F2", "G", "G2", "H", "O", "Q", "R", "S", "U", "W", "X", "Y", "Z"):
+        if arm in ("F", "F2", "G", "G2", "H", "O", "Q", "R", "S", "U", "W", "X", "Y", "Z", "Z2"):
             summary = result["arms"][arm]
             summary["double_talk_latency_ms"] = percentiles(
                 [row["latency_ms"] for row in valid if row.get("echo_path", {}).get("double_talk")])
@@ -2030,10 +2091,10 @@ def run(n, seed, cfg, bot):
                                                    for row in rows if row["trace"]["nlms_delay_ms"] is not None])
             if arm == "H":
                 summary["copies_per_trial"] = quantiles([row["trace"]["nlms_copies"] for row in rows])
-            if arm in ("O", "Q", "R", "S", "U", "W", "X", "Y", "Z"):
+            if arm in ("O", "Q", "R", "S", "U", "W", "X", "Y", "Z", "Z2"):
                 summary["swaps_per_trial"] = quantiles([row["trace"]["nlms_swaps"] for row in rows])
                 summary["trials_with_swap"] = sum(row["trace"]["nlms_swaps"] > 0 for row in rows)
-        if arm in ("Q", "R", "S", "U", "W", "X", "Y", "Z"):  # bargein_replay/14 (/15, /16, /18, /19, /20): latency_ms is time-to-ducked-or-silent
+        if arm in ("Q", "R", "S", "U", "W", "X", "Y", "Z", "Z2"):  # bargein_replay/14 (/15, /16, /18, /19, /20): latency_ms is time-to-ducked-or-silent
             summary = result["arms"][arm]
             summary["latency_definition"] = "time_to_ducked_or_silent"
             summary["commit_latency_ms"] = percentiles([row["commit_latency_ms"] for row in valid
@@ -2051,7 +2112,7 @@ def run(n, seed, cfg, bot):
                 < row["trace"]["adapter_onset_frame_receive_ms"] for row in valid)
         if arm == "S":  # bargein_replay/16: packets counted as speech by the pre-arm rule only
             result["arms"][arm]["prearm_speech_packets"] = prearm_packets
-        if arm in ("U", "W", "X", "Y", "Z"):  # bargein_replay/18: the same count, plus silent (no-duck) pre-arm windows opened
+        if arm in ("U", "W", "X", "Y", "Z", "Z2"):  # bargein_replay/18: the same count, plus silent (no-duck) pre-arm windows opened
             result["arms"][arm]["prearm_speech_packets"] = prearm_packets
             result["arms"][arm]["prearm_silent_windows"] = silent_windows
         if arm == "W":  # bargein_replay/19: packets counted as speech by the quiet-caller rule only
@@ -2060,8 +2121,10 @@ def run(n, seed, cfg, bot):
             result["arms"][arm]["dtfreeze_packets"] = freeze_packets
         if arm == "Y":  # bargein_replay/21: packets with the ERLE cue but no capture excess over the predicted echo
             result["arms"][arm]["twocue_vetoed_packets"] = veto_packets
-        if arm == "Z":  # bargein_replay/23: armed packets called speech by the floor-relative rule only
+        if arm in ("Z", "Z2"):  # bargein_replay/23: armed packets called speech by the floor-relative rule only
             result["arms"][arm]["floor_speech_packets"] = floor_packets
+        if arm == "Z2":  # bargein_replay/24: floor-only packets not counted (speech run shorter than floor_min_run_ms)
+            result["arms"][arm]["floor_held_packets"] = held_packets
     return result
 
 
@@ -2211,6 +2274,12 @@ def main():
                         help="arm Z (required with --arm-z): absolute residual RMS floor, in (0, --resid-threshold]")
     parser.add_argument("--floor-k-db", type=float, default=None,
                         help="arm Z (required with --arm-z): margin over the running residual floor in dB, in (0, 60]")
+    parser.add_argument("--arm-z2", action="store_true",
+                        help="add arm Z2 (bargein_replay/24, needs --arm-z): arm Z whose floor-only speech packets "
+                             "count for the onset and the commit only inside a speech run >= --floor-min-run-ms")
+    parser.add_argument("--floor-min-run-ms", type=int, default=None,
+                        help="arm Z2 (required with --arm-z2): speech run (ms) a floor-only packet needs, a multiple "
+                             "of 10 in [0, 1000]")
     parser.add_argument("--only-arms", type=lambda s: s.split(","), default=None, metavar="X,Y",
                         help="run filter: compute only these opt-in arms (A and B always run); the arms that run "
                              "produce the same output as without the filter")
@@ -2313,7 +2382,12 @@ def main():
     if cfg.arm_z and (cfg.floor_rms is None or cfg.floor_k_db is None or not 0 < cfg.floor_rms <= cfg.resid_threshold
                       or not 0 < cfg.floor_k_db <= 60):
         parser.error("--floor-rms in (0, --resid-threshold] and --floor-k-db in (0, 60] are required with --arm-z")
-    known = {"C", "D", "E", "E2", "F", "F2", "G", "G2", "H", "O", "Q", "R", "S", "U", "W", "X", "Y", "Z"}
+    if cfg.arm_z2 and not cfg.arm_z:
+        parser.error("--arm-z2 needs --arm-z (arm Z2 is arm Z with a longer run for floor-only packets)")
+    if cfg.arm_z2 and (cfg.floor_min_run_ms is None or not 0 <= cfg.floor_min_run_ms <= 1000
+                       or cfg.floor_min_run_ms % CAPTURE_MS):
+        parser.error("--floor-min-run-ms (a multiple of 10 in [0, 1000]) is required with --arm-z2")
+    known = {"C", "D", "E", "E2", "F", "F2", "G", "G2", "H", "O", "Q", "R", "S", "U", "W", "X", "Y", "Z", "Z2"}
     if cfg.only_arms is not None and not set(cfg.only_arms) <= known:
         parser.error("--only-arms takes a comma list of opt-in arms from " + ",".join(sorted(known)))
 
