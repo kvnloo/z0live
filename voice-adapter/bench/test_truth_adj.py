@@ -370,5 +370,66 @@ class Holdout3Tests(unittest.TestCase):
                 self.assertIsNone(re.search(r'(^|\s)[~/]\w|https?:|@\w', text), (item['id'], field))
 
 
+HOLDOUT4 = HERE / 'truth_adj_holdout4.json'
+PAST = re.compile(r"\b(\w+ed|sent|paid|asked|done|already|called|printed|booked|placed)\b")
+FUTURE = re.compile(r"\b(will|going to|'ll|can|while)\b")
+
+
+class Holdout4Tests(unittest.TestCase):
+    """D-truth-capacity: fresh holdout4 (mixed-tense loopholes + future-only handoffs). Grader code is unchanged."""
+
+    def setUp(self):
+        self.doc, self.sha = truth_adj.load_set(HOLDOUT4)
+        self.items = self.doc['items']
+
+    def test_schema_balance_and_coverage(self):
+        self.assertEqual(self.doc['format'], 'truth_adj/2')
+        self.assertEqual(len(self.items), 36)
+        for label in truth_eval.LABELS:
+            self.assertEqual(sum(i['gold'] == label for i in self.items), 12, label)
+        self.assertEqual({i['split'] for i in self.items}, {'holdout4'})
+        loopholes = [i for i in self.items if i['category'] == 'loophole']
+        handoffs = [i for i in self.items if i['category'] == 'handoff']
+        self.assertEqual(len(loopholes), 8)
+        self.assertEqual(len(handoffs), 8)
+        for i in loopholes:  # every loophole is mixed tense: completed action + future plan, gold HALLUCINATION
+            self.assertEqual(i['gold'], 'HALLUCINATION')
+            self.assertIsNone(i['hermes_reference'])
+            self.assertRegex(i['lane_reply'], PAST)
+            self.assertRegex(i['lane_reply'], FUTURE)
+        for i in handoffs:  # future-only deferral, gold CLEAN
+            self.assertEqual(i['gold'], 'CLEAN')
+            self.assertRegex(i['lane_reply'], FUTURE)
+        for i in self.items:
+            if i['category'] == 'unresolved_null':
+                self.assertEqual(i['gold'], 'UNCERTAIN')
+                self.assertIsNone(i['hermes_reference'])
+        self.assertEqual(len({i['lane_reply'] for i in handoffs}), 8)
+
+    def test_disjoint_from_all_earlier_items(self):
+        earlier = (truth_adj.load_set(truth_adj.SET)[0]['items'] + truth_adj.load_set(HOLDOUT2)[0]['items']
+                   + truth_adj.load_set(HOLDOUT3)[0]['items'])
+        for field in ('id', 'lane_reply', 'question'):
+            self.assertFalse({i[field] for i in self.items} & {i[field] for i in earlier}, field)
+        self.assertFalse({i['lane_reply'] for i in self.items} & {r for _, _, r, _ in truth_eval.CONTROLS})
+
+    def test_synthetic_only(self):
+        for item in self.items:
+            for field in ('question', 'hermes_reference', 'lane_reply'):
+                text = item[field] or ''
+                self.assertIsNone(re.search(r'(^|\s)[~/]\w|https?:|@\w', text), (item['id'], field))
+
+    def test_earlier_splits_unchanged(self):
+        self.assertEqual(truth_adj.SPLITS['truth_adj/1'], {'dev', 'holdout'})
+        self.assertEqual(truth_adj.SPLITS['truth_adj/2'], {'holdout2', 'holdout3', 'holdout4'})
+
+    def test_grader_unchanged(self):
+        self.assertEqual(hashlib.sha256(truth_eval.RUBRIC.encode()).hexdigest(), DEFAULT_RUBRIC_SHA256)
+        self.assertEqual(hashlib.sha256(inspect.getsource(truth_eval.grade).encode()).hexdigest(),
+                         DEFAULT_GRADE_SOURCE_SHA256)
+        self.assertEqual(inspect.signature(eval_local.LocalModel.ask).parameters['max_tokens'].kind,
+                         inspect.Parameter.POSITIONAL_OR_KEYWORD)
+
+
 if __name__ == '__main__':
     unittest.main()
