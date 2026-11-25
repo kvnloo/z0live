@@ -15,8 +15,8 @@ concurrency:
   group: truth-rubric-${{ github.ref }}
   cancel-in-progress: false
 env:
-  PHASE: select
-  SETS: truth_adj.json
+  PHASE: holdout
+  SETS: truth_adj_holdout2.json truth_adj.json
   LLAMA_TAG: b12527
   LLAMA_SHA256: c2758c87b9dd41293653e665fa3b06f5853d69243443d5d06d930683a55e35e4   # llama-b12527-bin-ubuntu-arm64.tar.gz
   MODEL: gemma4-e4b
@@ -32,8 +32,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        variant: [default, handoff1, handoff2, handoff3]
-        rep: [1]
+        variant: [default, handoff3]   # A = default RUBRIC, B = wording chosen by the frozen dev selection rule
+        rep: [1, 2]   # A/A: two independent jobs per arm, same inputs
     steps:
       - uses: actions/checkout@v4
         with:
