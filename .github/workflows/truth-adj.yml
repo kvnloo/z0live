@@ -2,6 +2,10 @@ name: z0live truth grader adjudication (CPU llama.cpp)
 # Measures bench/truth_eval.py's unchanged RUBRIC + grade() against the synthetic adjudication set
 # voice-adapter/bench/truth_adj.json (constructed gold). Synthetic text only, no owner data or traces.
 on:
+  # workflow_dispatch needs the file on the default branch; a push to this branch that touches the workflow runs it once
+  push:
+    branches: [ci/truth-adj]
+    paths: [".github/workflows/truth-adj.yml"]
   workflow_dispatch:
     inputs:
       note:
