@@ -1,7 +1,8 @@
-name: z0live F4p, mono Opus downlink 32 vs 96 kbit/s (transport_bench/13, A B A2 x 7, clean), hosted arm64 + x86
-# F4p: on GitHub-hosted runners, does the mono Opus downlink (F4o) at 32 kbit/s cut downlink bytes vs mono at 96 kbit/s
-# without failing the quality/latency gates? Loopback only, synthetic speech (espeak-ng via the F4o `say` shim), fake
-# provider; no network peers, no secrets. Arms: A --opus-mono (96k), B --opus-mono --opus-bitrate 32000, A2 = A (A/A).
+name: z0live F4q, mono Opus 96k complexity 5 vs default 10 (transport_bench/13, A B A2 x 7, clean), hosted arm64 + x86
+# F4q: on GitHub-hosted runners, does libopus complexity 5 (vs default 10) on the mono 96 kbit/s Opus downlink (F4o) cut
+# the in-call encode time without failing the quality/latency gates? Loopback only, synthetic speech (espeak-ng via the
+# F4o `say` shim), fake provider; no network peers, no secrets. Arms: A --opus-mono, B --opus-mono --opus-complexity 5,
+# A2 = A (A/A).
 # 7 reps in the rotated order, then the quality gate and the unit tests. This branch reuses the registered
 # text-climb.yml file name so `gh workflow run text-climb.yml --ref <branch>` can dispatch it.
 on:
@@ -15,7 +16,7 @@ permissions:
   contents: read
 jobs:
   bench:
-    name: f4p ${{ matrix.runner }}
+    name: f4q ${{ matrix.runner }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 40
     strategy:
@@ -42,7 +43,7 @@ jobs:
         run: |
           mkdir -p "$GITHUB_WORKSPACE/out" && lscpu > "$GITHUB_WORKSPACE/out/lscpu.txt"
           {
-            echo "### F4p on ${{ matrix.runner }} (${{ inputs.note }})"
+            echo "### F4q on ${{ matrix.runner }} (${{ inputs.note }})"
             echo '```'
             uname -a; nproc; lscpu
             python --version
@@ -54,12 +55,12 @@ jobs:
         run: |
           set -euo pipefail
           which say
-          bash bench/ghci/f4p/run_batch.sh "$GITHUB_WORKSPACE/out"
+          bash bench/ghci/f4q/run_batch.sh "$GITHUB_WORKSPACE/out"
           { echo '```'; cat "$GITHUB_WORKSPACE/out/batch.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: f4p-${{ matrix.runner }}
+          name: f4q-${{ matrix.runner }}
           path: |
             out/*.json
             out/*.txt

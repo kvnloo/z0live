@@ -18,6 +18,10 @@ Bitrate (track F4p): Z0LIVE_DOWNLINK_OPUS_BITRATE=<bits/s> sets the mono encoder
 when MONO=1 (it is read in MonoOpusEncoder.__init__, i.e. when the sender builds the encoder). Unset or invalid (not
 an integer in [6000, 510000], the libopus range) = 96000, byte for byte the F4o encoder. The stock stereo encoder is
 never affected.
+
+Complexity (track F4q): Z0LIVE_DOWNLINK_OPUS_COMPLEXITY=<0..10> sets FFmpeg libopusenc's `compression_level`
+(OPUS_SET_COMPLEXITY; FFmpeg default 10) on the mono encoder only. Unset or invalid (not an integer in [0, 10]) = the
+option is not set at all, byte for byte the F4o encoder.
 """
 from __future__ import annotations
 
@@ -31,6 +35,7 @@ from aiortc.codecs import opus as aopus
 ENV = "Z0LIVE_DOWNLINK_OPUS_MONO"
 BITRATE_ENV = "Z0LIVE_DOWNLINK_OPUS_BITRATE"
 DEFAULT_BITRATE = 96000
+COMPLEXITY_ENV = "Z0LIVE_DOWNLINK_OPUS_COMPLEXITY"
 _STOCK_GET_ENCODER = rtcrtpsender.get_encoder
 
 
@@ -47,15 +52,32 @@ def bitrate() -> int:
     return value if 6000 <= value <= 510000 else DEFAULT_BITRATE
 
 
+def complexity() -> int | None:
+    """libopus complexity from Z0LIVE_DOWNLINK_OPUS_COMPLEXITY; unset/invalid/out of [0, 10] = None (not set)."""
+    raw = os.environ.get(COMPLEXITY_ENV, "").strip()
+    if not (raw.isascii() and raw.isdigit()):
+        return None
+    value = int(raw)
+    return value if 0 <= value <= 10 else None
+
+
+_env_complexity = complexity  # MonoOpusEncoder's `complexity` parameter shadows the module function
+
+
 class MonoOpusEncoder(aopus.OpusEncoder):
     """aiortc OpusEncoder with one channel. encode()/pack() are inherited unchanged (same pts/timestamp logic)."""
 
-    def __init__(self, bit_rate: int | None = None) -> None:  # noqa: D107 - OpusEncoder.__init__, layout mono
+    def __init__(self, bit_rate: int | None = None, complexity: int | None = None) -> None:  # noqa: D107
         self.codec = CodecContext.create("libopus", "w")
         self.codec.bit_rate = bitrate() if bit_rate is None else bit_rate
         self.codec.format = "s16"
         self.codec.layout = "mono"
-        self.codec.options = {"application": "voip"}
+        options = {"application": "voip"}
+        level = _env_complexity() if complexity is None else complexity
+        if level is not None:  # F4q: only when set; unset = F4o options exactly
+            options["compression_level"] = str(level)
+        self.codec.options = options
+        self.complexity = level  # F4q: what was requested (codec.options is consumed when the codec opens)
         self.codec.sample_rate = aopus.SAMPLE_RATE
         self.codec.time_base = aopus.TIME_BASE
         self.resampler = AudioResampler(format="s16", layout="mono", rate=aopus.SAMPLE_RATE,
