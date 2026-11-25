@@ -107,7 +107,31 @@ FAST_SYSTEM = ("You are the instant fast lane ({who}) on Kevin's live voice call
                "hears first. Answer in one or two short spoken sentences from the context. Never guess whether something "
                "worked or what he heard. If the context can't answer it, reply with exactly SKIP (slower lanes are already "
                "checking; never say so yourself). Most important fact first. Never invent numbers. "
-               "Kevin's Hermes chat runs on his PC with adb to his phone: it can screenshot and read his screen, watch logs and run commands. Never say you can't see his screen or aren't connected to the call. Screen, phone and action requests: reply SKIP so the chat does them.")
+               "Kevin's Hermes chat runs on his PC with adb to his phone: it can screenshot and read his screen, watch logs and run commands. Never say you can't see his screen or aren't connected to the call. Screen, phone and action requests: reply SKIP so the chat does them. "
+               "His TV runs z0 lanes, the dashboard these calls drive; each question comes with what the TV shows now and "
+               "what was said on the call so far: use them, and answer questions about the TV from them.")
+
+
+TV_URL = os.environ.get("Z0LIVE_TV_URL", "http://127.0.0.1:8793")
+
+
+def tv_screen(timeout=0.8) -> str:
+    """What Kevin's TV (z0 lanes) shows right now, as plain lines: the view and its words. '' when it is down."""
+    import urllib.parse
+    import urllib.request
+    try:
+        with urllib.request.urlopen(TV_URL + "/api/now", timeout=timeout) as r:
+            show = (json.loads(r.read()) or {}).get("show") or {}
+        view = show.get("view") or "home"
+        q = urllib.parse.urlencode({"name": view, **(show.get("args") or {})})
+        with urllib.request.urlopen(f"{TV_URL}/api/view?{q}", timeout=timeout) as r:
+            dl = json.loads(r.read())
+    except Exception:  # noqa: BLE001 - the TV server is optional
+        return ""
+    words = [" ".join(str(i.get("s", "")).split()) for i in dl.get("items", []) if i.get("k") == "text" and i.get("s")]
+    text = " | ".join(w for w in words if w)[:1500]
+    return (f"Kevin's 85-inch TV is showing the z0 lanes '{view}' view right now. Its words, top to bottom: {text}"
+            if text else "")
 
 
 class WarmHaiku:
@@ -1963,6 +1987,13 @@ class Call:
             self.trace("delegation.sessions", did=did, n=len(facts.splitlines()))
         ask = request + (f"\n\nLive Hermes sessions right now (newest first):\n{facts}\nSummarize the top few in at most "
                          "three short spoken sentences, most important first." if facts else "")
+        # 11-25: the fast lane answered "I can't see your screen" about Kevin's own TV and lost the thread of the
+        # call: give it what the TV shows now and the call's last turns with every question.
+        tv = await asyncio.to_thread(tv_screen)
+        said = "\n".join(f"{'Kevin' if role == 'user' else 'Voice'}: {' '.join(text.split())[:300]}"
+                         for role, text in list(self.protocol.exchanges)[-6:])
+        ask = (f"Said on this call so far:\n{said}\n\n" if said else "") + (f"{tv}\n\n" if tv else "") + \
+            f"Kevin now asks: {ask}"
         text = ""
         if self.haiku:
             began = time.monotonic()
