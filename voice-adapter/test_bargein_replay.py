@@ -2284,7 +2284,7 @@ class QuietCallerGateTest(unittest.TestCase):
             self.assertEqual(canonical(p['arms'][arm]), canonical(f['arms'][arm]), arm)
         self.assertEqual(p['parameters'], f['parameters'])  # a run filter, not a parameter
         self.assertEqual(p['harness'], f['harness'])
-        proc, _ = run_cli(*U18_ARGS, '--only-arms', 'U,Z')
+        proc, _ = run_cli(*U18_ARGS, '--only-arms', 'U,V')  # V is no arm (Z is arm Z since bargein_replay/23)
         self.assertNotEqual(proc.returncode, 0)
 
     def test_sweep_passes_arm_w_and_only_arms(self):
