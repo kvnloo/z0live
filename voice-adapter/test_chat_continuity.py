@@ -29,6 +29,13 @@ class FindChat(unittest.TestCase):
     def test_newest_continuation_of_the_matching_chat_not_a_oneshot(self):
         self.assertEqual(cc.find_chat(HIST, "", self.db), "gui1c")
 
+    def test_a_subagent_of_the_chat_is_not_its_continuation(self):
+        # 11-25: a call landed in the chat's background builder (newest child) and failed "subagent still running"
+        with sqlite3.connect(self.db) as db:
+            db.executescript("""INSERT INTO sessions VALUES ('sub1','subagent','gui1c',9);
+                INSERT INTO messages(session_id,role,content) VALUES ('sub1','user','troubleshoot z0live please');""")
+        self.assertEqual(cc.find_chat(HIST, "", self.db), "gui1c")
+
     def test_matches_an_earlier_user_message_with_whitespace_drift(self):
         hist = [{"role": "user", "content": [{"text": "troubleshoot   z0live\nplease"}]},
                 {"role": "user", "content": [{"text": "a restated wrapper the db never stored"}]}]

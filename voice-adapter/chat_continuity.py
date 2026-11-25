@@ -32,6 +32,7 @@ def user_texts(history) -> list[str]:
     return out
 
 
+NOT_A_CHAT = "('oneshot','tool','cron','kanban','subagent')"
 RECENT = 20000  # only the newest message rows: a full-table scan took ~28 s and stalled call setup
 
 
@@ -49,11 +50,12 @@ def find_chat(history, profile: str, db_path: Path | None = None) -> str:
             rows = db.execute(
                 "SELECT m.session_id, substr(m.content,1,400) FROM messages m JOIN sessions s ON s.id=m.session_id "
                 "WHERE m.id > (SELECT max(id) FROM messages) - ? AND m.role='user' "
-                "AND s.source NOT IN ('oneshot','tool','cron','kanban') ORDER BY m.id DESC", (RECENT,))
+                f"AND s.source NOT IN {NOT_A_CHAT} ORDER BY m.id DESC", (RECENT,))
             sid = next((s for s, c in rows if isinstance(c, str) and _key(c) in keys), "")
             while sid:  # newest continuation: a GUI chat rolls over to a child at each handoff
-                child = db.execute("SELECT id FROM sessions WHERE parent_session_id=? ORDER BY started_at DESC LIMIT 1",
-                                   (sid,)).fetchone()
+                # a subagent is also a child of the chat, but it is the chat's helper, never its continuation
+                child = db.execute(f"SELECT id FROM sessions WHERE parent_session_id=? AND source NOT IN {NOT_A_CHAT} "
+                                   "ORDER BY started_at DESC LIMIT 1", (sid,)).fetchone()
                 if not child:
                     break
                 sid = child[0]
