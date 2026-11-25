@@ -1,0 +1,69 @@
+name: z0live F4o-arm, mono vs stereo Opus downlink encode (transport_bench/13, A B A2 x 7, clean), hosted arm64 + x86
+# F4o-arm: replicate the F4o transport bench on GitHub-hosted runners (a second CPU point). Loopback only, synthetic
+# speech (espeak-ng via a `say` shim), fake provider; no network peers, no secrets. Arms: A stock aiortc OpusEncoder,
+# B --opus-mono (opus_mono.MonoOpusEncoder), A2 stock again (A/A). 7 reps in the rotated order, then the quality gate.
+# This branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml --ref <branch>` can
+# dispatch it.
+on:
+  workflow_dispatch:
+    inputs:
+      note:
+        description: "free-text label for this run (shown in the summary)"
+        required: false
+        default: ""
+permissions:
+  contents: read
+jobs:
+  bench:
+    name: f4o ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04-arm, ubuntu-24.04]
+    defaults:
+      run:
+        working-directory: voice-adapter
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q && sudo apt-get install -y -q espeak-ng sox
+          python -m pip install -q -r requirements.lock numpy==2.5.5
+          echo "$PWD/bench/ghci/f4o" >> "$GITHUB_PATH"
+      - name: Runner
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/out" && lscpu > "$GITHUB_WORKSPACE/out/lscpu.txt"
+          {
+            echo "### F4o-arm on ${{ matrix.runner }} (${{ inputs.note }})"
+            echo '```'
+            uname -a; nproc; lscpu
+            python --version
+            python -m pip list 2>/dev/null | grep -iE '^(aiortc|av|numpy|aiohttp) '
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Batch (A B A2 x 7, rotated)
+        timeout-minutes: 26
+        run: |
+          set -euo pipefail
+          which say
+          bash bench/ghci/f4o/run_batch.sh "$GITHUB_WORKSPACE/out"
+          { echo '```'; cat "$GITHUB_WORKSPACE/out/batch.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f4o-${{ matrix.runner }}
+          path: |
+            out/*.json
+            out/*.txt
+            out/*.sha256
+            out/raw/
+          if-no-files-found: warn
+          retention-days: 30
