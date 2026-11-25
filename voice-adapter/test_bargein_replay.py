@@ -3092,5 +3092,167 @@ class FloorRunGateTest(unittest.TestCase):
             self.assertEqual(sorted(res['arms']), ['A', 'B', 'U', 'Z2'])
 
 
+UC_FLAGS = ('--arm-uc', '--rho-veto', '0.7')
+
+
+class CoherenceVetoGateTest(unittest.TestCase):
+    """bargein_replay/25: opt-in arm UC, arm U plus one veto: an armed packet U calls speech is not speech when the
+    coherence rho between the canceller residual e and the canceller's echo estimate y_hat (20 ms, max over lags
+    +-8 samples at 4 kHz) is >= rho_veto. Never adds speech, never acts before arming. rho_veto > 1: arm U."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nlms = NlmsGateTest('test_harness_id')
+        cls.nlms.setUpClass()
+
+    def uc_cfg(self, **overrides):
+        return self.nlms.f_cfg(**({'resid_threshold': 1360.0, 'resid_arm_db': 6.0, 'resid_nlp_db': 3.0,
+                                   'guard_erle_db': 6.0, 'guard_margin_db': 3.0, 'guard_packets': 5,
+                                   'duck_commit_ms': 100, 'duck_window_ms': 300, 'prearm_rms': 5000.0,
+                                   'rho_veto': 0.7} | overrides))
+
+    def test_harness_id(self):
+        self.assertEqual(replay.HARNESS_RHOVETO, 'bargein_replay/25')
+        self.assertEqual(replay.HARNESS_FLOORRUN, 'bargein_replay/24')
+
+    def test_uc_is_u_subclass_reading_one_new_constant(self):
+        import ast
+        import inspect
+        self.assertTrue(issubclass(replay.CoherenceVetoGate, replay.NoDuckPreArmGate))
+        tree = ast.parse(inspect.getsource(replay.CoherenceVetoGate))
+        cfg_attrs = {n.attr for n in ast.walk(tree)
+                     if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == 'cfg'}
+        self.assertEqual(cfg_attrs, {'rho_veto'})
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                self.assertNotIn(node.id, ArmCTest.FORBIDDEN, node.id)
+            elif isinstance(node, ast.Attribute):
+                self.assertNotIn(node.attr, {'caller_gain_db', 'erl_db', 'gain', 'taps', 'mic'}, node.attr)
+
+    def test_coherence_window(self):
+        g = replay.CoherenceVetoGate(self.uc_cfg(), 2100)
+        rng = replay.Random(7)
+        y = [rng.gauss(0, 1000) for _ in range(400)]
+        g.ybuf[:400] = y
+        g.m1 = 400
+        g.placed_at = None
+        self.assertIsNone(g.coherence())  # filter not placed
+        g.placed_at = 0
+        g.ebuf[:400] = [0.5 * v for v in y]
+        self.assertAlmostEqual(g.coherence(), 1.0, places=9)  # residual = scaled echo estimate
+        g.ebuf[:400] = [-v for v in y[3:]] + [0.0] * 3  # lagged copy: found inside +-8 samples
+        self.assertGreater(g.coherence(), 0.95)
+        g.ebuf[:400] = [rng.gauss(0, 1000) for _ in range(400)]  # independent "caller"
+        self.assertLess(g.coherence(), 0.5)
+        g.placed_at = 330  # window [320, 400) not fully placed
+        self.assertIsNone(g.coherence())
+        g.placed_at = 0
+        g.ebuf[:400] = [0.0] * 400  # zero norm
+        self.assertIsNone(g.coherence())
+
+    def test_veto_off_is_u_and_veto_only_removes_speech(self):
+        class Speech(Recorder):
+            def observe(self, t, packet):
+                event = self.gate.observe(t, packet)
+                if event:
+                    self.events.append((t, event))
+                self.speech.append((t, self.gate.speech, self.gate.armed))
+                return False
+        for kw in ({}, {'caller_from': 1500, 'caller_amp': 1000, 'ms': 1800},
+                   {'caller_from': 1500, 'caller_amp': 1000, 'ms': 1800, 'caller_to': 1560},
+                   {'caller_from': 1200, 'caller_amp': 3000, 'ms': 2000}):
+            u = Speech(replay.NoDuckPreArmGate(self.uc_cfg(), 2100))
+            off = Speech(replay.CoherenceVetoGate(self.uc_cfg(rho_veto=1.01), 2100))
+            on = Speech(replay.CoherenceVetoGate(self.uc_cfg(rho_veto=0.3), 2100))
+            for r in (u, off, on):
+                r.speech = []
+                self.nlms.synthetic(r, **kw)
+            self.assertEqual(off.events, u.events, kw)
+            self.assertEqual(off.speech, u.speech, kw)
+            self.assertEqual(off.gate.rho_vetoes, 0)
+            self.assertEqual(off.gate.w, u.gate.w)  # canceller arithmetic unchanged
+            # with the veto on, every speech packet of UC is also U speech up to UC's first event (the veto never
+            # adds speech); unarmed packets are never vetoed
+            first = min([t for t, _ in on.events] + [t for t, _ in u.events] + [10 ** 9])
+            for (t, s_u, a_u), (t2, s_on, a_on) in zip(u.speech, on.speech):
+                self.assertEqual(t, t2)
+                self.assertEqual(a_u, a_on)
+                if t <= first:
+                    self.assertLessEqual(s_on, s_u, (kw, t))
+                    if not a_u:
+                        self.assertEqual(s_on, s_u, (kw, t))
+
+    def test_veto_drops_echo_speech_but_keeps_a_loud_caller(self):
+        # echo-only synthetic at 0 dB echo gain: U calls armed echo packets speech; a strict veto removes them
+        u = Recorder(replay.NoDuckPreArmGate(self.uc_cfg(), 2100))
+        uc = Recorder(replay.CoherenceVetoGate(self.uc_cfg(rho_veto=0.5), 2100))
+        self.nlms.synthetic(u, gain_db=0.0)
+        self.nlms.synthetic(uc, gain_db=0.0)
+        self.assertGreater(uc.gate.rho_vetoes, 0)
+        self.assertLessEqual(len(uc.events), len(u.events))
+        # a loud uncorrelated caller still commits with the veto on
+        c = Recorder(replay.CoherenceVetoGate(self.uc_cfg(rho_veto=0.5), 2100))
+        self.nlms.synthetic(c, caller_from=1200, caller_amp=3000, ms=2000)
+        self.assertIn('commit', [e for _, e in c.events])
+
+    def test_uc_off_keeps_old_bytes(self):
+        proc, data = run_cli('--seed', '39')
+        self.assertEqual(sha256(data).hexdigest(), REFERENCE_SHA256)
+        proc, data = run_cli(*U18_ARGS)
+        self.assertEqual(sha256(data).hexdigest(), U18_SHA256)
+        proc, data = run_cli('--seed', '34900', *QU_MULTI_ARGS)
+        self.assertEqual(sha256(data).hexdigest(), QU22_SHA256)
+        proc, data = run_cli('--seed', '34900', *Z23_PIN_ARGS)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(sha256(data).hexdigest(), Z23_SHA256)
+
+    def test_cli_arm_uc_leaves_other_arms_unchanged(self):
+        base_args = (*QU_MULTI_ARGS[:-3], '--caller-level-db-range=-10,0')
+        proc, base = run_cli('--seed', '34900', *base_args, '--only-arms', 'U')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        proc, data = run_cli('--seed', '34900', *base_args, *UC_FLAGS, '--only-arms', 'U,UC', '--aa')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIs(json.loads(proc.stdout)['aa_identical'], True)
+        b, z = json.loads(base), json.loads(data)
+        self.assertEqual(z['harness'], 'bargein_replay/25')
+        self.assertEqual(sorted(z['arms']), ['A', 'B', 'U', 'UC'])
+        for arm in ('A', 'B', 'U'):
+            self.assertEqual(canonical(z['arms'][arm]), canonical(b['arms'][arm]), arm)
+        params = dict(z['parameters'])
+        self.assertEqual(params.pop('rho_veto'), 0.7)
+        self.assertEqual(params, b['parameters'])
+        za = z['arms']['UC']
+        self.assertEqual(za['latency_definition'], 'time_to_ducked_or_silent')
+        self.assertIn('rho_veto_packets', za)
+        # rho_veto 1.01: UC is U trial for trial
+        proc, data = run_cli('--seed', '34900', *base_args, '--arm-uc', '--rho-veto', '1.01', '--only-arms', 'U,UC')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        arms = json.loads(data)['arms']
+        za = dict(arms['UC'])
+        self.assertEqual(za.pop('rho_veto_packets'), 0)
+        self.assertEqual(canonical(za), canonical(arms['U']))
+        for bad in ((*base_args, '--arm-uc'), (*base_args, '--arm-uc', '--rho-veto', '0'),
+                    (*base_args, '--arm-uc', '--rho-veto', '1.5'),
+                    tuple(a for a in base_args if a != '--arm-u') + UC_FLAGS):  # --arm-uc needs --arm-u
+            proc, _ = run_cli('--seed', '39', '--trials', '5', *bad)
+            self.assertNotEqual(proc.returncode, 0, bad)
+
+    def test_sweep_passes_arm_uc(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([sys.executable, '-B', str(BENCH_DIR / 'bargein_sweep.py'), '--seeds', '39', '--trials', '10',
+                            '--echo-model', 'residual', '--echo-continuous', '--bot-render', 'recorded',
+                            '--clip-set', 'multi', '--rhos', 'none', '--energy-k-db', '-12',
+                            '--energy-min-speech-ms', '30', '--arm-o', '--resid-threshold', '1360',
+                            '--guard-packets', '5', '--guard-margin-db', '3', '--arm-q', '--duck-commit-ms', '100',
+                            '--duck-window-ms', '300', '--arm-s', '--prearm-rms', '5000', '--arm-u', '--arm-uc',
+                            '--rho-veto', '0.7', '--only-arms', 'U,UC', '--out', tmp],
+                           check=True, capture_output=True, timeout=900)
+            res = json.loads(Path(tmp, 'seed-39.json').read_text())
+            self.assertEqual(res['harness'], 'bargein_replay/25')
+            self.assertEqual(res['extra_args'][-6:], ['--arm-u', '--arm-uc', '--rho-veto', '0.7',
+                                                      '--only-arms', 'U,UC'])
+            self.assertEqual(sorted(res['arms']), ['A', 'B', 'U', 'UC'])
+
+
 if __name__ == '__main__':
     unittest.main()
