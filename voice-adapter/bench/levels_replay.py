@@ -19,6 +19,9 @@ Metrics (energy only, like the adapter's Level; no speech recognition):
   uplink levels   p50/p95 uplink RMS over frames while the downlink is active vs silent.
   echo floor      p95 uplink RMS over uplink frames whose nearest downlink frame is loud (hangover excluded:
                   that is where echo of the voice can be). Barge-ins inside that set lift it only above 5 %.
+                  --floor-mode picks the estimator over that set (default p95): p50 = median; min = median
+                  across downlink spans of the per-span 10th percentile; early = p95 of the frames in the first
+                  200 ms of their span (echo before a caller can react), p50 of the set if under 5 such frames.
   double talk     uplink frames, downlink active, with RMS > echo floor + --margin-db.
   barge-in        candidate onsets: the first frame of each double-talk run lasting >= --min-run-ms (a run breaks
                   on a non-double-talk frame or a gap), reported with the containing downlink span's start.
@@ -52,6 +55,35 @@ class Params:
     rate: int = 48000
     up: str = UP
     down: str = DOWN
+    floor_mode: str = "p95"     # echo-floor estimator, one of FLOOR_MODES
+
+
+FLOOR_MODES = ("p95", "p50", "min", "early")
+EARLY_MS = 200.0    # floor_mode early: echo frames this close to their span start (before a caller can react)
+EARLY_MIN_FRAMES = 5
+
+
+def echo_floor(echo, rel_ms, span, mode):
+    """Echo floor dBFS (unrounded) over the echo set: uplink RMS `echo`, ms since the containing downlink span
+    start `rel_ms`, span index `span`. None when the set is empty.
+      p95    p95 of the set (double talk lifts it once it exceeds 5 % of the set)
+      p50    median of the set
+      min    per span, the 10th percentile; then the median across spans
+      early  p95 of the frames < EARLY_MS into their span; p50 of the set if fewer than EARLY_MIN_FRAMES"""
+    if mode not in FLOOR_MODES:
+        raise ValueError(f"floor_mode {mode!r} not in {FLOOR_MODES}")
+    if not echo.size:
+        return None
+    if mode == "p95":
+        return float(np.percentile(echo, 95))
+    if mode == "p50":
+        return float(np.percentile(echo, 50))
+    if mode == "min":
+        per = [float(np.percentile(echo[span == k], 10)) for k in np.unique(span[span >= 0])]
+        return float(np.median(per)) if per else None
+    early = echo[(span >= 0) & (rel_ms < EARLY_MS)]
+    return float(np.percentile(early if early.size >= EARLY_MIN_FRAMES else echo,
+                               95 if early.size >= EARLY_MIN_FRAMES else 50))
 
 
 def _num(x):
@@ -206,6 +238,8 @@ def _stats(x):
 
 def score(tr, p=None):
     p = p or Params()
+    if p.floor_mode not in FLOOR_MODES:
+        raise ValueError(f"floor_mode {p.floor_mode!r} not in {FLOOR_MODES}")
     names = sorted(set(tr.dirs) | {p.up, p.down})
     integ = {name: integrity(tr.direction(name), p.rate) for name in names}
     up, down = tr.direction(p.up), tr.direction(p.down)
@@ -235,7 +269,11 @@ def score(tr, p=None):
         u_loud = np.zeros(ut.size, dtype=bool)
 
     echo = urms[u_loud]
-    floor = round(float(np.percentile(echo, 95)), 1) if echo.size else None
+    e_span = u_span[u_loud]
+    e_rel = ut[u_loud].astype(np.float64) - np.where(e_span >= 0, starts[np.maximum(e_span, 0)] if starts.size
+                                                      else 0.0, np.inf)
+    floor = echo_floor(echo, e_rel, e_span, p.floor_mode)
+    floor = round(floor, 1) if floor is not None else None
     onsets, dt_frames, threshold = [], 0, None
     if floor is not None:
         threshold = round(floor + p.margin_db, 1)
@@ -267,7 +305,7 @@ def score(tr, p=None):
             "active_ms": int(round(sum(e - s for s, e, _, _ in spans))),
         },
         "uplink": {"down_active": _stats(urms[u_active]), "down_silent": _stats(urms[~u_active])},
-        "echo": {"floor_db": floor, "frames": int(echo.size),
+        "echo": {"floor_db": floor, "floor_mode": p.floor_mode, "frames": int(echo.size),
                  "p50_db": round(float(np.percentile(echo, 50)), 1) if echo.size else None},
         "bargein": {"threshold_db": threshold, "double_talk_frames": dt_frames, "onsets": onsets},
     }
@@ -287,7 +325,7 @@ def summary(rep):
         s = ul[k]
         out.append(f"uplink rms while {k.replace('down_', 'downlink ')}: frames={s['frames']}"
                    f" p50={s['p50']} p95={s['p95']} dBFS")
-    out.append(f"echo floor (p95 uplink rms, downlink loud): {e['floor_db']} dBFS  p50={e['p50_db']}"
+    out.append(f"echo floor ({e['floor_mode']}, uplink rms, downlink loud): {e['floor_db']} dBFS  p50={e['p50_db']}"
                f"  frames={e['frames']}")
     out.append(f"double-talk frames: {b['double_talk_frames']}  threshold={b['threshold_db']} dBFS")
     out.append(f"barge-in onsets: {len(b['onsets'])}")
@@ -309,9 +347,10 @@ def main(argv=None):
     ap.add_argument("--rate", type=int, default=d.rate, help="sample rate behind n (frame ms = n / rate)")
     ap.add_argument("--up-dir", default=d.up)
     ap.add_argument("--down-dir", default=d.down)
+    ap.add_argument("--floor-mode", choices=FLOOR_MODES, default=d.floor_mode, help="echo-floor estimator")
     a = ap.parse_args(argv)
     p = Params(on_db=a.on_db, hangover_ms=a.hangover_ms, margin_db=a.margin_db, min_run_ms=a.min_run_ms,
-               rate=a.rate, up=a.up_dir, down=a.down_dir)
+               rate=a.rate, up=a.up_dir, down=a.down_dir, floor_mode=a.floor_mode)
     if a.trace == "-":
         tr = parse(sys.stdin)
     else:

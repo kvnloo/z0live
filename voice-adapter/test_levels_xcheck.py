@@ -99,6 +99,12 @@ class Scoring(unittest.TestCase):
         self.assertEqual(a["schema"], "levels_xcheck/1")
         self.assertEqual(a["summary"]["n_trials"], 2)
         self.assertEqual(len(a["arms"]["none"]["trials"]), 2)
+        self.assertEqual(a["scorer"]["params"]["floor_mode"], "p95")   # scorer default (A-levels-floor: REVERT)
+
+    def test_floor_mode_reaches_the_scorer(self):
+        a = x.run(seeds=(39,), trials=1, arms=("none",), floor_mode="p50")
+        self.assertEqual(a["scorer"]["params"]["floor_mode"], "p50")
+        self.assertEqual(a["sim"]["arms"], ["none"])
 
 
 class Preregistered(unittest.TestCase):

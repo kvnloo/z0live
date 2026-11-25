@@ -9,6 +9,8 @@ import sys
 import tempfile
 import unittest
 
+import numpy as np
+
 original_path = sys.path[:]
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'bench'))
 try:
@@ -172,6 +174,105 @@ class MetricTests(unittest.TestCase):
             self.assertIsNone(rep["echo"]["floor_db"])
             self.assertEqual(rep["integrity"]["dirs"][UP]["frames"], 0)
             self.assertEqual(rep["integrity"]["dirs"][DOWN]["frames"], 0)
+
+
+def double_talk_call(caller_frac=0.35, caller_db=-12.0):
+    """One 6 s downlink span (starts at 500 ms); uplink = echo (downlink - 20 dB) with the caller at caller_db on the
+    last caller_frac of the span (double talk dominates the echo set's top 5 %)."""
+    down = [FLOOR] * 25 + [speechy(i) for i in range(300)] + [FLOOR] * 50
+    up = [round(d - 20, 1) if d > FLOOR else -70.0 for d in down]
+    talk = 25 + int(300 * (1 - caller_frac))
+    for i in range(talk, 325):
+        up[i] = caller_db
+    return down, up, talk * FRAME_MS
+
+
+class FloorModeTests(unittest.TestCase):
+    """floor_mode: the echo-floor estimator over the downlink-loud uplink frames (the echo set)."""
+    def echo_set(self, down, up):
+        return np.asarray([u for d, u in zip(down, up) if d > FLOOR], dtype=np.float64)
+
+    def test_default_floor_mode_is_p95(self):
+        self.assertEqual(lr.Params().floor_mode, "p95")
+        self.assertEqual(set(lr.FLOOR_MODES), {"p95", "p50", "min", "early"})
+
+    def test_unknown_floor_mode_is_rejected(self):
+        down, up, _ = double_talk_call()
+        with self.assertRaises(ValueError):
+            score(call(down, up), floor_mode="p99")
+
+    def test_p95_and_p50_follow_their_percentile(self):
+        down, up, _ = double_talk_call()
+        echo = self.echo_set(down, up)
+        self.assertEqual(score(call(down, up), floor_mode="p95")["echo"]["floor_db"],
+                         round(float(np.percentile(echo, 95)), 1))
+        self.assertEqual(score(call(down, up), floor_mode="p50")["echo"]["floor_db"],
+                         round(float(np.percentile(echo, 50)), 1))
+
+    def test_p95_floor_is_lifted_by_double_talk_and_misses_the_barge_in(self):
+        down, up, talk_ms = double_talk_call()
+        rep = score(call(down, up), floor_mode="p95")
+        self.assertEqual(rep["echo"]["floor_db"], -12.0)
+        self.assertEqual(rep["bargein"]["onsets"], [])
+
+    def test_robust_modes_detect_the_barge_in_and_stay_quiet_on_echo(self):
+        down, up, talk_ms = double_talk_call()
+        echo_only = [round(d - 20, 1) if d > FLOOR else -70.0 for d in down]
+        for mode in ("p50", "min", "early"):
+            with self.subTest(mode=mode):
+                rep = score(call(down, up), floor_mode=mode)
+                self.assertLess(rep["echo"]["floor_db"], -30.0)
+                onsets = rep["bargein"]["onsets"]
+                self.assertTrue(any(o["t_ms"] <= talk_ms < o["t_ms"] + o["run_ms"] for o in onsets), onsets)
+                if mode == "min":  # p10 + 6 dB sits under this 10 dB-modulated echo's peaks: it can fire early
+                    continue
+                self.assertEqual(len(onsets), 1, onsets)
+                self.assertEqual(onsets[0]["t_ms"], talk_ms)
+                self.assertEqual(score(call(down, echo_only), floor_mode=mode)["bargein"]["onsets"], [])
+
+    def test_min_is_the_median_of_per_span_p10(self):
+        # Three spans (each 1 s of speech, 1 s of silence apart), echo at -40/-30/-50 + modulation.
+        down, up = [], []
+        for base in (-40.0, -30.0, -50.0):
+            down += [speechy(i) for i in range(50)] + [FLOOR] * 50
+            up += [round(base + (i % 7), 1) for i in range(50)] + [-70.0] * 50
+        rep = score(call(down, up), floor_mode="min")
+        self.assertEqual(len(rep["downlink"]["spans"]), 3)
+        p10 = [float(np.percentile([b + (i % 7) for i in range(50)], 10)) for b in (-40.0, -30.0, -50.0)]
+        self.assertEqual(rep["echo"]["floor_db"], round(float(np.median(p10)), 1))
+
+    def test_early_uses_the_first_200_ms_of_each_span(self):
+        down, up, _ = double_talk_call()
+        up = list(up)
+        for i in range(25, 35):        # first 200 ms of the span: 10 echo frames at a known level
+            up[i] = -44.0 + (i - 25) * 0.5
+        rep = score(call(down, up), floor_mode="early")
+        self.assertEqual(rep["echo"]["floor_db"], round(float(np.percentile(up[25:35], 95)), 1))
+
+    def test_early_falls_back_to_p50_with_under_5_early_frames(self):
+        # Uplink trace starts 600 ms into the downlink span: no echo frame lies in the span's first 200 ms.
+        down, up, _ = double_talk_call()
+        t = [i * FRAME_MS for i in range(len(down))]
+        pk = [FLOOR if x <= FLOOR else round(min(0.0, x + 3.0), 1) for x in down]
+        lines = levels_lines(DOWN, t, down, pk) + levels_lines(UP, t[55:], up[55:], [u + 3.0 for u in up[55:]])
+        rep = score(lines, floor_mode="early")
+        echo = np.asarray([u for d, u in zip(down[55:], up[55:]) if d > FLOOR])
+        self.assertEqual(rep["echo"]["floor_db"], round(float(np.percentile(echo, 50)), 1))
+        self.assertEqual(rep["echo"]["floor_mode"], "early")
+
+    def test_cli_floor_mode(self):
+        down, up, _ = double_talk_call()
+        out = io.StringIO()
+        old = sys.stdin
+        try:
+            sys.stdin = io.StringIO("\n".join(call(down, up)) + "\n")
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(lr.main(["--json", "--floor-mode", "p50"]), 0)
+        finally:
+            sys.stdin = old
+        doc = json.loads(out.getvalue())
+        self.assertEqual(doc["params"]["floor_mode"], "p50")
+        self.assertEqual(doc["echo"]["floor_mode"], "p50")
 
 
 class AdapterRoundTripTests(unittest.TestCase):
