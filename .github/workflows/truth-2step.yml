@@ -16,8 +16,8 @@ concurrency:
   group: truth-2step-${{ github.ref }}
   cancel-in-progress: false
 env:
-  PHASE: select
-  SETS: truth_adj.json truth_adj_holdout2.json
+  PHASE: holdout
+  SETS: truth_adj_holdout3.json truth_adj.json truth_adj_holdout2.json
   LLAMA_TAG: b12527
   LLAMA_SHA256: c2758c87b9dd41293653e665fa3b06f5853d69243443d5d06d930683a55e35e4   # llama-b12527-bin-ubuntu-arm64.tar.gz
   MODEL: gemma4-e4b
@@ -33,8 +33,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arm: [default, defer1, defer2]   # default = single-step A; deferN = two-step B with step-1 wording N
-        rep: [1]
+        arm: [default, defer1]   # A = default single-step, B = wording chosen by the frozen DEV rule
+        rep: [1, 2]   # A/A: two independent jobs per arm, same inputs
     steps:
       - uses: actions/checkout@v4
         with:
