@@ -17,8 +17,8 @@ concurrency:
   group: truth-capacity-${{ github.ref }}
   cancel-in-progress: false
 env:
-  PHASE: qualify
-  SETS: truth_adj.json
+  PHASE: score
+  SETS: truth_adj_holdout4.json truth_adj_holdout3.json truth_adj.json truth_adj_holdout2.json
   LLAMA_TAG: b12527
   LLAMA_SHA256: c2758c87b9dd41293653e665fa3b06f5853d69243443d5d06d930683a55e35e4   # llama-b12527-bin-ubuntu-arm64.tar.gz
 jobs:
@@ -30,7 +30,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {arm: B, rep: 0, model: gemma3-12b-qat, quant: Q4_0, repo: ggml-org/gemma-3-12b-it-qat-GGUF, rev: 05c2df468ad7a0bb1284b3d6fe2bdf495a885567, file: gemma-3-12b-it-qat-Q4_0.gguf, sha: 7fffee00e76e4b75dc6f9acca43b991d181f2b9483307564938fd4b391aad364}
+          - {arm: A, rep: 1, model: gemma4-e4b, quant: Q4_0, repo: ggml-org/gemma-4-E4B-it-GGUF, rev: main, file: gemma-4-E4B-it-Q4_0.gguf, sha: a555b900214b477d8880e7832e0b8925e139b0159640036b09fe472b6f2097f2}
+          - {arm: B, rep: 2, model: gemma3-12b-qat, quant: Q4_0, repo: ggml-org/gemma-3-12b-it-qat-GGUF, rev: 05c2df468ad7a0bb1284b3d6fe2bdf495a885567, file: gemma-3-12b-it-qat-Q4_0.gguf, sha: 7fffee00e76e4b75dc6f9acca43b991d181f2b9483307564938fd4b391aad364}
+          - {arm: B, rep: 1, model: gemma3-12b-qat, quant: Q4_0, repo: ggml-org/gemma-3-12b-it-qat-GGUF, rev: 05c2df468ad7a0bb1284b3d6fe2bdf495a885567, file: gemma-3-12b-it-qat-Q4_0.gguf, sha: 7fffee00e76e4b75dc6f9acca43b991d181f2b9483307564938fd4b391aad364}
     env:
       ARM: ${{ matrix.arm }}
       REP: ${{ matrix.rep }}
