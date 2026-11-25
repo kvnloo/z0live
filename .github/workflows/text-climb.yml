@@ -1,23 +1,16 @@
-name: z0live barge-in A-bargein-AB, arm Z2 (arm Z + longer run for floor-only packets) vs arm U, --clip-set multi, fresh seeds 36000-36095 (S1, S0, FULL; CPU, stdlib)
-# A-bargein-AB: one change on the onset side (bargein_replay/24, offline virtual-time sim, Python stdlib only, no
-# network, no secrets). Arm Z2 = arm Z (A-bargein-AA: arm U plus a floor-relative onset level rule, --floor-rms 1100
-# --floor-k-db 12) except that floor-only packets (speech by the floor rule, not by U's rule) count for the onset
-# and the commit only inside a consecutive speech run >= --floor-min-run-ms 40; U-speech packets keep U's rule.
-# Default bytes unchanged. This branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml --ref
-# <branch>` can dispatch it.
-# input set=main: seeds 36000-36095, two seeds per shard, 48 shards, max-parallel 6.
-# input set=aa: an independent A/A dispatch of seeds 36000-36031 (16 shards, max-parallel 2); 6 + 2 <= 8 jobs.
-# Three conditions per shard as parallel processes: S1 quiet caller (--caller-level-db-range -10,0) -> out/s1,
-# S0 unstressed -> out/s0, FULL (S1 + --erl-db-range 0,6) -> out/full.
+name: z0live barge-in A-bargein-AD, coherence cue dev diagnostic (no arm), arm U, dev seeds 37000-37031 (S1, S0; CPU, stdlib)
+# A-bargein-AD: zero-arm dev diagnostic (bargein_replay/24, offline virtual-time sim, Python stdlib only, no network,
+# no secrets). bench/bargein_ad_coherence.py runs arm U with bookkeeping only (no decision change) and writes, per
+# 10 ms packet of the S1 slow-or-missed onset set and the S0 false-cut / duck-false-alarm trigger set, the coherence
+# rho = |<e, y_hat>| / (||e|| ||y_hat||) between the NLMS residual e and the echo estimate y_hat (20 ms window, max
+# over lags -8..+8 at 4 kHz), its zero-lag value and the mic-vs-y_hat coherence. Default bytes unchanged.
+# This branch reuses the registered text-climb.yml file name so `gh workflow run text-climb.yml --ref <branch>` can
+# dispatch it. 8 shards x 4 seeds, two conditions each (S1 quiet caller --caller-level-db-range -10,0; S0 unstressed),
+# 200 trials per seed and condition, max-parallel 8. Each shard also checks the plain CLI sha256 of its first seed
+# against the instrumented run (instrumentation must not change any decision).
 on:
   workflow_dispatch:
     inputs:
-      set:
-        description: "main (36000-36095) or aa (A/A re-run of 36000-36031)"
-        required: true
-        default: main
-        type: choice
-        options: [main, aa]
       note:
         description: "free-text label for this run (shown in the summary)"
         required: false
@@ -25,55 +18,66 @@ on:
 permissions:
   contents: read
 jobs:
-  sweep:
-    name: seeds ${{ matrix.first }}+1
+  cues:
+    name: seeds ${{ matrix.first }}+3
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
       fail-fast: false
-      max-parallel: ${{ inputs.set == 'aa' && 2 || 6 }}
+      max-parallel: 8
       matrix:
-        first: ${{ fromJSON(inputs.set == 'aa' && '[36000,36002,36004,36006,36008,36010,36012,36014,36016,36018,36020,36022,36024,36026,36028,36030]' || '[36000,36002,36004,36006,36008,36010,36012,36014,36016,36018,36020,36022,36024,36026,36028,36030,36032,36034,36036,36038,36040,36042,36044,36046,36048,36050,36052,36054,36056,36058,36060,36062,36064,36066,36068,36070,36072,36074,36076,36078,36080,36082,36084,36086,36088,36090,36092,36094]') }}
+        first: [37000, 37004, 37008, 37012, 37016, 37020, 37024, 37028]
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - name: Sweep
-        timeout-minutes: 40
+          python-version: "3.13"
+      - name: Cues
+        timeout-minutes: 35
         env:
           FIRST: ${{ matrix.first }}
         run: |
           set -euo pipefail
           echo "runner: $(nproc) cpus, $(python --version)" | tee -a "$GITHUB_STEP_SUMMARY"
           cd voice-adapter
-          seeds="$FIRST-$((FIRST + 1))"
-          common=(--seeds "$seeds" --jobs 2 --echo-model residual --echo-continuous --bot-render recorded
-                  --clip-set multi --rhos none --energy-k-db -12 --energy-min-speech-ms 30 --resid-threshold 1360
-                  --arm-o --guard-erle-db 6 --guard-margin-db 3 --guard-packets 5 --arm-q --duck-commit-ms 100
-                  --duck-window-ms 300 --arm-s --prearm-rms 5000 --arm-u --arm-z --floor-rms 1100 --floor-k-db 12
-                  --arm-z2 --floor-min-run-ms 40 --only-arms U,Z2)
           t0=$(date +%s)
-          python -B bench/bargein_sweep.py "${common[@]}" --out ../out/s1 --caller-level-db-range=-10,0 > ../s1.log &
+          for s in $(seq "$FIRST" $((FIRST + 3))); do for c in s1 s0; do echo "$s $c"; done; done \
+            | xargs -P "$(nproc)" -L 1 sh -c 'python -B bench/bargein_ad_coherence.py "$0" "$1" ../out 200' \
+            > ../cues.log
+          tee -a "$GITHUB_STEP_SUMMARY" < ../cues.log
+          echo "wall $(( $(date +%s) - t0 )) s" | tee -a "$GITHUB_STEP_SUMMARY"
+          test "$(ls ../out/*.tsv | wc -l)" = 8
+      - name: Plain CLI sha check (first seed of the shard, S1 and S0)
+        timeout-minutes: 15
+        env:
+          FIRST: ${{ matrix.first }}
+        run: |
+          set -euo pipefail
+          cd voice-adapter
+          base="--echo-model residual --echo-continuous --bot-render recorded --clip-set multi --energy-k-db=-12.0
+            --energy-min-speech-ms 30 --nlms-mu 0.5 --nlms-delta 1000.0 --nlms-pre-ms 15 --nlms-post-ms 65
+            --nlms-geigel 0.5 --nlms-hang-ms 30 --nlms-min-updates 10 --nlms-margin-db=6.0 --nlms-converged-db=6.0
+            --resid-threshold 1360.0 --resid-arm-db=6.0 --resid-nlp-db=3.0 --arm-o --guard-erle-db=6.0
+            --guard-margin-db=3.0 --guard-packets 5 --arm-q --duck-commit-ms 100 --duck-window-ms 300 --arm-s
+            --prearm-rms 5000.0 --arm-u --only-arms U --seed $FIRST --trials 200"
+          python -B bench/bargein_replay.py $base --caller-level-db-range=-10,0 > ../cli-s1.json &
           p1=$!
-          python -B bench/bargein_sweep.py "${common[@]}" --out ../out/s0 > ../s0.log &
+          python -B bench/bargein_replay.py $base > ../cli-s0.json &
           p0=$!
-          python -B bench/bargein_sweep.py "${common[@]}" --out ../out/full \
-            --caller-level-db-range=-10,0 --erl-db-range=0,6 > ../full.log &
-          p2=$!
-          rc=0
-          wait $p1 || rc=1
-          wait $p0 || rc=1
-          wait $p2 || rc=1
-          for c in s1 s0 full; do sed "s/^/$c /" "../$c.log" | tee -a "$GITHUB_STEP_SUMMARY"; done
-          echo "sweep wall $(( $(date +%s) - t0 )) s" | tee -a "$GITHUB_STEP_SUMMARY"
-          exit $rc
+          wait $p1
+          wait $p0
+          for c in s1 s0; do
+            a=$(python -B -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha256"])' "../cli-$c.json")
+            b=$(python -B -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha256"])' "../out/$c-$FIRST.meta.json")
+            echo "$c-$FIRST plain $a instrumented $b" | tee -a "$GITHUB_STEP_SUMMARY" ../out/clisha.txt
+            test "$a" = "$b"
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: sweep-${{ matrix.first }}
+          name: cues-${{ matrix.first }}
           path: out/
           if-no-files-found: warn
           retention-days: 30
