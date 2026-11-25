@@ -51,6 +51,9 @@ transport_bench/13 (track F4o; staging-based, numbered past the /6-/12 of the un
                --opus-mono the "mono->stereo" in that key no longer happens). config.opus_encoder records it.
   result["downlink_packets"]: in-window Opus payload bytes per downlink packet (n, mean, p50, max) and the encoder
                class(es) seen in the call; result["isolated_packets"]: the same for the isolated fixture encode.
+  F4p (still /13: output without the new flag is unchanged): --opus-bitrate N (needs --opus-mono) sets
+               Z0LIVE_DOWNLINK_OPUS_BITRATE=N; only then config.opus_bitrate (the encoder's bit_rate) is added. Row
+               keys that say "96k" are kept for comparability.
 """
 from __future__ import annotations
 
@@ -102,7 +105,7 @@ FAR_AT = 500  # 10 s media time
 SHAPE_HEAD = 50          # first 1 s unshaped: stable origin for aiortc's jitter buffer and timestamp mapper
 FREEZE_AT_MS = 15000     # media time of the freeze start (inside the scored window for --warmup 3 --seconds 30)
 FREEZE_MS = 300
-ISO_PACKETS = {"encoder": None, "bytes": []}  # /13: isolated-stage encoder class and payload sizes
+ISO_PACKETS = {"encoder": None, "bytes": [], "call_bit_rates": set()}  # /13: isolated encoder class, payload sizes
 
 
 def shape_schedule(condition: str, seed: int, n: int) -> list:
@@ -359,6 +362,7 @@ def isolated(fixtures: str, frames: int = 500) -> dict:
     T = defaultdict(list)
     enc, dec = rtcrtpsender.get_encoder(opus), aopus.OpusDecoder()  # /13: the encoder the call's sender would build
     ISO_PACKETS["encoder"] = type(enc).__name__
+    ISO_PACKETS["bit_rate"] = enc.codec.bit_rate  # F4p: reported only under --opus-bitrate
     rs_up = av.AudioResampler(format="s16", layout="mono", rate=24000)
     stereo = av.AudioResampler(format="s16", layout="stereo", rate=48000, frame_size=960)
     out = grok_leg.GrokOutput()
@@ -592,6 +596,7 @@ def install(probe: Probe):
         out = orig_enc(self, frame, force_keyframe)
         add("enc", pts, out[1], t0, NS())
         add("enc_bytes", t0, sum(len(b) for b in out[0]), len(out[0]), type(self).__name__)  # /13
+        ISO_PACKETS["call_bit_rates"].add(self.codec.bit_rate)  # F4p: reported only under --opus-bitrate
         return out
     aopus.OpusEncoder.encode = encode
 
@@ -810,6 +815,11 @@ async def adapter(args):
         os.environ["Z0LIVE_DOWNLINK_OPUS_MONO"] = "1"
     else:
         os.environ.pop("Z0LIVE_DOWNLINK_OPUS_MONO", None)
+    if args.opus_bitrate is not None:  # F4p: mono encoder bitrate (opus_mono.BITRATE_ENV); unset = 96000 as in /13
+        assert args.opus_mono, "--opus-bitrate only applies with --opus-mono"
+        os.environ["Z0LIVE_DOWNLINK_OPUS_BITRATE"] = str(args.opus_bitrate)
+    else:
+        os.environ.pop("Z0LIVE_DOWNLINK_OPUS_BITRATE", None)
     if args.drain or args.drain_guard:
         assert not args.adaptive and args.prefetch is None, "--drain replaces the stock buffer; use it alone"
         assert not (args.drain and args.drain_guard), "--drain and --drain-guard are separate arms"
@@ -898,6 +908,9 @@ async def adapter(args):
                      "prefetch": args.prefetch, "adaptive": args.adaptive, "drain": args.drain, "jitter_buffer": jb_info,
                      "opus_mono": bool(args.opus_mono), "opus_mono_installed": opus_mono.installed(),
                      "opus_encoder": ISO_PACKETS["encoder"]}
+    if args.opus_bitrate is not None:  # F4p: key only present when the flag is given (default output unchanged)
+        res["config"]["opus_bitrate"] = ISO_PACKETS["bit_rate"]
+        res["config"]["opus_call_bit_rates"] = sorted(ISO_PACKETS["call_bit_rates"])
     sh = shaped(probe, w, t_lo, t_hi)
     if sh:
         t_first = w["shape"][0][2]
@@ -948,6 +961,9 @@ def main():
                     help="Z0LIVE_UPLINK_DRAIN=guard (R15: drain-1 that ignores packets behind its origin)")
     ap.add_argument("--opus-mono", action="store_true",
                     help="Z0LIVE_DOWNLINK_OPUS_MONO=1 (F4o: mono Opus downlink encode, same bitrate)")
+    ap.add_argument("--opus-bitrate", type=int, default=None,
+                    help="with --opus-mono: Z0LIVE_DOWNLINK_OPUS_BITRATE (F4p; unset = 96000). Recorded as "
+                         "config.opus_bitrate (the isolated encoder's libopus bit_rate), only when given.")
     ap.add_argument("--fixtures", default=str(Path(os.environ.get("TMPDIR", tempfile.gettempdir())) / "transport_bench_fx"))
     ap.add_argument("--workdir", default="")
     ap.add_argument("--world-out", default="")
