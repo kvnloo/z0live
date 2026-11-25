@@ -131,5 +131,88 @@ class RunTests(unittest.TestCase):
             truth_adj.flips(a, b[:1])
 
 
+DEFAULT_RUBRIC_SHA256 = '2814a72b07c81a0f8bb1f388150352245bb74c7422dec7d4d1bb0fb63de1c8a8'  # truth_eval.RUBRIC at b107468
+HOLDOUT2 = HERE / 'truth_adj_holdout2.json'
+
+
+class RubricVariantTests(unittest.TestCase):
+    def test_default_rubric_byte_identical(self):
+        self.assertEqual(hashlib.sha256(truth_eval.RUBRIC.encode()).hexdigest(), DEFAULT_RUBRIC_SHA256)
+        self.assertIs(truth_eval.RUBRIC_VARIANTS['default'], truth_eval.RUBRIC)
+
+    def test_variants_add_exactly_one_clause(self):
+        variants = truth_eval.RUBRIC_VARIANTS
+        self.assertTrue(2 <= len(variants) <= 4)  # default + at most 3 wordings
+        for name, clause in truth_eval.HANDOFF_CLAUSES.items():
+            text = variants[name]
+            self.assertNotEqual(text, truth_eval.RUBRIC)
+            self.assertEqual(text.count(clause), 1)
+            self.assertEqual(text.replace(' ' + clause, '', 1), truth_eval.RUBRIC)
+            self.assertIn('Hermes or another agent', clause)
+            self.assertTrue(text.endswith('Return only HALLUCINATION, CLEAN or UNCERTAIN.'))
+            for _, _, reply, _ in truth_eval.CONTROLS:
+                self.assertNotIn(reply, clause)  # no control text leaks into the clause
+        self.assertEqual(set(variants), {'default', *truth_eval.HANDOFF_CLAUSES})
+
+    def test_grade_default_and_variant(self):
+        model = FakeModel()
+        truth_eval.grade(model, 'q', None, 'r')
+        name = sorted(truth_eval.HANDOFF_CLAUSES)[0]
+        truth_eval.grade(model, 'q', None, 'r', rubric=truth_eval.RUBRIC_VARIANTS[name])
+        self.assertEqual(model.calls[0][0], truth_eval.RUBRIC)
+        self.assertEqual(model.calls[1][0], truth_eval.RUBRIC_VARIANTS[name])
+
+    def test_run_passes_variant_to_items_and_controls(self):
+        items = truth_adj.load_set(truth_adj.SET)[0]['items'][:3]
+        name = sorted(truth_eval.HANDOFF_CLAUSES)[-1]
+        model = FakeModel()
+        out = truth_adj.run(model, items, rubric=truth_eval.RUBRIC_VARIANTS[name])
+        self.assertEqual(len(model.calls), 3 + len(truth_eval.CONTROLS))
+        self.assertEqual({c[0] for c in model.calls}, {truth_eval.RUBRIC_VARIANTS[name]})
+        self.assertEqual(len(out['controls']), len(truth_eval.CONTROLS))
+
+
+class Holdout2Tests(unittest.TestCase):
+    def setUp(self):
+        self.doc, self.sha = truth_adj.load_set(HOLDOUT2)
+        self.items = self.doc['items']
+
+    def test_schema_balance_and_coverage(self):
+        self.assertEqual(self.doc['format'], 'truth_adj/2')
+        self.assertTrue(30 <= len(self.items) <= 40)
+        for label in truth_eval.LABELS:
+            self.assertEqual(sum(i['gold'] == label for i in self.items), 12, label)
+        self.assertEqual({i['split'] for i in self.items}, {'holdout2'})
+        cat = lambda c, g: sum(i['category'] == c and i['gold'] == g for i in self.items)  # noqa: E731
+        self.assertGreaterEqual(cat('handoff', 'CLEAN'), 6)
+        self.assertGreaterEqual(cat('loophole', 'HALLUCINATION'), 4)
+        self.assertGreaterEqual(cat('unresolved_null', 'UNCERTAIN'), 3)
+        handoffs = ' '.join(i['lane_reply'] for i in self.items if i['category'] == 'handoff')
+        for phrase in (' can ', ' will ', 'is going to', "I'll get Hermes to"):
+            self.assertIn(phrase, handoffs)
+
+    def test_disjoint_from_dev_and_controls(self):
+        dev = truth_adj.load_set(truth_adj.SET)[0]['items']
+        self.assertFalse({i['id'] for i in self.items} & {i['id'] for i in dev})
+        replies = {i['lane_reply'] for i in self.items}
+        self.assertFalse(replies & {i['lane_reply'] for i in dev})
+        self.assertFalse(replies & {reply for _, _, reply, _ in truth_eval.CONTROLS})
+
+    def test_synthetic_only(self):
+        for item in self.items:
+            for field in ('question', 'hermes_reference', 'lane_reply'):
+                text = item[field] or ''
+                self.assertIsNone(re.search(r'(^|\s)[~/]\w|https?:|@\w', text), (item['id'], field))
+
+    def test_grade_sets_tags_rows(self):
+        dev = truth_adj.load_set(truth_adj.SET)[0]
+        out = truth_adj.grade_sets(FakeModel(), [('holdout2', self.doc), ('adj1', dev)], truth_eval.RUBRIC)
+        self.assertEqual(len(out['rows']), len(self.items) + len(dev['items']))
+        self.assertEqual({r['set'] for r in out['rows']}, {'holdout2', 'adj1'})
+        self.assertEqual(len(out['controls']), len(truth_eval.CONTROLS))
+        with self.assertRaises(ValueError):
+            truth_adj.grade_sets(FakeModel(), [('a', dev), ('b', dev)], truth_eval.RUBRIC)
+
+
 if __name__ == '__main__':
     unittest.main()

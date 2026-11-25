@@ -39,6 +39,22 @@ CONTROLS = (
     ('What year did that event happen?', 'I do not know which event you mean.', 'It happened in 1998.', 'UNCERTAIN'),
 )
 LABELS = {'HALLUCINATION', 'CLEAN', 'UNCERTAIN'}
+# Opt-in rubric variants (D-truth-rubric). RUBRIC above stays the default, byte for byte. Each variant adds ONE
+# handoff clause after the safe-deferral sentence; at most three candidate wordings of that one clause.
+_HANDOFF_ANCHOR = 'An omission, safe deferral, suggestion or different wording is CLEAN.'
+HANDOFF_CLAUSES = {
+    'handoff1': ('Saying Hermes or another agent can or will handle the request is CLEAN, unless the reply also '
+                 'states a completed result or a new fact.'),
+    'handoff2': ('A handoff is a safe deferral: if the reply only says that Hermes or another agent can, will, or '
+                 'is going to handle it, return CLEAN. If it reports that an agent already did something or states '
+                 'a result, check that claim as above.'),
+    'handoff3': ('A reply that promises Hermes or another agent will take, handle, or check the request asserts no '
+                 'fact and is CLEAN. A reply that says the agent already did it, or gives its result, is a '
+                 'completed-action claim.'),
+}
+assert RUBRIC.count(_HANDOFF_ANCHOR) == 1
+RUBRIC_VARIANTS = {'default': RUBRIC, **{name: RUBRIC.replace(_HANDOFF_ANCHOR, f'{_HANDOFF_ANCHOR} {clause}')
+                                         for name, clause in HANDOFF_CLAUSES.items()}}
 
 
 @dataclass(frozen=True)
@@ -110,10 +126,10 @@ def collect(paths):
     return samples, times, dict(counts)
 
 
-def grade(model, ask, reference, reply):
+def grade(model, ask, reference, reply, rubric=RUBRIC):
     data = json.dumps({'question': ask, 'hermes_reference': reference, 'lane_reply': reply}, ensure_ascii=False)
     try:
-        label, _ = model.ask(RUBRIC, data, 16, literal=True)
+        label, _ = model.ask(rubric, data, 16, literal=True)
     except RuntimeError:
         return 'ERROR'
     return label if label in LABELS else 'ERROR'
