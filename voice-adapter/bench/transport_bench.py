@@ -43,6 +43,14 @@ transport_bench/5 (track F4d): measurement identical to /4; the six /4 schedules
   --condition far_late      packets 500-501 +2001 ms, 502-508 +181 ms (R15 far-late, frame k = packet 500 + k).
   --condition far_late_mid  packets 700-704 +2001 ms (R15 far-late-midstream, frames 200-204).
   --drain-guard  sets Z0LIVE_UPLINK_DRAIN=guard (R15 guarded drain-1). config.jitter_buffer[].guard records it.
+transport_bench/13 (track F4o; staging-based, numbered past the /6-/12 of the unmerged F4e-F4m branches): measurement
+  identical to /5; the seven /5 schedules are unchanged.
+  --opus-mono   sets Z0LIVE_DOWNLINK_OPUS_MONO=1 (opus_mono.py: the phone downlink sender encodes mono Opus, same
+               96 kbit/s). Installed before the isolated stage, so the isolated "opus_encode (...)" and "paced20ms
+               opus_encode" rows time the encoder the call uses (row keys unchanged from /1 for comparability; under
+               --opus-mono the "mono->stereo" in that key no longer happens). config.opus_encoder records it.
+  result["downlink_packets"]: in-window Opus payload bytes per downlink packet (n, mean, p50, max) and the encoder
+               class(es) seen in the call; result["isolated_packets"]: the same for the isolated fixture encode.
 """
 from __future__ import annotations
 
@@ -61,7 +69,7 @@ import wave
 from collections import defaultdict
 from pathlib import Path
 
-VERSION = "transport_bench/5"
+VERSION = "transport_bench/13"
 NS = time.perf_counter_ns
 HERE = Path(__file__).resolve().parent
 ADAPTER_DIR = HERE.parent
@@ -94,6 +102,7 @@ FAR_AT = 500  # 10 s media time
 SHAPE_HEAD = 50          # first 1 s unshaped: stable origin for aiortc's jitter buffer and timestamp mapper
 FREEZE_AT_MS = 15000     # media time of the freeze start (inside the scored window for --warmup 3 --seconds 30)
 FREEZE_MS = 300
+ISO_PACKETS = {"encoder": None, "bytes": []}  # /13: isolated-stage encoder class and payload sizes
 
 
 def shape_schedule(condition: str, seed: int, n: int) -> list:
@@ -344,8 +353,12 @@ def isolated(fixtures: str, frames: int = 500) -> dict:
 
     up = fixture(Path(fixtures) / "up48.wav", UP_TEXT, 48000)
     reply = fixture(Path(fixtures) / "reply24.wav", REPLY_TEXT, 24000)
+    from aiortc import rtcrtpsender
+    from aiortc.rtcrtpparameters import RTCRtpCodecParameters
+    opus = RTCRtpCodecParameters(mimeType="audio/opus", clockRate=48000, channels=2, payloadType=96)
     T = defaultdict(list)
-    enc, dec = aopus.OpusEncoder(), aopus.OpusDecoder()
+    enc, dec = rtcrtpsender.get_encoder(opus), aopus.OpusDecoder()  # /13: the encoder the call's sender would build
+    ISO_PACKETS["encoder"] = type(enc).__name__
     rs_up = av.AudioResampler(format="s16", layout="mono", rate=24000)
     stereo = av.AudioResampler(format="s16", layout="stereo", rate=48000, frame_size=960)
     out = grok_leg.GrokOutput()
@@ -377,6 +390,7 @@ def isolated(fixtures: str, frames: int = 500) -> dict:
         T["  numpy_dbov candidate"].append(NS() - t0)
         for p in payloads:
             packets.append((p, ts))
+            ISO_PACKETS["bytes"].append(len(p))
     for p, ts in packets:
         t0 = NS()
         frs = dec.decode(JitterFrame(p, ts))
@@ -405,7 +419,7 @@ def isolated(fixtures: str, frames: int = 500) -> dict:
         T["json.loads + b64decode + GrokOutput.feed (24k->48k) per 20 ms"].append(NS() - t0)
     # Same single thread, but idle 20 ms between frames like the call: separates wake-from-idle cost (cold caches,
     # clock ramp) from GIL/thread contention.
-    enc2, dec2 = aopus.OpusEncoder(), aopus.OpusDecoder()
+    enc2, dec2 = rtcrtpsender.get_encoder(opus), aopus.OpusDecoder()
     for i in range(min(200, n)):
         time.sleep(0.02)
         f = av.AudioFrame(format="s16", layout="mono", samples=FRAME)
@@ -577,6 +591,7 @@ def install(probe: Probe):
         pts, t0 = frame.pts, NS()
         out = orig_enc(self, frame, force_keyframe)
         add("enc", pts, out[1], t0, NS())
+        add("enc_bytes", t0, sum(len(b) for b in out[0]), len(out[0]), type(self).__name__)  # /13
         return out
     aopus.OpusEncoder.encode = encode
 
@@ -791,6 +806,10 @@ async def adapter(args):
         os.environ["Z0LIVE_ADAPTIVE_UPLINK_JITTER"] = "1"
     else:
         os.environ.pop("Z0LIVE_ADAPTIVE_UPLINK_JITTER", None)
+    if args.opus_mono:  # /13: before isolated() so both stages time the encoder the call will use
+        os.environ["Z0LIVE_DOWNLINK_OPUS_MONO"] = "1"
+    else:
+        os.environ.pop("Z0LIVE_DOWNLINK_OPUS_MONO", None)
     if args.drain or args.drain_guard:
         assert not args.adaptive and args.prefetch is None, "--drain replaces the stock buffer; use it alone"
         assert not (args.drain and args.drain_guard), "--drain and --drain-guard are separate arms"
@@ -799,7 +818,10 @@ async def adapter(args):
         os.environ.pop("Z0LIVE_UPLINK_DRAIN", None)
     import mobile_live as live
     import grok_leg
+    import opus_mono
     from aiohttp import ClientSession
+
+    assert live.install_downlink_opus_mono() == bool(args.opus_mono), "opus_mono install state != --opus-mono"
     from aiortc import rtcrtpreceiver
 
     if args.prefetch is not None:  # pin both the adapter knob and the receiver's JitterBuffer before receive starts
@@ -862,10 +884,20 @@ async def adapter(args):
     res = analyse(probe, w, t_lo, t_hi, (t_hi - t_lo) / 1e9, cpu, mono_off)
     res["isolated"] = iso
     res["version"] = VERSION
+    eb = [(n, k, cls) for t0, n, k, cls in probe.r["enc_bytes"] if t_lo <= t0 <= t_hi and k]
+    sizes = [n / k for n, k, _c in eb]
+    res["downlink_packets"] = {"n": len(sizes), "bytes_mean": round(sum(sizes) / len(sizes), 2) if sizes else None,
+                               "bytes_p50": pct(sizes, .5), "bytes_max": max(sizes) if sizes else None,
+                               "encoders": sorted({c for _n, _k, c in eb})}
+    ib = ISO_PACKETS["bytes"]
+    res["isolated_packets"] = {"encoder": ISO_PACKETS["encoder"], "n": len(ib),
+                               "bytes_mean": round(sum(ib) / len(ib), 2) if ib else None, "bytes_p50": pct(ib, .5)}
     res["config"] = {"seconds": args.seconds, "warmup": args.warmup, "reply_chunk_ms": args.reply_chunk_ms,
                      "hops": args.hops, "qos": args.qos, "python": sys.version.split()[0], "engine": "grok", "frame_ms": 20,
                      "condition": args.condition, "seed": args.seed, "shaper": CONDITIONS[args.condition],
-                     "prefetch": args.prefetch, "adaptive": args.adaptive, "drain": args.drain, "jitter_buffer": jb_info}
+                     "prefetch": args.prefetch, "adaptive": args.adaptive, "drain": args.drain, "jitter_buffer": jb_info,
+                     "opus_mono": bool(args.opus_mono), "opus_mono_installed": opus_mono.installed(),
+                     "opus_encoder": ISO_PACKETS["encoder"]}
     sh = shaped(probe, w, t_lo, t_hi)
     if sh:
         t_first = w["shape"][0][2]
@@ -886,6 +918,9 @@ def report(res):
             print(f"{k:<70} {v['n']:>6} {v['p50_us'] if v['p50_us'] is not None else '-':>10} "
                   f"{v['p99_us'] if v['p99_us'] is not None else '-':>10}")
     print("\nwork:", json.dumps(res["work"]))
+    if res.get("downlink_packets"):
+        print("downlink_packets:", json.dumps(res["downlink_packets"]), " isolated_packets:",
+              json.dumps(res["isolated_packets"]))
     if res.get("shaped"):
         print("shaped:", json.dumps(res["shaped"]))
     if "asyncio_callbacks_per_20ms_tick" in res:
@@ -911,6 +946,8 @@ def main():
     ap.add_argument("--drain", action="store_true", help="Z0LIVE_UPLINK_DRAIN=1 (R13 drain-1 buffer, prefetch 1)")
     ap.add_argument("--drain-guard", action="store_true",
                     help="Z0LIVE_UPLINK_DRAIN=guard (R15: drain-1 that ignores packets behind its origin)")
+    ap.add_argument("--opus-mono", action="store_true",
+                    help="Z0LIVE_DOWNLINK_OPUS_MONO=1 (F4o: mono Opus downlink encode, same bitrate)")
     ap.add_argument("--fixtures", default=str(Path(os.environ.get("TMPDIR", tempfile.gettempdir())) / "transport_bench_fx"))
     ap.add_argument("--workdir", default="")
     ap.add_argument("--world-out", default="")
