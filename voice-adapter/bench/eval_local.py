@@ -33,13 +33,15 @@ class LocalModel:
             status = f' HTTP {exc.code}' if isinstance(exc, urllib.error.HTTPError) else ''
             raise RuntimeError(f'local {path} failed: {type(exc).__name__}{status}') from None
 
-    def ask(self, system, user, max_tokens, *, literal=False):
+    def ask(self, system, user, max_tokens, *, literal=False, grammar=None):
         body = {'model': self.model, 'messages': [{'role': 'system', 'content': system},
                                                  {'role': 'user', 'content': user}],
                 'temperature': 0, 'seed': 42, 'max_tokens': max_tokens, 'cache_prompt': False,
                 'chat_template_kwargs': {'enable_thinking': False}}
         if literal:
             body['grammar'] = 'root ::= "HALLUCINATION" | "CLEAN" | "UNCERTAIN"'
+        elif grammar is not None:  # opt-in caller-supplied GBNF (truth_eval two-step step 1)
+            body['grammar'] = grammar
         result = self.request('/v1/chat/completions', body)
         choice = result['choices'][0]
         if choice['finish_reason'] != 'stop':

@@ -1,10 +1,12 @@
 """Stdlib tests for truth_adj (no model, no network). Run from voice-adapter/bench: python -m unittest test_truth_adj"""
 import hashlib
+import inspect
 import json
 from pathlib import Path
 import re
 import unittest
 
+import eval_local
 import truth_adj
 import truth_eval
 
@@ -212,6 +214,160 @@ class Holdout2Tests(unittest.TestCase):
         self.assertEqual(len(out['controls']), len(truth_eval.CONTROLS))
         with self.assertRaises(ValueError):
             truth_adj.grade_sets(FakeModel(), [('a', dev), ('b', dev)], truth_eval.RUBRIC)
+
+
+DEFAULT_GRADE_SOURCE_SHA256 = '243dfc799ebf7ffba436f2bbae02ce653201bc6814009a6e0acea19b7991dfd3'  # truth_eval.grade at 9c6c3ad
+HOLDOUT3 = HERE / 'truth_adj_holdout3.json'
+
+
+class FakeTwoStep:
+    """Step 1 (YES/NO grammar) answers from a reply -> YES|NO table; step 2 answers from a reply -> label table."""
+
+    def __init__(self, defer=None, labels=None, fail1=(), off1=()):
+        self.defer, self.labels, self.fail1, self.off1, self.calls = defer or {}, labels or {}, set(fail1), set(off1), []
+        self.info = {'id': 'fake'}
+
+    def ask(self, system, user, max_tokens, *, literal=False, grammar=None):
+        data = json.loads(user)
+        self.calls.append((system, data, max_tokens, literal, grammar))
+        reply = data['lane_reply']
+        if grammar is not None:
+            if reply in self.fail1:
+                raise RuntimeError('local reply did not finish normally')
+            return ('MAYBE' if reply in self.off1 else self.defer.get(reply, 'NO')), 1
+        return self.labels.get(reply, 'HALLUCINATION'), 1
+
+
+class TwoStepTests(unittest.TestCase):
+    def test_default_grade_and_rubric_unchanged(self):
+        self.assertEqual(hashlib.sha256(truth_eval.RUBRIC.encode()).hexdigest(), DEFAULT_RUBRIC_SHA256)
+        self.assertEqual(hashlib.sha256(inspect.getsource(truth_eval.grade).encode()).hexdigest(),
+                         DEFAULT_GRADE_SOURCE_SHA256)
+
+    def test_deferral_prompts(self):
+        prompts = truth_eval.DEFERRAL_PROMPTS
+        self.assertTrue(1 <= len(prompts) <= 2)  # at most 2 wordings for DEV selection
+        self.assertEqual(truth_eval.YES_NO_GRAMMAR, 'root ::= "YES" | "NO"')
+        held = [i['lane_reply'] for i in truth_adj.load_set(HOLDOUT3)[0]['items']]
+        for name, text in prompts.items():
+            self.assertTrue(text.endswith('Return only YES or NO.'), name)
+            for _, _, reply, _ in truth_eval.CONTROLS:
+                self.assertNotIn(reply, text)
+            for reply in held:
+                self.assertNotIn(reply, text)
+
+    def test_yes_is_clean_with_one_call(self):
+        model = FakeTwoStep(defer={'Hermes will do it.': 'YES'})
+        name = sorted(truth_eval.DEFERRAL_PROMPTS)[0]
+        label, step1 = truth_eval.grade_two_step(model, 'q', None, 'Hermes will do it.', name)
+        self.assertEqual((label, step1), ('CLEAN', 'YES'))
+        self.assertEqual(len(model.calls), 1)
+        system, data, _, _, grammar = model.calls[0]
+        self.assertEqual(system, truth_eval.DEFERRAL_PROMPTS[name])
+        self.assertEqual(grammar, truth_eval.YES_NO_GRAMMAR)
+        self.assertEqual(data, {'lane_reply': 'Hermes will do it.'})
+
+    def test_no_runs_unchanged_default_rubric(self):
+        model = FakeTwoStep(labels={'It is 5.': 'UNCERTAIN'})
+        name = sorted(truth_eval.DEFERRAL_PROMPTS)[-1]
+        label, step1 = truth_eval.grade_two_step(model, 'q', 'ref', 'It is 5.', name)
+        self.assertEqual((label, step1), ('UNCERTAIN', 'NO'))
+        self.assertEqual(len(model.calls), 2)
+        system, data, max_tokens, literal, grammar = model.calls[1]
+        self.assertEqual(system, truth_eval.RUBRIC)
+        self.assertTrue(literal)
+        self.assertIsNone(grammar)
+        self.assertEqual(max_tokens, 16)
+        self.assertEqual(data, {'question': 'q', 'hermes_reference': 'ref', 'lane_reply': 'It is 5.'})
+
+    def test_step1_failure_or_off_label_is_error_without_step2(self):
+        name = sorted(truth_eval.DEFERRAL_PROMPTS)[0]
+        for model in (FakeTwoStep(fail1={'r'}), FakeTwoStep(off1={'r'})):
+            label, step1 = truth_eval.grade_two_step(model, 'q', None, 'r', name)
+            self.assertEqual((label, step1), ('ERROR', 'ERROR'))
+            self.assertEqual(len(model.calls), 1)
+
+    def test_grade_sets_two_step_records_step1(self):
+        items = truth_adj.load_set(truth_adj.SET)[0]['items'][:4]
+        defer = {items[0]['lane_reply']: 'YES', 'Hermes can take that one.': 'YES'}
+        name = sorted(truth_eval.DEFERRAL_PROMPTS)[0]
+        model = FakeTwoStep(defer=defer)
+        out = truth_adj.grade_sets(model, [('a', {'items': items})], mode='two_step', deferral=name)
+        self.assertEqual([r['step1'] for r in out['rows']], ['YES', 'NO', 'NO', 'NO'])
+        self.assertEqual(out['rows'][0]['label'], 'CLEAN')
+        self.assertEqual(len(out['controls']), len(truth_eval.CONTROLS))
+        self.assertIn('step1', out['controls'][3])
+        self.assertEqual(out['controls'][3]['label'], 'CLEAN')
+        # calls: 4 items + 5 controls step 1, then step 2 for every NO (3 items + 4 controls)
+        self.assertEqual(len(model.calls), 9 + 7)
+
+    def test_single_mode_rows_unchanged(self):
+        items = truth_adj.load_set(truth_adj.SET)[0]['items'][:2]
+        out = truth_adj.grade_sets(FakeModel(), [('a', {'items': items})])
+        self.assertEqual(set(out['rows'][0]), {'set', 'id', 'split', 'category', 'gold', 'label'})
+        self.assertEqual(set(out['controls'][0]), {'expected', 'label'})
+
+    def test_cli_mode_flags(self):
+        parser = truth_adj.build_parser()
+        args = parser.parse_args([])
+        self.assertEqual((args.mode, args.deferral_prompt), ('single', None))
+        name = sorted(truth_eval.DEFERRAL_PROMPTS)[0]
+        args = parser.parse_args(['--mode', 'two_step', '--deferral-prompt', name])
+        self.assertEqual((args.mode, args.deferral_prompt), ('two_step', name))
+        with self.assertRaises(SystemExit):
+            parser.parse_args(['--mode', 'other'])
+
+    def test_local_model_grammar_kwarg(self):
+        model = eval_local.LocalModel.__new__(eval_local.LocalModel)
+        model.model, bodies = 'm', []
+
+        def request(path, body=None):
+            bodies.append(body)
+            return {'choices': [{'finish_reason': 'stop', 'message': {'content': 'YES'}}], 'usage': {'prompt_tokens': 3}}
+
+        model.request = request
+        model.ask('s', 'u', 4, grammar=truth_eval.YES_NO_GRAMMAR)
+        model.ask('s', 'u', 16, literal=True)
+        model.ask('s', 'u', 16)
+        self.assertEqual(bodies[0]['grammar'], truth_eval.YES_NO_GRAMMAR)
+        self.assertEqual(bodies[1]['grammar'], 'root ::= "HALLUCINATION" | "CLEAN" | "UNCERTAIN"')
+        self.assertNotIn('grammar', bodies[2])
+
+
+class Holdout3Tests(unittest.TestCase):
+    def setUp(self):
+        self.doc, self.sha = truth_adj.load_set(HOLDOUT3)
+        self.items = self.doc['items']
+
+    def test_schema_balance_and_coverage(self):
+        self.assertEqual(self.doc['format'], 'truth_adj/2')
+        self.assertGreaterEqual(len(self.items), 36)
+        for label in truth_eval.LABELS:
+            self.assertEqual(sum(i['gold'] == label for i in self.items), 12, label)
+        self.assertEqual({i['split'] for i in self.items}, {'holdout3'})
+        cat = lambda c, g: sum(i['category'] == c and i['gold'] == g for i in self.items)  # noqa: E731
+        self.assertGreaterEqual(cat('loophole', 'HALLUCINATION'), 8)
+        self.assertGreaterEqual(cat('handoff', 'CLEAN'), 8)
+        for i in self.items:
+            if i['category'] == 'unresolved_null':
+                self.assertEqual(i['gold'], 'UNCERTAIN')
+        mixed = [i for i in self.items if i['category'] == 'loophole'
+                 and re.search(r"\b(will|going to|'ll)\b", i['lane_reply'])]
+        self.assertGreaterEqual(len(mixed), 2)  # past action + future plan, like xh02
+        handoffs = [i['lane_reply'] for i in self.items if i['category'] == 'handoff']
+        self.assertEqual(len(set(handoffs)), len(handoffs))
+
+    def test_disjoint_from_all_earlier_items(self):
+        earlier = truth_adj.load_set(truth_adj.SET)[0]['items'] + truth_adj.load_set(HOLDOUT2)[0]['items']
+        for field in ('id', 'lane_reply', 'question'):
+            self.assertFalse({i[field] for i in self.items} & {i[field] for i in earlier}, field)
+        self.assertFalse({i['lane_reply'] for i in self.items} & {r for _, _, r, _ in truth_eval.CONTROLS})
+
+    def test_synthetic_only(self):
+        for item in self.items:
+            for field in ('question', 'hermes_reference', 'lane_reply'):
+                text = item[field] or ''
+                self.assertIsNone(re.search(r'(^|\s)[~/]\w|https?:|@\w', text), (item['id'], field))
 
 
 if __name__ == '__main__':
