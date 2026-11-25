@@ -1429,6 +1429,13 @@ def install_uplink_drain(transceivers) -> list:
     return [jb for t in transceivers if t.kind == "audio" for jb in [install(t.receiver, guard)] if jb is not None]
 
 
+def install_downlink_opus_mono() -> bool:
+    """Z0LIVE_DOWNLINK_OPUS_MONO=1 makes the phone downlink sender encode mono Opus (opus_mono.py; same 96 kbit/s,
+    SDP unchanged). Default off: aiortc's stock stereo encoder, nothing patched. Bench-only evidence (F4o)."""
+    import opus_mono
+    return opus_mono.install()
+
+
 class Call:
     def __init__(self, manager, profile: str = ""):
         self.manager = manager
@@ -1660,6 +1667,8 @@ class Call:
         self.trace("call.start", history_items=len(history) if isinstance(history, list) else None)
         try:
             await self.mobile.setRemoteDescription(RTCSessionDescription(sdp=sdp, type="offer"))
+            if install_downlink_opus_mono():
+                self.trace("downlink.opus_mono", installed=True)
             if self.leg and uplink_drain():
                 drained = install_uplink_drain(self.mobile.getTransceivers())
                 self.uplink_jitter.extend(drained)
