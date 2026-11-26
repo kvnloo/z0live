@@ -105,8 +105,21 @@ class LureOptionTest(unittest.TestCase):
     def test_default_is_liquid_with_lure_defaults_inert(self):
         args = lvr.parse_args(['--out', self.out])
         self.assertEqual(args.tts, 'liquid')
-        self.assertEqual(args.lure_first_chunk_frames, 4)
+        self.assertEqual(args.lure_first_chunk_frames, 1)  # fc1 default: R8-10h-r2b KEEP
         self.assertTrue(args.lure_snapshot)
+
+    def test_lure_first_chunk_frames_defaults_to_1_and_4_still_overrides(self):
+        self.assertEqual(lvr.parse_args(self.lure_argv()).lure_first_chunk_frames, 1)
+        fc4 = lvr.parse_args(self.lure_argv('--lure-first-chunk-frames', '4'))
+        self.assertEqual(fc4.lure_first_chunk_frames, 4)
+        helper = lvr.lure_helper_argv(fc4)
+        self.assertEqual(helper[helper.index('--first-chunk-frames') + 1], '4')
+
+    def test_lure_helper_first_chunk_frames_default_is_1(self):
+        import subprocess
+        helper = Path(lvr.__file__).resolve().parent / 'lure_tts_helper.py'
+        out = subprocess.run([sys.executable, str(helper), '--help'], capture_output=True, text=True, check=True).stdout
+        self.assertIn('codec frames in the first Lure chunk (default: 1)', ' '.join(out.split()))
 
     def test_lure_flags_parse(self):
         args = lvr.parse_args(self.lure_argv('--lure-first-chunk-frames', '1', '--no-lure-snapshot'))
@@ -124,13 +137,13 @@ class LureOptionTest(unittest.TestCase):
         self.assertEqual(on[on.index('--first-chunk-frames') + 1], '1')
         self.assertNotIn('--no-snapshot', on)
         off = lvr.lure_helper_argv(lvr.parse_args(self.lure_argv('--no-lure-snapshot')))
-        self.assertEqual(off[off.index('--first-chunk-frames') + 1], '4')
+        self.assertEqual(off[off.index('--first-chunk-frames') + 1], '1')
         self.assertIn('--no-snapshot', off)
 
     def test_utterance_dump_is_off_by_default(self):
         args = lvr.parse_args(self.lure_argv())
         self.assertIsNone(args.lure_dump)
-        self.assertEqual(lvr.lure_extra(args), {'tts': 'lure', 'lure_first_chunk_frames': 4, 'lure_snapshot': True})
+        self.assertEqual(lvr.lure_extra(args), {'tts': 'lure', 'lure_first_chunk_frames': 1, 'lure_snapshot': True})
         self.assertEqual(lvr.lure_extra(lvr.parse_args(['--out', self.out])), {})
 
     def test_utterance_dump_flags_parse_and_report(self):

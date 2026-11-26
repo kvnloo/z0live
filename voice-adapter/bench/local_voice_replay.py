@@ -546,7 +546,8 @@ def parse_args(argv=None):
     ap.add_argument('--lure-voice', type=Path, help='reference voice audio for Lure voice cloning')
     ap.add_argument('--lure-voice-text', help='transcript of --lure-voice')
     ap.add_argument('--lure-seed', type=int, default=1234)
-    ap.add_argument('--lure-first-chunk-frames', type=int, default=4, help='codec frames in the first Lure chunk')
+    ap.add_argument('--lure-first-chunk-frames', type=int, default=1,
+                    help='codec frames in the first Lure chunk (default 1, R8-10h-r2b KEEP; 4 is the old value)')
     ap.add_argument('--no-lure-snapshot', dest='lure_snapshot', action='store_false',
                     help='disable the decoder-state snapshot (re-prime the codec decoder on every utterance)')
     ap.add_argument('--lure-dump', type=Path,
