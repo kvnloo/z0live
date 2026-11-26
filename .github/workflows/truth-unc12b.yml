@@ -16,8 +16,8 @@ concurrency:
   group: truth-unc12b-${{ github.ref }}
   cancel-in-progress: false
 env:
-  PHASE: select
-  SETS: truth_adj_holdout4.json truth_adj_holdout3.json truth_adj.json truth_adj_holdout2.json
+  PHASE: score
+  SETS: truth_adj_holdout5.json
   LLAMA_TAG: b12527
   LLAMA_SHA256: c2758c87b9dd41293653e665fa3b06f5853d69243443d5d06d930683a55e35e4   # llama-b12527-bin-ubuntu-arm64.tar.gz
   MODEL: gemma3-12b-qat
@@ -35,9 +35,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {arm: S, variant: unc1, rep: 1}
-          - {arm: S, variant: unc2, rep: 1}
-          - {arm: S, variant: unc3, rep: 1}
+          - {arm: A, variant: default, rep: 1}
+          - {arm: B, variant: unc1, rep: 1}
+          - {arm: B, variant: unc1, rep: 2}
     env:
       ARM: ${{ matrix.arm }}
       VARIANT: ${{ matrix.variant }}
