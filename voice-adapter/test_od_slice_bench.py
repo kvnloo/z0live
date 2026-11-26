@@ -586,7 +586,7 @@ class EarlyCommit(unittest.TestCase):
     def test_modes_parse_ec_arm_and_schedule(self):
         arms = osb.mode_arms('spec150,spec150ec,spec150b', 500)
         self.assertEqual(arms, [('SPEC150', 500, 150), ('SPEC150EC', 500, 150, 'ec'), ('SPEC150b', 500, 150)])
-        for bad in ('w500ec', 'spec150ecb', 'spec200ec', 'spec150ec,spec150ec'):
+        for bad in ('w500ec', 'spec200ec', 'spec150ecbb', 'spec150ec2', 'spec150bec'):
             with self.assertRaises(ValueError):
                 osb.mode_arms(bad, 500)
         plan = osb.schedule_windows(runs=3, n_utts=12, seed=1, arms=arms)
@@ -601,6 +601,57 @@ class EarlyCommit(unittest.TestCase):
         rows = [{'arm': arm, 'ok': True, 'speech_end_to_first_audio_ms': base + i, 'endpointer_ms': 480}
                 for arm, base in (('SPEC150', 480), ('SPEC150b', 483), ('SPEC150EC', 300)) for i in range(5)]
         self.assertAlmostEqual(osb.summarize(rows)['aa_band_ms']['p50'], 3)
+
+
+class EarlyStart100EC(unittest.TestCase):
+    """OD-slice-5 contract. SPEC100EC = SPEC150EC with the speculative start at 100 ms (5 quiet frames) instead of
+    150 ms (7 frames); commit window 500 ms, rule ec1 and the >= 200 ms early-commit floor unchanged. The A/A arm is
+    SPEC150ECb (a replicate label on an early-commit arm)."""
+
+    def ec(self, pcm, stages, spec_ms):
+        async def go(clock):
+            return await osb.run_spec_turn(stages, pcm, turn_id=7, silence_ms=500, spec_ms=spec_ms, clock=clock,
+                                           sleep=asyncio.sleep, early_commit=True)
+        return vrun(go)
+
+    def test_modes_parse_spec100ec_and_the_ec_aa_replicate(self):
+        arms = osb.mode_arms('spec150ec,spec100ec,spec150ecb', 500)
+        self.assertEqual(arms, [('SPEC150EC', 500, 150, 'ec'), ('SPEC100EC', 500, 100, 'ec'),
+                                ('SPEC150ECb', 500, 150, 'ec')])
+        self.assertEqual(osb.mode_arms('spec150ec,spec150ec', 500),
+                         [('SPEC150EC', 500, 150, 'ec'), ('SPEC150ECb', 500, 150, 'ec')])  # auto A/A label
+        plan = osb.schedule_windows(runs=3, n_utts=12, seed=1, arms=arms)
+        self.assertEqual(sum(len(p['turns']) for p in plan), 108)
+        self.assertEqual([plan[0]['turns'][3 * k][0] for k in range(12)], osb.schedule(1, 12, 1)[0]['order'])
+        self.assertEqual([plan[0]['turns'][3 * k][1] for k in range(3)], ['SPEC150EC', 'SPEC100EC', 'SPEC150ECb'])
+        a = osb.parse_args(ArmModes.BASE + ['--arm-modes', 'spec150ec,spec100ec,spec150ecb'])
+        self.assertEqual(a.arm_modes, 'spec150ec,spec100ec,spec150ecb')
+
+    def test_spec100ec_starts_at_5_quiet_frames_and_spec150ec_at_7(self):
+        rows = {}
+        for spec_ms, frames in ((100, 5), (150, 7)):
+            row = self.ec(tone_clip(), text_stages('what is the capital of france'), spec_ms)  # rule fails
+            self.assertTrue(row['ok'], row)
+            self.assertEqual((row['spec_started'], row['spec_cancelled']), (1, 0))
+            self.assertAlmostEqual(row['spec_start_ms'], frames * 20, delta=20)
+            self.assertAlmostEqual(row['endpointer_ms'], 500, delta=20)  # commit window unchanged
+            rows[spec_ms] = row
+        self.assertAlmostEqual(rows[150]['spec_start_ms'] - rows[100]['spec_start_ms'], 40, delta=1)  # 2 frames
+
+    def test_spec100ec_still_waits_for_200_ms_of_silence_and_commits_when_stt_lands(self):
+        fast = self.ec(tone_clip(), text_stages('What is the capital of France?', stt_ms=10), 100)
+        self.assertEqual(fast['early_commit'], 1)
+        self.assertGreaterEqual(fast['ec_commit_quiet_frames'], 10)
+        self.assertGreaterEqual(fast['endpointer_ms'], 200 - 1e-6)
+        slow = self.ec(tone_clip(), text_stages('What is the capital of France?', stt_ms=125), 100)
+        self.assertEqual(slow['early_commit'], 1)
+        self.assertAlmostEqual(slow['endpointer_ms'], 100 + 125, delta=1)  # spec start + STT, mid-frame
+        self.assertAlmostEqual(slow['speech_end_to_first_audio_ms'], slow['first_audio_ready_ms'], delta=1)
+
+    def test_aa_band_uses_the_spec150ec_pair(self):
+        rows = [{'arm': arm, 'ok': True, 'speech_end_to_first_audio_ms': base + i, 'endpointer_ms': 250}
+                for arm, base in (('SPEC150EC', 415), ('SPEC150ECb', 417), ('SPEC100EC', 380)) for i in range(5)]
+        self.assertAlmostEqual(osb.summarize(rows)['aa_band_ms']['p50'], 2)
 
 
 SLOW_STT_HELPER = textwrap.dedent('''

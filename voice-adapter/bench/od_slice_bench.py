@@ -30,6 +30,9 @@ counted >= EC_SILENCE_MS (200 ms = 10 quiet frames) of trailing silence AND conf
 unchanged --endpointer-silence-ms commit still applies if that never happens. An early commit is final: the turn plays.
 If speech resumes after it (commit before the true speech end) the row is a false cut ('split before speech end'),
 exactly as the control's split. specN rows without 'ec' run the OD-slice-3 path unchanged.
+Earlier speculative start (OD-slice-5, --arm-modes spec150ec,spec100ec,spec150ecb): spec100ec = spec150ec with the
+speculative turn started at 5 quiet frames (100 ms) instead of 7; early-commit arms now take replicate labels
+(spec150ecb -> SPEC150ECb, the A/A arm); everything else unchanged.
 """
 import argparse
 import asyncio
@@ -459,7 +462,7 @@ def mode_arms(spec, commit_ms):
     arms, seen = [], {}
     for tok in (t.strip().lower() for t in spec.split(',') if t.strip()):
         m = re.fullmatch(r'(w|spec)(\d+)(ec)?([a-z]?)', tok)
-        if not m or (m.group(3) and (m.group(1) != 'spec' or m.group(4))):
+        if not m or (m.group(3) and m.group(1) != 'spec'):
             raise ValueError(f'bad arm mode {tok!r}')
         kind, ms, ec, tag = m.group(1), int(m.group(2)), m.group(3), m.group(4)
         if kind == 'w' and (ms % 20 or not 80 <= ms <= 2000):
@@ -469,10 +472,10 @@ def mode_arms(spec, commit_ms):
         if ec:
             if not ms // 20 < EC_SILENCE_MS // 20 < commit_ms // 20:
                 raise ValueError(f'{tok}: early commit needs spec start < {EC_SILENCE_MS} ms < commit window')
-            if f'SPEC{ms}EC' in seen:
-                raise ValueError(f'{tok}: repeated early-commit arm')
-            seen[f'SPEC{ms}EC'] = 1
-            arms.append((f'SPEC{ms}EC', commit_ms, ms, 'ec'))
+            base = f'SPEC{ms}EC'  # OD-slice-5: replicate labels as for the other kinds (spec150ecb = A/A)
+            k = seen.get(base, 0)
+            seen[base] = k + 1
+            arms.append((base + (tag or ('' if not k else chr(ord('a') + k))), commit_ms, ms, 'ec'))
             continue
         base = f'W{ms}' if kind == 'w' else f'SPEC{ms}'
         k = seen.get(base, 0)
@@ -532,7 +535,8 @@ def summarize(rows):
     primary = ('speech_end_to_first_audio_ms' if pooled['speech_end_to_first_audio_ms']['p50'] is not None
                else 'eos_to_first_audio_ms')
     band = None
-    pair = next((p for p in (('A', 'A2'), ('W500', 'W500b'), ('SPEC150', 'SPEC150b')) if set(p) <= arms.keys()),
+    pair = next((p for p in (('A', 'A2'), ('W500', 'W500b'), ('SPEC150', 'SPEC150b'),
+                                ('SPEC150EC', 'SPEC150ECb')) if set(p) <= arms.keys()),
                 None)
     if pair and arms[pair[0]]['n'] and arms[pair[1]]['n']:
         a, b = arms[pair[0]][primary], arms[pair[1]][primary]
