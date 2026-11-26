@@ -458,6 +458,151 @@ class SpecSummary(unittest.TestCase):
         self.assertNotIn('spec_started', s['W500'])
 
 
+GOLDEN = Path(__file__).with_name('fixtures') / 'od_slice3_spec150_rows.json'
+GOLDEN_CASES = {  # name -> (clip, stage kwargs); frozen at OD-slice-3 (1d0e0e5) by bench/make_spec150_golden.py
+    'plain': (lambda: tone_clip(), {}),
+    'slow_stt': (lambda: tone_clip(), {'stt_ms': 400}),
+    'resumed': (lambda: paused_clip(0.3), {}),
+    'resumed_fast': (lambda: paused_clip(0.4), {'stt_ms': 10, 'model_first_ms': 10, 'tts_first_ms': 10}),
+    'split': (lambda: tone_clip(tail_s=0.7) + tone_clip(lead_s=0, tail_s=0), {}),
+}
+
+
+def golden_spec_row(name, **kw):
+    """One SPEC150 arm turn (run_arm_turn, spec_ms=150) for a GOLDEN_CASES entry, as canonical JSON-able data."""
+    clip, stage_kw = GOLDEN_CASES[name]
+
+    async def go(clock):
+        return await osb.run_arm_turn(sleep_stages(**stage_kw), clip(), turn_id=7, silence_ms=500, spec_ms=150,
+                                      clock=clock, sleep=asyncio.sleep, **kw)
+    return json.loads(json.dumps(vrun(go)))
+
+
+def text_stages(text, stt_ms=100, **kw):
+    """sleep_stages whose STT returns `text` (Whisper-like punctuation) after stt_ms of virtual time."""
+    calls = kw.pop('calls', [])
+    _, model, tts = sleep_stages(stt_ms=stt_ms, calls=calls, **kw)
+
+    async def stt(pcm):
+        calls.append(len(pcm))
+        await asyncio.sleep(stt_ms / 1000)
+        return text
+    return stt, model, tts
+
+
+class EarlyCommit(unittest.TestCase):
+    """OD-slice-4 contract. SPEC150EC = SPEC150 plus a commit at the earliest moment the CURRENT speculative turn's
+    transcript is known, >= 200 ms of trailing silence was counted and rule ec1 passes; else the 500 ms commit."""
+
+    def ec(self, pcm, stages, plays=None):
+        async def go(clock):
+            return await osb.run_spec_turn(stages, pcm, turn_id=7, silence_ms=500, spec_ms=150, clock=clock,
+                                           sleep=asyncio.sleep, early_commit=True,
+                                           on_play=None if plays is None else (lambda ns, n: plays.append((ns, n))))
+        return vrun(go)
+
+    def test_rule_ec1(self):
+        yes = ('What is the capital of France?', ' Who wrote Romeo and Juliet? ', 'How many days are in a week.',
+               'Tell me now!', 'What do bees make?')
+        no = ('What is the capital of France', 'Hi there?', 'Yes.', '', None, 'I went to the store and.',
+              'Tell me about the.', 'What do you think of?', 'Is it this or?', 'I was going to, um.',
+              'So because?', 'Ask him to.', 'It is a.', 'Why is that so?', 'Wait...uh?', 'Ends with comma,')
+        for t in yes:
+            self.assertTrue(osb.confident_turn_end(t), t)
+        for t in no:
+            self.assertFalse(osb.confident_turn_end(t), t)
+        self.assertEqual(osb.EC_CONTINUATION, frozenset(
+            'and but so or because um uh the a to of'.split()))  # the preregistered list, verbatim
+        self.assertEqual((osb.EC_SILENCE_MS, osb.EC_RULE), (200, 'ec1'))
+
+    def test_fast_stt_still_waits_for_200_ms_of_silence(self):
+        plays = []
+        row = self.ec(tone_clip(), text_stages('What is the capital of France?', stt_ms=10), plays=plays)
+        self.assertTrue(row['ok'], row)
+        self.assertEqual(row['early_commit'], 1)
+        self.assertGreaterEqual(row['ec_commit_quiet_frames'], 10)
+        self.assertGreaterEqual(row['endpointer_ms'], 200)  # transcript ready at ~150 ms; the commit waits
+        self.assertLess(row['endpointer_ms'], 240)
+        self.assertTrue(plays and all(ns >= row['commit_ns'] for ns, _ in plays))
+
+    def test_early_commit_never_fires_before_200_ms_for_any_stt_latency(self):
+        for stt_ms in (0, 1, 5, 30, 55, 59, 61, 95):
+            row = self.ec(tone_clip(), text_stages('What is the capital of France?', stt_ms=stt_ms))
+            self.assertEqual(row['early_commit'], 1, stt_ms)
+            self.assertGreaterEqual(row['endpointer_ms'], 200 - 1e-6, stt_ms)
+
+    def test_commit_is_the_moment_the_stt_result_lands_not_the_next_frame(self):
+        row = self.ec(tone_clip(), text_stages('What is the capital of France?', stt_ms=105))
+        self.assertEqual(row['early_commit'], 1)
+        self.assertAlmostEqual(row['endpointer_ms'], 140 + 105, delta=1)  # spec start + STT, mid-frame
+        self.assertAlmostEqual(row['speech_end_to_first_audio_ms'], row['first_audio_ready_ms'], delta=1)
+        self.assertLess(row['speech_end_to_first_audio_ms'], 500)
+
+    def test_rule_fail_falls_back_to_the_500_ms_commit_like_spec150(self):
+        row = self.ec(tone_clip(), text_stages('what is the capital of france'))  # no end punctuation
+        self.assertTrue(row['ok'], row)
+        self.assertEqual((row['early_commit'], row['ec_rule_evals'], row['ec_last_pass']), (0, 1, False))
+        self.assertAlmostEqual(row['endpointer_ms'], 500, delta=20)
+        spec = golden_spec_row('plain')
+        for k in ('endpointer_ms', 'speech_end_to_first_audio_ms', 'first_audio_ready_ms', 'commit_ns'):
+            self.assertAlmostEqual(row[k], spec[k], delta=1e-6)
+
+    def test_resumed_speech_after_an_early_commit_is_a_false_cut_and_the_turn_still_plays(self):
+        plays = []
+        row = self.ec(paused_clip(0.4), text_stages('What is the capital?', stt_ms=60), plays=plays)
+        self.assertFalse(row['ok'])
+        self.assertEqual(row['error'], 'split before speech end')
+        self.assertEqual((row['early_commit'], row['ec_resumed']), (1, True))
+        self.assertLess(row['endpointer_declared_ms'], 0)
+        self.assertEqual(row['transcript'], 'What is the capital?')
+        self.assertTrue(plays)  # committed and played, as a real system would
+        self.assertEqual(row['spec_cancelled'], 0)
+        s = osb.summarize([dict(row, arm='SPEC150EC')])['arms']['SPEC150EC']
+        self.assertEqual((s['false_cuts'], s['ec_false_cuts'], s['early_commits'], s['ec_fire_rate']), (1, 1, 1, 1))
+        # the control arm on the same clip and stages is not cut (the 400 ms pause < the 500 ms commit)
+        ctl = vrun(lambda clock: osb.run_spec_turn(
+            text_stages('What is the capital?', stt_ms=60), paused_clip(0.4), turn_id=7, silence_ms=500,
+            spec_ms=150, clock=clock, sleep=asyncio.sleep))
+        self.assertTrue(ctl['ok'], ctl)
+
+    def test_a_cancelled_spec_turns_transcript_never_commits(self):
+        calls = []
+        row = self.ec(paused_clip(0.2), text_stages('What is the capital?', stt_ms=100, calls=calls))
+        self.assertTrue(row['ok'], row)  # spec 1 (140 ms into the pause) is cancelled at 220 ms, before STT lands
+        self.assertEqual((row['spec_started'], row['spec_cancelled']), (2, 1))
+        self.assertEqual((row['early_commit'], row['ec_rule_evals']), (1, 1))  # only the current turn was judged
+        self.assertGreaterEqual(row['endpointer_ms'], 200)
+        self.assertGreater(calls[1], calls[0] + osb.RATE // 2)
+
+    def test_spec150_rows_are_byte_identical_to_od_slice_3(self):
+        golden = json.loads(GOLDEN.read_text())
+        self.assertEqual(sorted(golden), sorted(GOLDEN_CASES))
+        for name in GOLDEN_CASES:
+            for kw in ({}, {'ec': None}):
+                self.assertEqual(json.dumps(golden_spec_row(name, **kw), sort_keys=True),
+                                 json.dumps(golden[name], sort_keys=True), name)
+            self.assertFalse(any(k.startswith('ec_') or k == 'early_commit' for k in golden_spec_row(name)))
+
+    def test_modes_parse_ec_arm_and_schedule(self):
+        arms = osb.mode_arms('spec150,spec150ec,spec150b', 500)
+        self.assertEqual(arms, [('SPEC150', 500, 150), ('SPEC150EC', 500, 150, 'ec'), ('SPEC150b', 500, 150)])
+        for bad in ('w500ec', 'spec150ecb', 'spec200ec', 'spec150ec,spec150ec'):
+            with self.assertRaises(ValueError):
+                osb.mode_arms(bad, 500)
+        plan = osb.schedule_windows(runs=3, n_utts=12, seed=1, arms=arms)
+        self.assertEqual(sum(len(p['turns']) for p in plan), 108)
+        self.assertEqual([plan[0]['turns'][3 * k][0] for k in range(12)], osb.schedule(1, 12, 1)[0]['order'])
+        firsts = [plan[0]['turns'][3 * k][1] for k in range(3)]
+        self.assertEqual(firsts, ['SPEC150', 'SPEC150EC', 'SPEC150b'])  # rotation as OD-slice-3
+        a = osb.parse_args(ArmModes.BASE + ['--arm-modes', 'spec150,spec150ec,spec150b'])
+        self.assertEqual(a.arm_modes, 'spec150,spec150ec,spec150b')
+
+    def test_aa_band_uses_spec150_pair(self):
+        rows = [{'arm': arm, 'ok': True, 'speech_end_to_first_audio_ms': base + i, 'endpointer_ms': 480}
+                for arm, base in (('SPEC150', 480), ('SPEC150b', 483), ('SPEC150EC', 300)) for i in range(5)]
+        self.assertAlmostEqual(osb.summarize(rows)['aa_band_ms']['p50'], 3)
+
+
 SLOW_STT_HELPER = textwrap.dedent('''
     import json, struct, sys, time
     out, inp = sys.stdout, sys.stdin.buffer
