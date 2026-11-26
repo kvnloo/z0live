@@ -24,7 +24,7 @@ def live_suite(full):
     out = dict(full)
     out.update({"suite": "slm-v2-live", "brief": brief,
                 "note": "slm-v2 cases unchanged; brief = brief_compress.compress_brief(slm-v2 brief, 2810): header, "
-                        "trailer, newest exchange, short-reply (fact) exchanges, then filler spread evenly (every other filler, newest first; C56-live-compress-r3). "
+                        "trailer, newest exchange, short-reply (fact) exchanges, then filler spread evenly (every other filler, newest first; C56-live-compress-r3), then a filler newest exchange last (C56-live-compress-r4). "
                         "Synthetic, no owner chat data.",
                 "derived": {"from": "bench/slm-v2.json", "mode": "live compress_brief",
                             "budget_chars": BUDGET, "out_chars": len(brief), "builder": "bench/lane_brief_live.py"}})

@@ -7,9 +7,10 @@ compress_brief(text, budget_chars) returns a verbatim, in-order subset of the br
      line up to the next asker line; the asker is the first speaker seen) and trailer lines (after the last
      exchange, e.g. a Status line);
   3. header and trailer are always kept, then exchanges are added greedily in this priority order, each only if it
-     still fits: the newest exchange, then "fact" exchanges newest first, then filler spread evenly over the chat
-     (every other filler exchange counted back from the newest filler, newest first; then the skipped fillers,
-     newest first, only if budget is left; C56-live-compress-r3, was: all filler newest first). An exchange is
+     still fits: "fact" exchanges newest first, then filler spread evenly over the chat (every other filler
+     exchange counted back from the newest older filler, newest first; then the skipped fillers, newest first, only
+     if budget is left; C56-live-compress-r3, was: all filler newest first), then a filler newest exchange last
+     (C56-live-compress-r4, was: the newest exchange always kept first). An exchange is
      a fact when its reply is short (<= FACT_REPLY_CHARS): answers about the user's own plans, settings, numbers and
      permissions are one line, general-knowledge explanations are paragraphs;
   4. with no speaker structure, or when header + trailer alone exceed the budget, the newest budget_chars
@@ -69,7 +70,10 @@ def compress_brief(text: str, budget_chars: int) -> str:
     filler = [i for i in reversed(range(n - 1)) if not fact[i]]  # newest first
     # C56-live-compress-r3: filler spread evenly over the chat (e5 style): every other filler exchange counted back
     # from the newest filler, then the skipped ones (newest first) only if budget is still left.
-    order = [n - 1] + [i for i in reversed(range(n - 1)) if fact[i]] + filler[0::2] + filler[1::2]
+    # C56-live-compress-r4: the newest exchange is no longer always kept first. A fact newest exchange is kept with
+    # the facts; a filler newest exchange is tried last, only if budget is still left (was: order started with n - 1).
+    facts = [i for i in reversed(range(n)) if fact[i]]
+    order = facts + filler[0::2] + filler[1::2] + ([] if fact[n - 1] else [n - 1])
     keep = set()
     for i in order:
         trial = [header] + [exchanges[j] for j in sorted(keep | {i})] + [trailer]

@@ -1,0 +1,105 @@
+name: z0live C56-live-compress-r4 lane speed, full slm-v2 brief vs live compress_brief brief on gemma4-e2b Q4_K_M (CPU), even-index cases
+# C56-live-compress-r4 (C5/C6 fast lanes; C56-brief-odd harness, model, cases and verdict script): first-answer latency p50, cache off, same scorer.
+# ONE change vs C56-live-compress-r3 (run 45875973926): compress_brief no longer always keeps the newest exchange; a
+# filler newest exchange is tried last. Kept filler = e5 set 3,6,9,12,15. Same 15 even cases (--offset 0).
+# B = brief_compress.compress_brief(full brief, 2810) (2810 chars), A = full slm-v2 brief (5540 chars).
+# Every server flag identical in both arms (-ub 512 default). ABAB server blocks A1 B1 A2 B2 in ONE job on ONE runner;
+# A1 vs A2 is the A/A noise band. Synthetic text only, no owner data. Prereg: voice-adapter/bench/lanespeed-c56-live-compress-r4-PREREG.md
+on:
+  # dispatch by file name 404s while the file is not on the default branch, so the scored run starts from the push
+  # that adds this file (as every C56 run); later commits that do not touch this file start nothing.
+  push:
+    branches: [ci/lanespeed-c56-live-compress-r4]
+    paths: [".github/workflows/lanespeed-c56-live-compress-r4.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: lanespeed-c56-live-compress-r4-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  LLAMA_TAG: b12527
+  LLAMA_SHA256: c2758c87b9dd41293653e665fa3b06f5853d69243443d5d06d930683a55e35e4   # llama-b12527-bin-ubuntu-arm64.tar.gz
+  REPO: unsloth/gemma-4-E2B-it-GGUF
+  REV: 0314792d7f1f7e229411f620751375812bb9faf2
+  FILE: gemma-4-E2B-it-Q4_K_M.gguf
+  SHA: 740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8   # = HF LFS oid at REV
+  SUITE_SHA: 7fa9f7c64ce0a68741232a46707edecf2dd74e2403232e0c211aad03a792367c     # slm-v2.json (arm A)
+  SUITE_B_SHA: 877737e6e164792433e0a2c5f4a24af4a1c7c98b8964446186ec3bba3ff41394   # slm-v2-live.json (arm B)
+  BLOCKS: "A:512,B:512,A:512,B:512"
+jobs:
+  abab:
+    runs-on: ubuntu-24.04-arm   # one CPU family (Neoverse-N2 in GH5-GH16, C56); x64 pool mixes Intel/AMD (GH4)
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Runner CPU / RAM / disk
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          lscpu | tee lscpu.txt
+          cpu=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)
+          echo "CPU_MODEL=${cpu:-unknown} ($(uname -m), $(nproc) cpus)" >> "$GITHUB_ENV"
+          echo "runner CPU: ${cpu:-unknown} ($(uname -m), $(nproc) cpus)" | tee -a "$GITHUB_STEP_SUMMARY"
+          free -m; df -h "$RUNNER_TEMP" | tail -1
+      - name: llama.cpp ${{ env.LLAMA_TAG }} (prebuilt ubuntu arm64 CPU)
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/llama" && cd "$RUNNER_TEMP/llama"
+          curl -fsSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_TAG}/llama-${LLAMA_TAG}-bin-ubuntu-arm64.tar.gz"
+          echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
+          tar xzf llama.tgz
+          server=$(find "$RUNNER_TEMP/llama" -type f -name llama-server | head -1)
+          test -x "$server"
+          echo "LLAMA_SERVER=$server" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$(dirname "$server")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+      - name: Restore GGUF cache
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/models/${{ env.FILE }}
+          key: gguf-${{ env.SHA }}
+      - name: Download GGUF (pinned by sha256)
+        if: steps.cache.outputs.cache-hit != 'true'
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/models"
+          curl -fsSL --retry 5 --retry-all-errors --speed-limit 2000000 --speed-time 60 -o "$RUNNER_TEMP/models/$FILE" "https://huggingface.co/$REPO/resolve/$REV/$FILE"
+      - name: Verify frozen inputs
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          echo "$SHA  $RUNNER_TEMP/models/$FILE" | sha256sum -c -
+          echo "$SUITE_SHA  voice-adapter/bench/slm-v2.json" | sha256sum -c -
+          echo "$SUITE_B_SHA  voice-adapter/bench/slm-v2-live.json" | sha256sum -c -
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: ABAB bench
+        timeout-minutes: 36
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet "aiohttp>=3.9,<4"   # tiers.py imports aiohttp
+          python voice-adapter/bench/lanespeed_c56brief_check.py   # dry wiring check (fake server, ~10 s)
+          python voice-adapter/bench/lanespeed_c56brief_odd_check.py   # dry --offset 1 selection check (~20 s)
+          (cd voice-adapter && python -m unittest -v test_brief_compress)   # compressor unit tests (no model)
+          python voice-adapter/bench/lane_brief_live.py --check   # slm-v2-live.json == compress_brief(slm-v2 brief, 2810)
+          mkdir -p out
+          cp lscpu.txt out/
+          meta=$(python -c 'import json,os;print(json.dumps({k.lower():os.environ[k] for k in ("REPO","REV","FILE","SHA","LLAMA_TAG","CPU_MODEL","BLOCKS")}))')
+          python voice-adapter/bench/lanespeed.py --gguf "$RUNNER_TEMP/models/$FILE" --blocks "$BLOCKS" \
+            --suite-b voice-adapter/bench/slm-v2-live.json \
+            --every 2 --offset 0 --deadline-s 1980 --meta "$meta" --out out/lanespeed-c56-live-compress-r4.json --logdir out
+          python voice-adapter/bench/lanespeed_verdict.py out/lanespeed-c56-live-compress-r4.json | tee out/verdict.json
+          { echo '```'; cat out/verdict.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lanespeed-c56-live-compress-r4
+          path: out/
+          if-no-files-found: warn
+          retention-days: 30

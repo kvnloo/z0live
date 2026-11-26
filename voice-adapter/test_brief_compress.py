@@ -69,7 +69,9 @@ class CompressBrief(unittest.TestCase):
         out = brief_compress.compress_brief(FULL, E5_CHARS).split("\n")
         self.assertEqual(out[0], lines[0])          # role / header line
         self.assertEqual(out[-1], lines[-1])        # Status line
-        self.assertEqual(out[-3:-1], lines[-3:-1])  # newest exchange verbatim
+        # C56-live-compress-r4: the newest exchange (filler) is no longer force-kept; the newest kept exchange is the
+        # newest fact exchange (adb approval), verbatim. Was: out[-3:-1] == lines[-3:-1] (newest exchange).
+        self.assertEqual(out[-3:-1], lines[-5:-3])
         o = brief_compress.compress_brief(OTHER, 900).split("\n")
         self.assertEqual(o[0], OTHER.split("\n")[0])
         self.assertEqual(o[-1], OTHER.split("\n")[-1])
@@ -124,13 +126,13 @@ class CompressBrief(unittest.TestCase):
         out = brief_compress.compress_brief(FULL, E5_CHARS)
         kept = [i for i, ex in enumerate(exchanges) if ex[0] in out.split("\n")]
         kept_filler = [i for i in kept if i in filler]
-        self.assertEqual(kept_filler, [6, 9, 12, 15])
+        self.assertEqual(kept_filler, [3, 6, 9, 12, 15])  # r4: was [6, 9, 12, 15] (newest exchange used budget)
         alternate = filler[::-1][0::2]
         self.assertTrue(set(kept_filler) <= set(alternate))  # never two adjacent fillers at this budget
         for a, b in zip(kept_filler, kept_filler[1:]):
             self.assertEqual(filler.index(b) - filler.index(a), 2)
         self.assertTrue(all(i in kept for i in range(n) if fact[i]))
-        self.assertIn(n - 1, kept)
+        self.assertNotIn(n - 1, kept)  # r4: was assertIn (newest exchange force-kept)
         lines = out.split("\n")
         self.assertEqual(lines[0], FULL.split("\n")[0])
         self.assertEqual(lines[-1], FULL.split("\n")[-1])
@@ -139,6 +141,22 @@ class CompressBrief(unittest.TestCase):
         big = brief_compress.compress_brief(FULL, 4000)
         self.assertLessEqual(len(big), 4000)
         self.assertGreater(len(big), len(out))
+
+    def test_newest_not_force_kept_filler_is_e5_set(self):
+        # C56-live-compress-r4: the newest exchange is no longer always kept; a filler newest exchange competes last,
+        # after the spread filler. At the e5 budget the kept filler is exactly e5's set (3 heat pump in, 17 out).
+        header, exchanges, trailer = brief_compress._split(FULL.split("\n"))
+        n = len(exchanges)
+        out = brief_compress.compress_brief(FULL, E5_CHARS)
+        lines = out.split("\n")
+        fact = [len(" ".join(ex[1:])) <= brief_compress.FACT_REPLY_CHARS for ex in exchanges]
+        kept_filler = [i for i, ex in enumerate(exchanges) if ex[0] in lines and not fact[i]]
+        self.assertEqual(kept_filler, [3, 6, 9, 12, 15])
+        self.assertFalse(fact[n - 1])
+        self.assertNotIn(exchanges[n - 1][0], lines)  # newest (filler) exchange not force-kept
+        self.assertTrue(all(exchanges[i][0] in lines for i in range(n) if fact[i]))
+        e5 = json.loads((HERE / "bench" / "slm-v2-e5.json").read_text())["brief"]
+        self.assertEqual(out, e5)  # byte-identical to the hand-built e5 brief
 
     def test_degenerate_inputs(self):
         self.assertEqual(brief_compress.compress_brief("", 100), "")
