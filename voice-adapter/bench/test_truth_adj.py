@@ -533,7 +533,79 @@ class Holdout5Tests(unittest.TestCase):
 
     def test_split_registered(self):
         self.assertEqual(truth_adj.SPLITS['truth_adj/1'], {'dev', 'holdout'})
-        self.assertEqual(truth_adj.SPLITS['truth_adj/2'], {'holdout2', 'holdout3', 'holdout4', 'holdout5'})
+        self.assertLessEqual({'holdout2', 'holdout3', 'holdout4', 'holdout5'}, truth_adj.SPLITS['truth_adj/2'])
+
+
+HOLDOUT6 = HERE / 'truth_adj_holdout6.json'
+UNC1_RUBRIC_SHA256 = 'ff08a9c2af20037710f112d675c0ffe5ae071bec7ed53ffd02cf566243e8eaf5'
+
+
+class Holdout6Tests(unittest.TestCase):
+    """D-truth-unc-e4b: fresh holdout6 for unc1 on the E4B grader (mixed-tense loopholes, handoffs, UNCERTAIN)."""
+
+    def setUp(self):
+        self.doc, self.sha = truth_adj.load_set(HOLDOUT6)
+        self.items = self.doc['items']
+
+    def by_cat(self, cat):
+        return [i for i in self.items if i['category'] == cat]
+
+    def test_schema_balance_and_coverage(self):
+        self.assertEqual(self.doc['format'], 'truth_adj/2')
+        self.assertEqual(len(self.items), 36)
+        for label in truth_eval.LABELS:
+            self.assertEqual(sum(i['gold'] == label for i in self.items), 12, label)
+        self.assertEqual({i['split'] for i in self.items}, {'holdout6'})
+        for cat in ('unresolved_null', 'unresolved_clarify', 'unresolved_vague'):
+            self.assertEqual(len(self.by_cat(cat)), 4, cat)
+            for i in self.by_cat(cat):
+                self.assertEqual(i['gold'], 'UNCERTAIN')
+        for i in self.by_cat('unresolved_null'):
+            self.assertIsNone(i['hermes_reference'])
+        loopholes, handoffs = self.by_cat('loophole'), self.by_cat('handoff')
+        self.assertGreaterEqual(len(loopholes), 7)
+        self.assertGreaterEqual(len(handoffs), 6)
+        for i in loopholes:  # mixed tense: invented completed action + future plan, no support
+            self.assertEqual(i['gold'], 'HALLUCINATION')
+            self.assertIsNone(i['hermes_reference'])
+            self.assertRegex(i['lane_reply'], PAST)
+            self.assertRegex(i['lane_reply'], FUTURE)
+        for i in handoffs:
+            self.assertEqual(i['gold'], 'CLEAN')
+            self.assertRegex(i['lane_reply'], FUTURE)
+        guards = self.by_cat('unsupported_null') + self.by_cat('invented_specific')
+        self.assertGreaterEqual(len(guards), 3)
+        for i in guards:
+            self.assertEqual(i['gold'], 'HALLUCINATION')
+        self.assertEqual(len({i['lane_reply'] for i in self.items}), 36)
+        self.assertEqual(len({i['question'] for i in self.items}), 36)
+
+    def test_disjoint_from_all_earlier_items(self):
+        earlier = [i for p in (truth_adj.SET, HOLDOUT2, HOLDOUT3, HOLDOUT4, HOLDOUT5)
+                   for i in truth_adj.load_set(p)[0]['items']]
+        for field in ('id', 'lane_reply', 'question'):
+            self.assertFalse({i[field] for i in self.items} & {i[field] for i in earlier}, field)
+        self.assertFalse({i['lane_reply'] for i in self.items} & {r for _, _, r, _ in truth_eval.CONTROLS})
+        self.assertFalse({i['question'] for i in self.items} & {q for q, _, _, _ in truth_eval.CONTROLS})
+
+    def test_synthetic_only(self):
+        for item in self.items:
+            for field in ('question', 'hermes_reference', 'lane_reply'):
+                text = item[field] or ''
+                self.assertIsNone(re.search(r'(^|\s)[~/]\w|https?:|@\w', text), (item['id'], field))
+
+    def test_split_registered(self):
+        self.assertEqual(truth_adj.SPLITS['truth_adj/1'], {'dev', 'holdout'})
+        self.assertEqual(truth_adj.SPLITS['truth_adj/2'],
+                         {'holdout2', 'holdout3', 'holdout4', 'holdout5', 'holdout6'})
+
+    def test_grader_and_unc1_unchanged(self):
+        self.assertEqual(hashlib.sha256(truth_eval.RUBRIC.encode()).hexdigest(), DEFAULT_RUBRIC_SHA256)
+        self.assertEqual(hashlib.sha256(inspect.getsource(truth_eval.grade).encode()).hexdigest(),
+                         DEFAULT_GRADE_SOURCE_SHA256)
+        self.assertEqual(hashlib.sha256(truth_eval.RUBRIC_VARIANTS['unc1'].encode()).hexdigest(), UNC1_RUBRIC_SHA256)
+        for reply in {i['lane_reply'] for i in self.items}:
+            self.assertNotIn(reply, truth_eval.RUBRIC_VARIANTS['unc1'])
 
 
 if __name__ == '__main__':

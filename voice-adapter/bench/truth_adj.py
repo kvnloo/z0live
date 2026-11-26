@@ -19,7 +19,8 @@ HERE = Path(__file__).resolve().parent
 SET = HERE / 'truth_adj.json'
 ORDER = ('HALLUCINATION', 'CLEAN', 'UNCERTAIN')
 FIELDS = {'id', 'split', 'category', 'question', 'hermes_reference', 'lane_reply', 'gold'}
-SPLITS = {'truth_adj/1': {'dev', 'holdout'}, 'truth_adj/2': {'holdout2', 'holdout3', 'holdout4', 'holdout5'}}
+SPLITS = {'truth_adj/1': {'dev', 'holdout'},
+          'truth_adj/2': {'holdout2', 'holdout3', 'holdout4', 'holdout5', 'holdout6'}}
 
 
 def validate(doc):
