@@ -11,7 +11,7 @@ compress_brief(text, budget_chars) returns a verbatim, in-order subset of the br
      exchange counted back from the newest older filler, newest first; then the skipped fillers, newest first, only
      if budget is left; C56-live-compress-r3, was: all filler newest first), then a filler newest exchange last
      (C56-live-compress-r4, was: the newest exchange always kept first). An exchange is
-     a fact when its reply is short (<= FACT_REPLY_CHARS): answers about the user's own plans, settings, numbers and
+     a fact when its reply is short (<= FACT_REPLY_CHARS) or it has no reply (C1-ctx-compress-r3): answers about the user's own plans, settings, numbers and
      permissions are one line, general-knowledge explanations are paragraphs;
   4. with no speaker structure, or when header + trailer alone exceed the budget, the newest budget_chars
      characters are kept (what tiers.snapshot already does at a larger cap).
@@ -73,7 +73,9 @@ def compress_brief(text: str, budget_chars: int) -> str:
     if _size([header + trailer]) > budget_chars:
         return text[-budget_chars:]
     n = len(exchanges)
-    fact = [len(" ".join(ex[1:])) <= FACT_REPLY_CHARS and len(ex) > 1 for ex in exchanges]
+    # C1-ctx-compress-r3: an asker line with no reply (a user statement nobody answered, e.g. "My vendor code is
+    # Mint-57.") is a fact, not filler (was: len(ex) > 1 required, so reply-less statements were dropped first).
+    fact = [len(ex) == 1 or len(" ".join(ex[1:])) <= FACT_REPLY_CHARS for ex in exchanges]
     filler = [i for i in reversed(range(n - 1)) if not fact[i]]  # newest first
     # C56-live-compress-r3: filler spread evenly over the chat (e5 style): every other filler exchange counted back
     # from the newest filler, then the skipped ones (newest first) only if budget is still left.

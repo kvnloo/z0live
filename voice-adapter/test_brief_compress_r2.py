@@ -1,6 +1,7 @@
 """C1-ctx-compress-r2: compress_brief detects speaker labels case-insensitively (the ONE change).
 
 bench/brief_compress_c1.py is the frozen pre-r2 compress_brief (byte copy of brief_compress.py at 2ffa205).
+C1-ctx-compress-r3: these tests now run on bench/brief_compress_r2.py (frozen r2 copy); r3 tests: test_brief_compress_r3.
 """
 import json
 import sys
@@ -9,7 +10,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "bench"))
-import brief_compress  # noqa: E402
+import brief_compress_r2 as brief_compress  # noqa: E402  (r3: r2 semantics pinned to the frozen r2 copy)
 import brief_compress_c1 as old  # noqa: E402
 import context_eval  # noqa: E402
 from test_brief_compress import FULL, OTHER  # noqa: E402
