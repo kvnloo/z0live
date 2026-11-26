@@ -3,6 +3,7 @@ name: z0live C1-ctx-compress-r2 planted brief-region recall, full brief vs compr
 # detects speaker labels case-insensitively. Harness fix (frozen before scoring): bench/ctx_compress_r2_eval.py
 # context_eval variant with the full chat brief under tiers.snapshot's 6000 cap, planted studio/locker/vendor in the
 # region a tail cut drops. Arms A (full) / B (r2 compressor) ABAB + O1 (pre-r2 compressor, report-only).
+# Timeouts qualified by unscored dev run 45905721236 (scenario 2 hi, A+B blocks = 652 s; 5 blocks ~1600 s).
 # One scenario probe half per matrix job (6 jobs). Synthetic text only. Prereg: voice-adapter/bench/ctx-compress-r2-PREREG.md
 on:
   # dispatch by file name 404s while the file is not on the default branch; the push that adds this file is the trigger
