@@ -107,6 +107,7 @@ def main():
     ap.add_argument("--blocks", required=True, help="ARM:UB,... e.g. A:512,B:2048,A:512,B:2048")
     ap.add_argument("--suite", default=str(HERE / "slm-v2.json"))
     ap.add_argument("--deadline-s", type=float, default=2100, help="stop starting new cases after this wall time")
+    ap.add_argument("--every", type=int, default=1, help="score suite cases with index %% EVERY == 0 (v2: 2)")
     ap.add_argument("--meta", default="{}")
     ap.add_argument("--out", required=True)
     ap.add_argument("--logdir", default=".")
@@ -114,6 +115,7 @@ def main():
     server = os.environ["LLAMA_SERVER"]
     suite_path, gguf = Path(o.suite), Path(o.gguf)
     suite = json.loads(suite_path.read_text())
+    cases = [c for i, c in enumerate(suite["cases"]) if i % o.every == 0]
     cpu = None
     if Path("/proc/cpuinfo").exists():
         cpu = next((ln.split(":", 1)[1].strip() for ln in Path("/proc/cpuinfo").read_text().splitlines()
@@ -137,7 +139,7 @@ def main():
                      "load_s": round(time.monotonic() - t0, 2), "rows": []}
             try:
                 ask(*slm_bench.messages(suite, suite["cases"][0]))  # unscored warm-up
-                for case in suite["cases"]:
+                for case in cases:
                     if time.monotonic() - t_start > o.deadline_s:
                         stopped = True
                         break
@@ -164,7 +166,8 @@ def main():
         Path(o.out).write_text(json.dumps(out, indent=1))
         if stopped:
             break
-    out["complete"] = not stopped and all(b["summary"]["n"] == len(suite["cases"]) for b in out["blocks"])
+    out["every"], out["case_ids"] = o.every, [c["id"] for c in cases]
+    out["complete"] = not stopped and all(b["summary"]["n"] == len(cases) for b in out["blocks"])
     out["wall_s"] = round(time.monotonic() - t_start, 1)
     Path(o.out).write_text(json.dumps(out, indent=1))
 

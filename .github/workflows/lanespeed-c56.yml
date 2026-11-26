@@ -83,7 +83,7 @@ jobs:
           cp lscpu.txt out/
           meta=$(python -c 'import json,os;print(json.dumps({k.lower():os.environ[k] for k in ("REPO","REV","FILE","SHA","LLAMA_TAG","CPU_MODEL","BLOCKS")}))')
           python voice-adapter/bench/lanespeed.py --gguf "$RUNNER_TEMP/models/$FILE" --blocks "$BLOCKS" \
-            --deadline-s 1980 --meta "$meta" --out out/lanespeed-c56.json --logdir out
+            --every 2 --deadline-s 1980 --meta "$meta" --out out/lanespeed-c56.json --logdir out
           python voice-adapter/bench/lanespeed_verdict.py out/lanespeed-c56.json | tee out/verdict.json
           { echo '```'; cat out/verdict.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4

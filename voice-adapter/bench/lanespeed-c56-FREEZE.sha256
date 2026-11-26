@@ -8,3 +8,7 @@ c2758c87b9dd41293653e665fa3b06f5853d69243443d5d06d930683a55e35e4  llama-b12527-b
 978c699eadc872f457bfd8021b29dbc81d91e233c230e07b9c7ab6320e2fc58c  voice-adapter/bench/lanespeed_verdict.py
 85e5f02a3fd571fa873a0f7e2fe386c5cee2ee21667ad188a0e508ab67aaca77  voice-adapter/bench/lanespeed-c56-PREREG.md
 daa6b595d09d8e8e20929537424da8c8b3bd319ebbd22519416a50644fdd47a1  .github/workflows/lanespeed-c56.yml
+# AMEND-1 freeze (before run 2) 2026-11-25T23:22:53-06:00
+0d86749cb615bbf2f4ed9a254ea868f065313b3317aab469567d2eea130fcba2  voice-adapter/bench/lanespeed.py
+0430a12120ab9d02cd858a3d226804c3131c51df5dea6f709a7e3dc307316092  voice-adapter/bench/lanespeed-c56-PREREG-AMEND-1.md
+d398f4d6c2264c479e7603dbc51fe35e18e294819558a39e0cff9866803de23b  .github/workflows/lanespeed-c56.yml
