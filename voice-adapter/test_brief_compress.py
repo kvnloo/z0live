@@ -114,6 +114,32 @@ class CompressBrief(unittest.TestCase):
             for role, text in case.get("turns") or []:
                 self.assertIn(text, sys_small)
 
+    def test_filler_spread_every_other(self):
+        # C56-live-compress-r3: filler is every other filler exchange counted back from the newest filler (e5 style),
+        # not the newest filler run; facts, header, Status line and newest exchange are still kept.
+        header, exchanges, trailer = brief_compress._split(FULL.split("\n"))
+        n = len(exchanges)
+        fact = [len(" ".join(ex[1:])) <= brief_compress.FACT_REPLY_CHARS for ex in exchanges]
+        filler = [i for i in range(n - 1) if not fact[i]]  # oldest -> newest
+        out = brief_compress.compress_brief(FULL, E5_CHARS)
+        kept = [i for i, ex in enumerate(exchanges) if ex[0] in out.split("\n")]
+        kept_filler = [i for i in kept if i in filler]
+        self.assertEqual(kept_filler, [6, 9, 12, 15])
+        alternate = filler[::-1][0::2]
+        self.assertTrue(set(kept_filler) <= set(alternate))  # never two adjacent fillers at this budget
+        for a, b in zip(kept_filler, kept_filler[1:]):
+            self.assertEqual(filler.index(b) - filler.index(a), 2)
+        self.assertTrue(all(i in kept for i in range(n) if fact[i]))
+        self.assertIn(n - 1, kept)
+        lines = out.split("\n")
+        self.assertEqual(lines[0], FULL.split("\n")[0])
+        self.assertEqual(lines[-1], FULL.split("\n")[-1])
+        self.assertEqual(brief_compress.compress_brief(FULL, E5_CHARS), out)  # deterministic
+        # with ample budget the skipped fillers fill in too (newest first), still within budget
+        big = brief_compress.compress_brief(FULL, 4000)
+        self.assertLessEqual(len(big), 4000)
+        self.assertGreater(len(big), len(out))
+
     def test_degenerate_inputs(self):
         self.assertEqual(brief_compress.compress_brief("", 100), "")
         flat = "x" * 500
