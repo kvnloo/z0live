@@ -3,6 +3,8 @@
 Fake stages and a fake clock only: no model, GPU or subprocess beyond a tiny stand-in STT helper.
 """
 import asyncio
+import contextlib
+import io
 import json
 from pathlib import Path
 import sys
@@ -179,6 +181,32 @@ class Schedule(unittest.TestCase):
         self.assertEqual(plan, osb.schedule(runs=3, n_utts=12, seed=7))  # seeded, reproducible
         self.assertNotEqual(plan[0]['order'], plan[1]['order'])
 
+    def test_window_sweep_labels_repeats_as_aa_and_interleaves_per_utterance(self):
+        arms = osb.window_arms('500,300,200,500')
+        self.assertEqual(arms, [('W500', 500), ('W300', 300), ('W200', 200), ('W500b', 500)])
+        plan = osb.schedule_windows(runs=2, n_utts=12, seed=1, arms=arms)
+        self.assertEqual([p['run'] for p in plan], [1, 2])
+        for p in plan:
+            self.assertEqual(len(p['turns']), 48)
+            for k in range(12):  # each utterance played once per arm back to back
+                block = p['turns'][4 * k:4 * k + 4]
+                self.assertEqual(len({t[0] for t in block}), 1)
+                self.assertEqual(sorted(t[1] for t in block), ['W200', 'W300', 'W500', 'W500b'])
+        firsts = [plan[0]['turns'][4 * k][1] for k in range(4)]
+        self.assertEqual(firsts, ['W500', 'W300', 'W200', 'W500b'])  # arm order rotates per utterance
+        # same seeded utterance order as the A/A plan's first pass
+        self.assertEqual([plan[0]['turns'][4 * k][0] for k in range(12)], osb.schedule(1, 12, 1)[0]['order'])
+
+    def test_window_flag_defaults_off_and_validates(self):
+        base = ['--out', '/tmp/x', '--utterances', '/tmp/u', '--whisper-model', '/tmp/w', '--gguf', '/tmp/g',
+                '--lure-model', 'm', '--lure-voice', 'v', '--lure-voice-text', 't']
+        a = osb.parse_args(base)
+        self.assertEqual((a.arm_windows, a.endpointer_silence_ms), ('', 500))
+        self.assertEqual(osb.parse_args(base + ['--arm-windows', '500,300,200,500']).arm_windows, '500,300,200,500')
+        for bad in ('250', '40', 'x'):
+            with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                osb.parse_args(base + ['--arm-windows', bad])
+
 
 class Summary(unittest.TestCase):
     def test_percentiles_bar_and_aa_band(self):
@@ -201,6 +229,15 @@ class Summary(unittest.TestCase):
         self.assertTrue(s['bar']['p50_le_500'])
         self.assertTrue(s['bar']['p95_le_1000'])
         self.assertAlmostEqual(s['pooled']['stt_exact_rate'], 0.5)
+
+    def test_sweep_aa_band_and_premature_endpoint_count(self):
+        rows = [{'arm': arm, 'ok': True, 'speech_end_to_first_audio_ms': base + i, 'endpointer_ms': 100}
+                for arm, base in (('W500', 700), ('W500b', 720), ('W200', 400)) for i in range(5)]
+        rows.append({'arm': 'W200', 'ok': False, 'error': 'split before speech end'})
+        s = osb.summarize(rows)
+        self.assertAlmostEqual(s['aa_band_ms']['p50'], 20)
+        self.assertEqual(s['arms']['W200']['premature_endpoints'], 1)
+        self.assertEqual(s['arms']['W500']['premature_endpoints'], 0)
 
     def test_normalize_words(self):
         self.assertEqual(osb.norm_words("What's the  capital, of France?"), ['whats', 'the', 'capital', 'of', 'france'])
