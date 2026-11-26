@@ -106,6 +106,8 @@ def main():
     ap.add_argument("--gguf", required=True)
     ap.add_argument("--blocks", required=True, help="ARM:UB,... e.g. A:512,B:2048,A:512,B:2048")
     ap.add_argument("--suite", default=str(HERE / "slm-v2.json"))
+    ap.add_argument("--suite-b", default=None, help="C56-brief: suite for arm B blocks (same cases, other brief); "
+                    "default = --suite")
     ap.add_argument("--deadline-s", type=float, default=2100, help="stop starting new cases after this wall time")
     ap.add_argument("--every", type=int, default=1, help="score suite cases with index %% EVERY == 0 (v2: 2)")
     ap.add_argument("--meta", default="{}")
@@ -115,6 +117,9 @@ def main():
     server = os.environ["LLAMA_SERVER"]
     suite_path, gguf = Path(o.suite), Path(o.gguf)
     suite = json.loads(suite_path.read_text())
+    suite_b_path = Path(o.suite_b) if o.suite_b else suite_path
+    suites = {"A": (suite_path, suite), "B": (suite_b_path, json.loads(suite_b_path.read_text()))}
+    assert suites["B"][1]["cases"] == suite["cases"], "arm suites must share identical cases"
     cases = [c for i, c in enumerate(suite["cases"]) if i % o.every == 0]
     cpu = None
     if Path("/proc/cpuinfo").exists():
@@ -122,6 +127,8 @@ def main():
                     if ln.startswith("model name")), None)
     out = {"schema": "z0live.lanespeed.v1", "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
            **json.loads(o.meta), "gguf_sha256": sha256(gguf), "suite_sha256": sha256(suite_path),
+           "arm_suite": {a: {"path": p.name, "sha256": sha256(p), "brief_chars": len(s["brief"])}
+                         for a, (p, s) in suites.items()},
            "harness_sha256": {f: sha256(p)[:16] for f, p in (("lanespeed.py", Path(__file__)),
                                                               ("slm_bench.py", HERE.parent / "slm_bench.py"),
                                                               ("tiers.py", HERE.parent / "tiers.py"))},
@@ -131,20 +138,21 @@ def main():
     stopped = False
     for bi, spec in enumerate(filter(None, o.blocks.split(","))):
         arm, ub = spec.split(":")
+        bsuite = suites.get(arm, (suite_path, suite))[1]
         label = f"{arm}{sum(1 for b in out['blocks'] if b['arm'] == arm) + 1}"
         with open(Path(o.logdir) / f"server-{bi}-{label}.log", "w") as log:
             t0 = time.monotonic()
             proc, cmd = serve(server, gguf, int(ub), log)
-            block = {"block": bi, "label": label, "arm": arm, "ub": int(ub), "cmd": [os.path.basename(cmd[0])] + cmd[1:],
+            block = {"block": bi, "label": label, "arm": arm, "ub": int(ub), "suite": bsuite["suite"], "cmd": [os.path.basename(cmd[0])] + cmd[1:],
                      "load_s": round(time.monotonic() - t0, 2), "rows": []}
             try:
-                ask(*slm_bench.messages(suite, suite["cases"][0]))  # unscored warm-up
+                ask(*slm_bench.messages(bsuite, bsuite["cases"][0]))  # unscored warm-up
                 for case in cases:
                     if time.monotonic() - t_start > o.deadline_s:
                         stopped = True
                         break
                     try:
-                        reply, first, sent, total, tm = ask(*slm_bench.messages(suite, case))
+                        reply, first, sent, total, tm = ask(*slm_bench.messages(bsuite, case))
                         row = {**slm_bench.score(case, reply), "ttft_s": round(first, 4) if first else None,
                                "first_sentence_s": round(sent, 4), "total_s": round(total, 4),
                                **{k: tm.get(k) for k in ("prompt_n", "prompt_ms", "predicted_n", "predicted_ms")}}
