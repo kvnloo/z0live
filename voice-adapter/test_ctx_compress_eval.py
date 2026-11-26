@@ -29,6 +29,15 @@ class Arms(unittest.TestCase):
             with mock.patch.object(cce, "BUDGET", 10 ** 6):
                 self.assertEqual(cce.context(s, "B"), cce.context(s, "A"))
 
+    def test_select_probe_halves_partition_the_suite(self):
+        suite = context_eval.suite()
+        lo, hi = cce.select(suite, "0,1,2,3"), cce.select(suite, "4,5,6,7")
+        for s, a, b in zip(suite, lo, hi):
+            self.assertEqual(a.probes + b.probes, s.probes)
+            self.assertEqual((a.stable, a.chat, a.call), (s.stable, s.chat, s.call))
+            self.assertEqual(cce.system(a, "B"), cce.system(s, "B"))
+        self.assertIs(cce.select(suite, None), suite)
+
     def test_run_block_uses_context_eval_score(self):
         s = context_eval.suite()[0]
 
@@ -73,6 +82,18 @@ class Verdict(unittest.TestCase):
         v = ccv.verdict([job(f"workshop-{i}", {"A1": {0, 1, 2}, "B1": {0}, "A2": {0, 1, 2}, "B2": {0}})
                          for i in (1, 2, 3)])
         self.assertEqual((v["outcome"], v["band"]), ("REVERT", 0))
+
+    def test_split_probe_jobs_cover_18_planted(self):
+        jobs = self.jobs({0, 1, 2})
+        halves = []
+        for j in jobs:
+            for keep in ({"k0", "k1", "k2"}, {"k3", "k4", "k5"}):
+                halves.append({**j, "blocks": [{**b, "rows": [r for r in b["rows"] if r["key"] in keep]}
+                                               for b in j["blocks"]]})
+        self.assertEqual(ccv.verdict(halves)["outcome"], "KEEP")
+        v = ccv.verdict(halves[:-1])
+        self.assertEqual(v["outcome"], "NULL")
+        self.assertTrue(any("planted per block" in r for r in v["null_reasons"]))
 
     def test_null_on_incomplete_error_or_missing(self):
         jobs = self.jobs({0, 1, 2})

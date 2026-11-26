@@ -3,7 +3,7 @@ name: z0live C1-ctx-compress planted-fact recall, full brief vs compress_brief(2
 # ONE change between arms: chat brief = full (A, tiers.snapshot as context_eval sends it) vs
 # brief_compress.compress_brief(brief, 2810) (B, the kept C56-live-compress-r4 compressor). Model, llama.cpp build,
 # server flags, sampling and transport are the C56-live-compress-r4 harness (lanespeed.serve / lanespeed.ask).
-# One scenario per matrix job (3 jobs, 3 runners), each job ABAB fresh llama-server blocks A1 B1 A2 B2 on ONE runner.
+# AMEND-1: one scenario probe half per matrix job (6 jobs, 6 runners), each job ABAB fresh llama-server blocks A1 B1 A2 B2 on ONE runner.
 # Synthetic text only, no owner data. Prereg: voice-adapter/bench/ctx-compress-c1-PREREG.md
 on:
   # dispatch by file name 404s while the file is not on the default branch, so the push that adds this file is the
@@ -33,6 +33,7 @@ jobs:
       fail-fast: false
       matrix:
         scenario: [0, 1, 2]
+        half: [lo, hi]   # AMEND-1: probes 0-3 / 4-7 per job (run 45892622241 workshop-3 hit the deadline)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -80,7 +81,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: ABAB recall bench (scenario ${{ matrix.scenario }})
+      - name: ABAB recall bench (scenario ${{ matrix.scenario }} ${{ matrix.half }})
         timeout-minutes: 39
         run: |
           set -euo pipefail
@@ -91,12 +92,12 @@ jobs:
           python voice-adapter/bench/ctx_compress_eval.py --dry --scenarios "${{ matrix.scenario }}" | tee out/dry.json
           meta=$(python -c 'import json,os;print(json.dumps({k.lower():os.environ[k] for k in ("REPO","REV","FILE","SHA","LLAMA_TAG","CPU_MODEL","BLOCKS")}))')
           python voice-adapter/bench/ctx_compress_eval.py --gguf "$RUNNER_TEMP/models/$FILE" --blocks "$BLOCKS" \
-            --scenarios "${{ matrix.scenario }}" --deadline-s 2160 --meta "$meta" \
-            --out "out/ctx-compress-c1-s${{ matrix.scenario }}.json" --logdir out
+            --scenarios "${{ matrix.scenario }}" --probes "${{ matrix.half == 'lo' && '0,1,2,3' || '4,5,6,7' }}" --deadline-s 2160 --meta "$meta" \
+            --out "out/ctx-compress-c1-s${{ matrix.scenario }}-${{ matrix.half }}.json" --logdir out
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ctx-compress-c1-s${{ matrix.scenario }}
+          name: ctx-compress-c1-s${{ matrix.scenario }}-${{ matrix.half }}
           path: out/
           if-no-files-found: warn
           retention-days: 30

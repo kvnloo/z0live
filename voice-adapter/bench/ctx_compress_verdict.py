@@ -14,6 +14,7 @@ import sys
 
 EXPECTED = ["workshop-1", "workshop-2", "workshop-3"]
 LABELS = ("A1", "B1", "A2", "B2")
+PLANTED = 18  # 3 scenarios x 6 planted probes
 
 
 def recalled(block):
@@ -22,7 +23,7 @@ def recalled(block):
 
 def verdict(jobs):
     reasons = []
-    seen = sorted(s for j in jobs for s in j.get("scenarios", []))
+    seen = sorted({s for j in jobs for s in j.get("scenarios", [])})  # AMEND-1: a scenario may span two probe jobs
     if seen != EXPECTED:
         reasons.append(f"scenarios {seen} != {EXPECTED}")
     per = {lab: {} for lab in LABELS}
@@ -42,6 +43,8 @@ def verdict(jobs):
             lat[lab[0]].extend(r["first_sentence_s"] for r in b["rows"] if r.get("first_sentence_s") is not None)
     recall = {lab: sum(per[lab].values()) for lab in LABELS}
     planted = {lab: len(per[lab]) for lab in LABELS}
+    if any(n != PLANTED for n in planted.values()):  # AMEND-1: every planted probe scored once in every block
+        reasons.append(f"planted per block {planted} != {PLANTED}")
 
     def flips(x, y):
         return sum(per[x].get(k) != per[y].get(k) for k in set(per[x]) | set(per[y]))

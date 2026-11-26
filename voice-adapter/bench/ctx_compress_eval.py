@@ -12,6 +12,7 @@ Transport, server flags and sampling are lanespeed.py's (fresh llama-server per 
 tokens, thinking off, cache_prompt false), so latency is comparable with the C56 runs. Synthetic text only.
 """
 import argparse
+import dataclasses
 import json
 import os
 import sys
@@ -46,6 +47,14 @@ def context(scenario, arm):
 
 def system(scenario, arm):
     return tiers.SYSTEM.format(tier="fast") + "\n\n" + context(scenario, arm)
+
+
+def select(scenarios, probes):
+    # AMEND-1 (infra): split a scenario's probes over two jobs so each job fits the 45 min timeout
+    if not probes:
+        return scenarios
+    idx = [int(i) for i in probes.split(",")]
+    return [dataclasses.replace(s, probes=tuple(s.probes[i] for i in idx)) for s in scenarios]
 
 
 def recall_n(rows):
@@ -103,6 +112,7 @@ def main():
     ap.add_argument("--gguf")
     ap.add_argument("--blocks", default="A,B,A,B")
     ap.add_argument("--scenarios", default="0,1,2", help="context_eval.suite() indices")
+    ap.add_argument("--probes", default=None, help="AMEND-1: probe indices per scenario, e.g. 0,1,2,3 (default all)")
     ap.add_argument("--ub", type=int, default=512)
     ap.add_argument("--deadline-s", type=float, default=2100)
     ap.add_argument("--meta", default="{}")
@@ -111,7 +121,7 @@ def main():
     ap.add_argument("--dry", action="store_true")
     o = ap.parse_args()
     suite = context_eval.suite()
-    scenarios = [suite[int(i)] for i in o.scenarios.split(",")]
+    scenarios = select([suite[int(i)] for i in o.scenarios.split(",")], o.probes)
     if o.dry:
         print(json.dumps(dry(scenarios), indent=1))
         return 0
