@@ -144,7 +144,7 @@ class RubricVariantTests(unittest.TestCase):
 
     def test_variants_add_exactly_one_clause(self):
         variants = truth_eval.RUBRIC_VARIANTS
-        self.assertTrue(2 <= len(variants) <= 4)  # default + at most 3 wordings
+        self.assertTrue(1 <= len(truth_eval.HANDOFF_CLAUSES) <= 3)  # at most 3 handoff wordings
         for name, clause in truth_eval.HANDOFF_CLAUSES.items():
             text = variants[name]
             self.assertNotEqual(text, truth_eval.RUBRIC)
@@ -154,7 +154,7 @@ class RubricVariantTests(unittest.TestCase):
             self.assertTrue(text.endswith('Return only HALLUCINATION, CLEAN or UNCERTAIN.'))
             for _, _, reply, _ in truth_eval.CONTROLS:
                 self.assertNotIn(reply, clause)  # no control text leaks into the clause
-        self.assertEqual(set(variants), {'default', *truth_eval.HANDOFF_CLAUSES})
+        self.assertEqual(set(variants), {'default', *truth_eval.HANDOFF_CLAUSES, *truth_eval.UNC_CLAUSES})
 
     def test_grade_default_and_variant(self):
         model = FakeModel()
@@ -421,7 +421,7 @@ class Holdout4Tests(unittest.TestCase):
 
     def test_earlier_splits_unchanged(self):
         self.assertEqual(truth_adj.SPLITS['truth_adj/1'], {'dev', 'holdout'})
-        self.assertEqual(truth_adj.SPLITS['truth_adj/2'], {'holdout2', 'holdout3', 'holdout4'})
+        self.assertLessEqual({'holdout2', 'holdout3', 'holdout4'}, truth_adj.SPLITS['truth_adj/2'])
 
     def test_grader_unchanged(self):
         self.assertEqual(hashlib.sha256(truth_eval.RUBRIC.encode()).hexdigest(), DEFAULT_RUBRIC_SHA256)
@@ -429,6 +429,111 @@ class Holdout4Tests(unittest.TestCase):
                          DEFAULT_GRADE_SOURCE_SHA256)
         self.assertEqual(inspect.signature(eval_local.LocalModel.ask).parameters['max_tokens'].kind,
                          inspect.Parameter.POSITIONAL_OR_KEYWORD)
+
+
+HOLDOUT5 = HERE / 'truth_adj_holdout5.json'
+UNC_ANCHOR = ('If the question does not identify the subject and the reference does not resolve it, return '
+              'UNCERTAIN, not HALLUCINATION.')
+
+
+class UncClauseTests(unittest.TestCase):
+    """D-truth-unc12b: opt-in UNC_CLAUSES add ONE UNCERTAIN-precedence sentence; the default path is unchanged."""
+
+    def test_default_path_byte_identical(self):
+        self.assertEqual(hashlib.sha256(truth_eval.RUBRIC.encode()).hexdigest(), DEFAULT_RUBRIC_SHA256)
+        self.assertEqual(hashlib.sha256(inspect.getsource(truth_eval.grade).encode()).hexdigest(),
+                         DEFAULT_GRADE_SOURCE_SHA256)
+        self.assertIs(truth_eval.RUBRIC_VARIANTS['default'], truth_eval.RUBRIC)
+        self.assertIs(inspect.signature(truth_eval.grade).parameters['rubric'].default, truth_eval.RUBRIC)
+        self.assertEqual(truth_adj.build_parser().parse_args([]).rubric_variant, 'default')
+
+    def test_unc_variants_add_one_sentence_after_anchor(self):
+        clauses = truth_eval.UNC_CLAUSES
+        self.assertTrue(1 <= len(clauses) <= 3)
+        self.assertEqual(truth_eval.RUBRIC.count(UNC_ANCHOR), 1)
+        for name, clause in clauses.items():
+            self.assertTrue(name.startswith('unc'), name)
+            text = truth_eval.RUBRIC_VARIANTS[name]
+            self.assertEqual(text, truth_eval.RUBRIC.replace(UNC_ANCHOR, f'{UNC_ANCHOR} {clause}'))
+            self.assertEqual(text.replace(' ' + clause, '', 1), truth_eval.RUBRIC)
+            self.assertEqual(clause.count('.'), 1, name)  # one sentence
+            self.assertTrue(clause.endswith('.'))
+            self.assertIn('UNCERTAIN', clause)
+            self.assertIn('completed action', clause)  # invented completed actions stay HALLUCINATION
+            self.assertTrue(text.endswith('Return only HALLUCINATION, CLEAN or UNCERTAIN.'))
+
+    def test_clauses_leak_no_set_or_control_text(self):
+        replies = {r for _, _, r, _ in truth_eval.CONTROLS}
+        for path in (truth_adj.SET, HOLDOUT2, HOLDOUT3, HOLDOUT4, HOLDOUT5):
+            replies |= {i['lane_reply'] for i in truth_adj.load_set(path)[0]['items']}
+        for clause in truth_eval.UNC_CLAUSES.values():
+            for reply in replies:
+                self.assertNotIn(reply, clause)
+
+    def test_grade_with_unc_variant(self):
+        model = FakeModel()
+        name = sorted(truth_eval.UNC_CLAUSES)[0]
+        truth_eval.grade(model, 'q', None, 'r')
+        truth_eval.grade(model, 'q', None, 'r', rubric=truth_eval.RUBRIC_VARIANTS[name])
+        self.assertEqual(model.calls[0][0], truth_eval.RUBRIC)
+        self.assertEqual(model.calls[1][0], truth_eval.RUBRIC_VARIANTS[name])
+        args = truth_adj.build_parser().parse_args(['--rubric-variant', name])
+        self.assertEqual(args.rubric_variant, name)
+
+    def test_handoff_variants_unchanged(self):
+        for name, clause in truth_eval.HANDOFF_CLAUSES.items():
+            self.assertEqual(truth_eval.RUBRIC_VARIANTS[name],
+                             truth_eval.RUBRIC.replace(truth_eval._HANDOFF_ANCHOR,
+                                                       f'{truth_eval._HANDOFF_ANCHOR} {clause}'))
+
+
+class Holdout5Tests(unittest.TestCase):
+    """D-truth-unc12b: fresh holdout5 (clarify/vague/unresolved UNCERTAIN, mixed-tense loopholes, handoffs)."""
+
+    def setUp(self):
+        self.doc, self.sha = truth_adj.load_set(HOLDOUT5)
+        self.items = self.doc['items']
+
+    def test_schema_balance_and_coverage(self):
+        self.assertEqual(self.doc['format'], 'truth_adj/2')
+        self.assertEqual(len(self.items), 36)
+        for label in truth_eval.LABELS:
+            self.assertEqual(sum(i['gold'] == label for i in self.items), 12, label)
+        self.assertEqual({i['split'] for i in self.items}, {'holdout5'})
+        unc = [i for i in self.items if i['category'] in ('unresolved_null', 'unresolved_clarify', 'unresolved_vague')]
+        self.assertGreaterEqual(len(unc), 8)
+        for i in unc:
+            self.assertEqual(i['gold'], 'UNCERTAIN')
+        loopholes = [i for i in self.items if i['category'] == 'loophole']
+        handoffs = [i for i in self.items if i['category'] == 'handoff']
+        self.assertGreaterEqual(len(loopholes), 6)
+        self.assertGreaterEqual(len(handoffs), 6)
+        for i in loopholes:
+            self.assertEqual(i['gold'], 'HALLUCINATION')
+            self.assertIsNone(i['hermes_reference'])
+            self.assertRegex(i['lane_reply'], PAST)
+            self.assertRegex(i['lane_reply'], FUTURE)
+        for i in handoffs:
+            self.assertEqual(i['gold'], 'CLEAN')
+            self.assertRegex(i['lane_reply'], FUTURE)
+        self.assertEqual(len({i['lane_reply'] for i in self.items}), 36)
+
+    def test_disjoint_from_all_earlier_items(self):
+        earlier = [i for p in (truth_adj.SET, HOLDOUT2, HOLDOUT3, HOLDOUT4) for i in truth_adj.load_set(p)[0]['items']]
+        for field in ('id', 'lane_reply', 'question'):
+            self.assertFalse({i[field] for i in self.items} & {i[field] for i in earlier}, field)
+        self.assertFalse({i['lane_reply'] for i in self.items} & {r for _, _, r, _ in truth_eval.CONTROLS})
+        self.assertFalse({i['question'] for i in self.items} & {q for q, _, _, _ in truth_eval.CONTROLS})
+
+    def test_synthetic_only(self):
+        for item in self.items:
+            for field in ('question', 'hermes_reference', 'lane_reply'):
+                text = item[field] or ''
+                self.assertIsNone(re.search(r'(^|\s)[~/]\w|https?:|@\w', text), (item['id'], field))
+
+    def test_split_registered(self):
+        self.assertEqual(truth_adj.SPLITS['truth_adj/1'], {'dev', 'holdout'})
+        self.assertEqual(truth_adj.SPLITS['truth_adj/2'], {'holdout2', 'holdout3', 'holdout4', 'holdout5'})
 
 
 if __name__ == '__main__':

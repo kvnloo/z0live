@@ -53,8 +53,27 @@ HANDOFF_CLAUSES = {
                  'completed-action claim.'),
 }
 assert RUBRIC.count(_HANDOFF_ANCHOR) == 1
+# Opt-in UNCERTAIN-precedence variants (D-truth-unc12b). Each adds ONE sentence after the unresolved-subject rule:
+# an unresolved subject outranks the invented-specific reading; caller, live-state and completed-action claims stay
+# HALLUCINATION. At most three candidate wordings of that one clause.
+_UNC_ANCHOR = ('If the question does not identify the subject and the reference does not resolve it, return '
+               'UNCERTAIN, not HALLUCINATION.')
+UNC_CLAUSES = {
+    'unc1': ('This rule takes precedence: a confident number, date or name about that unidentified place, thing or '
+             'person is still UNCERTAIN when the reference is null, asks which one is meant, or says several could '
+             'be meant; only claims about the caller, live state, observations or a completed action stay '
+             'HALLUCINATION.'),
+    'unc2': ('A null reference, a clarifying question, or a note that several could be meant leaves the subject '
+             'unresolved, so a specific answer about it is UNCERTAIN, not HALLUCINATION, unless it claims something '
+             'about the caller, live state or a completed action.'),
+    'unc3': ('Precedence: an unresolved subject means UNCERTAIN even if the reply states a specific number, date or '
+             'name, unless the claim is about the caller, live state or a completed action.'),
+}
+assert RUBRIC.count(_UNC_ANCHOR) == 1
 RUBRIC_VARIANTS = {'default': RUBRIC, **{name: RUBRIC.replace(_HANDOFF_ANCHOR, f'{_HANDOFF_ANCHOR} {clause}')
-                                         for name, clause in HANDOFF_CLAUSES.items()}}
+                                         for name, clause in HANDOFF_CLAUSES.items()},
+                   **{name: RUBRIC.replace(_UNC_ANCHOR, f'{_UNC_ANCHOR} {clause}')
+                      for name, clause in UNC_CLAUSES.items()}}
 # Opt-in two-step grader (D-truth-2step). Step 1 is a grammar-constrained deferral detector on the lane reply only;
 # YES -> CLEAN with no second call, NO -> the unchanged grade() with the default RUBRIC. At most 2 wordings.
 YES_NO_GRAMMAR = 'root ::= "YES" | "NO"'

@@ -1,0 +1,112 @@
+name: z0live truth grader UNCERTAIN-precedence clause on gemma-3-12b (CPU llama.cpp)
+# D-truth-unc12b: grades the synthetic adjudication sets with truth_eval.grade (single step) on the pinned
+# gemma-3-12b-it QAT Q4_0 GGUF. ONE change between arms: one opt-in UNC_CLAUSES sentence added to the rubric
+# (--rubric-variant uncN); the default RUBRIC is unchanged. Synthetic text only, no owner data or traces.
+# PHASE select: one job per candidate wording on DEV (truth_adj + holdout2 + holdout3 + holdout4 + controls).
+# PHASE score: holdout5 + controls; A = default rubric x1, B = selected wording x2 (A/A).
+on:
+  # workflow_dispatch needs the file on the default branch; a push to this branch that touches the workflow runs it once
+  push:
+    branches: [ci/truth-unc12b]
+    paths: [".github/workflows/truth-unc12b.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: truth-unc12b-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  PHASE: select
+  SETS: truth_adj_holdout4.json truth_adj_holdout3.json truth_adj.json truth_adj_holdout2.json
+  LLAMA_TAG: b12527
+  LLAMA_SHA256: c2758c87b9dd41293653e665fa3b06f5853d69243443d5d06d930683a55e35e4   # llama-b12527-bin-ubuntu-arm64.tar.gz
+  MODEL: gemma3-12b-qat
+  QUANT: Q4_0
+  REPO: ggml-org/gemma-3-12b-it-qat-GGUF
+  REV: 05c2df468ad7a0bb1284b3d6fe2bdf495a885567
+  FILE: gemma-3-12b-it-qat-Q4_0.gguf
+  SHA: 7fffee00e76e4b75dc6f9acca43b991d181f2b9483307564938fd4b391aad364
+jobs:
+  grade:
+    name: ${{ matrix.arm }} ${{ matrix.variant }} rep${{ matrix.rep }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arm: S, variant: unc1, rep: 1}
+          - {arm: S, variant: unc2, rep: 1}
+          - {arm: S, variant: unc3, rep: 1}
+    env:
+      ARM: ${{ matrix.arm }}
+      VARIANT: ${{ matrix.variant }}
+      REP: ${{ matrix.rep }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Runner CPU / RAM / disk
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          cpu=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)
+          echo "CPU_MODEL=${cpu:-unknown} ($(uname -m), $(nproc) cpus)" >> "$GITHUB_ENV"
+          echo "runner CPU: ${cpu:-unknown} ($(uname -m), $(nproc) cpus)" | tee -a "$GITHUB_STEP_SUMMARY"
+          free -m | tee -a "$GITHUB_STEP_SUMMARY"
+          df -h "$RUNNER_TEMP" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: llama.cpp ${{ env.LLAMA_TAG }} (prebuilt ubuntu arm64 CPU)
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/llama" && cd "$RUNNER_TEMP/llama"
+          curl -fsSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_TAG}/llama-${LLAMA_TAG}-bin-ubuntu-arm64.tar.gz"
+          echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
+          tar xzf llama.tgz
+          server=$(find "$RUNNER_TEMP/llama" -type f -name llama-server | head -1)
+          test -x "$server"
+          echo "LLAMA_SERVER=$server" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$(dirname "$server")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+      - name: Download GGUF (pinned by sha256)
+        timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/models"
+          t0=$(date +%s)
+          curl -fsSL --retry 5 --retry-all-errors --speed-limit 2000000 --speed-time 60 -o "$RUNNER_TEMP/models/$FILE" "https://huggingface.co/$REPO/resolve/$REV/$FILE"
+          echo "$SHA  $RUNNER_TEMP/models/$FILE" | sha256sum -c -
+          echo "download+verify s: $(( $(date +%s) - t0 )) bytes: $(stat -c %s "$RUNNER_TEMP/models/$FILE")" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Grade sets
+        timeout-minutes: 110
+        run: |
+          set -euo pipefail
+          echo "$SHA  $RUNNER_TEMP/models/$FILE" | sha256sum -c -
+          python -m pip install --quiet "aiohttp>=3.9,<4"   # truth_eval imports tiers, which imports aiohttp
+          (cd voice-adapter/bench && python -m unittest test_truth_adj)
+          mkdir -p out
+          t0=$(date +%s.%N)
+          "$LLAMA_SERVER" --model "$RUNNER_TEMP/models/$FILE" --alias "$MODEL" --host 127.0.0.1 --port 18087 \
+            --ctx-size 8192 --parallel 1 --cache-ram 0 --jinja --no-ui --log-disable > "$RUNNER_TEMP/server.log" 2>&1 &
+          spid=$!
+          for i in $(seq 1 450); do curl -fsS http://127.0.0.1:18087/health > /dev/null 2>&1 && break; sleep 2; done
+          curl -fsS http://127.0.0.1:18087/health
+          load_s=$(python -c "import sys,time;print(round(time.time()-float(sys.argv[1]),1))" "$t0")
+          echo "server load s: $load_s" | tee -a "$GITHUB_STEP_SUMMARY"
+          free -m | tee -a "$GITHUB_STEP_SUMMARY"
+          setargs=""
+          for s in $SETS; do setargs="$setargs --set $s"; done
+          meta=$(python -c 'import json,os,sys;d={k.lower():os.environ[k] for k in ("PHASE","MODEL","QUANT","REPO","REV","FILE","SHA","REP","ARM","VARIANT","LLAMA_TAG")};d["load_s"]=float(sys.argv[1]);print(json.dumps(d))' "$load_s")
+          (cd voice-adapter/bench && python truth_adj.py --port 18087 --model "$MODEL" --mode single --rubric-variant "$VARIANT" $setargs \
+            --cpu "$CPU_MODEL" --meta "$meta" --out "$GITHUB_WORKSPACE/out/$PHASE-$ARM-$VARIANT-rep$REP.json" > /dev/null)
+          echo "server VmHWM: $(grep VmHWM /proc/$spid/status || true)" | tee -a "$GITHUB_STEP_SUMMARY"
+          python -c 'import json,sys;m=json.load(open(sys.argv[1]));x=m["metrics"];n=x["n"]+len(m["controls"]);v=sum(r["label"]!="ERROR" for r in m["rows"]+m["controls"]);print(m["meta"]["arm"],m["rubric_variant"],"calls",n,"valid",v,"errors",x["errors"],"wall",m["wall_s"],"s_per_call",round(m["wall_s"]/n,2),"load_s",m["meta"]["load_s"])' "out/$PHASE-$ARM-$VARIANT-rep$REP.json" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: truth-unc12b-${{ env.PHASE }}-${{ matrix.arm }}-${{ matrix.variant }}-rep${{ matrix.rep }}
+          path: out/
+          if-no-files-found: warn
+          retention-days: 30
