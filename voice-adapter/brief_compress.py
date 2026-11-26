@@ -22,28 +22,35 @@ from any live brief. Nothing in production calls it yet; tiers.snapshot and its 
 import re
 
 SPEAKER = re.compile(r"^([A-Z][\w .'-]{0,30}): ")
+# C1-ctx-compress-r2: lowercase labels ("user:"/"assistant:", as context_eval and raw transcripts write them) are
+# speakers too. Used only when the capitalised parse finds no speaker pair, so capitalised briefs are byte-identical.
+SPEAKER_ANY_CASE = re.compile(r"^([A-Z][\w .'-]{0,30}): ", re.IGNORECASE)
 FACT_REPLY_CHARS = 200
 
 
-def _label(line):
-    m = SPEAKER.match(line)
+def _label(line, pattern=SPEAKER):
+    m = pattern.match(line)
     return m.group(1) if m else None
 
 
 def _split(lines):
+    return _split_with(lines, SPEAKER) or _split_with(lines, SPEAKER_ANY_CASE)
+
+
+def _split_with(lines, pattern):
     # the chat's two speakers are the first two distinct labels; other "Label: " lines (Status:, Note:) are not turns
     speakers = []
     for ln in lines:
-        lab = _label(ln)
+        lab = _label(ln, pattern)
         if lab and lab not in speakers:
             speakers.append(lab)
         if len(speakers) == 2:
             break
     if len(speakers) < 2:
         return None
-    idx = [i for i, ln in enumerate(lines) if _label(ln) in speakers]
+    idx = [i for i, ln in enumerate(lines) if _label(ln, pattern) in speakers]
     asker = speakers[0]
-    starts = [i for i in idx if _label(lines[i]) == asker]
+    starts = [i for i in idx if _label(lines[i], pattern) == asker]
     last = idx[-1] + 1
     exchanges = [lines[s:e] for s, e in zip(starts, starts[1:] + [last])]
     return lines[:starts[0]], exchanges, lines[last:]
