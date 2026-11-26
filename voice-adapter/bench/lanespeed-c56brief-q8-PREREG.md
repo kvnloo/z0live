@@ -26,8 +26,10 @@ runner before the bench. Case selection is the C56-brief one (`--every 2`, defau
 f-austen, r-apples, r-order, r-percent, c-dentist, c-budget, c-grok, u-fahrenheit, u-wait, s-screen, s-spotify,
 s-build, s-email). The unscored warm-up stays case 0 (f-capital) with the arm's brief. Arms, build, server flags,
 sampling, scorer and verdict script are unchanged (lanespeed_verdict.py byte-identical to C56, C56-brief and
-C56-brief-odd). Workflow-only infra differences: dispatch-only trigger (no push trigger) and a 15 min download step
-timeout for the 5.05 GB file (the text-climb value for the same file); neither touches the measurement.
+C56-brief-odd). Workflow-only infra difference: a 15 min download step timeout for the 5.05 GB file (the text-climb
+value for the same file); it does not touch the measurement. Trigger as C56-brief / C56-brief-odd: the push that
+changes the workflow file on this branch starts the one scored run (a pre-run `gh workflow run` attempt returned
+HTTP 404 because the file is not on the default branch; no run was started by it).
 
 ## Time budget (lesson from C56 AMEND-1: the 45 min job cap)
 Estimated from the GH11 runs 45061298454 / 45061314078 (same runner family, same llama.cpp build), cold first-answer

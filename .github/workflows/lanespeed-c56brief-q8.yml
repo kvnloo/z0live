@@ -5,7 +5,12 @@ name: z0live C56-brief-q8 lane speed, full slm-v2 brief vs e5 brief on gemma4-e2
 # Every server flag identical in both arms (-ub 512 default). ABAB server blocks A1 B1 A2 B2 in ONE job on ONE runner;
 # A1 vs A2 is the A/A noise band. Synthetic text only, no owner data. Prereg: voice-adapter/bench/lanespeed-c56brief-q8-PREREG.md
 on:
-  workflow_dispatch:   # dispatch only: one scored run, started by hand after the prereg is frozen
+  # dispatch by file name 404s while the file is not on the default branch, so the scored run starts from the push
+  # that adds this file (as C56-brief / C56-brief-odd); later commits that do not touch this file start nothing.
+  push:
+    branches: [ci/lanespeed-c56-brief-q8]
+    paths: [".github/workflows/lanespeed-c56brief-q8.yml"]
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
