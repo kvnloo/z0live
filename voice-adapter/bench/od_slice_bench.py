@@ -17,6 +17,13 @@ utterance; speech_end = the wall time of the clip's last sample at or above the 
 --endpointer-silence-ms 0 restores the OD-slice-1 offline EOS (whole clip handed over; no endpointer).
 Design: arms A and A2 are the same config (A/A), interleaved over --runs runs (A,A2 / A2,A / ...); each pass plays
 every utterance once in a seeded order. --gate CMD runs before every pass; a nonzero exit stops the bench (aborted).
+Speculative start (OD-slice-3, --arm-modes w500,spec150,w500b): in a specN arm STT + model + TTS start on the partial
+utterance after N ms of trailing silence (N // 20 quiet frames, the Endpointer's own floor rule: 150 -> 140 ms); a
+voiced frame before the commit cancels that speculative turn (its STT / model / TTS wall time is counted as wasted)
+and the utterance continues; the unchanged --endpointer-silence-ms endpointer commits the turn. Playback is gated on
+the commit (no audible false starts): first audio = max(commit, speculative first audio ready). False cuts are decided
+by the commit alone, as in the wN control arm, which runs exactly the OD-slice-2b code path.
+--fake-stages STT,MODEL,TTS (ms) replaces the three local stages with fixed sleeps (dry runs; UNSCORED, no GPU).
 """
 import argparse
 import asyncio
@@ -149,7 +156,157 @@ async def run_live_turn(stages, pcm, turn_id=0, db=VAD_DB, silence_ms=ENDPOINT_S
     return row
 
 
-async def run_turn(stages, pcm, turn_id=0, clock=time.perf_counter_ns):
+async def run_arm_turn(stages, pcm, turn_id=0, db=VAD_DB, silence_ms=ENDPOINT_SILENCE_MS, spec_ms=None,
+                       clock=time.perf_counter_ns, sleep=asyncio.sleep):
+    """One arm turn: spec_ms None -> the OD-slice-2b endpointer turn unchanged; else a speculative-start turn."""
+    if spec_ms is None:
+        return await run_live_turn(stages, pcm, turn_id=turn_id, db=db, silence_ms=silence_ms, clock=clock,
+                                   sleep=sleep)
+    return await run_spec_turn(stages, pcm, turn_id=turn_id, db=db, silence_ms=silence_ms, spec_ms=spec_ms,
+                               clock=clock, sleep=sleep)
+
+
+class StageTimer:
+    """Wraps the three stages; adds each call's wall time (ns, to completion or cancel) to .ns[stage]."""
+    def __init__(self, stages, clock):
+        self.ns = {'stt': 0, 'model': 0, 'tts': 0}
+        stt, model, tts = stages
+
+        async def t_stt(pcm):
+            t = clock()
+            try:
+                return await stt(pcm)
+            finally:
+                self.ns['stt'] += clock() - t
+
+        def t_gen(name, fn):
+            async def stage(arg):
+                t = clock()
+                try:
+                    async with aclosing(fn(arg)) as stream:
+                        async for x in stream:
+                            yield x
+                finally:
+                    self.ns[name] += clock() - t
+            return stage
+
+        self.stages = (t_stt, t_gen('model', model), t_gen('tts', tts))
+
+
+class SpecTurn:
+    """One speculative engine turn on a partial utterance. Audio is held until commit(), then played in order."""
+    def __init__(self, stages, pcm, turn_id, clock, on_play=None):
+        self.clock, self.on_play = clock, on_play
+        self.timer = StageTimer(stages, clock)
+        self.held, self.played, self.commit_ns, self.ready_ns = [], [], None, None
+        self.task = asyncio.ensure_future(run_turn(self.timer.stages, pcm, turn_id=turn_id, clock=clock,
+                                                   on_audio=self._audio))
+
+    def _play(self, ns, n):
+        self.played.append(ns)
+        if self.on_play:
+            self.on_play(ns, n)
+
+    def _audio(self, pcm):
+        now = self.clock()
+        if self.ready_ns is None:
+            self.ready_ns = now
+        if self.commit_ns is None:
+            self.held.append(len(pcm))
+        else:
+            self._play(now, len(pcm))
+
+    def commit(self, ns):
+        self.commit_ns = ns
+        for n in self.held:
+            self._play(ns, n)
+        self.held = []
+
+    async def cancel(self):
+        """Drop the turn (held audio is never played); returns the wasted wall time per stage (ns)."""
+        self.task.cancel()
+        await asyncio.gather(self.task, return_exceptions=True)
+        self.held = []
+        return dict(self.timer.ns)
+
+
+async def run_spec_turn(stages, pcm, turn_id=0, db=VAD_DB, silence_ms=ENDPOINT_SILENCE_MS, spec_ms=150,
+                        clock=time.perf_counter_ns, sleep=asyncio.sleep, on_play=None):
+    """Real-time paced like stream_endpoint, with a speculative engine turn started after spec_ms of trailing
+    silence, cancelled on resumed speech, committed when the (unchanged) silence_ms endpointer finalizes."""
+    spec_frames = spec_ms // 20
+    if not silence_ms or spec_frames < 1 or spec_frames >= silence_ms // 20:
+        raise ValueError('need 20 <= spec_ms < silence_ms (endpointer on)')
+    ep, end = _endpointer(db, silence_ms), speech_end_sample(pcm, db)
+    t0 = clock()
+    speech_end_ns = None if end is None else t0 + (end + 1) * 1_000_000_000 // RATE
+    counts = {'spec_started': 0, 'spec_cancelled': 0, 'spec_committed': 0}
+    wasted = {'stt': 0, 'model': 0, 'tts': 0}
+    spec, spec_t0, commit_ns, utt = None, None, None, None
+    try:
+        for k, frame in enumerate(padded_frames(pcm, silence_ms)):
+            due = t0 + (k + 1) * FRAME * 1_000_000_000 // RATE
+            if (wait := due - clock()) > 0:
+                await sleep(wait / 1e9)
+            _, out = ep.feed(frame, (k + 1) * FRAME / RATE)
+            now = clock()
+            if out is not None:  # the commit: the same decision the control arm's endpointer makes
+                commit_ns, utt = now, out.tobytes()
+                break
+            if spec is not None and (not ep.active or ep.quiet == 0):  # speech resumed before the commit
+                for key, ns in (await spec.cancel()).items():
+                    wasted[key] += ns
+                counts['spec_cancelled'] += 1
+                spec = None
+            if spec is None and ep.active and ep.quiet == spec_frames and ep.voiced >= 6:
+                spec, spec_t0 = SpecTurn(stages, np.concatenate(ep.active).tobytes(), turn_id, clock, on_play), now
+                counts['spec_started'] += 1
+    except BaseException:
+        if spec is not None:
+            await spec.cancel()
+        raise
+    extra = dict(counts, **{f'wasted_{key}_ms': ns / 1e6 for key, ns in wasted.items()})
+    if commit_ns is None or speech_end_ns is None:
+        if spec is not None:
+            await spec.cancel()
+        row = {'turn_id': turn_id, 'ok': False, 'error_stage': 'endpointer', 'error': 'no utterance finalized'}
+        row.update({k: None for k in METRICS}, **extra)
+        return row
+    if spec is not None:
+        extra['spec_committed'] = 1
+    if commit_ns < speech_end_ns:  # split: as in the control arm the committed turn would play; no latency row
+        if spec is not None:
+            await spec.cancel()  # bench economy only; the split is the endpointer's decision, not the spec's
+        row = {'turn_id': turn_id, 'ok': False, 'error_stage': 'endpointer', 'error': 'split before speech end',
+               'endpointer_declared_ms': (commit_ns - speech_end_ns) / 1e6, 'transcript': None, 'reply': None}
+        row.update({k: None for k in METRICS}, **extra)
+        return row
+    if spec is None:  # e.g. the 15 s cap finalized mid-speech: no speculative turn to commit, run it plainly
+        row = await run_turn(stages, utt, turn_id=turn_id, clock=clock)
+        row.update(extra, spec_fallback=True, endpointer_declared_ms=(commit_ns - speech_end_ns) / 1e6)
+        if row['ok']:
+            row['endpointer_ms'] = (row['eos_ns'] - speech_end_ns) / 1e6
+            row['speech_end_to_first_audio_ms'] = row['endpointer_ms'] + row['eos_to_first_audio_ms']
+        return row
+    spec.commit(commit_ns)
+    row = await spec.task
+    ms = (lambda ns: ns / 1e6)
+    row.update(extra, commit_ns=commit_ns, endpointer_declared_ms=ms(commit_ns - speech_end_ns),
+               spec_start_ms=ms(spec_t0 - speech_end_ns), spec_fallback=False,
+               spec_eos_to_first_audio_ms=row['eos_to_first_audio_ms'])  # spec start -> first audio ready
+    if row['ok'] and spec.played:
+        first = spec.played[0]
+        row.update(endpointer_ms=ms(commit_ns - speech_end_ns),
+                   first_audio_ready_ms=ms(spec.ready_ns - speech_end_ns),
+                   gate_hold_ms=ms(max(0, commit_ns - spec.ready_ns)),
+                   eos_to_first_audio_ms=ms(first - commit_ns),  # commit -> first played audio
+                   speech_end_to_first_audio_ms=ms(first - speech_end_ns))
+    else:
+        row.update({k: None for k in METRICS}, ok=False, first_audio_ready_ms=None, gate_hold_ms=None)
+    return row
+
+
+async def run_turn(stages, pcm, turn_id=0, clock=time.perf_counter_ns, on_audio=None):
     """One ChainedEngine turn; returns a row with the four stage gaps and EOS -> first audio (ms)."""
     marks = {}
 
@@ -161,7 +318,7 @@ async def run_turn(stages, pcm, turn_id=0, clock=time.perf_counter_ns):
         if event.get('type') == 'output_transcript.added' and 'clause' not in marks:
             marks['clause'], marks['clause_text'] = clock(), event['text']
 
-    engine = ce.ChainedEngine(*stages, trace=trace, emit=emit, clock=clock)
+    engine = ce.ChainedEngine(*stages, trace=trace, emit=emit, on_audio=on_audio, clock=clock)
     r = await engine.turn(pcm, turn_id=turn_id)
     ms = (lambda ns: None if ns is None else ns / 1e6)
     clause_ns = marks['clause'] - marks['t0'] if 'clause' in marks else None
@@ -202,6 +359,29 @@ def window_arms(spec):
     return arms
 
 
+def mode_arms(spec, commit_ms):
+    """'w500,spec150,w500b' -> [('W500', 500, None), ('SPEC150', 500, 150), ('W500b', 500, None)].
+    wN = endpointer window N (control, the OD-slice-2b path); specN = speculative start after N ms of silence,
+    committed by the --endpointer-silence-ms window. A trailing letter is an explicit replicate label (A/A); unlabeled
+    repeats get b, c, ... as in window_arms."""
+    arms, seen = [], {}
+    for tok in (t.strip().lower() for t in spec.split(',') if t.strip()):
+        m = re.fullmatch(r'(w|spec)(\d+)([a-z]?)', tok)
+        if not m:
+            raise ValueError(f'bad arm mode {tok!r}')
+        kind, ms, tag = m.group(1), int(m.group(2)), m.group(3)
+        if kind == 'w' and (ms % 20 or not 80 <= ms <= 2000):
+            raise ValueError(f'{tok}: window must be a multiple of 20 in 80..2000')
+        if kind == 'spec' and (ms % 10 or not 20 <= ms < commit_ms):
+            raise ValueError(f'{tok}: speculative start must be a multiple of 10 in 20..(commit window - 10)')
+        base = f'W{ms}' if kind == 'w' else f'SPEC{ms}'
+        k = seen.get(base, 0)
+        seen[base] = k + 1
+        label = base + (tag or ('' if not k else chr(ord('a') + k)))
+        arms.append((label, ms, None) if kind == 'w' else (label, commit_ms, ms))
+    return arms
+
+
 def schedule_windows(runs, n_utts, seed, arms):
     """Window sweep plan: per run one seeded utterance order; every utterance is played once per arm back to back,
     the arm order rotated by one each utterance so no arm always goes first. Returns one pass per run whose 'turns'
@@ -220,8 +400,16 @@ def schedule_windows(runs, n_utts, seed, arms):
 
 def _stats(rows):
     ok = [r for r in rows if r.get('ok')]
-    out = {'n': len(ok), 'errors': len(rows) - len(ok),
-           'premature_endpoints': sum(r.get('error') == 'split before speech end' for r in rows)}
+    out: dict = {'n': len(ok), 'errors': len(rows) - len(ok),
+                 'premature_endpoints': sum(r.get('error') == 'split before speech end' for r in rows)}
+    out['false_cuts'] = out['premature_endpoints']
+    if any('spec_started' in r for r in rows):  # speculative arms: counts and wasted wall time over all rows
+        for k in ('spec_started', 'spec_cancelled', 'spec_committed', 'wasted_stt_ms', 'wasted_model_ms',
+                  'wasted_tts_ms'):
+            out[k] = sum(r.get(k) or 0 for r in rows)
+        for k in ('spec_start_ms', 'first_audio_ready_ms', 'gate_hold_ms'):
+            xs = [r[k] for r in ok if r.get(k) is not None]
+            out[k] = {'p50': pct(xs, .5), 'p95': pct(xs, .95)}
     for k in METRICS:
         xs = [r[k] for r in ok if r.get(k) is not None]
         out[k] = {'p50': pct(xs, .5), 'p95': pct(xs, .95), 'min': min(xs, default=None), 'max': max(xs, default=None)}
@@ -252,6 +440,7 @@ class HelperSTT:
     """STT through one long-lived helper process (bench/whisper_stt_helper.py protocol)."""
     def __init__(self, argv, log):
         self.argv, self.log, self.proc = [str(a) for a in argv], Path(log), None
+        self.stale = False  # a cancelled request's reply is still due on stdout
 
     async def __aenter__(self):
         with self.log.open('ab') as stream:
@@ -284,9 +473,35 @@ class HelperSTT:
         return line
 
     async def stt(self, pcm: bytes) -> str:
+        if self.stale:  # a speculative turn was cancelled mid-request: discard its late reply first
+            await self._line()
+        self.stale = True
         self.proc.stdin.write(struct.pack('<I', len(pcm) // 2) + pcm)
         await self.proc.stdin.drain()
-        return json.loads(await self._line())['text'].strip()
+        text = json.loads(await self._line())['text'].strip()
+        self.stale = False
+        return text
+
+
+def sleep_stages(stt_ms, model_ms, tts_ms):
+    """Dry-run stages (UNSCORED): fixed asyncio sleeps, no model, no GPU; EOS -> first audio ~= the sum."""
+    async def stt(pcm):
+        await asyncio.sleep(stt_ms / 1000)
+        return 'fake transcript'
+
+    async def model(text):
+        await asyncio.sleep(model_ms / 1000)
+        yield 'This is a fake reply. '
+        await asyncio.sleep(0.05)
+        yield 'Done.'
+
+    async def tts(clause):
+        await asyncio.sleep(tts_ms / 1000)
+        for _ in range(3):
+            yield b'\x00\x00' * 480
+            await asyncio.sleep(0.02)
+
+    return stt, model, tts
 
 
 def read_wav(path):
@@ -326,34 +541,42 @@ def gate_ok(cmd):
     return not cmd or subprocess.run(shlex.split(cmd), capture_output=True).returncode == 0
 
 
-async def bench(a):
+async def real_stages(a, stack):
+    """The three local stages (MLX Whisper helper, private llama-server, Lure helper), closed by stack."""
     import local_voice_replay as lvr
     from aiohttp import ClientSession, ClientTimeout
+    http = await stack.enter_async_context(ClientSession(timeout=ClientTimeout(total=60), trust_env=False))
+    stt = await stack.enter_async_context(HelperSTT(
+        [a.helper_python, '-I', HERE / 'whisper_stt_helper.py', '--model', a.whisper_model], a.out / 'stt.log'))
+    url = await stack.enter_async_context(lvr.server(a.llama_server, [
+        '-m', a.gguf.expanduser().resolve(strict=True), '-c', '4096', '-ngl', '99', '-np', '1', '--jinja',
+        '--no-webui', '--reasoning', 'off'], a.out / 'llm.log', 'listening on {url}'))
+    lure = await stack.enter_async_context(lvr.LureTTS(lure_argv(a), a.out / 'lure.log'))
+
+    async def model(text):
+        msgs = [lvr.message('system', lvr.SYSTEM), lvr.message('user', text)]
+        async with aclosing(lvr.deltas(http, url, msgs, temperature=0, max_tokens=96,
+                                       chat_template_kwargs={'enable_thinking': False})) as stream:
+            async for delta in stream:
+                if tok := delta.get('content'):
+                    yield tok
+
+    return stt.stt, model, as_bytes(lure.tts)
+
+
+async def bench(a):
     manifest = json.loads((a.utterances / 'manifest.json').read_text())
     utts = [(m, read_wav(a.utterances / m['file'])) for m in manifest]
-    arms = window_arms(a.arm_windows) if a.arm_windows else None
+    arms = (mode_arms(a.arm_modes, a.endpointer_silence_ms) if a.arm_modes else
+            [(label, ms, None) for label, ms in window_arms(a.arm_windows)] if a.arm_windows else None)
     plan = schedule_windows(a.runs, len(utts), a.seed, arms) if arms else schedule(a.runs, len(utts), a.seed)
     rows, aborted, t_start = [], None, time.monotonic()
-    async with ClientSession(timeout=ClientTimeout(total=60), trust_env=False) as http, AsyncExitStack() as stack:
-        stt = await stack.enter_async_context(HelperSTT(
-            [a.helper_python, '-I', HERE / 'whisper_stt_helper.py', '--model', a.whisper_model], a.out / 'stt.log'))
-        url = await stack.enter_async_context(lvr.server(a.llama_server, [
-            '-m', a.gguf.expanduser().resolve(strict=True), '-c', '4096', '-ngl', '99', '-np', '1', '--jinja',
-            '--no-webui', '--reasoning', 'off'], a.out / 'llm.log', 'listening on {url}'))
-        lure = await stack.enter_async_context(lvr.LureTTS(lure_argv(a), a.out / 'lure.log'))
-
-        async def model(text):
-            msgs = [lvr.message('system', lvr.SYSTEM), lvr.message('user', text)]
-            async with aclosing(lvr.deltas(http, url, msgs, temperature=0, max_tokens=96,
-                                           chat_template_kwargs={'enable_thinking': False})) as stream:
-                async for delta in stream:
-                    if tok := delta.get('content'):
-                        yield tok
-
-        stages = (stt.stt, model, as_bytes(lure.tts))
+    async with AsyncExitStack() as stack:
+        stages = sleep_stages(*a.fake_stages) if a.fake_stages else await real_stages(a, stack)
         for i in range(a.warmup):
-            row = await run_live_turn(stages, utts[i % len(utts)][1], turn_id=-1 - i, db=a.vad_db,
-                                      silence_ms=arms[i % len(arms)][1] if arms else a.endpointer_silence_ms)
+            arm = arms[i % len(arms)] if arms else (None, a.endpointer_silence_ms, None)
+            row = await run_arm_turn(stages, utts[i % len(utts)][1], turn_id=-1 - i, db=a.vad_db,
+                                     silence_ms=arm[1], spec_ms=arm[2])
             print(json.dumps({'warmup': i, 'ok': row['ok'], 'e2a': row['eos_to_first_audio_ms'],
                               'se2a': row['speech_end_to_first_audio_ms']}), file=sys.stderr)
         turn = 0
@@ -361,14 +584,16 @@ async def bench(a):
             if not gate_ok(a.gate):
                 aborted = f'gate before run {p["run"]} {p["arm"]}'
                 break
-            turns = p.get('turns') or [(idx, p['arm'], a.endpointer_silence_ms) for idx in p['order']]
-            for idx, arm, window in turns:
+            turns = p.get('turns') or [(idx, p['arm'], a.endpointer_silence_ms, None) for idx in p['order']]
+            for idx, arm, window, spec_ms in turns:
                 if arms and not gate_ok(a.gate):  # sweep: gate before every arm turn
                     aborted = f'gate before run {p["run"]} {arm} turn {turn}'
                     break
                 m, pcm = utts[idx]
-                row = await run_live_turn(stages, pcm, turn_id=turn, db=a.vad_db, silence_ms=window)
+                row = await run_arm_turn(stages, pcm, turn_id=turn, db=a.vad_db, silence_ms=window, spec_ms=spec_ms)
                 turn += 1
+                if spec_ms is not None:
+                    row['spec_ms'] = spec_ms
                 row.update(run=p['run'], arm=arm, window_ms=window, utt=m['file'], expected=m['text'],
                            stt_exact=norm_words(row['transcript']) == norm_words(m['text']),
                            load1=os.getloadavg()[0])
@@ -380,7 +605,10 @@ async def bench(a):
                 break
     return {'bench': 'od_slice_bench', 'aborted': aborted, 'wall_s': round(time.monotonic() - t_start, 2),
             'runs': a.runs, 'warmup': a.warmup, 'seed': a.seed, 'lure_first_chunk_frames': a.lure_first_chunk_frames,
-            'vad_db': a.vad_db, 'endpointer_silence_ms': a.endpointer_silence_ms, 'arm_windows': arms,
+            'vad_db': a.vad_db, 'endpointer_silence_ms': a.endpointer_silence_ms,
+            'arm_windows': window_arms(a.arm_windows) if a.arm_windows else None,
+            **({'arm_modes': arms} if a.arm_modes else {}),
+            **({'fake_stages_ms': list(a.fake_stages), 'scored': False} if a.fake_stages else {}),
             'n_utterances': len(utts), 'utterances_sha256': hashlib.sha256(
                 b''.join(pcm for _, pcm in utts)).hexdigest(), 'summary': summarize(rows), 'rows': rows}
 
@@ -395,9 +623,9 @@ def parse_args(argv=None):
     ap.add_argument('--whisper-model', type=Path, help='local Whisper MLX dir (weights + HF tokenizer files)')
     ap.add_argument('--gguf', type=Path, help='local GGUF lane model for llama-server')
     ap.add_argument('--llama-server', type=Path, default=Path(os.environ.get('LLAMA_SERVER', 'llama-server')))
-    ap.add_argument('--lure-model', type=Path, required=True)
-    ap.add_argument('--lure-voice', type=Path, required=True)
-    ap.add_argument('--lure-voice-text', required=True)
+    ap.add_argument('--lure-model', type=Path)
+    ap.add_argument('--lure-voice', type=Path)
+    ap.add_argument('--lure-voice-text')
     ap.add_argument('--lure-seed', type=int, default=1234)
     ap.add_argument('--lure-first-chunk-frames', type=int, default=1)
     ap.add_argument('--runs', type=int, default=3)
@@ -409,10 +637,35 @@ def parse_args(argv=None):
     ap.add_argument('--arm-windows', default='',
                     help='window sweep, e.g. 500,300,200,500: one arm per window (repeats = A/A, labeled W500b), '
                          'interleaved per utterance; overrides --endpointer-silence-ms; default off')
+    ap.add_argument('--arm-modes', default='',
+                    help='speculative-start arms, e.g. w500,spec150,w500b: wN = endpointer window N (control), specN '
+                         '= speculative start after N ms of silence committed by --endpointer-silence-ms; '
+                         'interleaved per utterance like --arm-windows (exclusive with it); default off')
+    ap.add_argument('--fake-stages', default='',
+                    help='STT,MODEL,TTS fixed sleeps in ms (dry run, UNSCORED): no Whisper / llama.cpp / Lure')
     ap.add_argument('--gate', help='command run before every pass; nonzero exit aborts the bench')
     a = ap.parse_args(argv)
-    if a.make_utterances is None and not (a.out and a.utterances and a.whisper_model and a.gguf):
+    try:
+        a.fake_stages = tuple(int(x) for x in a.fake_stages.split(',')) if a.fake_stages else ()
+    except ValueError:
+        a.fake_stages = (-1,)
+    if a.fake_stages and (len(a.fake_stages) != 3 or min(a.fake_stages) < 0):
+        ap.error('--fake-stages needs three non-negative ints: STT,MODEL,TTS ms')
+    if a.make_utterances is None and not (a.out and a.utterances and (
+            a.fake_stages or (a.whisper_model and a.gguf))):
         ap.error('bench needs --out, --utterances, --whisper-model and --gguf (or use --make-utterances)')
+    if (a.make_utterances is not None or not a.fake_stages) and not (
+            a.lure_model and a.lure_voice and a.lure_voice_text):
+        ap.error('--lure-model, --lure-voice and --lure-voice-text are required (except with --fake-stages)')
+    if a.arm_modes and a.arm_windows:
+        ap.error('--arm-modes and --arm-windows are exclusive')
+    if a.arm_modes:
+        try:
+            if not a.endpointer_silence_ms:
+                raise ValueError('needs the endpointer on')
+            mode_arms(a.arm_modes, a.endpointer_silence_ms)
+        except ValueError as exc:
+            ap.error(f'--arm-modes: {exc}')
     if a.endpointer_silence_ms % 20 or not (a.endpointer_silence_ms == 0 or 80 <= a.endpointer_silence_ms <= 2000):
         ap.error('--endpointer-silence-ms must be 0 or a multiple of 20 in 80..2000')
     try:
