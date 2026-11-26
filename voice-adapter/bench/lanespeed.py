@@ -110,6 +110,8 @@ def main():
                     "default = --suite")
     ap.add_argument("--deadline-s", type=float, default=2100, help="stop starting new cases after this wall time")
     ap.add_argument("--every", type=int, default=1, help="score suite cases with index %% EVERY == 0 (v2: 2)")
+    ap.add_argument("--offset", type=int, default=0, help="C56-brief-odd: score index %% EVERY == OFFSET (odd: 1); "
+                    "default 0 = unchanged selection and receipt")
     ap.add_argument("--meta", default="{}")
     ap.add_argument("--out", required=True)
     ap.add_argument("--logdir", default=".")
@@ -120,7 +122,7 @@ def main():
     suite_b_path = Path(o.suite_b) if o.suite_b else suite_path
     suites = {"A": (suite_path, suite), "B": (suite_b_path, json.loads(suite_b_path.read_text()))}
     assert suites["B"][1]["cases"] == suite["cases"], "arm suites must share identical cases"
-    cases = [c for i, c in enumerate(suite["cases"]) if i % o.every == 0]
+    cases = [c for i, c in enumerate(suite["cases"]) if i % o.every == o.offset]
     cpu = None
     if Path("/proc/cpuinfo").exists():
         cpu = next((ln.split(":", 1)[1].strip() for ln in Path("/proc/cpuinfo").read_text().splitlines()
@@ -175,6 +177,8 @@ def main():
         if stopped:
             break
     out["every"], out["case_ids"] = o.every, [c["id"] for c in cases]
+    if o.offset:  # recorded only when set, so the default receipt keys stay exactly as before
+        out["offset"] = o.offset
     out["complete"] = not stopped and all(b["summary"]["n"] == len(cases) for b in out["blocks"])
     out["wall_s"] = round(time.monotonic() - t_start, 1)
     Path(o.out).write_text(json.dumps(out, indent=1))
