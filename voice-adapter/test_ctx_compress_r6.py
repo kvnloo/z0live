@@ -65,7 +65,7 @@ class RecencySuite(unittest.TestCase):
             self.assertEqual((len(olds), len(news)), (3, 2))
             self.assertLess(max(olds), min(noise))
             self.assertGreater(min(news), max(noise))
-            self.assertLessEqual(max(news), min(olds) * (1 + brief_compress.FACT_BAND))
+            self.assertLessEqual(max(news), min(olds) * (1 + 0.10))  # r6 FACT_BAND (r7: constant gone from production)
             self.assertEqual(sorted(pair), ["badge", "bench", "glaze"])
             # newest two chat exchanges are the NEW values
             self.assertIn(pair["bench"].current, ex[-2][0])

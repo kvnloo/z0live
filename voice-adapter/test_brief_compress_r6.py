@@ -10,7 +10,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "bench"))
-import brief_compress  # noqa: E402
+import brief_compress_r6 as brief_compress  # noqa: E402  C1-ctx-compress-r7: r6 code is now bench/brief_compress_r6.py
 import brief_compress_r4 as r4  # noqa: E402
 import ctx_compress_r2_eval as harness  # noqa: E402
 import ctx_compress_r6_eval as r6eval  # noqa: E402

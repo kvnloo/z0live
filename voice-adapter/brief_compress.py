@@ -7,9 +7,11 @@ compress_brief(text, budget_chars) returns a verbatim, in-order subset of the br
      line up to the next asker line; the asker is the first speaker seen) and trailer lines (after the last
      exchange, e.g. a Status line);
   3. header and trailer are always kept, then exchanges are added greedily in this priority order, each only if it
-     still fits: "fact" exchanges shortest first (C1-ctx-compress-r4; was: newest first) by size band
-     (C1-ctx-compress-r6: facts within 10% of the band's shortest are tried newest first; was: equal sizes only),
-     then filler spread evenly over the chat (every other filler
+     still fits: "fact" exchanges shortest first (C1-ctx-compress-r4; equal sizes newest first; was: newest
+     first), except that of two or more facts filling the same slot (the asker states the same attribute of their
+     own, "my <subject> is ...", same normalised subject) only the newest is tried, at the best (shortest) priority
+     of the slot's members, and the older ones are dropped (C1-ctx-compress-r7; was: every member tried by its own
+     size, so a slightly shorter stale value could take the budget), then filler spread evenly over the chat (every other filler
      exchange counted back from the newest older filler, newest first; then the skipped fillers, newest first, only
      if budget is left; C56-live-compress-r3, was: all filler newest first), then a filler newest exchange last
      (C56-live-compress-r4, was: the newest exchange always kept first). An exchange is
@@ -28,7 +30,9 @@ SPEAKER = re.compile(r"^([A-Z][\w .'-]{0,30}): ")
 # speakers too. Used only when the capitalised parse finds no speaker pair, so capitalised briefs are byte-identical.
 SPEAKER_ANY_CASE = re.compile(r"^([A-Z][\w .'-]{0,30}): ", re.IGNORECASE)
 FACT_REPLY_CHARS = 200
-FACT_BAND = 0.10  # C1-ctx-compress-r6: facts within 10% of a band's shortest fact are tried newest first
+# C1-ctx-compress-r7: a fact's slot is the subject of the asker's first own-attribute statement, "my <1-5 words>
+# is/are/was/were" (case-insensitive, whitespace collapsed). Two facts with the same slot: the newer supersedes.
+SLOT = re.compile(r"\bmy\s+((?:[a-z][\w'-]*\s+){0,4}?[a-z][\w'-]*)\s+(?:is|are|was|were)\b", re.IGNORECASE)
 
 
 def _label(line, pattern=SPEAKER):
@@ -64,19 +68,32 @@ def _size(chunks):
     return n - 1 if n else 0  # newline joins
 
 
+def _slot(exchange):
+    """C1-ctx-compress-r7: normalised subject of the asker line's first "my <subject> is/are/was/were", else None."""
+    line = exchange[0]
+    lab = _label(line) or _label(line, SPEAKER_ANY_CASE)
+    m = SLOT.search(line[len(lab) + 2:] if lab else line)
+    return " ".join(m.group(1).lower().split()) if m else None
+
+
 def _fact_order(exchanges, idx):
-    """C1-ctx-compress-r6: tiered fact key. Facts are cut into size bands, shortest band first; a band starts at the
-    shortest fact not yet placed and holds every fact up to FACT_BAND (10%) longer than that one. Inside a band the
-    facts are tried newest first, so of two near-equal facts the newer (which may supersede the older) wins.
-    Was (r4): strict size ascending, newest first only on exactly equal sizes."""
-    left = sorted(idx, key=lambda i: (_size([exchanges[i]]), -i))
-    order = []
-    while left:
-        top = _size([exchanges[left[0]]]) * (1 + FACT_BAND)
-        band = [i for i in left if _size([exchanges[i]]) <= top]
-        order += sorted(band, reverse=True)
-        left = [i for i in left if _size([exchanges[i]]) > top]
-    return order
+    """C1-ctx-compress-r7: supersession-aware fact order. Facts sharing a slot (_slot) keep only the newest member,
+    tried at the shortest size among the slot's members; older members are dropped. Every other fact keeps the r4
+    key: size ascending, newest first on equal sizes. With no shared slot the order is exactly r4's."""
+    newest, best = {}, {}
+    for i in idx:
+        k = _slot(exchanges[i])
+        if k is not None:
+            newest[k] = max(newest.get(k, i), i)
+            best[k] = min(best.get(k, _size([exchanges[i]])), _size([exchanges[i]]))
+    keyed = []
+    for i in idx:
+        k = _slot(exchanges[i])
+        if k is None:
+            keyed.append(((_size([exchanges[i]]), -i), i))
+        elif newest[k] == i:
+            keyed.append(((best[k], -i), i))
+    return [i for _, i in sorted(keyed)]
 
 
 def compress_brief(text: str, budget_chars: int) -> str:
