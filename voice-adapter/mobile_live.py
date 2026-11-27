@@ -747,8 +747,8 @@ class AudioBridge(MediaStreamTrack):
         else:
             if call.muted:
                 self.level.frame(frame)  # let the input span end during mute
-            if call.passthru and call.passthru.active:
-                frame = call.passthru.ears(frame)  # the meeting, mixed into what z0 hears
+            # Group flow: the meeting is never mixed in here. This frame feeds Kevin's own provider leg (his full
+            # profile) and every other leg; no leg hears the room until a sandboxed guest route exists.
             call.trace.record_audio(frame)
         return frame
 
@@ -1812,10 +1812,15 @@ class Call:
         elif kind == "turn.done" and turn.get("role") == "user":
             text = str(turn.get("transcript") or self.protocol.turn_text["user"] or "")
             p.floor.user_said(text, now)
+            # This leg hears the phone alone (the room is never mixed in); a turn counts as Kevin's when the
+            # phone was loud for it and unmuted. Every command then waits for his spoken "confirm".
+            from_kevin = now - self.input_loud_at < 10 and not self.muted
+            verdict = passthru.judge(self, text, from_kevin=from_kevin)
+            if verdict is not None:
+                self.spawn(passthru.run_verdict(self, verdict))
+                return
             found = passthru.command(text, active=p.active)
             if found:
-                # Kevin's own phone leg was loud during this turn; otherwise the words came from the meeting.
-                from_kevin = not p.active or (now - self.input_loud_at < 10 and not self.muted)
                 self.trace("passthru.command", action=found[0], arg=found[1][:80], from_kevin=from_kevin)
                 self.spawn(passthru.run_command(self, *found, from_kevin=from_kevin))
 
@@ -1855,7 +1860,9 @@ class Call:
         # Before delegation.start: the TV conductor turns every delegation.start into worker lanes.
         if self.lane_command(did, request):  # "add two opus lanes": the layout changes here, Hermes never runs
             return
-        self.trace("delegation.start", did=did, request=(request or "")[:4000])
+        # passthru=True marks a delegation made while z0 sat in a meeting (this leg still hears the phone alone).
+        self.trace("delegation.start", did=did, request=(request or "")[:4000],
+                   **({"passthru": True} if self.passthru and self.passthru.active else {}))
         turn = self.relay.turn if self.relay else None
         configured = ((turn or {}).get("receipt") or {}).get("configured") if not TIERS_ON else None
         if configured and not self.closed:  # a lane-layout line, not a request for Hermes

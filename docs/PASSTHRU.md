@@ -2,7 +2,7 @@
 
 Say **"z0, join my meeting"** (or "merge the calls") on a z0 call. A browser on the Studio joins that
 meeting as **z0 (Kevin's assistant)**, using the service's own, unmodified web app. Everyone in the meeting
-hears z0, z0 hears them, and z0 can share a screen. There is no z0 server to run and no app to fork.
+hears z0 and z0 can share a screen. z0 does not hear the meeting itself (see below). There is no z0 server to run and no app to fork.
 
 | Say | What happens |
 |---|---|
@@ -12,8 +12,14 @@ hears z0, z0 hears them, and z0 can share a screen. There is no z0 server to run
 | "stop sharing", "z0, leave the meeting" | |
 | "talk freely" / "just listen" / "only speak when someone says my name" | floor policy (default: addressed) |
 
-Only Kevin's own phone leg can ask for **share** or **talk freely**. The same words spoken by someone in
-the meeting are refused.
+Every command needs Kevin's own phone leg (it was loud and unmuted for that turn) and then an explicit
+**"confirm"** on the phone within 20 s, while the meeting is quiet. Anything else cancels it. "Just listen"
+and "only speak when someone says my name" make z0 quieter, so they need only the phone leg. A request from
+Kevin's chat (loopback control) also waits for the spoken confirm.
+
+**Who hears the meeting.** Nobody, for now. Kevin's own provider leg (his full Hermes profile) hears his
+phone alone; room audio is never mixed into it or into any other leg. Routing the room to a sandboxed guest
+leg (guest profile, no brief, no context from Kevin's leg) is tracked separately.
 
 ## Default service: Element Call
 
@@ -34,7 +40,7 @@ moves a button, the fix is a few lines in its recipe.
 
 `meeting_leg.mjs` runs headless Chromium (Playwright). `inject.js` replaces the page's microphone with
 z0's voice and taps every remote audio track; PCM moves over a loopback socket to the voice adapter, which
-mixes the room into what z0 hears and tees z0's voice into the room (`passthru.py`, floor-gated). Screen
+counts the room audio without passing it to any provider leg and tees z0's voice into the room (`passthru.py`, floor-gated). Screen
 share is a CDP screencast of a page fed to the app's own `getDisplayMedia`.
 
 The z0 browser profile is throwaway and runs with page CSP and Local Network Access checks off, so the

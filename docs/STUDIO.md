@@ -247,11 +247,13 @@ Run the guest's API-only Hermes host separately from the primary host on `:8644`
 ```sh
 Z0LIVE_HERMES_SOURCE="$HOME/.hermes/hermes-agent" \
 Z0LIVE_HERMES_BIN="$HOME/.hermes/hermes-agent/.hermes/bin/hermes" \
-python3 desktop/hermes_host.py --profile tek
+python3 desktop/hermes_host.py --profile guest
 ```
 
-This binds `127.0.0.1:18644` and `HERMES_HOME=~/.hermes/profiles/tek` without starting messaging or
-schedulers. The host creates a private profile-specific API key. The guest uses a fresh Hermes voice session
+This binds `127.0.0.1:18644` and `HERMES_HOME=~/.hermes/profiles/guest` without starting messaging or
+schedulers. Use a sandboxed profile made for guests, never the owner's: no memory, skills, MCP, credentials
+or host tools (on the Studio, the `guest` profile: `platform_toolsets.api_server: []`, `memory_enabled: false`).
+Set `voices.json` `profile` to the same name; the adapter reads `~/.config/z0live/guest-hosts/<profile>.key`. The host creates a private profile-specific API key. The guest uses a fresh Hermes voice session
 per call. It never falls back to the primary's chat if its host is unavailable. If you change the host's
 `--port`, match it with `Z0LIVE_GUEST_HOST_PORT` in the voice adapter.
 
