@@ -21,6 +21,7 @@ class PluginTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.tmp = Path(tmp.name)
         paths = {"lanes_file": self.tmp / "lanes.json", "tiers_file": self.tmp / "tiers.json",
+                 "layout_file": self.tmp / "layout.json",
                  "voices_file": self.tmp / "voices.json", "traces_dir": self.tmp / "traces",
                  "lane_url": "http://127.0.0.1:9", "z0live_repo": ROOT}
         self.cfg = lambda key: str(paths[key])
@@ -92,7 +93,7 @@ class PluginTests(unittest.TestCase):
             command = self.commands["z0live-lanes"]["handler"]
             path_before = sys.path[:]
             self.assertTrue(command("gimme 2 fast lanes, 2 small, 2 large, one council").startswith("Lanes set:"))
-            board = self.call("lanes")
+            board = self.call("lanes", request="board")
             self.assertEqual(sys.path, path_before)
             self.assertEqual(board["source"], self.cfg("lanes_file"))
             self.assertEqual((board["fast"], board["small"], board["large"], board["council"]), (2, 2, 2, True))

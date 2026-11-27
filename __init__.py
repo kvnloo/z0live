@@ -31,6 +31,7 @@ DEFAULTS = {
     "z0live_repo": "",  # empty = this plugin's own tree
     "lanes_file": "~/.z0int/config/z0live-lanes.json",
     "tiers_file": "~/.config/z0live/tiers.json",
+    "layout_file": "~/.config/z0live/layout.json",
     "voices_file": "~/.config/z0live/voices.json",
     "traces_dir": "~/.local/share/z0live/voice-traces",
     "lane_url": "http://127.0.0.1:8646",
@@ -105,7 +106,9 @@ def latest_call(traces: Path) -> Dict[str, Any]:
 def make_status(cfg):
     def handle(args: Dict[str, Any], **_kw: Any) -> str:
         try:
-            tiers = _read_json(_path(cfg("tiers_file"))) or "defaults in voice-adapter/tiers.py"
+            layout = _layout_module().load(_path(cfg("layout_file")))
+            tiers = (_layout_module().tiers(layout) if layout else _read_json(_path(cfg("tiers_file")))) \
+                or "defaults in voice-adapter/tiers.py"
             guest = (_read_json(_path(cfg("voices_file"))) or {}).get("guest") or "off"
             return json.dumps({"engine": _engine(_path(cfg("lanes_file"))), "guest": guest, "tiers": tiers,
                                "lane_server": _lane_server(cfg("lane_url")),
@@ -155,7 +158,17 @@ def make_configure(cfg):
             if guest:
                 _write_json(_path(cfg("voices_file")), {"guest": "" if guest == "off" else guest})
                 done["guest"] = guest
-            if reset:
+            layout_file = _path(cfg("layout_file"))
+            if (reset or "tiers" in args) and layout_file.is_file():
+                # The layout wins over tiers.json once it exists, so tier edits go into it (one source of truth).
+                mod = _layout_module()
+                try:
+                    voice = mod.VOICE_DEFAULT if reset else mod.from_tiers(args["tiers"])
+                    mod.change(lambda lay: {**lay, "voice": voice}, by="z0live_configure", path=layout_file)
+                except ValueError as exc:
+                    return json.dumps({"error": str(exc)})
+                done["tiers"] = "defaults" if reset else args["tiers"]
+            elif reset:
                 _path(cfg("tiers_file")).unlink(missing_ok=True)
                 done["tiers"] = "defaults"
             elif "tiers" in args:
@@ -183,12 +196,51 @@ def _desktop_module(name):
     return importlib.import_module(f"{package}.{name}")
 
 
+def _layout_module():
+    """voice-adapter/lane_layout.py by path (stdlib only): the same store the call and the TV conductor read."""
+    name = "_z0live_plugin_lane_layout"
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, ROOT / "voice-adapter/lane_layout.py")
+        if spec is None or spec.loader is None:
+            raise ImportError("z0live lane_layout is missing")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        sys.modules[name] = module
+    return sys.modules[name]
+
+
+LAYOUT_ACTIONS = ("list", "add", "remove", "set")
+
+
 def make_lanes(cfg, installed):
+    def layout(args, request):
+        mod, path = _layout_module(), _path(cfg("layout_file"))
+        began = time.monotonic()
+        if args.get("action"):
+            out = mod.act(args["action"], args.get("model") or "", args.get("count"), args.get("role") or "",
+                          by="hermes", path=path)
+        else:
+            out = mod.run(request, by="hermes", path=path) if request else mod.act("list", path=path)
+            if out is None:
+                return None
+        out["ms"] = round((time.monotonic() - began) * 1000, 1)
+        out["file"] = str(path)
+        return out
+
     def handle(args: Dict[str, Any], **_kw: Any) -> str:
+        args = args or {}
         try:
+            request = (args.get("request") or "").strip()
+            if args.get("action") or request.lower() != "board" and not request.lower().startswith("board "):
+                try:
+                    out = layout(args, request)
+                except ValueError as exc:  # LayoutError: unknown model, 6.1, caps
+                    return json.dumps({"ok": False, "error": str(exc)})
+                if out is not None:
+                    return json.dumps(out, ensure_ascii=False)
+            request = request[6:].strip() if request.lower().startswith("board") else request
             if not installed():
                 return json.dumps({"ok": False, "error": "z0live stack not configured"})
-            request = (args.get("request") or "").strip()
             path = _path(cfg("lanes_file"))
             intent = _desktop_module("lanes_intent")
             if not request or request == "status":
@@ -264,10 +316,22 @@ CONFIGURE_SCHEMA = {
 }
 LANES_SCHEMA = {
     "name": "z0live_lanes",
-    "description": ("Show or change the desktop broker's helper-lane board, separate from the adapter's model tiers. "
-                    "Pass the owner's words, e.g. 'gimme 2 fast lanes, 2 small, 2 large, one council'. "
-                    "Leave request empty for board status."),
-    "parameters": {"type": "object", "properties": {"request": {"type": "string"}}, "additionalProperties": False},
+    "description": ("The model lanes attached to Kevin's conversation, one instant call; the voice call and the TV "
+                    "conductor both read this layout. action=list shows it. add/remove/set change it: 'add 3 sol "
+                    "lanes' -> action=add, model=sol, count=3. Models: haiku, sonnet, opus, sol (GPT 6.2 Sol), sr "
+                    "(semantic router, free hosts), fable (worker only). role: research (default; worker lanes, the "
+                    "TV agents that work an ask for minutes), voice (answer lanes that race on every spoken request, "
+                    "in the model's home tier: haiku fast, sonnet/sol medium, opus slow), or fast/medium/slow. "
+                    "Without a count, remove drops all of that model from that role. Returns the new layout and a "
+                    "one-line 'say' to repeat. Or pass Kevin's words as request. request='board ...' edits the "
+                    "desktop broker's helper board instead."),
+    "parameters": {"type": "object", "additionalProperties": False, "properties": {
+        "action": {"type": "string", "enum": list(LAYOUT_ACTIONS)},
+        "model": {"type": "string", "enum": ["haiku", "sonnet", "opus", "sol", "sr", "fable"]},
+        "count": {"type": "integer", "minimum": 0, "maximum": 12},
+        "role": {"type": "string", "enum": ["research", "voice", "fast", "medium", "slow"]},
+        "request": {"type": "string"},
+    }},
 }
 
 
@@ -294,7 +358,7 @@ def register(ctx) -> None:
                       check_fn=can_configure, description="Pick the z0live engine, second voice and model tiers",
                       emoji="🎛️")
     ctx.register_tool(name="z0live_lanes", toolset=TOOLSET, schema=LANES_SCHEMA, handler=lanes_tool,
-                      check_fn=installed, description="Show or set the desktop helper-lane board", emoji="🎚️")
+                      check_fn=installed, description="Show or change the lanes attached to the conversation", emoji="🎚️")
     lines = _read_json(ROOT / "voice-adapter/progress_lines.json") or []
     ctx.register_tool(name="z0live_say", toolset=TOOLSET, handler=make_say(lines),
                       check_fn=lambda: bool(lines and _secret(PROGRESS_TOKEN_ENV)),
@@ -305,5 +369,6 @@ def register(ctx) -> None:
                                              "properties": {"text": {"type": "string", "enum": lines}}}},
                       description="Speak a progress line in the linked live call", emoji="🎙️")
     ctx.register_command("z0live-lanes", handler=lanes_command,
-                         description="Show or set the desktop helper-lane board (fast/small/large/council)",
-                         args_hint="[gimme 2 fast lanes, 2 small, 2 large, one council]")
+                         description="Show or change the conversation's lanes ('add 2 sol lanes'); 'board ...' for the "
+                                     "desktop helper board",
+                         args_hint="[add 2 sol lanes | drop the opus lanes | board gimme 2 fast lanes]")

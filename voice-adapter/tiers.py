@@ -17,6 +17,8 @@ from pathlib import Path
 
 from aiohttp import ClientTimeout
 
+import lane_layout
+
 CLAUDE = "claude-subscription-directsdk-experimental"
 CODEX = "openai-codex"
 # GPT: newest of each tier this ChatGPT account's Codex catalog offers (11-19: 6.2 has only sol/astra, 6.1
@@ -24,7 +26,7 @@ CODEX = "openai-codex"
 # lane_server: luna 1.38 s, terra 1.49 s, sol 1.54 s for a one-sentence answer.
 TIERS = {
     "fast": [{"provider": CLAUDE, "model": "claude-haiku-5-5"}, {"provider": CODEX, "model": "gpt-6-luna"}],
-    "medium": [{"provider": CLAUDE, "model": "claude-sonnet-5-5"}, {"provider": CODEX, "model": "gpt-6.1-terra"}],
+    "medium": [{"provider": CLAUDE, "model": "claude-sonnet-5-5"}, {"provider": CODEX, "model": "gpt-6.2-sol"}],
     "slow": [{"provider": CLAUDE, "model": "claude-opus-5-5"}, {"provider": CODEX, "model": "gpt-6.2-sol"}],
 }
 DEADLINE = {"fast": 4, "medium": 15, "slow": 45}  # seconds; a tier past its deadline is no answer
@@ -46,7 +48,12 @@ SYSTEM = ("You are the {tier} lane on Kevin's live voice call; what you write ma
 
 
 def load() -> dict:
-    """TIERS, or the override file when it holds a valid {tier: [{provider, model}]} map (a bad edit is ignored)."""
+    """The lane layout (lane_layout.FILE, written by the z0live_lanes tool and spoken lane commands) when there is
+    one; else TIERS, or the override file when it holds a valid {tier: [{provider, model}]} map (a bad edit is
+    ignored). Read per request, so a layout change applies to the next request."""
+    layout = lane_layout.load()
+    if layout:
+        return lane_layout.tiers(layout)
     try:
         cfg = json.loads(FILE.read_text())
         if isinstance(cfg, dict) and all(
@@ -95,7 +102,27 @@ def snapshot(brief: str, exchanges, live: str = "") -> str:
            (f"This call so far:\n{turns}" if turns else "")
 
 
+async def ask_router(http, binding, system, user, timeout):
+    """A semantic-router lane (vllm-sr on the mbp, OpenAI-compatible): it picks a free upstream per request, so the
+    adapter calls it directly; lane_server stays Hermes-logins only. Only lane_layout.SR_URL is allowed."""
+    import time
+    if binding.get("base_url") != lane_layout.SR_URL:
+        raise RuntimeError("base_url not allowed")
+    began = time.monotonic()
+    body = {"model": binding["model"], "max_tokens": 300, "temperature": 0,
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
+    async with http.post(binding["base_url"].rstrip("/") + "/chat/completions", json=body,
+                         timeout=ClientTimeout(total=timeout)) as resp:
+        data = await resp.json(content_type=None)
+    if resp.status != 200:
+        raise RuntimeError(f"router HTTP {resp.status}")
+    text = " ".join(str(((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "").split())
+    return {"text": text, "first_s": round(time.monotonic() - began, 3)}
+
+
 async def ask(http, binding, system, user, timeout):
+    if binding.get("base_url"):
+        return await ask_router(http, binding, system, user, timeout)
     body = {**binding, "system": system, "user": user, "max_tokens": 300, "timeout": timeout}
     async with http.post(URL, json=body, timeout=ClientTimeout(total=timeout + 2)) as resp:
         data = await resp.json()
@@ -107,7 +134,10 @@ async def ask(http, binding, system, user, timeout):
 async def race(http, tier, bindings, context, request):
     """First real answer in a tier: (text, model, first_s, errors). Empty text when none came in time."""
     system = SYSTEM.format(tier=tier) + ("\n\n" + context if context else "")
-    jobs = {asyncio.ensure_future(ask(http, b, system, request, DEADLINE[tier])): b["model"] for b in bindings}
+    # A router lane goes to third-party free hosts: it gets the request only, never the chat brief, TV or call.
+    bare = SYSTEM.format(tier=tier)
+    jobs = {asyncio.ensure_future(ask(http, b, bare if b.get("base_url") else system, request, DEADLINE[tier])):
+            b["model"] for b in bindings}
     errors, pending = {}, set(jobs)
     try:
         while pending:

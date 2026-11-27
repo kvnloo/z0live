@@ -13,6 +13,7 @@ config_schema:
   z0live_repo: {type: str, default: "", label: "z0live checkout", description: "Checkout whose bin/z0live picks the engine; empty = this plugin's own tree"}
   lanes_file: {type: str, default: "~/.z0int/config/z0live-lanes.json", label: "Lanes config", description: "z0live.lanes.v1 file; lanes.voice.actor is the engine"}
   tiers_file: {type: str, default: "~/.config/z0live/tiers.json", label: "Lane tiers override", description: "fast/medium/slow model lists; absent = z0live defaults"}
+  layout_file: {type: str, default: "~/.config/z0live/layout.json", label: "Lane layout", description: "z0live.layout.v1: the lanes attached to the conversation (voice tiers + TV pool); wins over tiers_file once written"}
   voices_file: {type: str, default: "~/.config/z0live/voices.json", label: "Second voice", description: "{\"guest\": \"grok\"} adds Grok to GPT-Live calls"}
   traces_dir: {type: str, default: "~/.local/share/z0live/voice-traces", label: "Call traces", description: "Per-call JSONL event traces written by the voice adapter"}
   lane_url: {type: str, default: "http://127.0.0.1:8646", label: "Lane server", description: "HTTP URL on 127.0.0.1 or [::1] for the lane server's /health probe"}

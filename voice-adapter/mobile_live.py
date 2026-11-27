@@ -41,6 +41,7 @@ import call_brief  # noqa: E402 - sibling module (context packet in the session 
 import grok_leg  # noqa: E402 - sibling module (Grok Voice as the voice model)
 import tiers  # noqa: E402 - sibling module (fast/medium/slow model lanes)
 import lane_cards  # noqa: E402 - sibling module (the TV conductor's lane cards, spoken on their call)
+import lane_layout  # noqa: E402 - sibling module (the lanes attached to the conversation)
 import guest_voice  # noqa: E402
 import answer_delivery  # noqa: E402 - sibling module (what each voice has actually said)
 from subscription_leg import Speaker, SubscriptionLeg  # noqa: E402
@@ -1852,6 +1853,8 @@ class Call:
         self.counts["host_delegations"] += 1
         began = time.monotonic()
         self.trace("delegation.start", did=did, request=(request or "")[:4000])
+        if self.lane_command(did, request):  # "add two opus lanes": the layout changes here, Hermes never runs
+            return
         turn = self.relay.turn if self.relay else None
         configured = ((turn or {}).get("receipt") or {}).get("configured")
         if configured and not self.closed:  # a lane-layout line, not a request for Hermes
@@ -1940,6 +1943,29 @@ class Call:
             return
         spoken.add(key)
         self.speak_for(did, answer)
+
+    def lane_command(self, did, request):
+        """A spoken lane command ("add two opus lanes", "drop the sol lanes", "how many lanes do I have") changes or
+        reads lane_layout at once and speaks its receipt. One utterance changes the layout once: a second delegation
+        of the same words within 20 s is swallowed, not applied again. True when the request was a lane command."""
+        user = str(self.protocol.turn_text.get("user") or "") if hasattr(self.protocol, "turn_text") else ""
+        text = next((t for t in (request, user) if lane_layout.command(t)), None)
+        if not text:
+            return False
+        cmd, now = lane_layout.command(text), time.monotonic()
+        key = (json.dumps(cmd, sort_keys=True), " ".join(user.lower().split()))
+        recent = self.__dict__.setdefault("layout_done", {})
+        if cmd["action"] != "list" and now - recent.get(key, -99) < 20:
+            self.trace("lanes.layout_repeat", did=did, cmd=cmd)
+            return True
+        recent[key] = now
+        result = lane_layout.run(text, by="voice:" + self.id[-8:])
+        self.counts["lane_layout_" + ("ok" if result.get("ok") else "refused")] += 1
+        self.trace("lanes.layout", did=did, cmd=cmd, ok=result.get("ok"), say=result.get("say", "")[:300],
+                   error=result.get("error"))
+        if not self.closed:
+            self.speak_for(did, result.get("say") or "")
+        return True
 
     async def tier_lanes(self, did, request):
         """Fast, medium and slow lanes race within each tier; tiers run at once. The first answer from any tier
