@@ -16,9 +16,11 @@ compress_brief(text, budget_chars) returns a verbatim, in-order subset of the br
      own size, so a slightly shorter stale value could take the budget). Without a cue every member keeps r4's
      key; C1-ctx-compress-r11: same-slot members are further split by attribute (slot subject + predicate head,
      _attribute), so a cue statement about a different attribute of the same subject ("my kayak is now at the
-     repair bay ...") supersedes nothing and keeps r4's key, then filler spread evenly over the chat (every other filler
-     exchange counted back from the newest older filler, newest first; then the skipped fillers, newest first, only
-     if budget is left; C56-live-compress-r3, was: all filler newest first), then a filler newest exchange last
+     repair bay ...") supersedes nothing and keeps r4's key; C1-ctx-compress-r13: the attribute is the slot subject
+     plus the first two non-filler predicate words (attribute key v2, _key), so "is booked for the ferry" and "is now
+     booked in at the garage" are different attributes (r11 compared the head word alone), then filler spread
+     evenly over the chat (every other filler exchange counted back from the newest older filler, newest first;
+     then the skipped fillers, newest first, only if budget is left; C56-live-compress-r3, was: all filler newest first), then a filler newest exchange last
      (C56-live-compress-r4, was: the newest exchange always kept first). An exchange is
      a fact when its reply is short (<= FACT_REPLY_CHARS) or it has no reply (C1-ctx-compress-r3): answers about the user's own plans, settings, numbers and
      permissions are one line, general-knowledge explanations are paragraphs;
@@ -51,6 +53,11 @@ CUE = re.compile(r"(?<![\w-])(?:now|changed?|instead|new|no\s+longer|not\s+the\s
 WORD = re.compile(r"[\w'-]+")
 FILLER = frozenset(("a", "an", "the", "to", "it", "is", "are", "was", "were", "one", "old"))
 VALUE = "<value>"
+# C1-ctx-compress-r13: attribute key v2 = (slot subject, the first KEY_WORDS non-FILLER predicate words), a digit word
+# ending the key as VALUE (_key). r11 used the head word alone, so "is booked for the ferry ... ref X" and "is now
+# booked in at the new garage ... job card Y" shared an attribute and the cue dropped the older true fact (r12 (a)).
+# FILLER, WORD, CUE and VALUE are r11's, unchanged. Frozen in the r13 PREREG.
+KEY_WORDS = 2
 
 
 def _label(line, pattern=SPEAKER):
@@ -102,24 +109,35 @@ def _cue(exchange):
 
 
 def _attribute(exchange):
-    """C1-ctx-compress-r11: (slot subject, predicate head) of the asker line's first "my <subject> is ...", else None.
-    Head: first word after the copula, CUE matches removed, skipping FILLER words; a word with a digit, or no word
-    left, gives VALUE."""
+    """C1-ctx-compress-r13: (slot subject, *key) of the asker line's first "my <subject> is ...", else None. key =
+    _key(predicate after the copula), up to KEY_WORDS words (r11: the head word alone, the first non-FILLER word,
+    CUE matches removed, a digit word or no word giving VALUE)."""
     line = exchange[0]
     lab = _label(line) or _label(line, SPEAKER_ANY_CASE)
     text = line[len(lab) + 2:] if lab else line
     m = SLOT.search(text)
     if m is None:
         return None
-    head = VALUE
-    for w in WORD.findall(CUE.sub(" ", text[m.end():])):
+    return (" ".join(m.group(1).lower().split()),) + _key(text[m.end():])
+
+
+def _key(predicate):
+    """C1-ctx-compress-r13: attribute key v2, the first KEY_WORDS words of the predicate (CUE matches removed) that
+    are not in FILLER. A word holding a digit is VALUE and ends the key (the value restated, as r11's VALUE head);
+    an empty predicate gives (VALUE,). So "is booked for the ferry" -> (booked, for) and "is now booked in at the
+    new garage" -> (booked, in) differ (r11: both "booked"), while "is Oak-1", "is Oak-2 now ..." and "is changed
+    to Oak-3" all give (VALUE,) and "is number Oak-4" / "is now number Oak-5" both give (number, VALUE)."""
+    key = []
+    for w in WORD.findall(CUE.sub(" ", predicate)):
         w = w.lower()
         if any(ch.isdigit() for ch in w):
+            key.append(VALUE)
             break
         if w not in FILLER:
-            head = w
-            break
-    return " ".join(m.group(1).lower().split()), head
+            key.append(w)
+            if len(key) == KEY_WORDS:
+                break
+    return tuple(key) or (VALUE,)
 
 
 def _fact_order(exchanges, idx):

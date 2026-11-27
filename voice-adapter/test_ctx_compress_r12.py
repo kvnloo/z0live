@@ -19,6 +19,19 @@ import ctx_compress_r12_eval as r12e  # noqa: E402
 import ctx_compress_r12_verdict as v12  # noqa: E402
 import test_ctx_compress_r10 as t10  # noqa: E402
 
+# C1-ctx-compress-r13: production brief_compress.py moved on to r13. r12 scored B = r11, so these r12 tests pin the r12
+# harness's B arm, its r11 pre-check arm and its attribute module to the r11 byte copy (bench/brief_compress_r11.py,
+# sha256 f0233b21...) at import (PRES below is computed at import); restored after the module.
+import brief_compress_r11  # noqa: E402
+_SAVED = (r12e.COMPRESS, r12e.PRECHECK, r12e.brief_compress)
+r12e.COMPRESS = {**r12e.COMPRESS, "B": lambda b: brief_compress_r11.compress_brief(b, r12e.BUDGET)}
+r12e.PRECHECK = {**r12e.PRECHECK, "r11": brief_compress_r11}
+r12e.brief_compress = brief_compress_r11
+
+
+def tearDownModule():
+    r12e.COMPRESS, r12e.PRECHECK, r12e.brief_compress = _SAVED
+
 # Offline dry prediction (frozen in the r12 PREREG): what each arm's context holds. CURRENT = planted value in
 # context, STALE = only the superseded value, ABSENT = neither. Same in all 3 scenarios except b (campsite "our" has
 # no r7 slot, so r7 keeps b_old there).
@@ -142,7 +155,7 @@ class Prediction(unittest.TestCase):
     def test_arms(self):
         b = r2.chat_brief(r12e.r12_suite()[0])
         self.assertEqual(r12e.COMPRESS["A"](b), brief_compress_r4.compress_brief(b, 2810))
-        self.assertEqual(r12e.COMPRESS["B"](b), brief_compress.compress_brief(b, 2810))
+        self.assertEqual(r12e.COMPRESS["B"](b), brief_compress_r11.compress_brief(b, 2810))
         self.assertEqual(r12e.COMPRESS["R"](b), brief_compress_r7.compress_brief(b, 2810))
         self.assertEqual(r12e.COMPRESS["O"](b), b)
 

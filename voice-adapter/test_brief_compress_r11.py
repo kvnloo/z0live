@@ -14,7 +14,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "bench"))
-import brief_compress as bc  # noqa: E402
+# C1-ctx-compress-r13: production brief_compress.py moved on to r13 (attribute key v2). These r11 tests pin the r11
+# rule to its byte copy (bench/brief_compress_r11.py = brief_compress.py at 3dcf56c, sha256 f0233b21...).
+import brief_compress_r11 as bc  # noqa: E402
 import brief_compress_r4 as r4  # noqa: E402
 import brief_compress_r9 as r9  # noqa: E402
 import ctx_compress_r2_eval as harness  # noqa: E402
