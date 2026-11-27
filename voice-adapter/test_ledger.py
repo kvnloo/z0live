@@ -70,6 +70,24 @@ class LedgerTest(unittest.TestCase):
         self.assertIn("NOT STARTED", ledger.brief("c1", now=t + 121))
         self.assertNotIn("NOT STARTED", ledger.brief("c1", now=t + 60))
 
+    def test_blocked_is_not_promised_and_a_non_final_result_keeps_the_state(self):
+        a = ledger.open_item("c1", "eject it", "action", "voice")
+        ledger.claim(a, "background", "asked")
+        ledger.state(a, "blocked", "background", "the drive is busy")
+        t = ledger.items("c1")[0]["claims"][0]["t"]
+        it = ledger.items("c1", now=t + 500)[0]
+        self.assertEqual((it["state"], it["unstarted"], it["claimed_not_started"]), ("blocked", False, False))
+        self.assertIn("BLOCKED", ledger.brief("c1", now=t + 500))
+        ledger.result(a, "lane:Sol", "research note", True, [], final=False)
+        self.assertEqual(ledger.items("c1")[0]["state"], "blocked")
+        self.assertEqual(len(ledger.items("c1")[0]["results"]), 1)
+
+    def test_reads_are_cached_until_the_file_grows(self):
+        a = ledger.open_item("c1", "one", "question", "voice")
+        self.assertEqual(len(ledger.items("c1")), 1)
+        ledger.result(a, "x", "ok")
+        self.assertEqual(ledger.items("c1")[0]["state"], "done")
+
     def test_lane_receipt_is_not_proof_for_an_action(self):
         a = ledger.open_item("c1", "water the ferns", "action", "voice")
         q = ledger.open_item("c1", "why are ferns green", "research", "voice")

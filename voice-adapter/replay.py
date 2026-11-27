@@ -402,7 +402,7 @@ class Replay:
                 self.after(row)
             await self.advance(self.rows[-1]["t"] + 900, chat)
             self.counts = dict(call.counts)
-            self.ledger_items = live.request_ledger.items(call.id)  # the temp ledger goes with the run
+            self.ledger_items = live.request_ledger.items(call.ledger_call)  # the temp ledger goes with the run
             call.closed = True
             for task in list(call.tasks):
                 task.cancel()

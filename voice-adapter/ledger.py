@@ -53,7 +53,8 @@ def directory() -> Path:
     dir, so a test that builds a Call can never write its made-up requests into the ledger the TV reads."""
     if os.environ.get("Z0LIVE_LEDGER"):
         return Path(os.environ["Z0LIVE_LEDGER"])
-    if any(w in str(sys.argv[0]) for w in ("unittest", "pytest")):
+    argv0 = str(sys.argv[0])
+    if any(w in argv0 for w in ("unittest", "pytest")) or os.path.basename(argv0).startswith("test_"):
         return Path(tempfile.gettempdir()) / f"z0live-test-ledger-{os.getpid()}"
     return Path.home() / ".local/share/z0live/ledger"
 
@@ -127,11 +128,26 @@ def state(item: str, s: str, by: str, why: str = "") -> None:
     _append({"op": "state", "id": item, "s": s, "by": str(by), "why": _clip(why, 1000)})
 
 
+_CACHE: dict = {}
+
+
 def _read() -> list[dict]:
+    """Every event, cached on the file's (path, mtime, size): the voice reads the ledger several times a request and
+    the file only grows."""
     try:
+        st = path().stat()
+        key = (str(path()), st.st_mtime_ns, st.st_size)
+        if _CACHE.get("key") == key:
+            return _CACHE["events"]
         raw = path().read_bytes()
     except OSError:
         return []
+    events = _parse(raw)
+    _CACHE.update(key=key, events=events, folded=None)
+    return events
+
+
+def _parse(raw: bytes) -> list[dict]:
     events = []
     for line in raw.split(b"\n"):
         try:
@@ -178,29 +194,36 @@ def _derive(it: dict, now: float) -> dict:
     kinds = PROOF_KINDS if it["kind"] == "action" else RECEIPT_KINDS
     it["proven"] = any(r["kind"] in kinds for r in it["receipts"])
     first = it["claims"][0]["t"] if it["claims"] else None
-    it["unstarted"] = bool(first is not None and not it["proven"] and it["state"] not in TERMINAL
-                           and now - first >= NOT_STARTED_SECONDS)
-    it["claimed_not_started"] = bool(it["claims"] and not it["proven"] and it["state"] not in TERMINAL)
+    open_ = it["state"] not in TERMINAL and it["state"] != "blocked"  # blocked says why it did not start
+    it["unstarted"] = bool(first is not None and not it["proven"] and open_ and now - first >= NOT_STARTED_SECONDS)
+    it["claimed_not_started"] = bool(it["claims"] and not it["proven"] and open_)
     return it
+
+
+def _folded() -> dict[str, dict]:
+    events = _read()
+    if _CACHE.get("folded") is None or _CACHE.get("events") is not events:
+        _CACHE["folded"] = _fold(events)
+    return _CACHE["folded"]
 
 
 def items(call: str | None = None, open_only: bool = False, now: float | None = None) -> list[dict]:
     """The folded view, newest first. `now` is for a replay that runs on its own clock."""
     now = time.time() if now is None else now
-    out = [_derive(it, now) for it in _fold(_read()).values() if call is None or it["call"] == call]
+    out = [_derive(dict(it), now) for it in _folded().values() if call is None or it["call"] == call]
     if open_only:
         out = [it for it in out if it["state"] not in TERMINAL]
     return sorted(out, key=lambda it: it["opened"], reverse=True)
 
 
 def get(item: str, now: float | None = None) -> dict | None:
-    folded = _fold(_read()).get(item)
-    return _derive(folded, time.time() if now is None else now) if folded else None
+    folded = _folded().get(item)
+    return _derive(dict(folded), time.time() if now is None else now) if folded else None
 
 
 def _line(it: dict, now: float, full: bool) -> str:
     age = int(max(0, now - it["opened"]))
-    if it["state"] in TERMINAL:
+    if it["state"] in TERMINAL or it["state"] == "blocked":
         head = it["state"].upper()
     elif it["unstarted"]:
         head = "PROMISED, NOT STARTED (no proof after %ds)" % NOT_STARTED_SECONDS

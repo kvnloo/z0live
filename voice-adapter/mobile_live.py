@@ -312,7 +312,7 @@ WHERE = {"chat": "in your chat", "background": "in Hermes as a background result
 # hears the one receipt, then nothing until its state changes (the answer, a failure, a result); the repeating progress,
 # cap and merged lines are gone. The one other line: an action with a promise and no proof after UNPROVEN_SECONDS.
 UNPROVEN_SECONDS = request_ledger.NOT_STARTED_SECONDS
-EARLIER_GAP = float(os.environ.get("Z0LIVE_EARLIER_GAP", "120"))  # between "N earlier lanes finished" lines
+EARLIER_GAP = float(os.environ.get("Z0LIVE_EARLIER_GAP", "300"))  # between "N earlier lanes finished" lines
 UNPROVEN = "I still have no proof that one started, so treat it as not started."
 STATUS = re.compile(r"Still working on that in Hermes|Still on that in Hermes, \d+ seconds so far"
                     r"|Still on \d+ requests in Hermes, the oldest \d+ seconds so far|No answer on that after \d+ seconds"
@@ -320,14 +320,24 @@ STATUS = re.compile(r"Still working on that in Hermes|Still on that in Hermes, \
 ACTION_WORDS = re.compile(r"\b(start|kick\s*(?:it\s*)?off|run|set\s*up|approve|reject|eject|install|fix|deploy|launch|"
                           r"restart|begin|build|schedule|spin\s*up|encrypt)\b", re.I)
 QUESTION_LEAD = re.compile(r"^\W*(?:(?:and|so|okay|ok|well|hey|um|uh)\W+)*(what|why|how|when|where|who|which|is|are|was|were|"
-                           r"did|does|do|has|have|had|will|would|should)\b", re.I)
+                           r"did|does|do|has|have|had|will|would|should|tell|show|list|explain|describe|give|read|look|check|find|"
+                           r"summari[sz]e|report)\b", re.I)
 POLITE_LEAD = re.compile(r"^\W*(?:(?:and|so|okay|ok|well|please)\W+)*(?:can|could|would|will)\s+you\b|\b(?:go ahead and|let'?s|"
                          r"i need you to|i want you to|you should|please)\b", re.I)
+# An answer that says it did NOT do the work is honest as it is: no caveat, and the item is blocked, not promised.
+NEGATED = re.compile(r"\b(did not|didn't|could not|couldn't|can't|cannot|unable|wasn't able|was not able|haven't|hasn't|have not|"
+                     r"has not|never|failed|fails|refused|blocked|not (?:started|run|running|possible|done|able|yet)|"
+                     r"nothing (?:started|ran|was)|need(?:s)? (?:you|your))\b", re.I)
 # What a background agent says when it claims the work moved: started, running, done.
-CLAIMS_WORK = re.compile(r"\b(started|kicked\s+(?:it\s+)?off|kicking\s+off|launched|launching|(?:is|are|it.s|now)\s+running|running\s+now|"
-                         r"now running|spun up|spinning up|scheduled|queued up|dispatched|underway|in progress|"
-                         r"on it|working on it|done|finished|completed|ejected|installed|approved|rejected|deployed|"
-                         r"fixed|set up|begun|began|going now|kicked)\b", re.I)
+CLAIMS_WORK = re.compile(
+    r"\bi(?:'ve|\s+have|\s+just)?\s+(?:now\s+)?(?:started|kicked(?:\s+it)?\s+off|launched|scheduled|queued|dispatched|spun\s+up|"
+    r"ejected|installed|approved|rejected|deployed|fixed|set\s+up|begun|created|restarted|ran)\b"
+    r"|\bkicked\s+(?:it\s+|that\s+|them\s+)?off\b|\bkicking\s+off\b|\bon\s+it\b|\bunderway\b"
+    r"|\b(?:it|that|they)(?:'s|'re|\s+is|\s+are|\s+was|\s+were)\s+(?:now\s+)?(?:started|running|launched|scheduled|ejected|"
+    r"installed|approved|rejected|deployed|fixed|done|finished|completed|queued|going)\b"
+    r"|\bnow\s+(?:running|working)\b|\brunning\s+now\b|^\W*(?:done|started|launched|ejected|installed|deployed)\b", re.I)
+PROMISES_WORK = re.compile(r"\b(?:i'?ll|i will|i'?m going to|going to|let me|gonna|i can)\s+(?:go\s+)?(?:start|kick|run|set|launch|begin|"
+                           r"spin|deploy|fix|install|eject|schedule|build|get (?:it|that|them) (?:going|started))\b", re.I)
 PROOF_LINE = re.compile(r"^\W*PROOF:\s*(pid|kanban|cron|commit|file)\s+(\S+)\s*(.*)$", re.I | re.M)
 NOT_CONFIRMED = "I haven't confirmed it started."
 DONE_WORDS = re.compile(r"\b(done|finished|completed|ejected|installed|approved|rejected|deployed|fixed|pushed|merged)\b", re.I)
@@ -352,12 +362,33 @@ def split_proof(answer: str):
 
 
 def unproven_claim(answer: str) -> str:
-    """The answer with the honest caveat: a short claim ("Kicked it off.") is replaced, a longer answer keeps its
-    words and says the start is unconfirmed."""
-    text = " ".join(answer.split())
-    if len(text) <= 140:
-        return "I haven't confirmed that started; I have no proof it ran."
-    return f"{text} {NOT_CONFIRMED}"
+    """The agent's own words, plus the honest caveat: never discard what it said."""
+    return f"{' '.join(answer.split())} {NOT_CONFIRMED}"
+
+
+def proof_exists(kind: str, ref: str, profile: str = "") -> bool:
+    """Does a PROOF line's ref exist? file: the path; pid: a live process; kanban/cron: the Hermes CLI knows the id;
+    commit: some local repo has the object. Blocking (subprocess): call it off the event loop."""
+    ref = str(ref).strip()
+    try:
+        if kind == "file":
+            return Path(ref).expanduser().exists()
+        if kind == "pid":
+            os.kill(int(ref), 0)
+            return True
+        flags = ["-p", profile] if profile else []
+        if kind == "kanban":
+            return subprocess.run([HERMES_BIN, *flags, "kanban", "show", ref], capture_output=True, timeout=10).returncode == 0
+        if kind == "cron":
+            out = subprocess.run([HERMES_BIN, *flags, "cron", "list"], capture_output=True, timeout=10, text=True)
+            return out.returncode == 0 and ref in out.stdout
+        if kind == "commit" and re.fullmatch(r"[0-9a-f]{7,40}", ref):
+            repos = [Path.home() / "workspace/repos" / d for d in os.listdir(Path.home() / "workspace/repos")]
+            return any(subprocess.run(["git", "-C", str(r), "cat-file", "-e", ref + "^{commit}"], capture_output=True,
+                                      timeout=10).returncode == 0 for r in repos if (r / ".git").exists())
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return False
+    return False
 # Delegated requests run as background agents beside the chat (2.8-16 s on 11-27) even when it is idle: chat turns
 # took 24.9-338 s. Z0LIVE_CHAT_TURNS=1 puts a request into an idle chat's own turn instead (never a running one).
 CHAT_TURNS = os.environ.get("Z0LIVE_CHAT_TURNS", "") == "1"
@@ -2053,7 +2084,7 @@ class Call:
             self.counts["host_delegation_ok"] += 1
             self.trace("delegation.done", did=did, s=round(time.monotonic() - began, 3), answer=answer[:4000],
                        closed=self.closed)
-            answer = self.ledger_answer(did, answer)
+            answer = await self.ledger_answer(did, answer)
             # Tier lanes: Hermes is skipped when everything it says was already spoken (answer within said).
             if lane and covered and (covered(answer, lane, request) if TIERS_ON else covered(lane, answer, request)):
                 self.counts["host_delegation_covered"] += 1  # the lane already said it
@@ -2095,6 +2126,11 @@ class Call:
             self.counts["ledger_errors"] += 1
             return None
 
+    @property
+    def ledger_call(self) -> str:
+        """The ledger's call key: the trace stem's hex (what the conductor and the TV call this call)."""
+        return self.id.split("-")[-1]
+
     def ledger_open(self, did, request):
         """Every delegation is one ledger item. An action also gets the background agent's launch as a claim: that
         is a promise with no proof until the agent (or a job) records a receipt."""
@@ -2102,7 +2138,7 @@ class Call:
             return
         try:
             kind = request_kind(request)
-            item = request_ledger.open_item(self.id, request, kind, "background")
+            item = request_ledger.open_item(self.ledger_call, request, kind, "background")
         except Exception as exc:  # noqa: BLE001
             LOG.warning("ledger open failed id=%s: %s", self.id, type(exc).__name__)
             self.counts["ledger_errors"] += 1
@@ -2124,17 +2160,19 @@ class Call:
         it = self.ledger_item(did)
         return bool(it and it["kind"] == "action" and not it["proven"] and it["state"] not in request_ledger.TERMINAL)
 
-    def ledger_answer(self, did, answer: str) -> str:
+    async def ledger_answer(self, did, answer: str) -> str:
         """Record a background agent's answer and keep it honest. A question's answer is its result. An action's
-        answer is a claim: it becomes a result only with proof on the item and done words in it; if it says the work
-        started or finished and the item has no proof, the voice says it has not confirmed that (the item stays a
-        claim, not started)."""
+        answer is a claim: PROOF lines are checked (proof_exists) and recorded as receipts; it becomes a result only with
+        proof and done words; if it says the work started or finished and the item has no proof, its own words are
+        spoken with "I haven't confirmed it started" (the item stays a claim, not started). An answer that says it
+        did NOT do the work blocks the item instead of leaving a promise."""
         item = self.item_of.get(did)
         if not item:
             return answer
         text, proofs = split_proof(answer)
         for kind, ref, detail in proofs:
-            if kind == "file" and not Path(ref).expanduser().exists():
+            ok = await asyncio.to_thread(proof_exists, kind, ref, self.profile)
+            if not ok:
                 self.counts["ledger_proof_rejected"] += 1
                 self.trace("ledger.proof_rejected", did=did, item=item, kind=kind)
                 continue
@@ -2145,15 +2183,31 @@ class Call:
         if it["kind"] != "action":
             self.ledger_do(request_ledger.result, item, "background", text)
             return text
-        self.ledger_do(request_ledger.claim, item, "background", text[:500])
-        claims = bool(CLAIMS_WORK.search(text))
-        if claims and not it["proven"]:
+        if not it["proven"] and self.claims_work(text):
+            self.ledger_do(request_ledger.claim, item, "background", text[:500])
             self.counts["unproven_claims"] += 1
             self.trace("ledger.unproven_claim", did=did, item=item)
             return unproven_claim(text)
-        if it["proven"] and DONE_WORDS.search(text) and not RUNNING_WORDS.search(text):
+        if not it["proven"]:  # no claim and no proof: it did not start
+            if NEGATED.search(text):  # a refusal, a failure or a decision it needs from Kevin
+                self.ledger_do(request_ledger.state, item, "blocked", "background", text[:500])
+            else:  # an informational answer to a request that only looked like an action
+                self.ledger_do(request_ledger.result, item, "background", text)
+            return text
+        self.ledger_do(request_ledger.claim, item, "background", text[:500])
+        if DONE_WORDS.search(text) and not RUNNING_WORDS.search(text):
             self.ledger_do(request_ledger.result, item, "background", text)
         return text
+
+    def tier_claims_work(self, did, text: str) -> bool:
+        """A tier lane has no tools: for an action its words must not say work started or finished."""
+        return bool((self.ledger_item(did) or {}).get("kind") == "action" and self.claims_work(text))
+
+    @staticmethod
+    def claims_work(text: str) -> bool:
+        """One of the first two sentences says work started, finished or is about to be started, and does not say it did not."""
+        return any((CLAIMS_WORK.search(sent) or PROMISES_WORK.search(sent)) and not NEGATED.search(sent)
+                   for sent in re.split(r"(?<=[.!?])\s+|\n+", text.strip())[:2])  # the verdict leads
 
     def lane_command(self, did, request):
         """A spoken lane command ("add two opus lanes", "drop the sol lanes", "how many lanes do I have") changes or
@@ -2188,7 +2242,7 @@ class Call:
         spoke a garbled merge. Lanes go quiet once a newer request starts or Hermes answers."""
         began, cfg = time.monotonic(), tiers.load()
         context = tiers.snapshot(self.context_text, list(self.protocol.exchanges), live=live_picture(),
-                                 ledger=self.ledger_brief(did, 2500))
+                                 ledger=self.ledger_brief(did, 2500, proof_rule=False))
         said = self.__dict__.setdefault("tier_said", {}).setdefault(did, [])
 
         async def one(name):
@@ -2200,6 +2254,9 @@ class Call:
                        s=round(time.monotonic() - began, 3))
             quiet = (self.closed or getattr(self, "latest_did", did) != did
                      or did in self.__dict__.get("hermes_done", set()))
+            if text and self.tier_claims_work(did, text):
+                self.trace("lanes.tier_claim_held", did=did, tier=name)  # no tools: it cannot have started anything
+                text = ""
             if text and not quiet and not said and self.say_first(did, text):
                 said.append(text)
                 self.counts["tier_first_spoken"] += 1
@@ -2569,15 +2626,15 @@ class Call:
         self.counts["background_turns"] += 1
         return answer
 
-    def ledger_brief(self, did=None, max_chars: int = 4000) -> str:
+    def ledger_brief(self, did=None, max_chars: int = 4000, proof_rule: bool = True) -> str:
         """What the next agent must read to know this call: earlier answers, promises, proof and results, the current
         request marked. For an action it also says how to prove the work started."""
         try:
-            text = request_ledger.brief(self.id, max_chars, current=self.item_of.get(did))
+            text = request_ledger.brief(self.ledger_call, max_chars, current=self.item_of.get(did))
         except Exception:  # noqa: BLE001
             return ""
         item = self.item_of.get(did)
-        if text and item and (self.ledger_item(did) or {}).get("kind") == "action":
+        if text and item and proof_rule and (self.ledger_item(did) or {}).get("kind") == "action":
             text += (f"\n\nThis request ({item}) is an action. Do not say it started, is running or is done unless you "
                      f"started it and can prove it: end your answer with one line `PROOF: <pid|kanban|cron|commit|file> "
                      f"<id, sha or path>` (a kanban card id, a cron job id, a process id, a commit, or a file you "

@@ -982,7 +982,7 @@ class RequestLedgerHelpers(unittest.TestCase):
             self.assertEqual(live.request_kind(text), "action", text)
         for text in ("What's running right now", "how is the sweep going", "Is the watering job running",
                      "what did the last run find", "Why did the deploy fail", "tell me about the ferns",
-                     "how many lanes are running", "did it start"):
+                     "how many lanes are running", "did it start", "Tell me what the last run found"):
             self.assertEqual(live.request_kind(text), "question", text)
 
     def test_proof_lines_are_split_off_the_spoken_answer(self):
@@ -992,12 +992,25 @@ class RequestLedgerHelpers(unittest.TestCase):
         self.assertEqual(live.split_proof("Nothing started, the drive is read-only.")[1], [])
 
     def test_claim_words_and_the_caveat(self):
-        for claim in ("Kicked it off.", "It's running now.", "Done, the drive is ejected.", "I started the sweep."):
+        for claim in ("Kicked it off.", "It's running now.", "Done, the drive is ejected.", "I started the sweep.", "Started it, no problems."):
             self.assertTrue(live.CLAIMS_WORK.search(claim), claim)
         for plain in ("I can't do that without sudo.", "The sweep needs your decision on the drive."):
             self.assertFalse(live.CLAIMS_WORK.search(plain), plain)
-        self.assertIn("haven't confirmed", live.unproven_claim("Kicked it off."))
+        self.assertEqual(live.unproven_claim("Kicked it off."), "Kicked it off. I haven't confirmed it started.")
         self.assertTrue(live.unproven_claim("x " * 100 + "started").endswith("I haven't confirmed it started."))
+        for honest in ("Nothing started, the drive is read-only.", "I couldn't start it without sudo.",
+                       "It has not started yet; it needs your decision."):
+            self.assertFalse(live.Call.claims_work(honest), honest)
+        self.assertTrue(live.Call.claims_work("Started it, no problems."))
+
+    def test_proof_exists_checks_the_thing(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile() as f:
+            self.assertTrue(live.proof_exists("file", f.name))
+        self.assertFalse(live.proof_exists("file", "/nonexistent/z0live-proof"))
+        self.assertTrue(live.proof_exists("pid", str(os.getpid())))
+        self.assertFalse(live.proof_exists("pid", "999999999"))
+        self.assertFalse(live.proof_exists("commit", "not-a-sha"))
 
     def test_the_unproven_line_is_a_status_line_and_promises_nothing(self):
         self.assertTrue(live.status_line(live.UNPROVEN))

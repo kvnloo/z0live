@@ -56,6 +56,9 @@ class Call:
     say_first = live.Call.say_first
     ledger_brief = live.Call.ledger_brief
     ledger_item = live.Call.ledger_item
+    tier_claims_work = live.Call.tier_claims_work
+    ledger_call = live.Call.ledger_call
+    claims_work = live.Call.claims_work
 
     def __init__(self):
         self.id, self.item_of = "call-x", {}

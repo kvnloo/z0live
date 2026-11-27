@@ -89,15 +89,14 @@ def line(lanes: list[dict]) -> str:
 
 
 def earlier_line(lanes: list[dict]) -> str:
-    """One short line for lanes of earlier requests that finished while Kevin had moved on: they are in the ledger and
-    on the TV already; this only says they exist."""
+    """One short line for lanes of earlier requests that finished while Kevin had moved on: their cards are in the
+    ledger and on the TV already; this only says they exist (the words of one, a count for more)."""
     lanes = [ln for ln in lanes if (ln.get("card") or {}).get("summary")]
     if not lanes:
         return ""
-    parts = [f"{who(ln)}: {first_sentence(ln['card']['summary'], 100)}" for ln in lanes[:2]]
-    more = len(lanes) - 2
-    head = "An earlier lane finished. " if len(lanes) == 1 else f"{len(lanes)} earlier lanes finished. "
-    return head + " ".join(parts) + (f" And {more} more on the TV." if more > 0 else "")
+    if len(lanes) == 1:
+        return f"An earlier lane finished. {who(lanes[0])}: {first_sentence(lanes[0]['card']['summary'], 100)}"
+    return f"{len(lanes)} earlier lanes finished; their results are on the TV."
 
 
 def _words(text: str) -> set[str]:
