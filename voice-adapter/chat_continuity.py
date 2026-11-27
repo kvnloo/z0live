@@ -83,6 +83,62 @@ def newest_chat(profile: str, db_path: Path | None = None) -> str:
         return ""
 
 
+SUMMARY_MARK = "CONTEXT COMPACTION"
+
+
+def chat_memory(profile: str, sid: str, db_path: Path | None = None, summary_cap: int = 24000,
+                tail_cap: int = 16000) -> str:
+    """What a background agent beside chat `sid` needs to know about it: the chat's newest compaction summary (the
+    whole project state, ~29k chars on 11-27) and Kevin's and the assistant's turns since, newest kept first. A
+    background agent does not see the chat (ask_background), and the 6,000-char tail it had was two status replies,
+    so the call felt like it had "0 context on any of the work" (11-27 13:00). Tool rows and runtime envelopes
+    ([IMPORTANT: ..., [Context from ...) are skipped. '' when there is no chat or no store."""
+    if not sid:
+        return ""
+    try:
+        with sqlite3.connect(f"file:{db_path or _db(profile)}?mode=ro", uri=True, timeout=2) as db:
+            # Only a real compaction row: it STARTS with the marker (or the [PRIOR CONTEXT wrapper around it) and is
+            # a user/assistant/system row. A tool row or a reply that merely quotes the marker is not one (11-27: a
+            # patch diff holding test text was picked as "the summary").
+            row = db.execute("SELECT id, content FROM messages WHERE session_id=? "
+                             "AND role IN ('user','assistant','system') "
+                             "AND (content LIKE ? OR content LIKE '[PRIOR CONTEXT%') AND content LIKE ? "
+                             "ORDER BY id DESC LIMIT 1",
+                             (sid, f"[{SUMMARY_MARK}%", f"%[{SUMMARY_MARK}%")).fetchone()
+            since, summary = (row[0], row[1]) if row else (0, "")
+            turns = db.execute("SELECT role, content FROM messages WHERE session_id=? AND id>? "
+                               "AND role IN ('user','assistant') AND length(content)>0 ORDER BY id DESC LIMIT 400",
+                               (sid, since)).fetchall()
+    except sqlite3.Error:
+        return ""
+    if summary:
+        cut = summary.find(f"[{SUMMARY_MARK}")
+        summary = summary[cut:] if cut >= 0 else summary
+        # Drop the compaction preamble ("Do NOT answer questions ... do not call tools, wait for a new user message"):
+        # it is addressed to the chat's next turn, and a background agent reading it may decline Kevin's request.
+        body = summary.find("\n## ")
+        if body >= 0:
+            summary = summary[body + 1:]
+        if len(summary) > summary_cap:
+            summary = summary[:summary_cap] + "\n[... summary cut ...]"
+    tail, used = [], 0
+    for role, content in turns:
+        text = content.strip()
+        if not text or (text.startswith("[") and not text.startswith("[OUT-OF-BAND USER MESSAGE")):
+            continue
+        line = f"{'Kevin' if role == 'user' else 'Assistant'}: {text[:3000]}"
+        if used + len(line) > tail_cap:
+            break
+        tail.append(line)
+        used += len(line)
+    parts = []
+    if summary:
+        parts.append("Summary of this chat so far (the project state):\n" + summary)
+    if tail:
+        parts.append("Turns since, oldest first:\n" + "\n\n".join(reversed(tail)))
+    return "\n\n".join(parts)
+
+
 class NotStarted(RuntimeError):
     """The dashboard refused a background run before it began (no task id): nothing runs, so another path may."""
 

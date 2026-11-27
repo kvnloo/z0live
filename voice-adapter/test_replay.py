@@ -176,6 +176,27 @@ class ReplayContract(unittest.TestCase):
                 + turn(10, 11, "assistant", "One sec.", "a1") + hermes("d1", 4, "Just the dentist at nine thirty."))
         self.assertEqual(run(rows)["receipt_s"], {})
 
+    def test_a_background_agent_gets_the_chats_summary_and_where_to_search(self):
+        # 11-27 13:00: background agents saw ~6,000 chars of chat ("0 context on any of the work"). Each now gets the
+        # chat's summary + turns since (chat_memory) and the chat id to search.
+        from unittest.mock import patch
+        import chat_continuity
+        rows = (turn(5, 10, "user", "What did we decide about the TV text layer?", "u1")
+                + delegation(9.8, "d1", "What did we decide about the TV text layer?")
+                + turn(10, 11, "assistant", "One sec.", "a1") + hermes("d1", 4, "Keep the PNG layer."))
+        seen = []
+
+        def memory(profile, sid, *a, **k):
+            seen.append(sid)
+            return "Summary of this chat so far (the project state):\nTV keeps the PNG text layer (11-27)."
+        with patch.object(chat_continuity, "chat_memory", memory):
+            sent = self.last_submitted(rows)
+        self.assertTrue(seen and seen[0])
+        prompt = sent[0][2]
+        self.assertIn("TV keeps the PNG text layer", prompt)
+        self.assertIn(f"session_id={seen[0]}", prompt)
+        self.assertTrue(prompt.rstrip().endswith("Request: What did we decide about the TV text layer?"))
+
     def last_submitted(self, rows):
         import asyncio
         r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows)

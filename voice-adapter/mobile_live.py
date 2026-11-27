@@ -2345,8 +2345,12 @@ class Call:
 
     async def ask_background(self, did, request, sid):
         self.hermes_path[did] = "background"
+        # A read-only indexed read, 0.4 ms on tek's 265k-message store (11-27); inline, so the replay clock never
+        # advances under it the way a thread hop let it.
+        memory = chat_continuity.chat_memory(self.profile, sid)
+        self.trace("delegation.memory", did=did, chat=sid, chars=len(memory))
         answer = await asyncio.wait_for(chat_continuity.ask_background(
-            self.manager.http, self.token, self.profile, sid, self.side_request(request),
+            self.manager.http, self.token, self.profile, sid, self.side_request(request, memory, sid),
             lambda task: self.trace("delegation.background", did=did, task=task)),
             DELEGATION_TIMEOUT_SECONDS)
         self.counts["background_turns"] += 1
@@ -2373,10 +2377,16 @@ class Call:
         self.trace("delegation.hermes", did=did, running=len(self.host_slots.running))
         return await asyncio.to_thread(run_hermes, request, self.profile, True)
 
-    def side_request(self, request):
-        """A background agent's prompt: it starts fresh, so it gets the call's brief, the chat it opened from and the
-        call's recent words with the request (host_context), or at least the call's recent words."""
+    def side_request(self, request, memory: str = "", sid: str = ""):
+        """A background agent's prompt: it starts fresh, so it gets the chat's summary and turns since (memory,
+        chat_continuity.chat_memory), the call's brief, the chat it opened from and the call's recent words with the
+        request (host_context), or at least the call's recent words."""
         context = self.host_context()
+        if memory:
+            look = (f" For anything older or not covered here, search that chat first (session_search with "
+                    f"session_id={sid}) before answering; never say you lack context." if sid else "")
+            context = (f"You are answering beside Kevin's main chat with his agent; you share its work and "
+                       f"history.{look}\n\n{memory}" + (f"\n\n{context}" if context else ""))
         if context:
             return context + "\n\nRequest: " + request
         said = "\n".join(f"{'Kevin' if role == 'user' else 'Voice'}: {text[:400]}"

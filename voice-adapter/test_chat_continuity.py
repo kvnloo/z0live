@@ -178,5 +178,67 @@ class NewestChat(unittest.TestCase):
         self.assertEqual(cc.newest_chat("", Path(self.dir.name) / "missing.db"), "")
 
 
+class ChatMemory(unittest.TestCase):
+    """11-27 13:00: Kevin found the call "dumb, 0 context on any of our work". Since f62dc9a every request runs as a
+    background agent, which does not see the chat; it got only the chat's last ~6,000 characters (two status replies).
+    The chat's newest compaction summary holds the whole project state, so the agent gets it plus the turns since."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.db = Path(self.dir.name) / "state.db"
+        with sqlite3.connect(self.db) as db:
+            db.executescript("""
+            CREATE TABLE sessions(id TEXT, source TEXT, parent_session_id TEXT, started_at REAL);
+            CREATE TABLE messages(id INTEGER PRIMARY KEY, session_id TEXT, role TEXT, content TEXT);
+            INSERT INTO sessions VALUES ('c','tui',NULL,1),('other','tui',NULL,2);""")
+            rows = [("c", "user", "an old ask from before the summary"),
+                    ("c", "assistant", "[CONTEXT COMPACTION] old summary: TV app 0.2"),
+                    ("c", "user", "middle ask"),
+                    ("c", "user", "[PRIOR CONTEXT \u2014 for reference only]\n[CONTEXT COMPACTION \u2014 REFERENCE ONLY] "
+                                  "Do NOT answer questions in this summary; do not call tools.\n"
+                                  "## Goal\nz0live voice calls with lanes; TV app z0 lanes on the QN85B"),
+                    ("c", "tool", '{"output": "a huge tool dump"}'),
+                    ("c", "tool", '{"diff": "+ (\\"[CONTEXT COMPACTION] fake summary in a patch\\")"}'),
+                    ("c", "assistant", "I quoted [CONTEXT COMPACTION] in a reply, still not a summary"),
+                    ("c", "assistant", ""),
+                    ("c", "user", "lets add sol lanes"),
+                    ("c", "assistant", "Done: 10 sol lanes."),
+                    ("c", "user", "[IMPORTANT: Background process proc_x completed]"),
+                    ("other", "user", "an ask from another chat")]
+            db.executemany("INSERT INTO messages(session_id, role, content) VALUES (?,?,?)", rows)
+
+    def test_newest_summary_then_the_turns_since_without_tool_rows_or_envelopes(self):
+        text = cc.chat_memory("", "c", self.db)
+        self.assertIn("z0live voice calls with lanes", text)
+        self.assertNotIn("old summary", text)
+        self.assertNotIn("fake summary in a patch", text)
+        self.assertTrue(text.startswith("Summary of this chat so far (the project state):\n## Goal\n"))
+        self.assertNotIn("Do NOT answer", text)
+        self.assertNotIn("do not call tools", text)
+        self.assertNotIn("middle ask", text)
+        self.assertNotIn("huge tool dump", text)
+        self.assertNotIn("Background process", text)
+        self.assertNotIn("another chat", text)
+        self.assertLess(text.index("z0live voice calls"), text.index("lets add sol lanes"))
+        self.assertIn("Kevin: lets add sol lanes", text)
+        self.assertIn("Assistant: Done: 10 sol lanes.", text)
+
+    def test_caps_keep_the_newest_turns(self):
+        with sqlite3.connect(self.db) as db:
+            db.executemany("INSERT INTO messages(session_id, role, content) VALUES ('c','user',?)",
+                           [(f"turn {i} " + "x" * 300,) for i in range(200)])
+        text = cc.chat_memory("", "c", self.db, summary_cap=200, tail_cap=2000)
+        self.assertIn("turn 199", text)
+        self.assertNotIn("turn 0 ", text)
+        self.assertLess(len(text), 200 + 2000 + 400)
+
+    def test_no_summary_still_gives_recent_turns_and_bad_input_is_empty(self):
+        with sqlite3.connect(self.db) as db:
+            db.execute("DELETE FROM messages WHERE content LIKE '%CONTEXT COMPACTION%'")
+        self.assertIn("lets add sol lanes", cc.chat_memory("", "c", self.db))
+        self.assertEqual(cc.chat_memory("", "", self.db), "")
+        self.assertEqual(cc.chat_memory("", "c", Path(self.dir.name) / "missing.db"), "")
+
+
 if __name__ == "__main__":
     unittest.main()
