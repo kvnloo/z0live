@@ -3091,6 +3091,7 @@ def make_app():
     app.router.add_post(PATH, progress)
     app.router.add_post(passthru.PATH, passthru.control)
     app.router.add_get("/_z0live/ready", health)
+    app.router.add_get("/health", health)
     app.router.add_get("/_z0live/version", version)
     app.router.add_get("/api/audio/voice-live/status", status)
     app.router.add_post("/api/audio/voice-live/session", session)
