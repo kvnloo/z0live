@@ -319,7 +319,7 @@ LANES_SCHEMA = {
     "description": ("The model lanes attached to Kevin's conversation, one instant call; the voice call and the TV "
                     "conductor both read this layout. action=list shows it. add/remove/set change it: 'add 3 sol "
                     "lanes' -> action=add, model=sol, count=3. Models: haiku, sonnet, opus, sol (GPT 6.2 Sol), sr "
-                    "(semantic router, free hosts), fable (worker only). role: research (default; worker lanes, the "
+                    "(semantic router, free hosts), fable (worker only). Caps: 6 answer lanes per tier, 18 worker lanes per model, 30 in all; an error lists the valid choices. role: research (default; worker lanes, the "
                     "TV agents that work an ask for minutes), voice (answer lanes that race on every spoken request, "
                     "in the model's home tier: haiku fast, sonnet/sol medium, opus slow), or fast/medium/slow. "
                     "Without a count, remove drops all of that model from that role. Returns the new layout and a "
@@ -328,7 +328,7 @@ LANES_SCHEMA = {
     "parameters": {"type": "object", "additionalProperties": False, "properties": {
         "action": {"type": "string", "enum": list(LAYOUT_ACTIONS)},
         "model": {"type": "string", "enum": ["haiku", "sonnet", "opus", "sol", "sr", "fable"]},
-        "count": {"type": "integer", "minimum": 0, "maximum": 12},
+        "count": {"type": "integer", "minimum": 0, "maximum": 18},
         "role": {"type": "string", "enum": ["research", "voice", "fast", "medium", "slow"]},
         "request": {"type": "string"},
     }},
