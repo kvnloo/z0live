@@ -59,7 +59,7 @@ def _append(event: dict) -> None:
     event = {"t": time.time(), **event}
     line = (json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n").encode()
     directory().mkdir(parents=True, exist_ok=True)
-    fd = os.open(path(), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    fd = os.open(path(), os.O_RDWR | os.O_APPEND | os.O_CREAT, 0o644)
     try:
         locked = False
         for _ in range(20):  # at most ~0.2 s: a stuck writer must not stall the caller's loop
