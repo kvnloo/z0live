@@ -7,8 +7,9 @@ compress_brief(text, budget_chars) returns a verbatim, in-order subset of the br
      line up to the next asker line; the asker is the first speaker seen) and trailer lines (after the last
      exchange, e.g. a Status line);
   3. header and trailer are always kept, then exchanges are added greedily in this priority order, each only if it
-     still fits: "fact" exchanges shortest first (C1-ctx-compress-r4; equal sizes newest first; was: newest
-     first), then filler spread evenly over the chat (every other filler
+     still fits: "fact" exchanges shortest first (C1-ctx-compress-r4; was: newest first) by size band
+     (C1-ctx-compress-r6: facts within 10% of the band's shortest are tried newest first; was: equal sizes only),
+     then filler spread evenly over the chat (every other filler
      exchange counted back from the newest older filler, newest first; then the skipped fillers, newest first, only
      if budget is left; C56-live-compress-r3, was: all filler newest first), then a filler newest exchange last
      (C56-live-compress-r4, was: the newest exchange always kept first). An exchange is
@@ -27,6 +28,7 @@ SPEAKER = re.compile(r"^([A-Z][\w .'-]{0,30}): ")
 # speakers too. Used only when the capitalised parse finds no speaker pair, so capitalised briefs are byte-identical.
 SPEAKER_ANY_CASE = re.compile(r"^([A-Z][\w .'-]{0,30}): ", re.IGNORECASE)
 FACT_REPLY_CHARS = 200
+FACT_BAND = 0.10  # C1-ctx-compress-r6: facts within 10% of a band's shortest fact are tried newest first
 
 
 def _label(line, pattern=SPEAKER):
@@ -62,6 +64,21 @@ def _size(chunks):
     return n - 1 if n else 0  # newline joins
 
 
+def _fact_order(exchanges, idx):
+    """C1-ctx-compress-r6: tiered fact key. Facts are cut into size bands, shortest band first; a band starts at the
+    shortest fact not yet placed and holds every fact up to FACT_BAND (10%) longer than that one. Inside a band the
+    facts are tried newest first, so of two near-equal facts the newer (which may supersede the older) wins.
+    Was (r4): strict size ascending, newest first only on exactly equal sizes."""
+    left = sorted(idx, key=lambda i: (_size([exchanges[i]]), -i))
+    order = []
+    while left:
+        top = _size([exchanges[left[0]]]) * (1 + FACT_BAND)
+        band = [i for i in left if _size([exchanges[i]]) <= top]
+        order += sorted(band, reverse=True)
+        left = [i for i in left if _size([exchanges[i]]) > top]
+    return order
+
+
 def compress_brief(text: str, budget_chars: int) -> str:
     if budget_chars <= 0 or not text:
         return ""
@@ -85,7 +102,7 @@ def compress_brief(text: str, budget_chars: int) -> str:
     # C1-ctx-compress-r4: facts are tried by density, shortest exchange first (stable sort, so equal sizes stay newest
     # first), so a one-line user statement is not crowded out by newer facts with long explanatory replies
     # (was: all facts newest first).
-    facts = sorted((i for i in reversed(range(n)) if fact[i]), key=lambda i: _size([exchanges[i]]))
+    facts = _fact_order(exchanges, [i for i in range(n) if fact[i]])
     order = facts + filler[0::2] + filler[1::2] + ([] if fact[n - 1] else [n - 1])
     keep = set()
     for i in order:
