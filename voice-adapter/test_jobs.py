@@ -38,12 +38,17 @@ STUB_LEDGER = '''
 import json, os
 P = os.environ["STUB_LEDGER_LOG"]
 def _w(*a):
-    open(P, "a").write(json.dumps(a) + "\\n")
+    with open(P, "a") as f:
+        f.write(json.dumps(a) + "\\n")
 def open_item(call, text, kind, owner): _w("open_item", call, text, kind, owner); return "r-1"
 def claim(id, by, note): _w("claim", id, by, note)
 def receipt(id, by, kind, ref, detail=""): _w("receipt", id, by, kind, ref)
 def result(id, by, text, ok=True, refs=()): _w("result", id, text, ok)
 def state(id, s, by, why=""): _w("state", id, s, why)
+def items(call=None, open_only=False):
+    p = os.environ.get("STUB_LEDGER_ITEMS")
+    rows = json.load(open(p)) if p and os.path.exists(p) else []
+    return [r for r in rows if call is None or r["call"] == call]
 '''
 
 
@@ -67,7 +72,7 @@ class JobsTest(unittest.TestCase):
 
     def tearDown(self):
         sys.path.remove(str(HERE))
-        for k in ("Z0LIVE_JOBS", "Z0LIVE_HERMES", "FAKE_BOARD", "Z0LIVE_LEDGER_PY", "STUB_LEDGER_LOG", "Z0LIVE_JOB_HERMES_HOME"):
+        for k in ("Z0LIVE_JOBS", "Z0LIVE_HERMES", "FAKE_BOARD", "Z0LIVE_LEDGER_PY", "STUB_LEDGER_LOG", "Z0LIVE_JOB_HERMES_HOME", "STUB_LEDGER_ITEMS"):
             os.environ.pop(k, None)
 
     def led(self):
@@ -92,6 +97,56 @@ class JobsTest(unittest.TestCase):
         create = [c for c in json.loads(self.board.read_text())["calls"] if c[1] == "create"][0]
         self.assertIn("--goal", create)
         self.assertIn("never service_tier", create[create.index("--body") + 1])
+
+    def test_same_ask_twice_is_one_job_without_an_item(self):
+        a = self.jobs.start("Improve the made-up gadget", call="c2")
+        b = self.jobs.start("Improve the made-up gadget", call="c2")
+        self.assertEqual((a["id"], b["id"], b.get("again")), ("t_fake1", "t_fake1", True))
+        self.assertEqual([x[0] for x in self.led()].count("open_item"), 1)
+        self.assertEqual(len(json.loads(self.board.read_text())["tasks"]), 1)
+
+    def test_proof_goes_on_the_item_the_adapter_opened(self):
+        items = self.tmp / "items.json"
+        items.write_text(json.dumps([{"id": "rA", "call": "c3", "kind": "action", "proven": False},
+                                     {"id": "rQ", "call": "c3", "kind": "question", "proven": False}]))
+        os.environ["STUB_LEDGER_ITEMS"] = str(items)
+        r = self.jobs.start("Run the made-up sweep", call="c3")
+        self.assertEqual(r["item"], "rA")
+        self.assertNotIn("open_item", [x[0] for x in self.led()])
+        self.assertIn(["receipt", "rA", "job", "kanban", r["id"]], self.led())
+
+    def test_unclaimed_job_goes_blocked_on_the_ledger_then_recovers(self):
+        r = self.jobs.start("widget six", item="r-6")
+        job = self.jobs._read(r["id"])
+        job["created"] -= 400
+        self.jobs._write(job)
+        self.jobs.status(r["id"])
+        self.assertIn(["state", "r-6", "blocked", "no worker claimed the job in 5 min (ready)"], self.led())
+        n = len(self.led())
+        self.jobs.status(r["id"])
+        self.assertEqual(len(self.led()), n)  # said once
+        self.set_board(r["id"], status="running")
+        self.assertEqual(self.jobs.status(r["id"])["state"], "running")
+
+    def test_cli_every_verb(self):
+        import contextlib
+        import io
+
+        def run(*argv):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                rc = self.jobs.main(list(argv))
+            return rc, json.loads(buf.getvalue())
+        rc, out = run("start", "Made-up brief", "--title", "t", "--call", "c5", "--no-goal", "--max-runtime", "10m")
+        self.assertEqual((rc, out["ok"], out["id"]), (0, True, "t_fake1"))
+        self.assertEqual(run("status", "t_fake1")[1]["state"], "waiting")
+        self.assertEqual(len(run("list")[1]["jobs"]), 1)
+        self.assertEqual(len(run("list", "--open")[1]["jobs"]), 1)
+        self.assertTrue(run("sync")[1]["ok"])
+        rc, out = run("start", "pid one", "--engine", "pid", "--cmd", "echo hi", "--workspace", str(self.tmp))
+        self.assertEqual((rc, out["receipt"]["kind"]), (0, "pid"))
+        self.assertEqual(run("stop", "t_fake1")[1]["state"], "dropped")
+        self.assertEqual(run("status", "nope")[0], 1)
 
     def test_sync_waits_then_runs_then_done_once(self):
         r = self.jobs.start("widget", item="r-9")
