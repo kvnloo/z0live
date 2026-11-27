@@ -5,6 +5,8 @@ shortest-first order (equal sizes newest first).
 
 bench/brief_compress_r4.py is the frozen r4 compress_brief (sha256 5a88bc8b...). Behaviour tests where r7 differs
 are red on r4 and green on r7.
+C1-ctx-compress-r9: these tests now run on bench/brief_compress_r7.py (frozen r7 byte copy); r9 tests:
+test_brief_compress_r9.
 """
 import sys
 import unittest
@@ -12,7 +14,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "bench"))
-import brief_compress  # noqa: E402
+import brief_compress_r7 as brief_compress  # noqa: E402  (r9: r7 semantics pinned to the frozen r7 copy)
 import brief_compress_r4 as r4  # noqa: E402
 import ctx_compress_r2_eval as harness  # noqa: E402
 import ctx_compress_r6_eval as r6eval  # noqa: E402

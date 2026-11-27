@@ -8,6 +8,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "bench"))
 import brief_compress  # noqa: E402
+import brief_compress_r7  # noqa: E402
 import context_eval  # noqa: E402
 import ctx_compress_r2_eval as r2  # noqa: E402
 import ctx_compress_r6_eval as r6  # noqa: E402
@@ -39,7 +40,9 @@ def find(ex, value):
 
 class R8Suite(unittest.TestCase):
     def test_production_is_r7(self):
-        self.assertEqual(hashlib.sha256((HERE / "brief_compress.py").read_bytes()).hexdigest(), R7_PRODUCTION_SHA256)
+        # C1-ctx-compress-r9: production moved to r9; the r7 code is the frozen bench copy (byte-identical)
+        self.assertEqual(hashlib.sha256((HERE / "bench" / "brief_compress_r7.py").read_bytes()).hexdigest(),
+                         R7_PRODUCTION_SHA256)
 
     def test_shape_and_sizes(self):
         suite = r8.r8_suite()
@@ -89,7 +92,14 @@ class R8Suite(unittest.TestCase):
             self.assertTrue(all(brief_compress._slot(e) is None for e in ex if " note " in e[0]))
 
     def test_dry_prediction(self):
-        for row in r8.dry(r8.r8_suite()):
+        # C1-ctx-compress-r9: r8's arm B was production r7; pin it to the frozen r7 copy for this recorded prediction
+        saved = r6.COMPRESS["B"]
+        r6.COMPRESS["B"] = lambda b: brief_compress_r7.compress_brief(b, r6.BUDGET)
+        try:
+            rows = r8.dry(r8.r8_suite())
+        finally:
+            r6.COMPRESS["B"] = saved
+        for row in rows:
             for arm in "ABO":
                 self.assertEqual(row[arm]["items"], EXPECTED[arm], (row["scenario"], arm))
             self.assertLessEqual(row["A"]["brief_chars"], r8.BUDGET)

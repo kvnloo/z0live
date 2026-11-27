@@ -9,9 +9,12 @@ compress_brief(text, budget_chars) returns a verbatim, in-order subset of the br
   3. header and trailer are always kept, then exchanges are added greedily in this priority order, each only if it
      still fits: "fact" exchanges shortest first (C1-ctx-compress-r4; equal sizes newest first; was: newest
      first), except that of two or more facts filling the same slot (the asker states the same attribute of their
-     own, "my <subject> is ...", same normalised subject) only the newest is tried, at the best (shortest) priority
-     of the slot's members, and the older ones are dropped (C1-ctx-compress-r7; was: every member tried by its own
-     size, so a slightly shorter stale value could take the budget), then filler spread evenly over the chat (every other filler
+     own, "my <subject> is ...", same normalised subject) a newer member that carries an explicit update cue
+     (CUE: now, changed, instead, no longer, ...) supersedes the older members: it is tried at the best (shortest)
+     priority of itself and the members it replaces, and those are dropped (C1-ctx-compress-r9; r7 superseded on
+     the slot alone, so two different true facts about one noun lost the older one; r4 tried every member by its
+     own size, so a slightly shorter stale value could take the budget). Without a cue every member keeps r4's
+     key, then filler spread evenly over the chat (every other filler
      exchange counted back from the newest older filler, newest first; then the skipped fillers, newest first, only
      if budget is left; C56-live-compress-r3, was: all filler newest first), then a filler newest exchange last
      (C56-live-compress-r4, was: the newest exchange always kept first). An exchange is
@@ -33,6 +36,10 @@ FACT_REPLY_CHARS = 200
 # C1-ctx-compress-r7: a fact's slot is the subject of the asker's first own-attribute statement, "my <1-5 words>
 # is/are/was/were" (case-insensitive, whitespace collapsed). Two facts with the same slot: the newer supersedes.
 SLOT = re.compile(r"\bmy\s+((?:[a-z][\w'-]*\s+){0,4}?[a-z][\w'-]*)\s+(?:is|are|was|were)\b", re.IGNORECASE)
+# C1-ctx-compress-r9: a same-slot member supersedes older ones only if its asker text has an explicit update cue
+# (whole words, case-insensitive). Frozen in the r9 PREREG.
+CUE = re.compile(r"(?<![\w-])(?:now|changed?|instead|new|no\s+longer|not\s+the\s+old|updated?|moved|switched|replaced)"
+                 r"(?![\w-])", re.IGNORECASE)
 
 
 def _label(line, pattern=SPEAKER):
@@ -76,24 +83,34 @@ def _slot(exchange):
     return " ".join(m.group(1).lower().split()) if m else None
 
 
+def _cue(exchange):
+    """C1-ctx-compress-r9: True when the asker line's own text (after the speaker label) has an explicit update cue."""
+    line = exchange[0]
+    lab = _label(line) or _label(line, SPEAKER_ANY_CASE)
+    return CUE.search(line[len(lab) + 2:] if lab else line) is not None
+
+
 def _fact_order(exchanges, idx):
-    """C1-ctx-compress-r7: supersession-aware fact order. Facts sharing a slot (_slot) keep only the newest member,
-    tried at the shortest size among the slot's members; older members are dropped. Every other fact keeps the r4
-    key: size ascending, newest first on equal sizes. With no shared slot the order is exactly r4's."""
-    newest, best = {}, {}
-    for i in idx:
+    """C1-ctx-compress-r9: cue-gated supersession. Every fact starts with the r4 key: size ascending, newest first on
+    equal sizes. For facts sharing a slot (_slot), the newest member that carries an update cue (_cue) supersedes
+    every older member of that slot: they are dropped and it is tried at the shortest size among itself and them.
+    Members newer than it keep their r4 keys. A slot with no cue member (other than its oldest) is left as r4, so
+    with no cue the order is exactly r4's (r7: the newest member always superseded, cue or not)."""
+    members = {}
+    for i in sorted(idx):
         k = _slot(exchanges[i])
         if k is not None:
-            newest[k] = max(newest.get(k, i), i)
-            best[k] = min(best.get(k, _size([exchanges[i]])), _size([exchanges[i]]))
-    keyed = []
-    for i in idx:
-        k = _slot(exchanges[i])
-        if k is None:
-            keyed.append(((_size([exchanges[i]]), -i), i))
-        elif newest[k] == i:
-            keyed.append(((best[k], -i), i))
-    return [i for _, i in sorted(keyed)]
+            members.setdefault(k, []).append(i)
+    key = {i: (_size([exchanges[i]]), -i) for i in idx}
+    drop = set()
+    for ms in members.values():
+        for pos in range(len(ms) - 1, 0, -1):
+            j = ms[pos]
+            if _cue(exchanges[j]):
+                key[j] = (min(_size([exchanges[m]]) for m in ms[:pos + 1]), -j)
+                drop.update(ms[:pos])
+                break
+    return sorted((i for i in idx if i not in drop), key=key.__getitem__)
 
 
 def compress_brief(text: str, budget_chars: int) -> str:
