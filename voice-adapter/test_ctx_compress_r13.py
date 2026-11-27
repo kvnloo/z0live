@@ -9,7 +9,11 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "bench"))
-import brief_compress as bc  # noqa: E402
+# C1-ctx-compress-r14: production brief_compress.py moved on to r14 (label tie-break). These r13 tests pin the r13 rule
+# to its byte copy (bench/brief_compress_r13.py = brief_compress.py at 4ec7dfd, sha256 d788b84a...), and the r13
+# harness's B arm, r13 pre-check arm and attribute module to that copy at import (PRES below is computed at import);
+# restored after the module.
+import brief_compress_r13 as bc  # noqa: E402
 import brief_compress_r4 as r4  # noqa: E402
 import brief_compress_r11 as r11  # noqa: E402
 import ctx_compress_r2_eval as r2  # noqa: E402
@@ -21,6 +25,15 @@ import ctx_compress_r13_eval as r13e  # noqa: E402
 import ctx_compress_r13_verdict as v13  # noqa: E402
 import test_ctx_compress_r10 as t10  # noqa: E402
 from test_brief_compress_r2 import BUDGETS, capitalised_briefs  # noqa: E402
+
+_SAVED = (r13e.COMPRESS, r13e.PRECHECK, r13e.brief_compress)
+r13e.COMPRESS = {**r13e.COMPRESS, "B": lambda b: bc.compress_brief(b, r13e.BUDGET)}
+r13e.PRECHECK = {**r13e.PRECHECK, "r13": bc}
+r13e.brief_compress = bc
+
+
+def tearDownModule():
+    r13e.COMPRESS, r13e.PRECHECK, r13e.brief_compress = _SAVED
 
 R4_SHA256 = "5a88bc8b9dd27e7c455480dba4eaec11d47dba8de6add812c77bf096a7b0aa64"
 R11_SHA256 = "f0233b21d0b4c82bd83e3c48a3c508d282f01ffbd7cd8199b44db625b9617a05"  # brief_compress.py at 3dcf56c

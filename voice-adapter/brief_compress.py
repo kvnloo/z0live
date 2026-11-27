@@ -18,7 +18,10 @@ compress_brief(text, budget_chars) returns a verbatim, in-order subset of the br
      _attribute), so a cue statement about a different attribute of the same subject ("my kayak is now at the
      repair bay ...") supersedes nothing and keeps r4's key; C1-ctx-compress-r13: the attribute is the slot subject
      plus the first two non-filler predicate words (attribute key v2, _key), so "is booked for the ferry" and "is now
-     booked in at the garage" are different attributes (r11 compared the head word alone), then filler spread
+     booked in at the garage" are different attributes (r11 compared the head word alone); C1-ctx-compress-r14: when
+     the predicate names the value with a label ("..., the jetty tag is X"), the attribute is the slot subject, the
+     head word and that label (the 1-2 non-filler words right before the value, label tie-break, _value_label), so a
+     changed location with the same label is an update and two different labels are two attributes, then filler spread
      evenly over the chat (every other filler exchange counted back from the newest older filler, newest first;
      then the skipped fillers, newest first, only if budget is left; C56-live-compress-r3, was: all filler newest first), then a filler newest exchange last
      (C56-live-compress-r4, was: the newest exchange always kept first). An exchange is
@@ -58,6 +61,17 @@ VALUE = "<value>"
 # booked in at the new garage ... job card Y" shared an attribute and the cue dropped the older true fact (r12 (a)).
 # FILLER, WORD, CUE and VALUE are r11's, unchanged. Frozen in the r13 PREREG.
 KEY_WORDS = 2
+# C1-ctx-compress-r14: label tie-break. The value's label is the last LABEL_WORDS non-FILLER words before the first
+# digit word of the predicate (CUE matches removed), inside the value's clause (after the last , ; : or . before it).
+# When a label exists the attribute key is (slot subject, head, LABEL, *label): "is on the north jetty, the jetty tag
+# is X" and "is now on the south jetty, the jetty tag is Y" share (tender, on, LABEL, jetty, tag) (v2: north / south
+# differed, the stale value stayed), while "is booked for the harbour tour, the tour ref is X" and "is now booked for
+# the new repair slot, the repair ticket is Y" differ (v2: both (booked, for), the older true fact was dropped). The
+# head is v2's (= r11's) first word, so r14 only splits r11 groups. No label (no digit word, or only FILLER / CUE words
+# before it in its clause, e.g. "is X", "is changed to X") keeps v2's key. Frozen in the r14 PREREG.
+LABEL_WORDS = 2
+LABEL = "<label>"
+CLAUSE = re.compile(r"[,;:.]")
 
 
 def _label(line, pattern=SPEAKER):
@@ -111,14 +125,31 @@ def _cue(exchange):
 def _attribute(exchange):
     """C1-ctx-compress-r13: (slot subject, *key) of the asker line's first "my <subject> is ...", else None. key =
     _key(predicate after the copula), up to KEY_WORDS words (r11: the head word alone, the first non-FILLER word,
-    CUE matches removed, a digit word or no word giving VALUE)."""
+    CUE matches removed, a digit word or no word giving VALUE). C1-ctx-compress-r14: when the predicate has a value
+    label (_value_label), the key is (head, LABEL, *label) instead (label tie-break; head = key[0])."""
     line = exchange[0]
     lab = _label(line) or _label(line, SPEAKER_ANY_CASE)
     text = line[len(lab) + 2:] if lab else line
     m = SLOT.search(text)
     if m is None:
         return None
-    return (" ".join(m.group(1).lower().split()),) + _key(text[m.end():])
+    pred = text[m.end():]
+    key, label = _key(pred), _value_label(pred)
+    return (" ".join(m.group(1).lower().split()),) + ((key[0], LABEL) + label if label else key)
+
+
+def _value_label(predicate):
+    """C1-ctx-compress-r14: the value's label, the last LABEL_WORDS non-FILLER words before the first digit word of
+    the predicate (CUE matches removed), only from the value's own clause; () when there is no digit word or no such
+    word. "is moored at the east pontoon, the berth tag is X" -> (berth, tag); "is number X" -> (number,); "is X",
+    "is changed to X" and "is X now, reception reset it" -> ()."""
+    text = CUE.sub(" ", predicate)
+    for m in WORD.finditer(text):
+        if any(ch.isdigit() for ch in m.group(0)):
+            start = max((c.end() for c in CLAUSE.finditer(text, 0, m.start())), default=0)
+            words = [w.lower() for w in WORD.findall(text[start:m.start()]) if w.lower() not in FILLER]
+            return tuple(words[-LABEL_WORDS:])
+    return ()
 
 
 def _key(predicate):
