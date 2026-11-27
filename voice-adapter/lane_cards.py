@@ -75,14 +75,21 @@ def first_sentence(text: str, limit: int = SUMMARY_CHARS) -> str:
     return out if out.endswith((".", "!", "?")) else out + "."
 
 
+def _said(ln: dict) -> str:
+    """A done lane's first sentence; a failed lane (blocked or refused by its harness, 11-27) says it failed, then why."""
+    text = first_sentence(ln["card"]["summary"])
+    return f"failed. {text}" if ln.get("state") == "failed" else text
+
+
 def line(lanes: list[dict]) -> str:
     """One short spoken line for lanes that finished together."""
     lanes = [ln for ln in lanes if (ln.get("card") or {}).get("summary")]
     if not lanes:
         return ""
     if len(lanes) == 1:
-        return f"{who(lanes[0])} lane: {first_sentence(lanes[0]['card']['summary'])}"
-    parts = [f"{who(ln)}: {first_sentence(ln['card']['summary'])}" for ln in lanes[:MAX_LANES]]
+        sep = " " if lanes[0].get("state") == "failed" else ": "
+        return f"{who(lanes[0])} lane{sep}{_said(lanes[0])}"
+    parts = [f"{who(ln)}: {_said(ln)}" for ln in lanes[:MAX_LANES]]
     more = len(lanes) - MAX_LANES
     return (f"{len(lanes)} lanes back. " + " ".join(parts)
             + (f" And {more} more on the TV." if more > 0 else ""))
@@ -95,7 +102,8 @@ def earlier_line(lanes: list[dict]) -> str:
     if not lanes:
         return ""
     if len(lanes) == 1:
-        return f"An earlier lane finished. {who(lanes[0])}: {first_sentence(lanes[0]['card']['summary'], 100)}"
+        verb = "failed" if lanes[0].get("state") == "failed" else "finished"
+        return f"An earlier lane {verb}. {who(lanes[0])}: {first_sentence(lanes[0]['card']['summary'], 100)}"
     return f"{len(lanes)} earlier lanes finished; their results are on the TV."
 
 

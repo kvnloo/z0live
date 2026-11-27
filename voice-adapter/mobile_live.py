@@ -2342,7 +2342,9 @@ class Call:
                     self.cards_seen.add(ln["id"])
                     did = self.ask_dids.get(lane_cards.request_key(ask.get("text"))) or ask.get("did")
                     self.card_ledger(did, ln)
-                    if ln.get("state") != "done" or not (ln.get("card") or {}).get("summary"):
+                    # 11-27: the conductor now fails a lane its harness refused (or that says it was blocked) and keeps
+                    # its card; that card is spoken as failed. Only a lane with nothing to say stays quiet.
+                    if not (ln.get("card") or {}).get("summary"):
                         self.card_skipped("failed", did, [ln], ask=ask.get("id"))
                     elif not did:
                         self.card_skipped("unmapped", None, [ln], ask=ask.get("id"))

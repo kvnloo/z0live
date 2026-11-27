@@ -39,6 +39,15 @@ class Pure(unittest.TestCase):
         self.assertEqual(lane_cards.line(lanes), "4 lanes back. Haiku: Fact 0 is fine. Sol: Fact 1 is fine. "
                                                  "Opus: Fact 2 is fine. And 1 more on the TV.")
 
+    def test_a_refused_lane_is_said_as_failed(self):
+        self.assertEqual(lane_cards.line([lane("1", "sol 6.2", "No run started. Details on the TV.", state="failed")]),
+                         "Sol lane failed. No run started.")
+        self.assertEqual(lane_cards.line([lane("1", "haiku 5.5", "Three views scored 9."),
+                                          lane("2", "sol 6.2", "The shell never ran.", state="failed")]),
+                         "2 lanes back. Haiku: Three views scored 9. Sol: failed. The shell never ran.")
+        self.assertTrue(lane_cards.earlier_line([lane("1", "sol 6.2", "No run.", state="failed")]).startswith(
+            "An earlier lane failed."))
+
     def test_a_long_summary_is_cut_at_a_word(self):
         out = lane_cards.first_sentence("word " * 80)
         self.assertLessEqual(len(out), lane_cards.SUMMARY_CHARS + 1)
@@ -171,6 +180,11 @@ class Watcher(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0.1)
         self.assertEqual(self.spoken(), ['"Agent Final Message":\n\nHaiku lane: The oldest one is three days old.'])
         self.assertEqual([k["reason"] for k in self.traced("lanes.card_skipped")], ["already_said"])
+
+    async def test_a_refused_lane_with_a_card_is_spoken_as_failed(self):
+        self.write(ask(self.key, REQUEST, lane("a1-1", "sol 6.2", "No run started; its shell never ran.", state="failed")))
+        await self.until(lambda: self.sent)
+        self.assertTrue(self.spoken()[0].endswith("Sol lane failed. No run started; its shell never ran."), self.spoken())
 
     async def test_other_calls_and_old_cards_stay_quiet_and_failures_are_traced(self):
         self.write(ask("someothercal", REQUEST, lane("x-1", "sol 6.2", "Not this call.")),
