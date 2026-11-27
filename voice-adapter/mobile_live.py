@@ -134,6 +134,25 @@ def tv_screen(timeout=0.8) -> str:
             if text else "")
 
 
+_LIVE = {"at": 0.0, "text": "", "busy": False}
+
+
+def live_picture(max_age: float = 5.0) -> str:
+    """The TV's words plus the live lanes, from a cache: the race never waits on it (a cold TV view takes ~1 s to
+    build, and even a 0.4 s wait shifted lane timing). A stale cache refreshes in a background thread."""
+    if time.monotonic() - _LIVE["at"] > max_age and not _LIVE["busy"]:
+        _LIVE["busy"] = True
+
+        def refresh():
+            try:
+                _LIVE["text"] = "\n\n".join(x for x in (tv_screen(0.8), tiers.live_facts()) if x)
+                _LIVE["at"] = time.monotonic()
+            finally:
+                _LIVE["busy"] = False
+        threading.Thread(target=refresh, daemon=True).start()
+    return _LIVE["text"]
+
+
 class WarmHaiku:
     """One `claude -p` Haiku process kept warm for a whole call: ~0.7 s first token vs ~3 s cold (11-15 probe)."""
 
@@ -1672,6 +1691,7 @@ class Call:
             if self.relay:
                 self.spawn(self.relay_start())
             self.trace("call.negotiated", setup_s=round(time.monotonic() - self.created, 3), context_items=len(context))
+            live_picture()  # warm the cache so the first question already sees the TV and the lanes
             LOG.info("subscription voice negotiated id=%s", self.id)
             return {"ok": True, "session": {"id": self.id},
                     "transport": {"type": "webrtc", "sdp": self.mobile.localDescription.sdp}}
@@ -1909,14 +1929,7 @@ class Call:
         tiers are traced, not spoken: on 11-20 three tier answers and Hermes landed within 4.4 s and the voice
         spoke a garbled merge. Lanes go quiet once a newer request starts or Hermes answers."""
         began, cfg = time.monotonic(), tiers.load()
-        # never let the live picture delay the race: a cold TV view can take ~1 s to build
-        try:
-            tv, lanes = await asyncio.wait_for(asyncio.gather(asyncio.to_thread(tv_screen, 0.35),
-                                                              asyncio.to_thread(tiers.live_facts)), 0.4)
-        except (asyncio.TimeoutError, Exception):  # noqa: BLE001
-            tv, lanes = "", ""
-        context = tiers.snapshot(self.context_text, list(self.protocol.exchanges),
-                                 live="\n\n".join(x for x in (tv, lanes) if x))
+        context = tiers.snapshot(self.context_text, list(self.protocol.exchanges), live=live_picture())
         said = self.__dict__.setdefault("tier_said", {}).setdefault(did, [])
 
         async def one(name):

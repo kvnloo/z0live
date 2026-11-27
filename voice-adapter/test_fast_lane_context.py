@@ -44,6 +44,29 @@ class TvScreen(unittest.TestCase):
         self.assertIn("z0 lanes", m.FAST_SYSTEM)
 
 
+class LivePicture(unittest.TestCase):
+    def test_never_blocks_and_refreshes_in_the_background(self):
+        import threading, time
+        gate = threading.Event()
+        old_tv, old_facts, old_live = m.tv_screen, m.tiers.live_facts, dict(m._LIVE)
+        m.tv_screen = lambda t=0.8: (gate.wait(2), "TV words")[1]
+        m.tiers.live_facts = lambda: "Live lanes"
+        m._LIVE.update(at=0.0, text="", busy=False)
+        try:
+            t = time.monotonic()
+            self.assertEqual(m.live_picture(), "")  # cold: returns at once, refresh starts
+            self.assertLess(time.monotonic() - t, 0.05)
+            gate.set()
+            for _ in range(100):
+                if m._LIVE["text"]:
+                    break
+                time.sleep(0.01)
+            self.assertEqual(m.live_picture(), "TV words\n\nLive lanes")
+        finally:
+            m.tv_screen, m.tiers.live_facts = old_tv, old_facts
+            m._LIVE.clear(); m._LIVE.update(old_live)
+
+
 class FastLaneAsk(unittest.IsolatedAsyncioTestCase):
     async def test_ask_carries_the_call_so_far_and_the_tv(self):
         seen = []
