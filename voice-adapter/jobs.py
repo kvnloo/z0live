@@ -462,7 +462,8 @@ def main(argv=None) -> int:
     for name in ("status", "stop"):
         p = sub.add_parser(name)
         p.add_argument("id")
-    sub.add_parser("sync")
+    sy = sub.add_parser("sync", help="fold every open job into the ledger; prints only jobs whose state changed")
+    sy.add_argument("--all", action="store_true", help="print every open job, changed or not")
     l = sub.add_parser("list")
     l.add_argument("--open", action="store_true")
     a = ap.parse_args(argv)
@@ -475,7 +476,11 @@ def main(argv=None) -> int:
     elif a.verb == "stop":
         out = stop(a.id)
     elif a.verb == "sync":
-        out = {"ok": True, "jobs": sync_all()}
+        before = {j["id"]: j["state"] for j in _all_jobs()}
+        views = sync_all()
+        out = {"ok": True, "jobs": [v for v in views if a.all or before.get(v["id"]) != v["state"]]}
+        if not out["jobs"] and not a.all:  # nothing changed: silent, so a no-agent cron says nothing
+            return 0
     else:
         out = {"ok": True, "jobs": list_jobs(a.open)}
     print(json.dumps(out, indent=1))

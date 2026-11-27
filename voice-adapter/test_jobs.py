@@ -142,7 +142,13 @@ class JobsTest(unittest.TestCase):
         self.assertEqual(run("status", "t_fake1")[1]["state"], "waiting")
         self.assertEqual(len(run("list")[1]["jobs"]), 1)
         self.assertEqual(len(run("list", "--open")[1]["jobs"]), 1)
-        self.assertTrue(run("sync")[1]["ok"])
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(self.jobs.main(["sync"]), 0)
+        self.assertEqual(buf.getvalue(), "")  # nothing changed since the status call: silent
+        self.set_board("t_fake1", status="done", summary="finished")
+        rc, out = run("sync")
+        self.assertEqual([j["state"] for j in out["jobs"]], ["done"])
         rc, out = run("start", "pid one", "--engine", "pid", "--cmd", "echo hi", "--workspace", str(self.tmp))
         self.assertEqual((rc, out["receipt"]["kind"]), (0, "pid"))
         self.assertEqual(run("stop", "t_fake1")[1]["state"], "dropped")
