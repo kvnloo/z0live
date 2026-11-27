@@ -44,6 +44,7 @@ import grok_leg  # noqa: E402 - sibling module (Grok Voice as the voice model)
 import tiers  # noqa: E402 - sibling module (fast/medium/slow model lanes)
 import lane_cards  # noqa: E402 - sibling module (the TV conductor's lane cards, spoken on their call)
 import lane_layout  # noqa: E402 - sibling module (the lanes attached to the conversation)
+import ledger as request_ledger  # noqa: E402 - sibling module (the request ledger: asks, promises, proof, results)
 import guest_voice  # noqa: E402
 import answer_delivery  # noqa: E402 - sibling module (what each voice has actually said)
 from subscription_leg import Speaker, SubscriptionLeg  # noqa: E402
@@ -307,8 +308,56 @@ PROGRESS_MANY = "Still on {count} requests in Hermes, the oldest {seconds} secon
 CAP = ("No answer on that after {seconds} seconds. It keeps running in Hermes; if it finishes while we're still on, "
        "you'll hear it here, and it lands {where} and on the TV.")
 WHERE = {"chat": "in your chat", "background": "in Hermes as a background result", "host": "in Hermes"}
+# Task K (11-27 15:14 call): Kevin said three times that after a kickoff the voice need not say anything. A request
+# hears the one receipt, then nothing until its state changes (the answer, a failure, a result); the repeating progress,
+# cap and merged lines are gone. The one other line: an action with a promise and no proof after UNPROVEN_SECONDS.
+UNPROVEN_SECONDS = request_ledger.NOT_STARTED_SECONDS
+EARLIER_GAP = float(os.environ.get("Z0LIVE_EARLIER_GAP", "120"))  # between "N earlier lanes finished" lines
+UNPROVEN = "I still have no proof that one started, so treat it as not started."
 STATUS = re.compile(r"Still working on that in Hermes|Still on that in Hermes, \d+ seconds so far"
-                    r"|Still on \d+ requests in Hermes, the oldest \d+ seconds so far|No answer on that after \d+ seconds")
+                    r"|Still on \d+ requests in Hermes, the oldest \d+ seconds so far|No answer on that after \d+ seconds"
+                    r"|I still have no proof that one started")
+ACTION_WORDS = re.compile(r"\b(start|kick\s*(?:it\s*)?off|run|set\s*up|approve|reject|eject|install|fix|deploy|launch|"
+                          r"restart|begin|build|schedule|spin\s*up|encrypt)\b", re.I)
+QUESTION_LEAD = re.compile(r"^\W*(?:(?:and|so|okay|ok|well|hey|um|uh)\W+)*(what|why|how|when|where|who|which|is|are|was|were|"
+                           r"did|does|do|has|have|had|will|would|should)\b", re.I)
+POLITE_LEAD = re.compile(r"^\W*(?:(?:and|so|okay|ok|well|please)\W+)*(?:can|could|would|will)\s+you\b|\b(?:go ahead and|let'?s|"
+                         r"i need you to|i want you to|you should|please)\b", re.I)
+# What a background agent says when it claims the work moved: started, running, done.
+CLAIMS_WORK = re.compile(r"\b(started|kicked\s+(?:it\s+)?off|kicking\s+off|launched|launching|(?:is|are|it.s|now)\s+running|running\s+now|"
+                         r"now running|spun up|spinning up|scheduled|queued up|dispatched|underway|in progress|"
+                         r"on it|working on it|done|finished|completed|ejected|installed|approved|rejected|deployed|"
+                         r"fixed|set up|begun|began|going now|kicked)\b", re.I)
+PROOF_LINE = re.compile(r"^\W*PROOF:\s*(pid|kanban|cron|commit|file)\s+(\S+)\s*(.*)$", re.I | re.M)
+NOT_CONFIRMED = "I haven't confirmed it started."
+DONE_WORDS = re.compile(r"\b(done|finished|completed|ejected|installed|approved|rejected|deployed|fixed|pushed|merged)\b", re.I)
+RUNNING_WORDS = re.compile(r"\b(started|kicked|running|launched|scheduled|underway|in progress|working on)\b", re.I)
+
+
+def request_kind(request: str) -> str:
+    """action for a request that asks for work to be done (start/run/eject/approve...), else question. "What's
+    running" and "how does the run work" are questions; "can you start it" is an action."""
+    text = " ".join(str(request or "").split())
+    if not ACTION_WORDS.search(text):
+        return "question"
+    if QUESTION_LEAD.match(text) and not POLITE_LEAD.search(text):
+        return "question"
+    return "action"
+
+
+def split_proof(answer: str):
+    """(answer without PROOF lines, [(kind, ref, detail)]): a background agent proves work with `PROOF: kind ref`."""
+    proofs = [(m.group(1).lower(), m.group(2), m.group(3).strip()) for m in PROOF_LINE.finditer(answer or "")]
+    return PROOF_LINE.sub("", answer or "").strip(), proofs
+
+
+def unproven_claim(answer: str) -> str:
+    """The answer with the honest caveat: a short claim ("Kicked it off.") is replaced, a longer answer keeps its
+    words and says the start is unconfirmed."""
+    text = " ".join(answer.split())
+    if len(text) <= 140:
+        return "I haven't confirmed that started; I have no proof it ran."
+    return f"{text} {NOT_CONFIRMED}"
 # Delegated requests run as background agents beside the chat (2.8-16 s on 11-27) even when it is idle: chat turns
 # took 24.9-338 s. Z0LIVE_CHAT_TURNS=1 puts a request into an idle chat's own turn instead (never a running one).
 CHAT_TURNS = os.environ.get("Z0LIVE_CHAT_TURNS", "") == "1"
@@ -1536,6 +1585,8 @@ class Call:
         self.lane_said = {}  # delegation id -> (lane answer, entry id)
         self.spoken_for: dict = {}  # delegation id -> every line handed to a voice for it (lane cards never repeat)
         self.ask_dids: dict[str, str] = {}  # conductor ask text (lane_cards.request_key) -> delegation id
+        self.item_of: dict[str, str] = {}  # delegation id -> request ledger item id
+        self.earlier_cards: list[dict] = []  # finished lanes of earlier requests: one line, never silently dropped
         self.cards_seen: set[str] = set()  # conductor lane ids already spoken or skipped
         self.card_watch = None  # the watch_cards task, while one runs
         self.cards_busy = False  # a lane of this call's asks is still running (state.json, last read)
@@ -1938,6 +1989,7 @@ class Call:
         # passthru=True marks a delegation made while z0 sat in a meeting (this leg still hears the phone alone).
         self.trace("delegation.start", did=did, request=(request or "")[:4000],
                    **({"passthru": True} if self.passthru and self.passthru.active else {}))
+        self.ledger_open(did, request)
         turn = self.relay.turn if self.relay else None
         configured = ((turn or {}).get("receipt") or {}).get("configured") if not TIERS_ON else None
         if configured and not self.closed:  # a lane-layout line, not a request for Hermes
@@ -2001,6 +2053,7 @@ class Call:
             self.counts["host_delegation_ok"] += 1
             self.trace("delegation.done", did=did, s=round(time.monotonic() - began, 3), answer=answer[:4000],
                        closed=self.closed)
+            answer = self.ledger_answer(did, answer)
             # Tier lanes: Hermes is skipped when everything it says was already spoken (answer within said).
             if lane and covered and (covered(answer, lane, request) if TIERS_ON else covered(lane, answer, request)):
                 self.counts["host_delegation_covered"] += 1  # the lane already said it
@@ -2009,12 +2062,15 @@ class Call:
             self.counts["delegations_refused"] += 1
             self.trace("delegation.refused", did=did, running=full.running, waiting=full.waiting)
             answer = FULL.format(running=full.running, waiting=full.waiting)
+            self.ledger_do(request_ledger.state, self.item_of.get(did), "dropped", "voice", "refused: the line was full")
         except Exception as exc:  # noqa: BLE001 - every failure is spoken, never silent
             LOG.warning("host delegation failed id=%s: %s", self.id, type(exc).__name__)
             self.counts["host_delegation_failed"] += 1
             self.trace("delegation.failed", did=did, s=round(time.monotonic() - began, 3), error=type(exc).__name__,
                        detail=str(exc)[:300])
             answer = "I couldn't finish that in Hermes. It may still be running; check the chat before trying again."
+            self.ledger_do(request_ledger.result, self.item_of.get(did), "background", f"failed: {type(exc).__name__}",
+                           False)
         if self.closed:
             self.trace("delegation.dropped_after_close", did=did)
             return
@@ -2027,6 +2083,77 @@ class Call:
             return
         spoken.add(key)
         self.speak_for(did, answer)
+
+    def ledger_do(self, fn, item, *args, **kw):
+        """A ledger write never breaks the call: a failure is logged and the call goes on."""
+        if not item:
+            return None
+        try:
+            return fn(item, *args, **kw)
+        except Exception as exc:  # noqa: BLE001
+            LOG.warning("ledger write failed id=%s: %s", self.id, type(exc).__name__)
+            self.counts["ledger_errors"] += 1
+            return None
+
+    def ledger_open(self, did, request):
+        """Every delegation is one ledger item. An action also gets the background agent's launch as a claim: that
+        is a promise with no proof until the agent (or a job) records a receipt."""
+        if not request or did in self.item_of:
+            return
+        try:
+            kind = request_kind(request)
+            item = request_ledger.open_item(self.id, request, kind, "background")
+        except Exception as exc:  # noqa: BLE001
+            LOG.warning("ledger open failed id=%s: %s", self.id, type(exc).__name__)
+            self.counts["ledger_errors"] += 1
+            return
+        self.item_of[did] = item
+        self.counts["ledger_items"] += 1
+        if kind == "action":
+            self.ledger_do(request_ledger.claim, item, "background", "a background agent was asked to do this")
+        self.trace("ledger.open", did=did, item=item, kind=kind)
+
+    def ledger_item(self, did):
+        try:
+            return request_ledger.get(self.item_of[did]) if did in self.item_of else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    def unproven(self, did) -> bool:
+        """An action whose promise has no proof (a pid, kanban, cron, commit or file receipt) on its item."""
+        it = self.ledger_item(did)
+        return bool(it and it["kind"] == "action" and not it["proven"] and it["state"] not in request_ledger.TERMINAL)
+
+    def ledger_answer(self, did, answer: str) -> str:
+        """Record a background agent's answer and keep it honest. A question's answer is its result. An action's
+        answer is a claim: it becomes a result only with proof on the item and done words in it; if it says the work
+        started or finished and the item has no proof, the voice says it has not confirmed that (the item stays a
+        claim, not started)."""
+        item = self.item_of.get(did)
+        if not item:
+            return answer
+        text, proofs = split_proof(answer)
+        for kind, ref, detail in proofs:
+            if kind == "file" and not Path(ref).expanduser().exists():
+                self.counts["ledger_proof_rejected"] += 1
+                self.trace("ledger.proof_rejected", did=did, item=item, kind=kind)
+                continue
+            self.ledger_do(request_ledger.receipt, item, "background", kind, ref, detail)
+        it = self.ledger_item(did)
+        if not it:
+            return text or answer
+        if it["kind"] != "action":
+            self.ledger_do(request_ledger.result, item, "background", text)
+            return text
+        self.ledger_do(request_ledger.claim, item, "background", text[:500])
+        claims = bool(CLAIMS_WORK.search(text))
+        if claims and not it["proven"]:
+            self.counts["unproven_claims"] += 1
+            self.trace("ledger.unproven_claim", did=did, item=item)
+            return unproven_claim(text)
+        if it["proven"] and DONE_WORDS.search(text) and not RUNNING_WORDS.search(text):
+            self.ledger_do(request_ledger.result, item, "background", text)
+        return text
 
     def lane_command(self, did, request):
         """A spoken lane command ("add two opus lanes", "drop the sol lanes", "how many lanes do I have") changes or
@@ -2060,7 +2187,8 @@ class Call:
         tiers are traced, not spoken: on 11-20 three tier answers and Hermes landed within 4.4 s and the voice
         spoke a garbled merge. Lanes go quiet once a newer request starts or Hermes answers."""
         began, cfg = time.monotonic(), tiers.load()
-        context = tiers.snapshot(self.context_text, list(self.protocol.exchanges), live=live_picture())
+        context = tiers.snapshot(self.context_text, list(self.protocol.exchanges), live=live_picture(),
+                                 ledger=self.ledger_brief(did, 2500))
         said = self.__dict__.setdefault("tier_said", {}).setdefault(did, [])
 
         async def one(name):
@@ -2094,6 +2222,37 @@ class Call:
     def audio_loud(self, now) -> bool:
         return now - self.input_loud_at < lane_cards.QUIET_SECONDS or now - self.output_loud_at < lane_cards.QUIET_SECONDS
 
+    def card_ledger(self, did, ln):
+        """A finished lane card is the result of its request's ledger item whether or not it is ever spoken (11-27:
+        78 of 84 were dropped as stale and the next agent never knew they existed). A card on an action is research
+        about it, not its completion; a failed card does not fail an item the agent may still answer."""
+        item = self.item_of.get(did)
+        if not item:
+            return
+        ok = ln.get("state") == "done" and bool((ln.get("card") or {}).get("summary"))
+        text = (ln.get("card") or {}).get("summary") or f"lane {ln.get('id')} ended {ln.get('state')} with no card"
+        final = ok and (self.ledger_item(did) or {}).get("kind") != "action"
+        self.ledger_do(request_ledger.receipt, item, "conductor", "lane", str(ln.get("id")), str(ln.get("model") or ""))
+        self.ledger_do(request_ledger.result, item, f"lane:{lane_cards.who(ln)}", text, ok, [str(ln.get("id"))], final)
+
+    def say_earlier_cards(self, now, latest):
+        """At most one short line, at least EARLIER_GAP apart, for lanes of requests Kevin moved on from."""
+        if not self.earlier_cards or not latest or now - self.__dict__.get("earlier_at", float("-inf")) < EARLIER_GAP:
+            return
+        if not self.card_floor_free(now) or not self.status_gap_open(now, acks=False):
+            return
+        said = list(self.spoken_for.get(latest, []))
+        fresh = [ln for ln in self.earlier_cards if not lane_cards.said_already(ln["card"]["summary"], said)]
+        self.earlier_cards = []
+        text = lane_cards.earlier_line(fresh)
+        if not text:
+            return
+        self.earlier_at = now
+        self.stamp_status(now)
+        self.counts["lane_cards_earlier_spoken"] += 1
+        self.trace("lanes.card_earlier_spoken", did=latest, lanes=[ln["id"] for ln in fresh], text=text[:500])
+        self.speak_for(latest, text, lane=True)
+
     def card_skipped(self, reason, did, lanes, **data):
         self.counts["lane_cards_skipped"] += 1
         self.trace("lanes.card_skipped", reason=reason, did=did, lanes=[ln.get("id") for ln in lanes],
@@ -2125,6 +2284,7 @@ class Call:
                         continue
                     self.cards_seen.add(ln["id"])
                     did = self.ask_dids.get(lane_cards.request_key(ask.get("text"))) or ask.get("did")
+                    self.card_ledger(did, ln)
                     if ln.get("state") != "done" or not (ln.get("card") or {}).get("summary"):
                         self.card_skipped("failed", did, [ln], ask=ask.get("id"))
                     elif not did:
@@ -2134,8 +2294,11 @@ class Call:
                         last_new = now
             latest = getattr(self, "latest_did", None)
             for did, ln, _ in [p for p in pending if p[0] != latest]:
-                self.card_skipped("stale", did, [ln], latest=latest)
+                # Not dropped: already in the ledger (card_ledger), and said once in one line while the floor is free.
+                self.earlier_cards.append(ln)
+                self.card_skipped("earlier", did, [ln], latest=latest)
             pending = [p for p in pending if p[0] == latest]
+            self.say_earlier_cards(now, latest)
             if not pending:
                 if not self.cards_busy and now - self.last_delegation_at > lane_cards.IDLE_SECONDS:
                     break
@@ -2330,7 +2493,7 @@ class Call:
         self.hermes_path[did] = "host"
         async with self.host_slots.slot(did, self.queued_notice(did)):
             self.dequeued(did)
-            context = self.host_context()
+            context = self.host_context(did)
             return await self.run_host(did, context + "\n\nRequest: " + request if context else request)
 
     def queued_notice(self, did):
@@ -2400,18 +2563,34 @@ class Call:
         memory = chat_continuity.chat_memory(self.profile, sid)
         self.trace("delegation.memory", did=did, chat=sid, chars=len(memory))
         answer = await asyncio.wait_for(chat_continuity.ask_background(
-            self.manager.http, self.token, self.profile, sid, self.side_request(request, memory, sid),
+            self.manager.http, self.token, self.profile, sid, self.side_request(request, memory, sid, did),
             lambda task: self.trace("delegation.background", did=did, task=task)),
             DELEGATION_TIMEOUT_SECONDS)
         self.counts["background_turns"] += 1
         return answer
 
-    def host_context(self) -> str:
+    def ledger_brief(self, did=None, max_chars: int = 4000) -> str:
+        """What the next agent must read to know this call: earlier answers, promises, proof and results, the current
+        request marked. For an action it also says how to prove the work started."""
+        try:
+            text = request_ledger.brief(self.id, max_chars, current=self.item_of.get(did))
+        except Exception:  # noqa: BLE001
+            return ""
+        item = self.item_of.get(did)
+        if text and item and (self.ledger_item(did) or {}).get("kind") == "action":
+            text += (f"\n\nThis request ({item}) is an action. Do not say it started, is running or is done unless you "
+                     f"started it and can prove it: end your answer with one line `PROOF: <pid|kanban|cron|commit|file> "
+                     f"<id, sha or path>` (a kanban card id, a cron job id, a process id, a commit, or a file you "
+                     f"wrote). With no proof line, say what you could not start and why.")
+        return text
+
+    def host_context(self, did=None, ledger: bool = True) -> str:
         """What a Hermes that starts without the call's chat needs to place a request: the chat the call opened from
         and the call's recent words. Tek's Hermes got only the words to it, so "the glass crash in PR 28" was looked
         up in the wrong repo (11-22 film call, take 7)."""
+        led = self.ledger_brief(did) if ledger else ""
         if not (self.context_text or self.call_note):
-            return ""
+            return led
         # The written brief the primary voice opened with (without its voice-only framing): it can name what the
         # chat's lines do not ("PR 28" is kvnloo/hermes-android#28). Without one, the primary's brief is a digest of
         # the same chat lines, which follow in full.
@@ -2420,29 +2599,32 @@ class Call:
         said = "\n".join(f"{'Caller' if role == 'user' else 'Voice'}: {' '.join(text.split())[:400]}"
                          for role, text in list(self.protocol.exchanges)[-6:])
         return (f"{CALL_CONTEXT}{note}{chat}"
-                + (f"\n\nSaid on the call so far:\n{said}" if said else ""))
+                + (f"\n\nSaid on the call so far:\n{said}" if said else "")
+                + (f"\n\n{led}" if led else ""))
 
     async def run_host(self, did, request):
         """One Hermes run on this host, in a slot of host_slots (beside any the call already has going)."""
         self.trace("delegation.hermes", did=did, running=len(self.host_slots.running))
         return await asyncio.to_thread(run_hermes, request, self.profile, True)
 
-    def side_request(self, request, memory: str = "", sid: str = ""):
+    def side_request(self, request, memory: str = "", sid: str = "", did=None):
         """A background agent's prompt: it starts fresh, so it gets the chat's summary and turns since (memory,
         chat_continuity.chat_memory), the call's brief, the chat it opened from and the call's recent words with the
-        request (host_context), or at least the call's recent words."""
-        context = self.host_context()
+        request (host_context), or at least the call's recent words. The call's request ledger (earlier answers,
+        promises, proof) comes last, next to the request: the call's memory of its own work."""
+        context = self.host_context(did, ledger=False)
+        led = self.ledger_brief(did)
         if memory:
             look = (f" For anything older or not covered here, search that chat first (session_search with "
                     f"session_id={sid}) before answering; never say you lack context." if sid else "")
             context = (f"You are answering beside Kevin's main chat with his agent; you share its work and "
                        f"history.{look}\n\n{memory}" + (f"\n\n{context}" if context else ""))
         if context:
-            return context + "\n\nRequest: " + request
+            return context + (f"\n\n{led}" if led else "") + "\n\nRequest: " + request
         said = "\n".join(f"{'Kevin' if role == 'user' else 'Voice'}: {text[:400]}"
                          for role, text in list(self.protocol.exchanges)[-6:])
         return (f"Kevin asked this on a live voice call. Answer it on its own, in a few short spoken sentences."
-                f"\n\nRecent call:\n{said or '(none)'}\n\nRequest: {request}")
+                f"\n\nRecent call:\n{said or '(none)'}" + (f"\n\n{led}" if led else "") + f"\n\nRequest: {request}")
 
     async def sleep(self, seconds):  # the replay runs this on its own clock
         await asyncio.sleep(seconds)
@@ -2498,14 +2680,11 @@ class Call:
         """When a deferred line stops waiting: a receipt gives way to the progress mark, a progress line must leave
         the cap its gap, the cap waits as long as the request runs."""
         if kind == "receipt":
-            return began + min(PROGRESS_AT or (CAP_SECONDS,))
-        if kind == "progress":
-            return began + max(CAP_SECONDS - STATUS_GAP, max(PROGRESS_AT)) + PROGRESS_SLACK
+            return began + UNPROVEN_SECONDS
         return began + DELEGATION_TIMEOUT_SECONDS
 
     async def status_marks(self, did, job, began):
-        marks = ([(RECEIPT_SECONDS, "receipt")] + [(s, "progress") for s in PROGRESS_AT if RECEIPT_SECONDS < s < CAP_SECONDS]
-                 + [(CAP_SECONDS, "cap")])
+        marks = [(RECEIPT_SECONDS, "receipt"), (UNPROVEN_SECONDS, "unproven")]
         for mark, kind in marks:
             if not await self.until(job, began + mark):
                 return
@@ -2513,14 +2692,15 @@ class Call:
                 return
             if "running" not in (self.host_slots.state(did), self.chat_slots.state(did)):
                 continue  # still queued: "still working on it" would not be true
+            if kind == "unproven" and not self.unproven(did):
+                continue  # only an action with a promise and no proof hears this
             if kind in self.status_covered.get(did, ()):
                 continue  # a line for the whole call already said this one runs
             limit = self.status_window(kind, began)
             # 151433 replayed: a request every 20-60 s, each ack restarting the gap, held one cap to 293 s. Past one
             # gap beyond its mark the cap waits only for the last status line's gap (other requests' acks no longer).
-            starved = began + CAP_SECONDS + STATUS_GAP if kind == "cap" else float("inf")
             def gap(now):
-                return self.status_gap_open(now, acks=now < starved)
+                return self.status_gap_open(now)
             while self.floor_busy() or not gap(time.monotonic()):
                 if time.monotonic() >= limit or not await self.until(job, min(limit, time.monotonic() + 0.5)):
                     break
@@ -2531,22 +2711,13 @@ class Call:
                 self.trace("delegation.status_dropped", did=did, kind=kind,
                            reason="floor" if self.floor_busy() else "gap")
                 continue
-            seconds = int(now - began) // 5 * 5
             others = [d for d, t in self.status_running.items()
                       if d != did and now - t >= RECEIPT_SECONDS and d not in self.__dict__.get("first_said", {})
                       and "running" in (self.host_slots.state(d), self.chat_slots.state(d))]
-            if kind == "cap":
-                text = CAP.format(seconds=seconds, where=WHERE[self.hermes_path.get(did, "background")])
-            elif others:
-                oldest = min([began] + [self.status_running[d] for d in others])
-                text = PROGRESS_MANY.format(count=len(others) + 1, seconds=int(now - oldest) // 5 * 5)
-            elif kind == "receipt":
-                text = RECEIPT
-            else:
-                text = PROGRESS.format(seconds=seconds)
-            if kind != "cap":
-                for d in others:  # this line told Kevin they run too: no receipt or progress line of their own
-                    self.status_covered.setdefault(d, set()).update(("receipt", "progress"))
+            text = UNPROVEN if kind == "unproven" else RECEIPT
+            if kind == "receipt":
+                for d in others:  # this line told Kevin they run too: no receipt line of their own
+                    self.status_covered.setdefault(d, set()).add("receipt")
             self.stamp_status(now)
             self.counts["receipts" if kind == "receipt" else f"status_{kind}"] += 1
             self.trace("delegation.receipt" if kind == "receipt" else f"delegation.{kind}", did=did,

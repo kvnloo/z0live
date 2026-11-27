@@ -193,6 +193,7 @@ class Replay:
         # The TV conductor's state.json the call watches for lane cards: never the owner's own (a missing file is
         # no conductor). `conductor` rows ({"t", "conductor": state}) write it at their time, with the call's id.
         self.conductor = conductor
+        self.ledger_items: list[dict] = []  # the call's request ledger, folded, at the end of the run
         self.cards: list[tuple[float, str, dict]] = []  # the adapter's lanes.card_* trace events
         people = max((r["people"] for r in self.rows if "people" in r), default=1)
         if history is None and people > 1:  # a fixture cut from a trace: the chat said how many share the phone
@@ -353,6 +354,7 @@ class Replay:
                "slow": [{"provider": "p", "model": "s"}]}
         guest = live.guest_voice.GuestConfig("gpt-live", "tek", "ember", "tek") if self.guest else None
         with tempfile.TemporaryDirectory() as traces, \
+                patch.dict(os.environ, {"Z0LIVE_LEDGER": str(Path(traces) / "ledger")}), \
                 patch.object(tiers, "CONDUCTOR_STATE", self.conductor or Path(traces) / "no-conductor" / "state.json"), \
                 patch.object(live, "TRACE_DIR", Path(traces)), patch.object(live, "TIERS_ON", True), \
                 patch.object(live.chat_continuity, "WS", url), patch.object(tiers, "race", race), \
@@ -400,6 +402,7 @@ class Replay:
                 self.after(row)
             await self.advance(self.rows[-1]["t"] + 900, chat)
             self.counts = dict(call.counts)
+            self.ledger_items = live.request_ledger.items(call.id)  # the temp ledger goes with the run
             call.closed = True
             for task in list(call.tasks):
                 task.cancel()

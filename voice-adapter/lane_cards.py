@@ -88,6 +88,18 @@ def line(lanes: list[dict]) -> str:
             + (f" And {more} more on the TV." if more > 0 else ""))
 
 
+def earlier_line(lanes: list[dict]) -> str:
+    """One short line for lanes of earlier requests that finished while Kevin had moved on: they are in the ledger and
+    on the TV already; this only says they exist."""
+    lanes = [ln for ln in lanes if (ln.get("card") or {}).get("summary")]
+    if not lanes:
+        return ""
+    parts = [f"{who(ln)}: {first_sentence(ln['card']['summary'], 100)}" for ln in lanes[:2]]
+    more = len(lanes) - 2
+    head = "An earlier lane finished. " if len(lanes) == 1 else f"{len(lanes)} earlier lanes finished. "
+    return head + " ".join(parts) + (f" And {more} more on the TV." if more > 0 else "")
+
+
 def _words(text: str) -> set[str]:
     return {w for w in re.findall(r"[a-z0-9']+", str(text).lower()) if len(w) >= 3 or w.isdigit()}
 

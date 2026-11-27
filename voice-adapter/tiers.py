@@ -94,11 +94,13 @@ def live_facts(now: float | None = None, path: Path | None = None) -> str:
     return "Live lanes (from the TV conductor):\n" + "\n".join(out)
 
 
-def snapshot(brief: str, exchanges, live: str = "") -> str:
-    """The one context every lane sees: what is live now, the chat brief, then the call so far."""
+def snapshot(brief: str, exchanges, live: str = "", ledger: str = "") -> str:
+    """The one context every lane sees: what is live now, the chat brief, the call's request ledger (earlier answers,
+    promises, proof), then the call so far."""
     turns = "\n".join(f"{'Kevin' if role == 'user' else 'You'}: {text}" for role, text in exchanges)
     return (f"{live}\n\n" if live else "") + \
            (f"Context from his Hermes chat:\n{brief[-6000:]}\n\n" if brief else "") + \
+           (f"{ledger}\n\n" if ledger else "") + \
            (f"This call so far:\n{turns}" if turns else "")
 
 

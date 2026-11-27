@@ -972,5 +972,37 @@ class DrainTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(closed, ["service_shutdown"])
 
 
+class RequestLedgerHelpers(unittest.TestCase):
+    """The ledger's classifier and claim detection, with made-up requests."""
+
+    def test_actions_and_questions(self):
+        for text in ("Kick off the garden hill climb", "Can you start the sensor sweep", "please eject the blue drive",
+                     "approve the first three and reject the rest", "go ahead and deploy it", "Set up a nightly watering job",
+                     "and install the new driver", "Fix the greenhouse dashboard"):
+            self.assertEqual(live.request_kind(text), "action", text)
+        for text in ("What's running right now", "how is the sweep going", "Is the watering job running",
+                     "what did the last run find", "Why did the deploy fail", "tell me about the ferns",
+                     "how many lanes are running", "did it start"):
+            self.assertEqual(live.request_kind(text), "question", text)
+
+    def test_proof_lines_are_split_off_the_spoken_answer(self):
+        text, proofs = live.split_proof("Started the sweep.\nPROOF: kanban t_77 sweep\nproof: pid 4242")
+        self.assertEqual(text, "Started the sweep.")
+        self.assertEqual(proofs, [("kanban", "t_77", "sweep"), ("pid", "4242", "")])
+        self.assertEqual(live.split_proof("Nothing started, the drive is read-only.")[1], [])
+
+    def test_claim_words_and_the_caveat(self):
+        for claim in ("Kicked it off.", "It's running now.", "Done, the drive is ejected.", "I started the sweep."):
+            self.assertTrue(live.CLAIMS_WORK.search(claim), claim)
+        for plain in ("I can't do that without sudo.", "The sweep needs your decision on the drive."):
+            self.assertFalse(live.CLAIMS_WORK.search(plain), plain)
+        self.assertIn("haven't confirmed", live.unproven_claim("Kicked it off."))
+        self.assertTrue(live.unproven_claim("x " * 100 + "started").endswith("I haven't confirmed it started."))
+
+    def test_the_unproven_line_is_a_status_line_and_promises_nothing(self):
+        self.assertTrue(live.status_line(live.UNPROVEN))
+        self.assertFalse(live.promises_new_work(live.UNPROVEN))
+
+
 if __name__ == '__main__':
     unittest.main()

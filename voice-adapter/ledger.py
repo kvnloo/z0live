@@ -8,7 +8,7 @@ by path like lane_layout.py.
     open_item(call, text, kind, owner) -> id      kind: action | question | research; owner: voice|background|conductor|job
     claim(id, by, note)                           "I will do X": a promise, no proof yet
     receipt(id, by, kind, ref, detail="")         proof it started: kind in pid|kanban|cron|commit|file|lane, ref = the id
-    result(id, by, text, ok=True, refs=[])        finished output (a lane card, an answer, an artifact path)
+    result(id, by, text, ok=True, refs=[], final=True)   finished output (a lane card, an answer, an artifact path)
     state(id, s, by, why="")                      s in open|running|done|blocked|failed|dropped
     items(call=None, open_only=False) -> [dict]   folded view, newest first
     brief(call, max_chars=4000) -> str            what the next agent must read: open promises, receipts, results
@@ -33,6 +33,7 @@ import json
 import os
 import secrets
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -48,7 +49,13 @@ RESULT_CAP = 8000
 
 
 def directory() -> Path:
-    return Path(os.environ.get("Z0LIVE_LEDGER") or Path.home() / ".local/share/z0live/ledger")
+    """Z0LIVE_LEDGER, else the real ledger; under `python -m unittest` / pytest with the variable unset, a per-run temp
+    dir, so a test that builds a Call can never write its made-up requests into the ledger the TV reads."""
+    if os.environ.get("Z0LIVE_LEDGER"):
+        return Path(os.environ["Z0LIVE_LEDGER"])
+    if any(w in str(sys.argv[0]) for w in ("unittest", "pytest")):
+        return Path(tempfile.gettempdir()) / f"z0live-test-ledger-{os.getpid()}"
+    return Path.home() / ".local/share/z0live/ledger"
 
 
 def path() -> Path:
@@ -90,7 +97,7 @@ def open_item(call: str, text: str, kind: str = "question", owner: str = "voice"
         raise ValueError(f"kind must be one of {KINDS}")
     if owner not in OWNERS:
         raise ValueError(f"owner must be one of {OWNERS}")
-    item = f"r{int(time.time() * 1000):x}{secrets.token_hex(2)}"
+    item = f"r{int(time.time() * 1000):x}{secrets.token_hex(4)}"
     _append({"op": "open", "id": item, "call": str(call or ""), "text": _clip(text, TEXT_CAP), "kind": kind, "owner": owner})
     return item
 
@@ -107,9 +114,11 @@ def receipt(item: str, by: str, kind: str, ref: str, detail: str = "") -> None:
     _append({"op": "receipt", "id": item, "by": str(by), "kind": kind, "ref": str(ref)[:500], "detail": _clip(detail, 1000)})
 
 
-def result(item: str, by: str, text: str, ok: bool = True, refs=()) -> None:
+def result(item: str, by: str, text: str, ok: bool = True, refs=(), final: bool = True) -> None:
+    """final=False records output that does not finish the item (a lane's research note on an action, a failed lane
+    when the answer may still come): it shows in brief() but leaves the item's state alone."""
     _append({"op": "result", "id": item, "by": str(by), "text": _clip(text, RESULT_CAP), "ok": bool(ok),
-             "refs": [str(r)[:500] for r in refs or ()]})
+             "refs": [str(r)[:500] for r in refs or ()], "final": bool(final)})
 
 
 def state(item: str, s: str, by: str, why: str = "") -> None:
@@ -157,7 +166,7 @@ def _fold(events: list[dict]) -> dict[str, dict]:
         elif op == "result":
             it["results"].append({"by": e.get("by", ""), "text": e.get("text", ""), "ok": e.get("ok", True),
                                   "refs": e.get("refs", []), "t": e["t"]})
-            if it["state"] != "dropped":
+            if it["state"] != "dropped" and e.get("final", True):
                 it["state"] = "done" if e.get("ok", True) else "failed"
         elif op == "state" and e.get("s") in STATES:
             it["state"] = e["s"]

@@ -156,9 +156,11 @@ class Watcher(unittest.IsolatedAsyncioTestCase):
         self.ask_for("d2", "And what's the weather?")
         self.write(ask(self.key, REQUEST, lane("a1-1", "sol 6.2", "9 boat sandboxes live.")))
         await self.until(lambda: self.traced("lanes.card_skipped"))
-        await asyncio.sleep(0.1)
-        self.assertEqual(self.sent, [])
-        self.assertEqual(self.traced("lanes.card_skipped")[0]["reason"], "stale")
+        self.assertEqual(self.traced("lanes.card_skipped")[0]["reason"], "earlier")
+        # Not dropped: one short line says an earlier lane finished (its card is a ledger result either way).
+        await self.until(lambda: self.sent)
+        self.assertIn("An earlier lane finished", json.dumps(self.sent))
+        self.assertEqual(len(self.sent), 1)
 
     async def test_never_repeats_what_a_tier_lane_said(self):
         self.call.speak_for("d1", "There are 9 boat sandboxes live, all idle.", lane=True)

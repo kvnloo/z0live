@@ -54,8 +54,11 @@ class Call:
     """Just what Call.tier_lanes touches."""
     tier_lanes = live.Call.tier_lanes
     say_first = live.Call.say_first
+    ledger_brief = live.Call.ledger_brief
+    ledger_item = live.Call.ledger_item
 
     def __init__(self):
+        self.id, self.item_of = "call-x", {}
         self.closed, self.context_text, self.counts, self.spoke, self.events = False, "", Counter(), [], []
         self.protocol = type("P", (), {"exchanges": deque()})()
         self.manager = type("M", (), {"http": None})()
