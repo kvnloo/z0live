@@ -679,7 +679,7 @@ def lane_card_call():
 
 
 class LaneCardsOnTheCall(unittest.TestCase):
-    """Task E (11-27): the conductor's lane cards only reached the TV; on the call it felt like no lanes."""
+    """Task E (11-27): the conductor's lane cards only reached the TV; none of them was heard on the call."""
 
     def test_a_lane_card_is_spoken_after_the_floor_frees_and_stays_quiet_once_kevin_moved_on(self):
         import asyncio

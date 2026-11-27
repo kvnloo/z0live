@@ -1,5 +1,5 @@
-"""TV conductor lane cards, spoken on the call they were asked on (11-27: the answers only reached the TV, so on the
-call it "felt like no lanes").
+"""TV conductor lane cards, spoken on the call they were asked on (11-27: the answers only reached the TV; none of
+them was heard on the call).
 
 The conductor (atlas-engine-tv apps/z0live-tv/conductor.py) writes ~/.local/share/z0live/conductor/state.json:
 asks[] {call (first 12 hex of the voice call id), text (the delegation.start request, whitespace-joined, [:400]),
