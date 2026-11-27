@@ -180,8 +180,12 @@ class FakeChat:
 
 
 class Replay:
-    def __init__(self, rows: list[dict], history: list | None = None):
+    def __init__(self, rows: list[dict], history: list | None = None, conductor: Path | None = None):
         self.rows = sorted(rows, key=lambda r: r["t"])
+        # The TV conductor's state.json the call watches for lane cards: never the owner's own (a missing file is
+        # no conductor). `conductor` rows ({"t", "conductor": state}) write it at their time, with the call's id.
+        self.conductor = conductor
+        self.cards: list[tuple[float, str, dict]] = []  # the adapter's lanes.card_* trace events
         people = max((r["people"] for r in self.rows if "people" in r), default=1)
         if history is None and people > 1:  # a fixture cut from a trace: the chat said how many share the phone
             history = [{"role": "assistant", "content": [{"type": "output_text",
@@ -321,6 +325,8 @@ class Replay:
         def floor_trace(tr, ev, **data):
             if ev.startswith("floor."):
                 replay.floor.append((replay.now, ev, data))
+            if ev.startswith("lanes.card"):
+                replay.cards.append((replay.now, ev, data))
             return trace(tr, ev, **data)
 
         class Clock:  # mobile_live's view of time is the recorded clock; the asyncio loop keeps real time
@@ -334,6 +340,7 @@ class Replay:
                "slow": [{"provider": "p", "model": "s"}]}
         guest = live.guest_voice.GuestConfig("gpt-live", "tek", "ember", "tek") if self.guest else None
         with tempfile.TemporaryDirectory() as traces, \
+                patch.object(tiers, "CONDUCTOR_STATE", self.conductor or Path(traces) / "no-conductor" / "state.json"), \
                 patch.object(live, "TRACE_DIR", Path(traces)), patch.object(live, "TIERS_ON", True), \
                 patch.object(live.chat_continuity, "WS", url), patch.object(tiers, "race", race), \
                 patch.object(tiers, "load", return_value=cfg), patch.object(live.Call, "host_delegate", host_delegate), \
@@ -374,6 +381,9 @@ class Replay:
                 elif "rx" in row:
                     call.message(json.dumps(row["rx"]), row["src"] == "provider")
                     await self.pump()
+                elif "conductor" in row and self.conductor:
+                    state = json.loads(json.dumps(row["conductor"]).replace("{call}", live.lane_cards.call_key(call.id)))
+                    self.conductor.write_text(json.dumps(state))
                 self.after(row)
             await self.advance(self.rows[-1]["t"] + 900, chat)
             self.counts = dict(call.counts)

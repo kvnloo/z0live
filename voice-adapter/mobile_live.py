@@ -40,6 +40,7 @@ import chat_continuity  # noqa: E402 - sibling module (voice turns land in the o
 import call_brief  # noqa: E402 - sibling module (context packet in the session instructions)
 import grok_leg  # noqa: E402 - sibling module (Grok Voice as the voice model)
 import tiers  # noqa: E402 - sibling module (fast/medium/slow model lanes)
+import lane_cards  # noqa: E402 - sibling module (the TV conductor's lane cards, spoken on their call)
 import guest_voice  # noqa: E402
 import answer_delivery  # noqa: E402 - sibling module (what each voice has actually said)
 from subscription_leg import Speaker, SubscriptionLeg  # noqa: E402
@@ -515,6 +516,7 @@ class Protocol:
         # With two voices, only the caller's words to this voice: words to Tek never join a request to Hermes.
         self.own: Callable[[str], str] = lambda said: said
         self.user_open = False  # a user turn has started and its turn.done has not arrived
+        self.assistant_open = False  # the voice's reply has started and its turn.done has not arrived
         self.deferred: list[tuple[str, str]] = []  # (did, segment): delegations that beat the user's turn.done
         self.last_request = ""  # the request most recently queued for a host run
         self.turn_text = {"user": "", "assistant": ""}
@@ -558,6 +560,7 @@ class Protocol:
                 self.user_open = True
             else:  # the voice is replying, so the caller's turn is over even without its turn.done
                 self.user_open = False
+                self.assistant_open = True
                 while self.deferred:
                     self.release(*self.deferred.pop(0))
             return []
@@ -569,6 +572,8 @@ class Protocol:
             prior = self.turn_text[role]
             self.turn_text[role] = ""
             said = (text or prior).strip()
+            if role == "assistant":
+                self.assistant_open = False
             if role == "user":
                 self.last_user = text
                 self.user_open = False
@@ -1453,6 +1458,12 @@ class Call:
         self.tasks = set()
         self.relay = LaneRelay.from_env() if (LaneRelay and HOST_DELEGATION) else None
         self.lane_said = {}  # delegation id -> (lane answer, entry id)
+        self.spoken_for: dict = {}  # delegation id -> every line handed to a voice for it (lane cards never repeat)
+        self.ask_dids: dict[str, str] = {}  # conductor ask text (lane_cards.request_key) -> delegation id
+        self.cards_seen: set[str] = set()  # conductor lane ids already spoken or skipped
+        self.card_watch = None  # the watch_cards task, while one runs
+        self.cards_busy = False  # a lane of this call's asks is still running (state.json, last read)
+        self.last_delegation_at = float("-inf")
         self.token = ""  # the app's own bearer, for submitting voice turns into its open chat
         self.chat_lookup = None
         self.context_text = ""  # recent chat history text, for the ttft lane
@@ -1768,6 +1779,7 @@ class Call:
     def speak_for(self, did, text, lane=False):
         if self.closed or not text.strip():
             return
+        self.__dict__.setdefault("spoken_for", {}).setdefault(did, []).append(text)
         if self.duplex:
             config = self.duplex.config
             self.duplex.floor.enqueue(Answer("primary", did, text, lane), config.name if config else "")
@@ -1850,6 +1862,7 @@ class Call:
             job.add_done_callback(self.pending_delegations.discard)
             self.spawn(self.receipt(did, job))
             self.latest_did = did  # an older question's lanes go quiet once this one starts
+            self.watch_lane_cards(did, request)
             if TIERS_ON:
                 self.spawn(self.tier_lanes(did, request))
             else:
@@ -1945,6 +1958,92 @@ class Call:
                 said.append(text)
                 self.counts["tier_first_spoken"] += 1
                 self.trace("lanes.spoken", did=did, tier=name, model=model, first=True)
+
+    def watch_lane_cards(self, did, request):
+        """The TV conductor runs lanes for this request (it reads our delegation.start): watch for their cards."""
+        self.ask_dids[lane_cards.request_key(request)] = did
+        self.last_delegation_at = time.monotonic()
+        if (self.card_watch is None or self.card_watch.done()) and tiers.CONDUCTOR_STATE.exists():
+            self.card_watch = self.spawn(self.watch_cards())
+
+    def card_floor_free(self, now) -> bool:
+        """Nobody is talking: the caller has no turn open, the voice no reply open, and both audio legs are quiet.
+        The single-voice call has no Floor (prod, 11-27): this is the gate; with two voices speak_for adds the floor's."""
+        p = self.protocol
+        return not (p.user_open or p.assistant_open or self.audio_loud(now))
+
+    def audio_loud(self, now) -> bool:
+        return now - self.input_loud_at < lane_cards.QUIET_SECONDS or now - self.output_loud_at < lane_cards.QUIET_SECONDS
+
+    def card_skipped(self, reason, did, lanes, **data):
+        self.counts["lane_cards_skipped"] += 1
+        self.trace("lanes.card_skipped", reason=reason, did=did, lanes=[ln.get("id") for ln in lanes],
+                   models=[ln.get("model") for ln in lanes], **data)
+
+    async def watch_cards(self):
+        """Poll the conductor's state.json (a stat per second, parsed only when its mtime moves). A lane of an ask
+        from THIS call that finishes with a card is spoken as one short line once the floor is free: lanes that
+        finish together are one line, a request Kevin has moved on from stays quiet (latest_did), and a card whose
+        words were already spoken for its request (a tier lane, Hermes) is skipped. Stops once nothing of this
+        call's is running and no request came for IDLE_SECONDS; the next request starts it again."""
+        path, key, mtime = tiers.CONDUCTOR_STATE, lane_cards.call_key(self.id), None
+        pending: list[tuple[str, dict, float]] = []  # (did, lane, first seen)
+        last_new = float("-inf")
+        while not self.closed:
+            await self.sleep(lane_cards.POLL_SECONDS)
+            if self.closed:
+                break
+            now = time.monotonic()
+            try:
+                stamp = path.stat().st_mtime_ns
+            except OSError:
+                stamp = None
+            if stamp is not None and stamp != mtime and (state := lane_cards.read(path)) is not None:
+                mtime = stamp
+                self.cards_busy = lane_cards.busy(state, key)
+                for ask, ln in lane_cards.lanes_of(state, key):
+                    if ln["id"] in self.cards_seen or ln.get("state") not in ("done", "failed"):
+                        continue
+                    self.cards_seen.add(ln["id"])
+                    did = self.ask_dids.get(lane_cards.request_key(ask.get("text"))) or ask.get("did")
+                    if ln.get("state") != "done" or not (ln.get("card") or {}).get("summary"):
+                        self.card_skipped("failed", did, [ln], ask=ask.get("id"))
+                    elif not did:
+                        self.card_skipped("unmapped", None, [ln], ask=ask.get("id"))
+                    else:
+                        pending.append((did, ln, now))
+                        last_new = now
+            latest = getattr(self, "latest_did", None)
+            for did, ln, _ in [p for p in pending if p[0] != latest]:
+                self.card_skipped("stale", did, [ln], latest=latest)
+            pending = [p for p in pending if p[0] == latest]
+            if not pending:
+                if not self.cards_busy and now - self.last_delegation_at > lane_cards.IDLE_SECONDS:
+                    break
+                continue
+            held = now - min(p[2] for p in pending)
+            if held > lane_cards.HOLD_SECONDS:
+                self.card_skipped("floor_busy", latest, [p[1] for p in pending], held_s=round(held, 1))
+                pending = []
+                continue
+            if now - last_new < lane_cards.BATCH_SECONDS or not self.card_floor_free(now):
+                continue
+            said, fresh = list(self.spoken_for.get(latest, [])), []
+            for _, ln, _ in pending:
+                if lane_cards.said_already(ln["card"]["summary"], said):
+                    self.card_skipped("already_said", latest, [ln])
+                else:
+                    fresh.append(ln)
+                    said.append(ln["card"]["summary"])
+            pending = []
+            text = lane_cards.line(fresh)
+            if not text:
+                continue
+            self.counts["lane_cards_spoken"] += 1
+            self.trace("lanes.card_spoken", did=latest, lanes=[ln["id"] for ln in fresh],
+                       models=[ln.get("model") for ln in fresh], held_s=round(held, 1), text=text[:500])
+            self.speak_for(latest, text, lane=True)
+        self.card_watch = None
 
     async def start_haiku(self):
         began, haiku = time.monotonic(), self.haiku

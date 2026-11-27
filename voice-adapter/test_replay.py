@@ -651,5 +651,54 @@ class PeopleOnTheCall(unittest.TestCase):
         self.assertIn("crash in PR twelve", r.guest_asked[0][1])
 
 
+def card_lane(lid, model, summary):
+    return {"id": lid, "title": "t", "model": model, "state": "done", "t1": 1.0,
+            "card": {"title": "c", "summary": summary, "facts": [], "unknowns": [], "sources": []}}
+
+
+def conductor(t, *asks):
+    return [{"t": t, "conductor": {"v": 1, "asks": list(asks)}}]
+
+
+BOATS = "How many boat sandboxes are live right now?"
+
+
+def lane_card_call():
+    """A request whose TV lanes finish while Kevin talks and the voice answers, then one he moved on from."""
+    ask = {"id": "a1", "call": "{call}", "text": BOATS, "state": "running", "lanes": []}
+    sol = card_lane("a1-1", "sol 6.2", "9 boat sandboxes live, all idle.")
+    haiku = card_lane("a1-2", "haiku 5.5", "The oldest boat is three days old.")
+    return (turn(5, 9, "user", BOATS, "u1") + delegation(8.8, "d1", "boat sandboxes")
+            + turn(9, 10, "assistant", "Let me check.", "a1") + lane("d1", "fast", 1.5, "Checking the boats.")
+            + hermes("d1", 4, "The boat sandboxes are on the TV now.")
+            + conductor(12, {**ask, "lanes": [{**sol, "state": "running", "card": {}}]})
+            + turn(29, 34, "user", "Hmm, okay, give me a second", "u2")
+            + conductor(30, {**ask, "lanes": [sol]}) + turn(34.2, 36, "assistant", "Sure.", "a2")
+            + turn(50, 53, "user", "What's the weather like today?", "u3") + delegation(52.8, "d2", "weather")
+            + hermes("d2", 3, "Sunny and mild.") + conductor(70, {**ask, "lanes": [sol, haiku]}))
+
+
+class LaneCardsOnTheCall(unittest.TestCase):
+    """Task E (11-27): the conductor's lane cards only reached the TV; on the call it felt like no lanes."""
+
+    def test_a_lane_card_is_spoken_after_the_floor_frees_and_stays_quiet_once_kevin_moved_on(self):
+        import asyncio
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d) / "state.json"
+            state.write_text(json.dumps({"v": 1, "asks": []}))
+            r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + lane_card_call(),
+                              conductor=state)
+            asyncio.run(r.run())
+        spoken = [(t, kw) for t, ev, kw in r.cards if ev == "lanes.card_spoken"]
+        skipped = [(t, kw) for t, ev, kw in r.cards if ev == "lanes.card_skipped"]
+        self.assertEqual(len(spoken), 1, r.cards)
+        t, kw = spoken[0]
+        self.assertEqual((kw["did"], kw["lanes"], kw["text"]), ("d1", ["a1-1"], "Sol lane: 9 boat sandboxes live, all idle."))
+        self.assertGreaterEqual(t, 37)  # Kevin spoke 29-34 and the voice answered until 36: never over either
+        finals = [(at, e) for at, e in r.sent if "Sol lane:" in "".join(c.get("text", "") for c in e.get("content", []))]
+        self.assertEqual([(e["delegation_item_id"], e["channel"]) for _, e in finals], [("d1", "speakable")])
+        self.assertEqual([(kw["reason"], kw["lanes"]) for _, kw in skipped], [("stale", ["a1-2"])])
+
+
 if __name__ == "__main__":
     unittest.main()
