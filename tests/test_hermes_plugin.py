@@ -110,6 +110,14 @@ class PluginTests(unittest.TestCase):
         (self.tmp / "traces").mkdir()
         self.assertTrue(self.tools["z0live_lanes"]["check_fn"]())
 
+    def test_job_tool_validates_and_never_raises(self):
+        (self.tmp / "traces").mkdir()  # an installed stack
+        self.assertTrue(self.tools["z0live_job"]["check_fn"]())
+        self.assertFalse(self.call("job", action="start", brief="")["ok"])  # empty brief: refused before any board call
+        self.assertFalse(self.call("job", action="status")["ok"])
+        self.assertFalse(self.call("job", action="nope")["ok"])
+        self.assertFalse(self.call("job", action="start", brief="x", model="m", provider="codex-ultrafast")["ok"])
+
     def test_registrations_match_manifest(self):
         manifest = (ROOT / "plugin.yaml").read_text().splitlines()
         tools = next(line.split(":", 1)[1] for line in manifest if line.startswith("provides_tools:"))
