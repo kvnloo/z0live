@@ -45,6 +45,10 @@ def claim(id, by, note): _w("claim", id, by, note)
 def receipt(id, by, kind, ref, detail=""): _w("receipt", id, by, kind, ref)
 def result(id, by, text, ok=True, refs=()): _w("result", id, text, ok)
 def state(id, s, by, why=""): _w("state", id, s, why)
+def get(item):
+    p = os.environ.get("STUB_LEDGER_ITEMS")
+    rows = json.load(open(p)) if p and os.path.exists(p) else []
+    return next((r for r in rows if r["id"] == item), {"id": item} if item.startswith("r-") else None)
 def items(call=None, open_only=False):
     p = os.environ.get("STUB_LEDGER_ITEMS")
     rows = json.load(open(p)) if p and os.path.exists(p) else []
@@ -114,6 +118,18 @@ class JobsTest(unittest.TestCase):
         self.assertEqual(r["item"], "rA")
         self.assertNotIn("open_item", [x[0] for x in self.led()])
         self.assertIn(["receipt", "rA", "job", "kanban", r["id"]], self.led())
+
+    def test_unknown_item_id_is_refused(self):
+        r = self.jobs.start("widget five", item="made-up-id")
+        self.assertFalse(r["ok"])
+        self.assertIn("no ledger item", r["error"])
+        self.assertFalse(self.board.exists())  # nothing was created on the board
+
+    def test_again_reports_state(self):
+        a = self.jobs.start("widget seven", item="r-7")
+        self.set_board(a["id"], status="done", summary="ok")
+        self.jobs.status(a["id"])
+        self.assertEqual(self.jobs.start("widget seven", item="r-7")["state"], "done")
 
     def test_unclaimed_job_goes_blocked_on_the_ledger_then_recovers(self):
         r = self.jobs.start("widget six", item="r-6")

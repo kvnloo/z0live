@@ -198,12 +198,16 @@ def start(brief: str, title: str = "", engine: str = "kanban", model: str = "", 
         for j in _all_jobs():
             if j.get("key") == key and j.get("state") not in ("dropped", "failed"):
                 return {"ok": True, "id": j["id"], "item": j.get("item"), "engine": j["engine"], "again": True,
-                        "receipt": j.get("receipt"), "ledger": j.get("ledger", False)}
+                        "state": j.get("state"), "receipt": j.get("receipt"), "ledger": j.get("ledger", False)}
         if item:
             for j in _all_jobs():
                 if j.get("item") == item and j.get("state") not in ("dropped", "failed"):
                     return {"ok": True, "id": j["id"], "item": item, "engine": j["engine"], "again": True,
-                            "receipt": j.get("receipt"), "ledger": j.get("ledger", False)}
+                            "state": j.get("state"), "receipt": j.get("receipt"), "ledger": j.get("ledger", False)}
+        if item and ledger() is not None:  # the ledger drops events for ids it never opened: refuse a made-up id
+            known, _e = _led("get", item)
+            if known is None and not _e:
+                return {"ok": False, "error": f"no ledger item {item}; omit item to open one"}
         if not item and call:  # the voice adapter already opened this ask's item: put the proof on it, not a new one
             mod = ledger()
             try:
