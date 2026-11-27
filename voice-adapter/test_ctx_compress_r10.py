@@ -41,6 +41,19 @@ SUP = ("bench", "badge", "a1", "a2", "b1", "b2")
 ABSENT_BOTH = sorted(f"{n}/{k}" for n in r8.R8_NAMES for k in ("b1", "b2", "c_new"))
 
 
+# C1-ctx-compress-r11: production brief_compress.py moved on to r11. r10 scored B = r9, so these r10 tests pin the r10
+# harness's B arm to the r9 byte copy (bench/brief_compress_r9.py, sha256 cb1cb6b8...) at import (PRES below is
+# computed at import); everything else is unchanged. A new dict, so r9.COMPRESS is untouched; restored after the
+# module so later test modules see the r10 harness as shipped.
+import brief_compress_r9  # noqa: E402
+_SAVED = {"COMPRESS": r10.COMPRESS}
+r10.COMPRESS = {**r10.COMPRESS, "B": lambda b: brief_compress_r9.compress_brief(b, r10.BUDGET)}
+
+
+def tearDownModule():
+    r10.COMPRESS = _SAVED["COMPRESS"]
+
+
 def exchanges(s):
     t = s.chat
     return [[f"user: {t[k].text}", f"assistant: {t[k + 1].text}"] for k in range(0, len(t), 2)]

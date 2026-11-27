@@ -14,7 +14,9 @@ compress_brief(text, budget_chars) returns a verbatim, in-order subset of the br
      priority of itself and the members it replaces, and those are dropped (C1-ctx-compress-r9; r7 superseded on
      the slot alone, so two different true facts about one noun lost the older one; r4 tried every member by its
      own size, so a slightly shorter stale value could take the budget). Without a cue every member keeps r4's
-     key, then filler spread evenly over the chat (every other filler
+     key; C1-ctx-compress-r11: same-slot members are further split by attribute (slot subject + predicate head,
+     _attribute), so a cue statement about a different attribute of the same subject ("my kayak is now at the
+     repair bay ...") supersedes nothing and keeps r4's key, then filler spread evenly over the chat (every other filler
      exchange counted back from the newest older filler, newest first; then the skipped fillers, newest first, only
      if budget is left; C56-live-compress-r3, was: all filler newest first), then a filler newest exchange last
      (C56-live-compress-r4, was: the newest exchange always kept first). An exchange is
@@ -40,6 +42,15 @@ SLOT = re.compile(r"\bmy\s+((?:[a-z][\w'-]*\s+){0,4}?[a-z][\w'-]*)\s+(?:is|are|w
 # (whole words, case-insensitive). Frozen in the r9 PREREG.
 CUE = re.compile(r"(?<![\w-])(?:now|changed?|instead|new|no\s+longer|not\s+the\s+old|updated?|moved|switched|replaced)"
                  r"(?![\w-])", re.IGNORECASE)
+# C1-ctx-compress-r11: a slot member's attribute is (slot subject, predicate head). The predicate is the asker text
+# after the slot's copula; with every CUE match removed it is split into words (WORD); the head is the first word that
+# is not in FILLER, or VALUE when that word holds a digit or no word is left. So "is Oak-1", "is now Oak-2 instead",
+# "is updated to Oak-3" and "is no longer the old one, it is Oak-4" all have head VALUE (the value restated), while
+# "is the yellow one tagged Oak-5" has head "yellow" and "is now at the repair bay ..." has head "at".
+# Frozen in the r11 PREREG.
+WORD = re.compile(r"[\w'-]+")
+FILLER = frozenset(("a", "an", "the", "to", "it", "is", "are", "was", "were", "one", "old"))
+VALUE = "<value>"
 
 
 def _label(line, pattern=SPEAKER):
@@ -90,15 +101,38 @@ def _cue(exchange):
     return CUE.search(line[len(lab) + 2:] if lab else line) is not None
 
 
+def _attribute(exchange):
+    """C1-ctx-compress-r11: (slot subject, predicate head) of the asker line's first "my <subject> is ...", else None.
+    Head: first word after the copula, CUE matches removed, skipping FILLER words; a word with a digit, or no word
+    left, gives VALUE."""
+    line = exchange[0]
+    lab = _label(line) or _label(line, SPEAKER_ANY_CASE)
+    text = line[len(lab) + 2:] if lab else line
+    m = SLOT.search(text)
+    if m is None:
+        return None
+    head = VALUE
+    for w in WORD.findall(CUE.sub(" ", text[m.end():])):
+        w = w.lower()
+        if any(ch.isdigit() for ch in w):
+            break
+        if w not in FILLER:
+            head = w
+            break
+    return " ".join(m.group(1).lower().split()), head
+
+
 def _fact_order(exchanges, idx):
-    """C1-ctx-compress-r9: cue-gated supersession. Every fact starts with the r4 key: size ascending, newest first on
-    equal sizes. For facts sharing a slot (_slot), the newest member that carries an update cue (_cue) supersedes
-    every older member of that slot: they are dropped and it is tried at the shortest size among itself and them.
-    Members newer than it keep their r4 keys. A slot with no cue member (other than its oldest) is left as r4, so
-    with no cue the order is exactly r4's (r7: the newest member always superseded, cue or not)."""
+    """C1-ctx-compress-r11: cue-gated, attribute-aware supersession. Every fact starts with the r4 key: size
+    ascending, newest first on equal sizes. Facts are grouped by attribute (_attribute: slot subject + predicate
+    head). Within a group the newest member that carries an update cue (_cue) supersedes every older member of the
+    group: they are dropped and it is tried at the shortest size among itself and them. Members newer than it keep
+    their r4 keys. A group with no cue member (other than its oldest) is left as r4, so with no cue, or with a cue
+    statement about a different attribute of the same subject, the order is exactly r4's (r9 grouped by the slot
+    subject alone, so "my kayak is now at the repair bay" dropped "my kayak is the yellow one tagged X")."""
     members = {}
     for i in sorted(idx):
-        k = _slot(exchanges[i])
+        k = _attribute(exchanges[i])
         if k is not None:
             members.setdefault(k, []).append(i)
     key = {i: (_size([exchanges[i]]), -i) for i in idx}
