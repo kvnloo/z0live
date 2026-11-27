@@ -40,6 +40,7 @@ ASSIGNEE = "tek"
 BY = "job"
 ENGINES = ("kanban", "pid")
 MAX_BRIEF = 20000
+STUCK_S = 300  # a ready task the dispatcher has not claimed in this long is stuck
 # kanban status -> what the job is. ready/todo/triage = waiting for a worker; the dispatcher claims within ~1 min.
 RUNNING = {"running"}
 DONE = {"done"}
@@ -192,11 +193,25 @@ def start(brief: str, title: str = "", engine: str = "kanban", model: str = "", 
     title = (title or brief.split("\n", 1)[0])[:90]
     led_err = None
     with _Lock():
+        # dedupe first, on a key that exists before any ledger write: the same ask said twice is one job
+        key = _key(brief, item or None)
+        for j in _all_jobs():
+            if j.get("key") == key and j.get("state") not in ("dropped", "failed"):
+                return {"ok": True, "id": j["id"], "item": j.get("item"), "engine": j["engine"], "again": True,
+                        "receipt": j.get("receipt"), "ledger": j.get("ledger", False)}
         if item:
             for j in _all_jobs():
                 if j.get("item") == item and j.get("state") not in ("dropped", "failed"):
                     return {"ok": True, "id": j["id"], "item": item, "engine": j["engine"], "again": True,
                             "receipt": j.get("receipt"), "ledger": j.get("ledger", False)}
+        if not item and call:  # the voice adapter already opened this ask's item: put the proof on it, not a new one
+            mod = ledger()
+            try:
+                mine = [it for it in (mod.items(call=call, open_only=True) if mod else [])
+                        if it.get("kind") == "action" and not it.get("proven")]
+            except Exception:  # noqa: BLE001
+                mine = []
+            item = mine[0]["id"] if mine else ""
         if not item:
             item, led_err = _led("open_item", call or None, title, "action", "job")
         led_ok = bool(item) and not led_err
@@ -204,7 +219,7 @@ def start(brief: str, title: str = "", engine: str = "kanban", model: str = "", 
             _, e = _led("claim", item, by, f"job: {title}")
             led_err = led_err or e
         if engine == "kanban":
-            jid, ref_err = _start_kanban(brief, title, model, provider, workspace, max_runtime, goal, item, by)
+            jid, ref_err = _start_kanban(brief, title, model, provider, workspace, max_runtime, goal, key, by)
         else:
             jid, ref_err = _start_pid(brief, title, cmd, workspace, item)
         if ref_err:  # nothing started: the claim stays honest ("claimed, not started") and we say why
@@ -213,7 +228,7 @@ def start(brief: str, title: str = "", engine: str = "kanban", model: str = "", 
             return {"ok": False, "error": ref_err, "item": item}
         job = {"id": jid, "engine": engine, "title": title, "item": item, "call": call, "model": model,
                "provider": provider, "workspace": workspace, "created": now(), "by": by, "state": "waiting",
-               "synced": None, "ledger": led_ok, "receipt": None}
+               "synced": None, "ledger": led_ok, "receipt": None, "key": key}
         kind = engine
         ref = jid
         if engine == "pid":
@@ -235,10 +250,10 @@ def start(brief: str, title: str = "", engine: str = "kanban", model: str = "", 
     return out
 
 
-def _start_kanban(brief, title, model, provider, workspace, max_runtime, goal, item, by):
+def _start_kanban(brief, title, model, provider, workspace, max_runtime, goal, key, by):
     ws = workspace or "scratch"
     argv = ["kanban", "create", title, "--assignee", ASSIGNEE, "--body", brief + WORKER_RULES, "--workspace", ws,
-            "--max-runtime", max_runtime, "--idempotency-key", _key(brief, item), "--created-by", f"z0live-{by}"]
+            "--max-runtime", max_runtime, "--idempotency-key", key, "--created-by", f"z0live-{by}"]
     if goal:
         argv.append("--goal")
     if model:
@@ -344,6 +359,13 @@ def _sync_locked(job: dict) -> dict:
     if job.get("state") in ("done", "dropped", "failed") and job.get("synced") == job["state"]:
         return _view(job)
     state, text, why = _observe(job)
+    if state == "waiting" and not job.get("stuck") and now() - job["created"] > STUCK_S:
+        job["stuck"] = True  # nobody claimed it: say so on the ledger instead of leaving a silent promise
+        if job.get("ledger") and job.get("item"):
+            _led("state", job["item"], "blocked", BY, f"no worker claimed the job in {STUCK_S // 60:.0f} min ({why})")
+        _write(job)
+    if state == "running" and job.get("stuck"):
+        job["stuck"] = False
     if state != job["state"] or (state in ("done", "blocked", "failed") and job.get("synced") != state):
         job["state"] = state
         if job.get("ledger") and job.get("item"):
@@ -423,7 +445,7 @@ def stop(jid: str, why: str = "stopped by request") -> dict:
 # ---- CLI ----
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="z0live job", description="durable owned jobs")
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub = ap.add_subparsers(dest="verb", required=True)
     s = sub.add_parser("start")
     s.add_argument("brief", nargs="?", default="", help="the work to do ('-' or empty with --brief-file)")
     s.add_argument("--brief-file")
@@ -444,15 +466,15 @@ def main(argv=None) -> int:
     l = sub.add_parser("list")
     l.add_argument("--open", action="store_true")
     a = ap.parse_args(argv)
-    if a.cmd == "start":
+    if a.verb == "start":
         brief = Path(a.brief_file).read_text() if a.brief_file else (sys.stdin.read() if a.brief == "-" else a.brief)
         out = start(brief, a.title, a.engine, a.model, a.provider, a.item, a.call, a.cmd, a.workspace, a.max_runtime,
                     not a.no_goal)
-    elif a.cmd == "status":
+    elif a.verb == "status":
         out = status(a.id)
-    elif a.cmd == "stop":
+    elif a.verb == "stop":
         out = stop(a.id)
-    elif a.cmd == "sync":
+    elif a.verb == "sync":
         out = {"ok": True, "jobs": sync_all()}
     else:
         out = {"ok": True, "jobs": list_jobs(a.open)}
