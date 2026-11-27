@@ -1,0 +1,20 @@
+[
+ {"id": "syn-01", "call": "syn-a", "label": "A",
+  "request": "how many of those lanes are still going right now",
+  "exchanges": [["user", "start a couple of lanes to look at the deploy logs"], ["assistant", "Started two lanes on the deploy logs."]],
+  "brief": "Recent chat context (do not read aloud):\nuser: we moved the deploy to the rolling restart script\nassistant: Done, it is on the spare slot now.",
+  "live": "Live lanes (from the TV conductor):\nLanes running now: 1 (1 sol 6.2)\n- running: Deploy log scan (sol 6.2, 40 s)\n- finished 1 min ago, Deploy log errors: No errors in the last hour.",
+  "reference": "One is still running, the deploy log scan; the error check finished a minute ago with nothing found.", "prod": {}},
+ {"id": "syn-02", "call": "syn-a", "label": "T",
+  "request": "can you go ahead and restart the tv server for me",
+  "exchanges": [["user", "the tv looks frozen"], ["assistant", "It may need a restart."]],
+  "brief": "", "live": "Live lanes (from the TV conductor):\nLanes running now: 0",
+  "reference": "Restarted the TV server; the dashboard is back.", "prod": {}},
+ {"id": "syn-03", "call": "syn-b", "label": "A",
+  "request": "why would a sideloaded app not show up in the launcher list",
+  "exchanges": [], "brief": "", "live": "",
+  "reference": "Sideloaded apps without a launcher entry stay hidden from the app list but can still be launched directly.", "prod": {}},
+ {"id": "syn-04", "call": "syn-b", "label": "F",
+  "request": "yeah go for it", "exchanges": [["assistant", "Want me to check the drive?"]], "brief": "", "live": "",
+  "reference": "Checking the drive now.", "prod": {}}
+]

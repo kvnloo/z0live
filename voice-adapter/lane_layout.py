@@ -3,7 +3,7 @@
 ~/.config/z0live/layout.json (z0live.layout.v1) holds model counts per role:
 
     {"schema": "z0live.layout.v1",
-     "voice": {"fast": {"haiku": 3}, "medium": {"sonnet": 1, "sol": 1}, "slow": {"opus": 1, "sol": 1}},
+     "voice": {"fast": {"terra": 1, "luna": 1}, "medium": {"sonnet": 1, "sol": 1}, "slow": {"opus": 1, "sol": 1}},
      "research": {"haiku": 3, "sonnet": 2, "sol": 10, "opus": 2, "sr": 0, "fable": 0}}
 
 "voice" (answer) lanes race on every spoken request (tiers.load renders them as {tier: [binding, ...]}). "research" counts are
@@ -92,7 +92,10 @@ CAP_TIER = 6        # racing more copies than this per voice tier only burns quo
 CAP_RESEARCH = 18   # per model in the TV pool (the conductor's ultra cap: 18 lanes per ask)
 CAP_POOL = 30       # whole TV pool
 # Seeds when neither layout.json nor the older files say otherwise (matches tiers.json and POOL_DEFAULT, 11-27).
-VOICE_DEFAULT = {"fast": {"haiku": 3}, "medium": {"sonnet": 1, "sol": 1}, "slow": {"opus": 1, "sol": 1}}
+# Fast tier is Terra + Luna, not 3 Haiku (lane_replay hill climb, 11-27): with the call's ~7k-char context, Haiku answered
+# at p50 3.4 s and skipped more, while Terra took 2.05 s and Luna 1.72 s. Across 77 replayed asks, useful answers within
+# 3 s rose from 0.70 to 0.78.
+VOICE_DEFAULT = {"fast": {"terra": 1, "luna": 1}, "medium": {"sonnet": 1, "sol": 1}, "slow": {"opus": 1, "sol": 1}}
 # Kevin's mix (11-27): 3 haiku, 2 sonnet, 5 terra, 5 sol, 2 opus, each at its newest version.
 RESEARCH_DEFAULT = {"haiku": 3, "sonnet": 2, "terra": 5, "sol": 5, "opus": 2, "astra": 0, "luna": 0, "sr": 0, "fable": 0}
 

@@ -25,7 +25,8 @@ CODEX = "openai-codex"
 # terra/sol, luna is newest at 6.0; gpt-6-terra is refused for ChatGPT accounts). Measured through
 # lane_server: luna 1.38 s, terra 1.49 s, sol 1.54 s for a one-sentence answer.
 TIERS = {
-    "fast": [{"provider": CLAUDE, "model": "claude-haiku-5-5"}, {"provider": CODEX, "model": "gpt-6-luna"}],
+    # 11-27 replay (bench/lane_replay.py): with the call's context, Haiku answered at p50 3.4 s; Terra 2.05 s, Luna 1.72 s.
+    "fast": [{"provider": CODEX, "model": "gpt-6.1-terra"}, {"provider": CODEX, "model": "gpt-6-luna"}],
     "medium": [{"provider": CLAUDE, "model": "claude-sonnet-5-5"}, {"provider": CODEX, "model": "gpt-6.2-sol"}],
     "slow": [{"provider": CLAUDE, "model": "claude-opus-5-5"}, {"provider": CODEX, "model": "gpt-6.2-sol"}],
 }

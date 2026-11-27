@@ -101,7 +101,7 @@ class ValidateTests(Tmp):
 
     def test_caps(self):
         with self.assertRaises(L.LayoutError):
-            L.act("add", "haiku", 4, "voice")  # fast already has 3; cap 6 per tier
+            L.act("add", "haiku", 5, "voice")  # fast already has terra + luna; cap 6 per tier
         with self.assertRaises(L.LayoutError):
             L.act("add", "sol", 14)  # worker pool: 5 + 14 > 18
 
@@ -109,9 +109,10 @@ class ValidateTests(Tmp):
         L.act("remove", "sonnet", role="voice")
         L.act("remove", "sol", role="voice")
         L.act("remove", "opus", role="voice")
+        L.act("remove", "luna", role="voice")
         with self.assertRaises(L.LayoutError):
-            L.act("remove", "haiku", role="voice")
-        self.assertEqual(L.current()[0]["voice"]["fast"], {"haiku": 3})  # the refused write left the file alone
+            L.act("remove", "terra", role="voice")
+        self.assertEqual(L.current()[0]["voice"]["fast"], {"terra": 1})  # the refused write left the file alone
 
     def test_fable_is_tv_only(self):
         out = L.act("add", "fable", 1, "voice")
@@ -153,7 +154,7 @@ class StoreTests(Tmp):
 
     def test_remove_all_of_a_model_from_every_tier(self):
         out = L.act("remove", "sol", role="voice")
-        self.assertEqual(out["layout"]["voice"], {"fast": {"haiku": 3}, "medium": {"sonnet": 1}, "slow": {"opus": 1}})
+        self.assertEqual(out["layout"]["voice"], {"fast": {"terra": 1, "luna": 1}, "medium": {"sonnet": 1}, "slow": {"opus": 1}})
         self.assertEqual(out["layout"]["research"]["sol"], 5)  # the TV pool is its own role
 
     def test_research_role_and_set(self):
@@ -197,7 +198,7 @@ class StoreTests(Tmp):
         L.CONDUCTOR_STATE.write_text(json.dumps({"asks": [{"lanes": [{"state": "running"}, {"state": "done"}]}]}))
         out = L.act("list")
         self.assertFalse(out["saved"])
-        self.assertIn("Answer lanes on the call: 7", out["say"])
+        self.assertIn("Answer lanes on the call: 6", out["say"])
         self.assertIn("Worker lanes: 17", out["say"])
         self.assertIn("1 workers running now", out["say"])
 
@@ -307,7 +308,7 @@ class VoiceCommandTests(Tmp, unittest.IsolatedAsyncioTestCase):
         with patch.object(live, "run_hermes", side_effect=AssertionError("Hermes must not run")):
             await self.call.host_delegate("d1", "how many lanes are attached right now")
         self.assertFalse(self.path.exists())
-        self.assertIn("Answer lanes on the call: 7", self.spoken())
+        self.assertIn("Answer lanes on the call: 6", self.spoken())
 
     async def test_broker_board_receipt_is_ignored_while_tiers_run(self):
         class Relay:
