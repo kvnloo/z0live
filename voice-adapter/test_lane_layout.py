@@ -1,4 +1,5 @@
 """lane_layout: the lanes attached to the conversation (parse, validation, atomic write, tool, voice command)."""
+import asyncio
 import importlib.util
 import json
 import multiprocessing
@@ -84,7 +85,7 @@ class ValidateTests(Tmp):
         with self.assertRaises(L.LayoutError):
             L.act("add", "haiku", 4, "voice")  # fast already has 3; cap 6 per tier
         with self.assertRaises(L.LayoutError):
-            L.act("add", "sol", 3)  # worker pool: 10 + 3 > 12
+            L.act("add", "sol", 9)  # worker pool: 10 + 9 > 18
 
     def test_last_voice_lane_cannot_go(self):
         L.act("remove", "sonnet", role="voice")
@@ -121,6 +122,7 @@ class StoreTests(Tmp):
         out = L.act("add", "sol", 2)
         self.assertEqual(out["layout"]["research"]["sol"], 12)
         self.assertEqual(out["layout"]["voice"], L.VOICE_DEFAULT)
+        self.assertEqual(L.act("add", "sol", 3)["layout"]["research"]["sol"], 15)  # the brief's "add 3 sol lanes"
         self.assertIn("Added 2 GPT 6.2 Sol to the worker lanes", out["say"])
 
     def test_add_writes_and_tiers_load_sees_it_at_once(self):
@@ -281,8 +283,43 @@ class VoiceCommandTests(Tmp, unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.path.exists())
         self.assertIn("Answer lanes on the call: 7", self.spoken())
 
+    async def test_broker_board_receipt_is_ignored_while_tiers_run(self):
+        class Relay:
+            turn = {"receipt": {"configured": {"ok": False, "say": "I couldn't set that lane layout"}}}
+
+        self.call.relay = Relay()
+        with patch.object(live, "TIERS_ON", True), patch.object(live, "run_hermes", return_value="Done.") as hermes, \
+                patch.object(self.call, "tier_lanes", side_effect=lambda *a: asyncio.sleep(0)):
+            try:
+                await self.call.host_delegate("d1", "gimme 2 fast lanes, 2 small, 2 large, one council")
+            finally:
+                self.call.relay = None
+        self.assertTrue(hermes.called)  # not a lane_layout command and not the dead board: Hermes (with the tool)
+        self.assertNotIn("couldn't set that lane layout", self.spoken())
+
     async def test_other_requests_still_go_to_hermes(self):
         self.assertFalse(self.call.lane_command("d1", "what's the weather"))
+
+    async def test_previous_lane_words_never_swallow_a_new_request(self):
+        self.call.protocol.turn_text["user"] = "add two opus lanes"  # last turn; the new turn.done is not in yet
+        self.assertFalse(self.call.lane_command("d2", "what's the weather"))
+        self.assertFalse(self.path.exists())
+
+    async def test_lane_command_is_not_a_delegation_start(self):
+        events, real = [], self.call.trace
+
+        class Spy:
+            def __call__(self, ev, **kw):
+                events.append(ev)
+
+            def __getattr__(self, name):
+                return getattr(real, name)
+
+        self.call.trace = Spy()
+        await self.call.host_delegate("d1", "add two opus lanes")
+        self.call.trace = real
+        self.assertIn("lanes.layout", events)
+        self.assertNotIn("delegation.start", events)  # the conductor would turn it into worker lanes
 
 
 class PluginToolTests(Tmp):

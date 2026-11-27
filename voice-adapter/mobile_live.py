@@ -1830,7 +1830,7 @@ class Call:
         if not receipt:
             return
         self.counts["lane_finals"] += 1
-        if receipt.get("configured"):
+        if receipt.get("configured") and not TIERS_ON:  # tiers on: the broker board answers nothing (lane_layout does)
             self.note("Helper lane layout changed; tell the user in one short sentence: "
                       + str(receipt["configured"].get("say", ""))[:300], turn_id)
             return
@@ -1852,11 +1852,12 @@ class Call:
         Kevin's own work. The first lane answer is spoken once; the driver is spoken only if it adds to it."""
         self.counts["host_delegations"] += 1
         began = time.monotonic()
-        self.trace("delegation.start", did=did, request=(request or "")[:4000])
+        # Before delegation.start: the TV conductor turns every delegation.start into worker lanes.
         if self.lane_command(did, request):  # "add two opus lanes": the layout changes here, Hermes never runs
             return
+        self.trace("delegation.start", did=did, request=(request or "")[:4000])
         turn = self.relay.turn if self.relay else None
-        configured = ((turn or {}).get("receipt") or {}).get("configured")
+        configured = ((turn or {}).get("receipt") or {}).get("configured") if not TIERS_ON else None
         if configured and not self.closed:  # a lane-layout line, not a request for Hermes
             self.speak_for(did, configured.get("say") or "")
             return
@@ -1949,7 +1950,10 @@ class Call:
         reads lane_layout at once and speaks its receipt. One utterance changes the layout once: a second delegation
         of the same words within 20 s is swallowed, not applied again. True when the request was a lane command."""
         user = str(self.protocol.turn_text.get("user") or "") if hasattr(self.protocol, "turn_text") else ""
-        text = next((t for t in (request, user) if lane_layout.command(t)), None)
+        # Kevin's own words only back up a request that is itself about lanes: a delegation can beat his turn.done,
+        # and the previous utterance ("add two opus lanes") must never swallow "what's the weather".
+        text = next((t for t in (request, user if re.search(r"\blanes?\b", request or "", re.I) else "")
+                     if lane_layout.command(t)), None)
         if not text:
             return False
         cmd, now = lane_layout.command(text), time.monotonic()
@@ -1961,7 +1965,7 @@ class Call:
         recent[key] = now
         result = lane_layout.run(text, by="voice:" + self.id[-8:])
         self.counts["lane_layout_" + ("ok" if result.get("ok") else "refused")] += 1
-        self.trace("lanes.layout", did=did, cmd=cmd, ok=result.get("ok"), say=result.get("say", "")[:300],
+        self.trace("lanes.layout", did=did, request=(request or "")[:300], cmd=cmd, ok=result.get("ok"), say=result.get("say", "")[:300],
                    error=result.get("error"))
         if not self.closed:
             self.speak_for(did, result.get("say") or "")

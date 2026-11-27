@@ -50,7 +50,7 @@ ALIASES = {"haiku": "haiku", "haikus": "haiku", "sonnet": "sonnet", "sonnets": "
            "gpt": "sol", "codex": "sol", "sr": "sr", "router": "sr", "semantic router": "sr", "free": "sr",
            "fable": "fable", "advisor": "fable"}
 CAP_TIER = 6        # racing more copies than this per voice tier only burns quota
-CAP_RESEARCH = 12   # per model in the TV pool
+CAP_RESEARCH = 18   # per model in the TV pool (the conductor's ultra cap: 18 lanes per ask)
 CAP_POOL = 30       # whole TV pool
 # Seeds when neither layout.json nor the older files say otherwise (matches tiers.json and POOL_DEFAULT, 11-27).
 VOICE_DEFAULT = {"fast": {"haiku": 3}, "medium": {"sonnet": 1, "sol": 1}, "slow": {"opus": 1, "sol": 1}}
