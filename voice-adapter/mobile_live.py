@@ -289,14 +289,25 @@ SIDE_MAX = 3
 # CAP_SECONDS one honest line saying where its answer will land; the work goes on and its answer is still spoken if the
 # call is open. Background agents answered 6 of 7 requests in 2.8-6.5 s (all 11-27 ones by 16 s), so past 90 s is the
 # tail that went silent. A status line waits for a gap: never over Kevin, never over the voice's own reply.
-PROGRESS_AT = (30, 60)
+# Task I (11-27 15:14 call): status lines every few seconds. Each request ran its own timer (two receipts 5 s apart
+# for requests 8 s apart), a progress line deferred past its mark landed 7-13 s before the cap, and a receipt played
+# 6 s after the voice's own ack. One budget for the call now: no status line (receipt, progress, cap, queued notice,
+# Hermes's progress ingress) within STATUS_GAP of any earlier one or of the voice's ack of a request. A receipt or
+# progress line that cannot fit is dropped, not deferred; one line covers every request running (PROGRESS_MANY). The
+# cap is never dropped: it waits for the gap and a quiet floor (other requests' acks hold it at most one gap past its
+# mark), and says the real elapsed time. With an ack the
+# shape is ack, one progress line near 45 s, the cap near 90 s; a request the voice never acked hears the receipt.
+STATUS_GAP = float(os.environ.get("Z0LIVE_STATUS_GAP", "45"))
+PROGRESS_AT = (45,)
+PROGRESS_SLACK = 10  # a progress line waits this long past CAP_SECONDS - STATUS_GAP for a gap in the talk
 CAP_SECONDS = float(os.environ.get("Z0LIVE_CAP_SECONDS", "90"))
 PROGRESS = "Still on that in Hermes, {seconds} seconds so far."
+PROGRESS_MANY = "Still on {count} requests in Hermes, the oldest {seconds} seconds so far."
 CAP = ("No answer on that after {seconds} seconds. It keeps running in Hermes; if it finishes while we're still on, "
        "you'll hear it here, and it lands {where} and on the TV.")
 WHERE = {"chat": "in your chat", "background": "in Hermes as a background result", "host": "in Hermes"}
 STATUS = re.compile(r"Still working on that in Hermes|Still on that in Hermes, \d+ seconds so far"
-                    r"|No answer on that after \d+ seconds")
+                    r"|Still on \d+ requests in Hermes, the oldest \d+ seconds so far|No answer on that after \d+ seconds")
 # Delegated requests run as background agents beside the chat (2.8-16 s on 11-27) even when it is idle: chat turns
 # took 24.9-338 s. Z0LIVE_CHAT_TURNS=1 puts a request into an idle chat's own turn instead (never a running one).
 CHAT_TURNS = os.environ.get("Z0LIVE_CHAT_TURNS", "") == "1"
@@ -307,7 +318,8 @@ def status_line(text: str, part: bool = False) -> bool:
     if not part:
         return bool(STATUS.search(text))
     frag = re.sub(r"\d+", "N", " ".join(text.split()))
-    lines = [RECEIPT, PROGRESS.format(seconds="N")] + [CAP.format(seconds="N", where=w) for w in WHERE.values()]
+    lines = ([RECEIPT, PROGRESS.format(seconds="N"), PROGRESS_MANY.format(count="N", seconds="N")]
+             + [CAP.format(seconds="N", where=w) for w in WHERE.values()])
     return bool(frag) and any(frag in line for line in lines)
 # The background a Hermes run gets when it does not run in the call's own chat (Tek's Hermes, the oneshot path).
 CALL_CONTEXT = ("This request comes from a live voice call; answer in a few short spoken sentences. Below is the call's "
@@ -692,6 +704,7 @@ class Protocol:
 TRACE_DIR = Path(os.environ.get("HERMES_MOBILE_VOICE_TRACE_DIR",
                                 "/mnt/zer0models/sft-svlm/data/voice-traces/hermes-mobile-live"))
 ADAPTER_REV = hashlib.sha1(Path(__file__).read_bytes()).hexdigest()[:12]
+RELEASE = Path(__file__).resolve().parents[1].name  # releases/<sha>/voice-adapter: the deployed commit, on /_z0live/ready
 LEVEL_ON = 800          # s16 peak (~-32 dBFS) that counts as sound
 LEVEL_OFF_SECONDS = 0.3  # quiet this long ends a sound span
 OUTPUT_FRAME_GRACE = 0.06  # the most recent loud frame still represents playback
@@ -1476,6 +1489,11 @@ class Call:
         self.host_slots = turn_slots.TurnSlots(HOST_MAX, QUEUE_MAX)
         self.chat_slots = turn_slots.TurnSlots(1 + SIDE_MAX, QUEUE_MAX)
         self.told_queued: dict[str, float] = {}  # did -> when the voice was told it is queued (no "still working")
+        self.status_at = float("-inf")  # the call's last status line or ack (STATUS_GAP): one budget for every source
+        self.line_at = float("-inf")  # the call's last status line alone (a starved cap still keeps this gap)
+        self.status_covered: dict[str, set] = {}  # did -> receipt/progress a line for the whole call already gave it
+        self.status_running: dict[str, float] = {}  # did -> start, for requests whose status loop still runs
+        self.ack_due = False  # a request started and the voice has not finished its reply (the ack) since
         self.hermes_path: dict[str, str] = {}  # did -> where its Hermes run went: background, chat or host (WHERE)
         self.protocol = Protocol(host_delegation=HOST_DELEGATION)
         self.counts = Counter()
@@ -1652,6 +1670,9 @@ class Call:
                 text = turn.get("transcript", "")
                 if turn.get("role") == "user" and isinstance(text, str):
                     self.trace.finish_turn(text or self.protocol.turn_text["user"])
+                elif turn.get("role") == "assistant" and self.ack_due:  # the voice acked a request: the gap starts
+                    self.ack_due = False
+                    self.status_at = time.monotonic()
             if self.passthru:
                 self.passthru_event(kind, event)
         duplex = self.duplex
@@ -1903,6 +1924,7 @@ class Call:
             job = self.spawn(self.ask_hermes(did, request))
             self.pending_delegations.add(job)
             job.add_done_callback(self.pending_delegations.discard)
+            self.ack_due = True  # the voice's reply to this request is its ack (STATUS_GAP)
             self.spawn(self.receipt(did, job))
             self.latest_did = did  # an older question's lanes go quiet once this one starts
             self.watch_lane_cards(did, request)
@@ -2290,6 +2312,7 @@ class Call:
             self.told_queued[did] = time.monotonic()
             self.counts["delegations_queued"] += 1
             self.trace("delegation.queued", did=did, position=position, running=running)
+            self.stamp_status(time.monotonic())  # it says the request is waiting: a status line in the call's budget
             self.speak_for(did, QUEUED.format(running=running, position=position))
         return notice
 
@@ -2412,44 +2435,95 @@ class Call:
         The duplex floor queues a status line itself (lane=True)."""
         return not self.duplex and not self.card_floor_free(time.monotonic())
 
+    def status_gap_open(self, now, acks=True) -> bool:
+        """No status line (and, with acks, no ack of a request) within STATUS_GAP."""
+        return now - (self.status_at if acks else self.line_at) >= STATUS_GAP
+
+    def stamp_status(self, now):
+        self.status_at = self.line_at = now
+
+    def take_status(self, source, now=None) -> bool:
+        """The call's one status budget, for a line from outside the request loop (Hermes's progress ingress): True
+        (and the gap restarts) when the floor is free and no status line or ack played within STATUS_GAP."""
+        now = time.monotonic() if now is None else now
+        if self.closed or self.floor_busy() or not self.status_gap_open(now):
+            self.trace("status.dropped", source=source, reason="floor" if self.floor_busy() else "gap")
+            return False
+        self.stamp_status(now)
+        return True
+
     async def receipt(self, did, job):
         """Status lines for a Hermes request still running: a receipt at RECEIPT_SECONDS, its elapsed time at
-        PROGRESS_AT, then at CAP_SECONDS one honest line saying where the answer will land, and no more. Each waits
-        for a gap in the talk (a line deferred past the next mark gives way to it). None for a request a lane already
-        answered or one not yet running (it was told it is queued); its answer is spoken whenever it lands."""
+        PROGRESS_AT, then at CAP_SECONDS one honest line saying where the answer will land, and no more. Every line
+        draws on the call's one budget (STATUS_GAP after any status line or ack): a receipt or progress line that
+        cannot fit before its window closes is dropped, and one line covers every request running (PROGRESS_MANY).
+        The cap waits for the gap and a quiet floor instead. None for a request a lane already answered or one not
+        yet running (it was told it is queued); its answer is spoken whenever it lands."""
         began = time.monotonic()
+        self.status_running[did] = began
+        try:
+            await self.status_marks(did, job, began)
+        finally:
+            self.status_running.pop(did, None)
+            self.status_covered.pop(did, None)
+
+    def status_window(self, kind, began):
+        """When a deferred line stops waiting: a receipt gives way to the progress mark, a progress line must leave
+        the cap its gap, the cap waits as long as the request runs."""
+        if kind == "receipt":
+            return began + min(PROGRESS_AT or (CAP_SECONDS,))
+        if kind == "progress":
+            return began + max(CAP_SECONDS - STATUS_GAP, max(PROGRESS_AT)) + PROGRESS_SLACK
+        return began + DELEGATION_TIMEOUT_SECONDS
+
+    async def status_marks(self, did, job, began):
         marks = ([(RECEIPT_SECONDS, "receipt")] + [(s, "progress") for s in PROGRESS_AT if RECEIPT_SECONDS < s < CAP_SECONDS]
                  + [(CAP_SECONDS, "cap")])
-        for i, (mark, kind) in enumerate(marks):
+        for mark, kind in marks:
             if not await self.until(job, began + mark):
                 return
             if did in self.__dict__.get("first_said", {}):
                 return
             if "running" not in (self.host_slots.state(did), self.chat_slots.state(did)):
                 continue  # still queued: "still working on it" would not be true
-            limit = began + (marks[i + 1][0] if i + 1 < len(marks) else DELEGATION_TIMEOUT_SECONDS)
-            while self.floor_busy():
+            if kind in self.status_covered.get(did, ()):
+                continue  # a line for the whole call already said this one runs
+            limit = self.status_window(kind, began)
+            # 151433 replayed: a request every 20-60 s, each ack restarting the gap, held one cap to 293 s. Past one
+            # gap beyond its mark the cap waits only for the last status line's gap (other requests' acks no longer).
+            starved = began + CAP_SECONDS + STATUS_GAP if kind == "cap" else float("inf")
+            def gap(now):
+                return self.status_gap_open(now, acks=now < starved)
+            while self.floor_busy() or not gap(time.monotonic()):
                 if time.monotonic() >= limit or not await self.until(job, min(limit, time.monotonic() + 0.5)):
                     break
-            if job.done() or self.closed or self.floor_busy():
-                if job.done() or self.closed:
-                    return
-                self.trace("delegation.status_deferred", did=did, kind=kind)
-                continue
+            if job.done() or self.closed:
+                return
             now = time.monotonic()
-            if kind == "progress" and now - self.__dict__.get("status_at", float("-inf")) < 10:
-                continue  # another request's line just played: one status line at a time for the call
+            if self.floor_busy() or not gap(now) or kind in self.status_covered.get(did, ()):
+                self.trace("delegation.status_dropped", did=did, kind=kind,
+                           reason="floor" if self.floor_busy() else "gap")
+                continue
             seconds = int(now - began) // 5 * 5
-            if kind == "receipt":
-                text = RECEIPT
-            elif kind == "progress":
-                text = PROGRESS.format(seconds=seconds)
-            else:
+            others = [d for d, t in self.status_running.items()
+                      if d != did and now - t >= RECEIPT_SECONDS and d not in self.__dict__.get("first_said", {})
+                      and "running" in (self.host_slots.state(d), self.chat_slots.state(d))]
+            if kind == "cap":
                 text = CAP.format(seconds=seconds, where=WHERE[self.hermes_path.get(did, "background")])
-            self.status_at = now
+            elif others:
+                oldest = min([began] + [self.status_running[d] for d in others])
+                text = PROGRESS_MANY.format(count=len(others) + 1, seconds=int(now - oldest) // 5 * 5)
+            elif kind == "receipt":
+                text = RECEIPT
+            else:
+                text = PROGRESS.format(seconds=seconds)
+            if kind != "cap":
+                for d in others:  # this line told Kevin they run too: no receipt or progress line of their own
+                    self.status_covered.setdefault(d, set()).update(("receipt", "progress"))
+            self.stamp_status(now)
             self.counts["receipts" if kind == "receipt" else f"status_{kind}"] += 1
             self.trace("delegation.receipt" if kind == "receipt" else f"delegation.{kind}", did=did,
-                       s=round(now - began, 3), path=self.hermes_path.get(did))
+                       s=round(now - began, 3), path=self.hermes_path.get(did), covers=len(others) + 1)
             self.speak_for(did, text, lane=True)  # a status line: the answer supersedes it unsaid, as a lane guess
 
     async def audio_health(self):
@@ -2706,6 +2780,11 @@ async def health(request):
     return web.json_response({"ready": ready, "pid": os.getpid()}, status=200 if ready else 503)
 
 
+async def version(request):
+    # The deployed commit (the release directory) and this file's hash; /_z0live/ready stays exact for rolling_restart.
+    return web.json_response({"release": RELEASE, "rev": ADAPTER_REV, "pid": os.getpid()})
+
+
 def make_app():
     from live_progress import PATH, progress
 
@@ -2714,6 +2793,7 @@ def make_app():
     app.router.add_post(PATH, progress)
     app.router.add_post(passthru.PATH, passthru.control)
     app.router.add_get("/_z0live/ready", health)
+    app.router.add_get("/_z0live/version", version)
     app.router.add_get("/api/audio/voice-live/status", status)
     app.router.add_post("/api/audio/voice-live/session", session)
     app.router.add_get("/api/audio/voice-live/diagnostics", diagnostics)

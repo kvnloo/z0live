@@ -151,13 +151,20 @@ class ReplayContract(unittest.TestCase):
         self.assertLess(report["own_answer_s"]["d1"], 100)  # the long work still lands, spoken when it does
 
     def test_a_long_hermes_request_gets_a_spoken_receipt_within_seconds(self):
-        # A0190: "On it", then minutes of silence (8 of 23 delegations ran over 60 s on 11-20).
+        # A0190: "On it", then minutes of silence (8 of 23 delegations ran over 60 s on 11-20). Task I (11-27): the
+        # voice's ack is the call's first status line, so a receipt 8 s after it was a burst; a request the voice never
+        # acked still hears the receipt within seconds, an acked one hears its first status line one gap after the ack.
         rows = (turn(5, 10, "user", "Check how much of my usage I have left across every account", "u1")
-                + delegation(9.8, "d1", "usage left") + turn(10, 11, "assistant", "On it.", "a1")
+                + delegation(9.8, "d1", "usage left")
                 + hermes("d1", 95, "You have about forty percent left on the main account."))
         report = run(rows)
         self.assertLessEqual(report["receipt_s"].get("d1", 999), 12)
         self.assertEqual(report["duplicate_finals"], {})
+        import mobile_live
+        r, report = replay_rows(rows[:2] + turn(10, 11, "assistant", "On it.", "a1") + rows[2:])
+        status = [t for t, x in said_to(r, "d1") if mobile_live.status_line(x)]
+        self.assertGreaterEqual(report["receipt_s"]["d1"], mobile_live.STATUS_GAP, "no receipt right after the ack")
+        self.assertTrue(status and 11 + mobile_live.STATUS_GAP <= status[0] <= 11 + mobile_live.STATUS_GAP + 5, status)
 
     def test_a_failed_background_agent_is_spoken_not_silent(self):
         rows = (turn(5, 10, "user", "Check every server we run", "u1") + delegation(9.8, "d1", "servers")
@@ -784,10 +791,12 @@ class HermesPathNeverSilent(unittest.TestCase):
         r, report = replay_rows(rows)
         lines = said_to(r, "d1")
         status = [(round(t - 84.9, 1), x) for t, x in lines if mobile_live.status_line(x)]
-        self.assertTrue(status and status[0][0] <= 9, status)
+        # Task I: the ack (86 s) opens the call's status gap; then one progress line, then the cap, a gap apart.
         progress = [s for s in status if "seconds" in s[1] and "No answer" not in s[1]]
-        self.assertGreaterEqual(len(progress), 2, status)
-        self.assertTrue(any("30 seconds" in x for _, x in progress), status)
+        self.assertEqual(len(progress), 1, status)
+        self.assertTrue(status[0] is progress[0] and 45 <= progress[0][0] <= 52, status)
+        self.assertIn("45 seconds", progress[0][1])
+        self.assertTrue(all(b[0] - a[0] >= mobile_live.STATUS_GAP for a, b in zip(status, status[1:])), status)
         cap = [s for s in status if s[1].startswith("No answer")]
         self.assertEqual(len(cap), 1, status)
         self.assertTrue(85 <= cap[0][0] <= 100, cap)
@@ -796,7 +805,7 @@ class HermesPathNeverSilent(unittest.TestCase):
         for _, x in status:
             self.assertFalse(mobile_live.promises_new_work(x), x)
         self.assertIn("sorted into six albums", report["answers"].get("d1", ""), "the late answer is still spoken")
-        self.assertEqual(report["receipt_s"].get("d1", 999) <= 9, True)
+        self.assertGreaterEqual(report["receipt_s"]["d1"], 45, "the ack was the receipt: the first status line waits a gap")
 
     def test_no_progress_line_while_kevin_is_talking(self):
         rows = (turn(5, 10, "user", "Check how much of my usage I have left across every account", "u1")
@@ -811,7 +820,10 @@ class HermesPathNeverSilent(unittest.TestCase):
         r, _ = replay_rows(rows)
         status = [t for t, x in said_to(r, "d1") if mobile_live.status_line(x)]
         self.assertFalse([t for t in status if 14.0 <= t < 50.2], status)
-        self.assertTrue(any(50.2 <= t <= 55 for t in status), ("the deferred line plays once he stops", status))
+        # Task I: the ack at 11 s holds the gap to 56 s; the progress line plays then, the cap a gap later.
+        self.assertTrue(any(50.2 <= t <= 11 + mobile_live.STATUS_GAP + 2 for t in status),
+                        ("the deferred line plays once he stops and the gap allows", status))
+        self.assertEqual(len(status), 2, status)
 
     def test_a_quick_background_answer_hears_no_status_line(self):
         rows = (turn(5, 10, "user", "What is on my calendar today?", "u1") + delegation(9.8, "d1", "calendar")
@@ -819,6 +831,79 @@ class HermesPathNeverSilent(unittest.TestCase):
         import mobile_live
         r, _ = replay_rows(rows)
         self.assertEqual([x for _, x in said_to(r, "d1") if mobile_live.status_line(x)], [])
+
+
+class OneStatusBudget(unittest.TestCase):
+    """11-27 15:14 call: spoken status lines every few seconds. Each request ran its own receipt/progress/cap timer with
+    only a 10 s progress-only guard, so concurrent requests each spoke (receipts 5 s apart), a deferred progress line
+    landed seconds before the next mark, and a receipt played right after the voice's ack. One call-wide budget now:
+    no status line within STATUS_GAP of any earlier status line or ack."""
+
+    def status_times(self, r):
+        import mobile_live
+        return sorted(t for t, e in r.sent
+                      if mobile_live.status_line("".join(c.get("text", "") for c in e.get("content", []))))
+
+    def test_concurrent_requests_and_an_ack_never_burst_status_lines(self):
+        # Shape of 151433 at 1362-1460 s (times shifted, words invented): two requests 8 s apart, a third 60 s later
+        # with its ack; status lines then came at +10.5, +15.9, +30, +49.4, +70.9, +76.2 and +97.9 s.
+        rows = (turn(8, 12, "user", "Restart the garden sensor hub please", "u1") + delegation(12.5, "dA", "restart hub")
+                + turn(12.6, 14, "assistant", "Restarting it now.", "a1")
+                + hermes("dA", 45.3, "The garden sensor hub is back up.")
+                + turn(16, 20, "user", "And check the backup drive health too", "u2") + delegation(20.4, "dB", "backup")
+                + turn(20.5, 22, "assistant", "Checking the drive.", "a2")
+                + hermes("dB", 101.4, "The backup drive is healthy.")
+                + turn(76, 80.5, "user", "Can you list the open bike repair tickets", "u3")
+                + delegation(80.7, "dC", "bike tickets") + turn(80.8, 82.5, "assistant", "Let me look.", "a3")
+                + hermes("dC", 42.9, "There are two open bike repair tickets."))
+        import mobile_live
+        r, report = replay_rows(rows)
+        acks = [14, 22, 82.5]
+        status = self.status_times(r)
+        spoken = sorted([(t, "ack") for t in acks] + [(t, "status") for t in status])
+        close = [(a, b) for a, b in zip(spoken, spoken[1:]) if b[1] == "status" and b[0] - a[0] < getattr(mobile_live, "STATUS_GAP", 45) - 1]
+        self.assertEqual(close, [], ("a status line within the gap of an earlier ack/status line", spoken))
+        self.assertTrue(status, "the long request still hears something")
+        self.assertEqual(report["unanswered"], [])
+
+
+    def test_concurrent_long_requests_hear_one_merged_line_and_each_its_cap(self):
+        rows = (turn(8, 12, "user", "Re-index the photo library", "u1") + delegation(12.2, "dA", "re-index photos")
+                + turn(12.3, 14, "assistant", "Starting that.", "a1") + hermes("dA", 200, "The photo library is re-indexed.")
+                + turn(14.5, 17, "user", "And defrag the old backup disk", "u2") + delegation(17.2, "dB", "defrag disk")
+                + turn(17.3, 19, "assistant", "On it.", "a2") + hermes("dB", 200, "The old backup disk is defragmented."))
+        import mobile_live
+        r, report = replay_rows(rows)
+        lines = [(t, did, x) for did in ("dA", "dB") for t, x in said_to(r, did) if mobile_live.status_line(x)]
+        lines.sort()
+        times = [19] + [t for t, _, _ in lines]
+        self.assertTrue(all(b - a >= mobile_live.STATUS_GAP - 1 for a, b in zip(times, times[1:])), lines)
+        merged = [x for _, _, x in lines if x.startswith("Still on 2 requests")]
+        self.assertEqual(len(merged), 1, lines)
+        for did in ("dA", "dB"):
+            mine = [x for _, d, x in lines if d == did]
+            self.assertLessEqual(len([x for x in mine if not x.startswith("No answer")]), 1, (did, lines))
+            self.assertEqual(len([x for x in mine if x.startswith("No answer")]), 1, (did, lines))
+        self.assertEqual(report["unanswered"], [])
+
+
+    def test_acks_of_new_requests_cannot_starve_a_long_requests_cap(self):
+        # 151433 replayed through the budget: a new request every 20-60 s, each acked, held one cap to 293 s.
+        rows = (turn(8, 12, "user", "Rebuild the whole media index", "u1") + delegation(12.2, "dA", "rebuild index")
+                + turn(12.3, 14, "assistant", "Starting the rebuild.", "a1") + hermes("dA", 260, "The media index is rebuilt."))
+        for i, t in enumerate(range(40, 260, 30)):
+            rows += (turn(t - 3, t, "user", f"Quick question {i} about the lamps", f"q{i}")
+                     + delegation(t + 0.2, f"q{i}", f"lamps {i}") + turn(t + 0.3, t + 2, "assistant", "One sec.", f"k{i}")
+                     + hermes(f"q{i}", 4, f"Lamp answer {i}."))
+        import mobile_live
+        r, report = replay_rows(rows)
+        status = [(t, x) for t, x in said_to(r, "dA") if mobile_live.status_line(x)]
+        cap = [t for t, x in status if x.startswith("No answer")]
+        self.assertEqual(len(cap), 1, status)
+        self.assertLessEqual(cap[0] - 12.2, mobile_live.CAP_SECONDS + mobile_live.STATUS_GAP + 5, status)
+        lines = sorted(t for t, e in r.sent
+                       if mobile_live.status_line("".join(c.get("text", "") for c in e.get("content", []))))
+        self.assertTrue(all(b - a >= mobile_live.STATUS_GAP - 1 for a, b in zip(lines, lines[1:])), lines)
 
 
 if __name__ == "__main__":

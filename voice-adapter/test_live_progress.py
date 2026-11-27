@@ -31,7 +31,8 @@ class ProgressTests(unittest.IsolatedAsyncioTestCase):
         app.cleanup_ctx.clear()
         self.call = SimpleNamespace(chat="test-chat", closed=False, provider_ready=True,
                                     provider_dc=SimpleNamespace(readyState="open"), leg=None,
-                                    protocol=Protocol(), send=Mock(), trace=SimpleNamespace(turn_id=1))
+                                    protocol=Protocol(), send=Mock(), trace=SimpleNamespace(turn_id=1),
+                                    take_status=Mock(return_value=True))
         self.calls = {"call": self.call}
         app["manager"] = SimpleNamespace(calls=self.calls)
         self.client = await self.enterAsyncContext(TestClient(TestServer(app, host="127.0.0.1")))
@@ -53,6 +54,30 @@ class ProgressTests(unittest.IsolatedAsyncioTestCase):
         self.call.leg.note.assert_awaited_once_with("Brief progress update from Hermes. Say this aloud: " + LINE, 1)
         self.call.leg.raw.assert_awaited_once_with({"type": "response.create"})
         self.call.send.assert_not_called()
+
+    async def test_a_line_inside_the_calls_status_gap_is_dropped_quietly(self):
+        # Task I: Hermes's lines had no share in the call's status budget, so they could land right on a receipt.
+        self.call.take_status.return_value = False
+        result = await asyncio.to_thread(self.say, {"text": LINE}, session_id="test-chat")
+        self.assertEqual(json.loads(result), {"ok": True}, "a dropped line is no error to the agent (no retry)")
+        self.call.take_status.assert_called_once_with("ingress")
+        self.call.send.assert_not_called()
+
+    async def test_ingress_and_request_lines_share_one_budget(self):
+        import time
+        from mobile_live import STATUS_GAP, Call
+        traced = []
+        call = SimpleNamespace(closed=False, duplex=None, status_at=float("-inf"), line_at=float("-inf"),
+                               floor_busy=lambda: False, trace=lambda ev, **kw: traced.append(ev))
+        call.status_gap_open = lambda now: Call.status_gap_open(call, now)
+        call.stamp_status = lambda now: Call.stamp_status(call, now)
+        now = time.monotonic()
+        self.assertTrue(Call.take_status(call, "ingress", now))
+        self.assertFalse(Call.take_status(call, "ingress", now + STATUS_GAP - 1), "a second line inside the gap")
+        call.status_at = now + 100  # a receipt or the voice's ack just played
+        self.assertFalse(Call.take_status(call, "ingress", now + 101))
+        self.assertTrue(Call.take_status(call, "ingress", now + 100 + STATUS_GAP))
+        self.assertEqual(traced, ["status.dropped", "status.dropped"])
 
     async def test_rejects_unauthorized_unready_foreign_ambiguous_and_private_input(self):
         async def post(text=LINE, sid="test-chat", headers=None):

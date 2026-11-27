@@ -569,12 +569,14 @@ class BoundedHostQueueTests(unittest.IsolatedAsyncioTestCase):
         call = await self.call()
         running = [f"r{i}" for i in range(live.HOST_MAX)]
         # The queued notice is a line handed to the voice: status lines wait HANDED_SECONDS after it (lane cards' gate).
+        # STATUS_GAP 0: the queued notice is itself a status line in the call's budget (task I).
         with patch.object(live, 'run_hermes', self.fake), patch.object(live, 'RECEIPT_SECONDS', 0.2), \
-                patch.object(live.lane_cards, 'HANDED_SECONDS', 0.1):
+                patch.object(live.lane_cards, 'HANDED_SECONDS', 0.1), patch.object(live, 'STATUS_GAP', 0):
             jobs = await self.start(call, running + ["w1"])
             await asyncio.sleep(0.8)
-            self.assertFalse(any(live.RECEIPT in s for s in self.said("w1")), "the receipt claims a queued run works")
-            self.assertTrue(any(live.RECEIPT in s for s in self.said("r0")), "a running request keeps its receipt")
+            self.assertFalse(any(live.status_line(s) for s in self.said("w1")), "the receipt claims a queued run works")
+            self.assertTrue(any(live.status_line(s) for d in running for s in self.said(d)),
+                            "a running request keeps its receipt")
             for did in running + ["w1"]:
                 self.release(did)
             await asyncio.wait_for(asyncio.gather(*jobs.values()), 5)

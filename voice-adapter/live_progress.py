@@ -36,11 +36,16 @@ async def progress(request):
     if call.leg:
         if not call.leg.ready or call.leg.ws is None or call.leg.ws.closed:
             raise web.HTTPConflict()
+    elif not call.provider_ready or call.provider_dc.readyState != "open":
+        raise web.HTTPConflict()
+    # One status budget for the call (mobile_live.STATUS_GAP): a line inside the gap of another status line or the
+    # voice's ack, or over Kevin or a reply, is dropped. Still 204: an error only makes the agent try again.
+    if not call.take_status("ingress"):
+        return web.Response(status=204)
+    if call.leg:
         await call.leg.note("Brief progress update from Hermes. Say this aloud: " + text, call.trace.turn_id)
         await call.leg.raw({"type": "response.create"})
     else:
-        if not call.provider_ready or call.provider_dc.readyState != "open":
-            raise web.HTTPConflict()
         for event in call.protocol.from_mobile({"type": "session.commentary.append", "content": text}):
             call.send(event, to_provider=True)
     return web.Response(status=204)
