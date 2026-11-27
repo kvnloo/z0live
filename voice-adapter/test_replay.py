@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("HERMES_VOICE_ENGINE", "gpt-live")  # never the owner's lanes config
 import replay  # noqa: E402
@@ -50,7 +51,7 @@ class ReplayContract(unittest.TestCase):
         report = run(rows)
         self.assertEqual(report["duplicate_finals"], {})
         self.assertEqual(report["finals"], 3)
-        self.assertEqual(report["backgrounded"], 2)
+        self.assertEqual(report["backgrounded"], 3)  # task H: every request runs as a background agent (the fast path)
         self.assertEqual(report["held"], [])
         self.assertEqual(report["unanswered"], [])
 
@@ -67,11 +68,11 @@ class ReplayContract(unittest.TestCase):
             rows += (turn(t - 5, t, "user", f"Question number {i} about the studio", f"u{i}")
                      + delegation(t - 0.2, f"d{i}", f"question {i}") + turn(t, t + 1, "assistant", "Checking.", f"a{i}")
                      + hermes(f"d{i}", 60 if i < 5 else 5, f"Answer number {i}."))
-        self.assertEqual(live.SIDE_MAX, 3, "fixture: d2-d4 fill the background agents, d5 is past the bound")
+        self.assertEqual(live.SIDE_MAX, 3, "fixture: d1-d4 fill the chat line (1 + SIDE_MAX agents), d5 is past the bound")
         report = run(rows)
         self.assertEqual(report["held"], [], "a request past the bound was folded into the running turn")
         self.assertEqual(report["unanswered"], [])
-        self.assertEqual(report["backgrounded"], 4, "d5 runs as its own background agent once one is free")
+        self.assertEqual(report["backgrounded"], 5, "d5 runs as its own background agent once one is free")
         queued = report["queued_s"]
         self.assertIn("d5", queued, "the voice was never told d5 is queued")
         self.assertLess(queued["d5"], 1.0, "the queued notice is prompt")
@@ -117,7 +118,8 @@ class ReplayContract(unittest.TestCase):
                 + hermes("d1", 10, "The Studio has 23 gigabytes free.") + hermes("d2", 10, "The Studio has 23 gigabytes free.")
                 + turn(21.4, 24.7, "assistant", "Sure, I'll check that quickly.", "a1"))
         sent = self.last_submitted(rows)
-        self.assertEqual([text for _, _, text in sent],
+        # A background agent's prompt carries the call's context ahead of the request (side_request).
+        self.assertEqual([text.rsplit("Request: ", 1)[-1] for _, _, text in sent],
                          ["Can you look at my studio and tell me how much disk space is free right now"])
 
     def test_one_lane_answer_per_request_then_hermes(self):
@@ -698,6 +700,104 @@ class LaneCardsOnTheCall(unittest.TestCase):
         finals = [(at, e) for at, e in r.sent if "Sol lane:" in "".join(c.get("text", "") for c in e.get("content", []))]
         self.assertEqual([(e["delegation_item_id"], e["channel"]) for _, e in finals], [("d1", "speakable")])
         self.assertEqual([(kw["reason"], kw["lanes"]) for _, kw in skipped], [("stale", ["a1-2"])])
+
+
+def said_to(r, did):
+    """(t, words) of every line handed to the voice for one request, in order."""
+    return [(t, "".join(c.get("text", "") for c in e.get("content", []))[len(replay.FINAL):].strip())
+            for t, e in r.sent if e.get("delegation_item_id") == did]
+
+
+def replay_rows(rows, **kw):
+    import asyncio
+    r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows, **kw)
+    return r, asyncio.run(r.run())
+
+
+class HermesPathNeverSilent(unittest.TestCase):
+    """Task H, 11-27: the deep-answer path was slow or silent. Chat turns took 24.9, 232 and 338 s with one receipt
+    and then silence; background agents answered in 5.5-16 s (calls 120608 and 121336). Call 114034 folded its one
+    request into a chat turn already running from outside the call: no receipt, then 184 s of silence."""
+
+    def test_an_idle_chat_still_runs_the_request_as_a_background_agent(self):
+        rows = (turn(5, 10, "user", "How are the garden sensors doing this week?", "u1")
+                + delegation(9.8, "d1", "garden sensors") + turn(10, 11, "assistant", "Let me check.", "a1")
+                + hermes("d1", 6, "Both sensors report and the soil is damp."))
+        r, report = replay_rows(rows)
+        self.assertEqual(r.backgrounded, ["d1"], "the fast path is the background agent")
+        self.assertEqual([s for s in r.submitted if s[1] == "d1" and s[1] not in r.backgrounded], [])
+        self.assertLess(report["own_answer_s"]["d1"], 10)
+
+    def test_a_chat_busy_from_outside_the_call_is_never_submitted_into_even_with_chat_turns_on(self):
+        # 114034: the chat's own turn was running (typed in the app); prompt.submit folded the request ("steered").
+        rows = ([{"t": 0, "chat_busy_until": 300}]
+                + turn(30, 35, "user", "How are the garden sensors doing this week?", "u1")
+                + delegation(35.6, "d1", "garden sensors") + turn(36, 37, "assistant", "Let me look.", "a1")
+                + hermes("d1", 7, "Both sensors report and the soil is damp."))
+        import mobile_live
+        with patch.object(mobile_live, "CHAT_TURNS", True, create=True):
+            r, report = replay_rows(rows)
+        self.assertEqual(r.chat_submits, [], "a busy chat never gets a prompt.submit (it redirects Kevin's turn)")
+        self.assertEqual(report["held"], [])
+        self.assertLess(report["own_answer_s"]["d1"], 12)
+
+    def test_a_submit_that_folds_anyway_still_gets_its_own_answer(self):
+        # The race: the chat looked idle at resume, then a turn began before the submit landed.
+        rows = ([{"t": 0, "chat_fold_submits": True}]
+                + turn(30, 35, "user", "How full is the backup drive?", "u1")
+                + delegation(35.6, "d1", "backup drive") + turn(36, 37, "assistant", "Let me look.", "a1")
+                + hermes("d1", 5, "The backup drive has 210 gigabytes free."))
+        import mobile_live
+        with patch.object(mobile_live, "CHAT_TURNS", True, create=True):
+            r, report = replay_rows(rows)
+        self.assertIn("d1", r.backgrounded, "a folded request runs again as a background agent")
+        self.assertEqual(report["held"], [])
+        self.assertIn("210 gigabytes", report["answers"].get("d1", ""))
+
+    def test_a_long_request_hears_progress_with_elapsed_time_then_an_honest_cap_and_still_gets_its_answer(self):
+        # 120608 at 84.9 s: one receipt at 8 s, then 224 s of silence before the chat turn answered.
+        rows = (turn(80, 84.5, "user", "Sort every photo from the trip into albums by day", "u1")
+                + delegation(84.9, "d1", "sort the trip photos") + turn(85, 86, "assistant", "Let me check.", "a1")
+                + hermes("d1", 232, "The trip photos are sorted into six albums."))
+        import mobile_live
+        r, report = replay_rows(rows)
+        lines = said_to(r, "d1")
+        status = [(round(t - 84.9, 1), x) for t, x in lines if mobile_live.status_line(x)]
+        self.assertTrue(status and status[0][0] <= 9, status)
+        progress = [s for s in status if "seconds" in s[1] and "No answer" not in s[1]]
+        self.assertGreaterEqual(len(progress), 2, status)
+        self.assertTrue(any("30 seconds" in x for _, x in progress), status)
+        cap = [s for s in status if s[1].startswith("No answer")]
+        self.assertEqual(len(cap), 1, status)
+        self.assertTrue(85 <= cap[0][0] <= 100, cap)
+        self.assertIn("TV", cap[0][1])
+        self.assertTrue(all(t <= cap[0][0] for t, _ in status), "nothing repeats past the cap")
+        for _, x in status:
+            self.assertFalse(mobile_live.promises_new_work(x), x)
+        self.assertIn("sorted into six albums", report["answers"].get("d1", ""), "the late answer is still spoken")
+        self.assertEqual(report["receipt_s"].get("d1", 999) <= 9, True)
+
+    def test_no_progress_line_while_kevin_is_talking(self):
+        rows = (turn(5, 10, "user", "Check how much of my usage I have left across every account", "u1")
+                + delegation(9.8, "d1", "usage left") + turn(10, 11, "assistant", "On it.", "a1")
+                + hermes("d1", 120, "You have about forty percent left on the main account.")
+                + [{"t": 14.0, "src": "provider", "rx": {"type": "turn.created", "turn": {"id": "u2", "role": "user",
+                                                                                          "transcript": "And"}}},
+                   {"t": 14.0, "input_loud": True}, {"t": 50.0, "input_loud": False},
+                   {"t": 50.2, "src": "provider", "rx": {"type": "turn.done", "turn": {
+                       "id": "u2", "role": "user", "transcript": "And a long story about the bike ride that keeps going"}}}])
+        import mobile_live
+        r, _ = replay_rows(rows)
+        status = [t for t, x in said_to(r, "d1") if mobile_live.status_line(x)]
+        self.assertFalse([t for t in status if 14.0 <= t < 50.2], status)
+        self.assertTrue(any(50.2 <= t <= 55 for t in status), ("the deferred line plays once he stops", status))
+
+    def test_a_quick_background_answer_hears_no_status_line(self):
+        rows = (turn(5, 10, "user", "What is on my calendar today?", "u1") + delegation(9.8, "d1", "calendar")
+                + turn(10, 11, "assistant", "One sec.", "a1") + hermes("d1", 4, "Just the dentist at nine thirty."))
+        import mobile_live
+        r, _ = replay_rows(rows)
+        self.assertEqual([x for _, x in said_to(r, "d1") if mobile_live.status_line(x)], [])
 
 
 if __name__ == "__main__":

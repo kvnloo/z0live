@@ -27,6 +27,7 @@ import threading
 import time
 import uuid
 
+import aiohttp
 from aiohttp import ClientSession, ClientTimeout, web
 from aiortc import RTCPeerConnection, RTCSessionDescription, RTCConfiguration
 from aiortc.mediastreams import MediaStreamError
@@ -283,6 +284,31 @@ DELEGATION_TIMEOUT_SECONDS = 600
 RECEIPT_SECONDS = float(os.environ.get("Z0LIVE_RECEIPT_SECONDS", "8"))
 RECEIPT = "Still working on that in Hermes; ask anything else meanwhile."  # says what runs, promises nothing
 SIDE_MAX = 3
+# Task H (11-27): after that one receipt the voice went silent for up to 224 s (chat turns of 232 and 338 s; a fold
+# into a busy turn got no line at all for 184 s). A request still running hears its elapsed time at PROGRESS_AT, and at
+# CAP_SECONDS one honest line saying where its answer will land; the work goes on and its answer is still spoken if the
+# call is open. Background agents answered 6 of 7 requests in 2.8-6.5 s (all 11-27 ones by 16 s), so past 90 s is the
+# tail that went silent. A status line waits for a gap: never over Kevin, never over the voice's own reply.
+PROGRESS_AT = (30, 60)
+CAP_SECONDS = float(os.environ.get("Z0LIVE_CAP_SECONDS", "90"))
+PROGRESS = "Still on that in Hermes, {seconds} seconds so far."
+CAP = ("No answer on that after {seconds} seconds. It keeps running in Hermes; if it finishes while we're still on, "
+       "you'll hear it here, and it lands {where} and on the TV.")
+WHERE = {"chat": "in your chat", "background": "in Hermes as a background result", "host": "in Hermes"}
+STATUS = re.compile(r"Still working on that in Hermes|Still on that in Hermes, \d+ seconds so far"
+                    r"|No answer on that after \d+ seconds")
+# Delegated requests run as background agents beside the chat (2.8-16 s on 11-27) even when it is idle: chat turns
+# took 24.9-338 s. Z0LIVE_CHAT_TURNS=1 puts a request into an idle chat's own turn instead (never a running one).
+CHAT_TURNS = os.environ.get("Z0LIVE_CHAT_TURNS", "") == "1"
+
+
+def status_line(text: str, part: bool = False) -> bool:
+    """A line saying the work runs (receipt, progress, cap), not an answer; part: a fragment of one."""
+    if not part:
+        return bool(STATUS.search(text))
+    frag = re.sub(r"\d+", "N", " ".join(text.split()))
+    lines = [RECEIPT, PROGRESS.format(seconds="N")] + [CAP.format(seconds="N", where=w) for w in WHERE.values()]
+    return bool(frag) and any(frag in line for line in lines)
 # The background a Hermes run gets when it does not run in the call's own chat (Tek's Hermes, the oneshot path).
 CALL_CONTEXT = ("This request comes from a live voice call; answer in a few short spoken sentences. Below is the call's "
                 "brief and the chat the call was opened from: background, already handled. Use it to place the "
@@ -1450,6 +1476,7 @@ class Call:
         self.host_slots = turn_slots.TurnSlots(HOST_MAX, QUEUE_MAX)
         self.chat_slots = turn_slots.TurnSlots(1 + SIDE_MAX, QUEUE_MAX)
         self.told_queued: dict[str, float] = {}  # did -> when the voice was told it is queued (no "still working")
+        self.hermes_path: dict[str, str] = {}  # did -> where its Hermes run went: background, chat or host (WHERE)
         self.protocol = Protocol(host_delegation=HOST_DELEGATION)
         self.counts = Counter()
         self.created = time.monotonic()
@@ -2239,10 +2266,19 @@ class Call:
             except Exception:  # noqa: BLE001
                 self.chat = ""
             self.trace("chat.resolved", chat=self.chat)
-        if self.chat:
+        anchor = self.chat or await self.anchor_chat()
+        if anchor:
             async with self.chat_slots.slot(did, self.queued_notice(did)):
                 self.dequeued(did)
-                return await self.ask_chat_slot(did, request)
+                try:
+                    return await self.ask_chat_slot(did, request, anchor)
+                except (OSError, aiohttp.ClientError, chat_continuity.NotStarted) as exc:
+                    if isinstance(exc, TimeoutError):  # an OSError too, but the agent ran: never a second run
+                        raise
+                    # The dashboard is down or refused the run before it began: the CLI is all that is left.
+                    self.trace("delegation.dashboard_unreachable", did=did, error=type(exc).__name__,
+                               detail=str(exc)[:200])
+        self.hermes_path[did] = "host"
         async with self.host_slots.slot(did, self.queued_notice(did)):
             self.dequeued(did)
             context = self.host_context()
@@ -2261,28 +2297,59 @@ class Call:
         if did in self.told_queued:
             self.trace("delegation.dequeued", did=did, waited_s=round(time.monotonic() - self.told_queued[did], 3))
 
-    async def ask_chat_slot(self, did, request):
-        """One admitted request on the chat path: the chat's own turn when it is free, else a background agent."""
-        if self.__dict__.get("chat_turn"):
-            # This call's chat turn is running: joining it would redirect that work and hold this answer
-            # until it ends. Run beside it instead, with the call's recent words as context.
-            answer = await asyncio.wait_for(chat_continuity.ask_background(
-                self.manager.http, self.token, self.profile, self.chat, self.side_request(request),
-                lambda task: self.trace("delegation.background", did=did, task=task)),
-                DELEGATION_TIMEOUT_SECONDS)
-            self.counts["background_turns"] += 1
-            return answer
-        self.chat_turn = did  # set before the first await: a request a moment later sees the turn running
-        try:
-            # No fallback: a lost acknowledgement or final reply does not mean the turn didn't run.
-            answer = await asyncio.wait_for(chat_continuity.ask_chat(
-                self.manager.http, self.token, self.profile, self.chat, request, DELEGATION_TIMEOUT_SECONDS),
-                DELEGATION_TIMEOUT_SECONDS)
-        finally:
-            if self.__dict__.get("chat_turn") == did:
-                self.chat_turn = None
-        self.counts["chat_turns"] += 1
-        self.trace("delegation.chat", did=did, chat=self.chat)
+    async def anchor_chat(self):
+        """The chat a background agent runs beside when the call matched none: the profile's newest chat. 112025
+        (11-27): chat.resolved "" sent three requests to cold CLI runs and none answered before hang-up."""
+        if not (CHAT_CONTINUITY and self.token):
+            return ""
+        if "anchor" not in self.__dict__:
+            self.anchor = await asyncio.to_thread(chat_continuity.newest_chat, self.profile)
+            self.trace("chat.anchor", chat=self.anchor)
+        return self.anchor
+
+    async def ask_chat_slot(self, did, request, sid=None):
+        """One admitted request on the chat path: a background agent beside the chat (the fast path: 35k tokens a
+        call against the chat's 489k on 11-27), or the chat's own turn when the dashboard says no turn runs in it
+        (CHAT_TURNS, or the background run was refused before it began). Never folded into a running turn: 114034's
+        request joined a turn Kevin had going, got no line of its own and was silent for 184 s."""
+        sid = sid or self.chat
+        if not CHAT_TURNS:
+            try:
+                return await self.ask_background(did, request, sid)
+            except chat_continuity.NotStarted as exc:  # refused before it began (a cold agent build past 30 s)
+                if sid != self.chat or self.__dict__.get("chat_turn"):
+                    raise
+                self.trace("delegation.background_refused", did=did, detail=str(exc)[:200])
+        if sid == self.chat and not self.__dict__.get("chat_turn"):
+            self.chat_turn = did  # set before the first await: a request a moment later sees the turn running
+            try:
+                # No fallback once submitted: a lost acknowledgement or final reply does not mean the turn didn't run.
+                answer = await asyncio.wait_for(chat_continuity.ask_chat(
+                    self.manager.http, self.token, self.profile, sid, request, DELEGATION_TIMEOUT_SECONDS,
+                    only_if_idle=True), DELEGATION_TIMEOUT_SECONDS)
+            except chat_continuity.ChatBusy:
+                self.trace("delegation.chat_busy", did=did, chat=sid)
+                answer = False
+            finally:
+                if self.__dict__.get("chat_turn") == did:
+                    self.chat_turn = None
+            if answer:
+                self.hermes_path[did] = "chat"
+                self.counts["chat_turns"] += 1
+                self.trace("delegation.chat", did=did, chat=sid)
+                return answer
+            if answer is None:  # a turn began between the resume and the submit: this request has no answer there
+                self.counts["chat_fold_rerun"] += 1
+                self.trace("delegation.fold_rerun", did=did, chat=sid)
+        return await self.ask_background(did, request, sid)
+
+    async def ask_background(self, did, request, sid):
+        self.hermes_path[did] = "background"
+        answer = await asyncio.wait_for(chat_continuity.ask_background(
+            self.manager.http, self.token, self.profile, sid, self.side_request(request),
+            lambda task: self.trace("delegation.background", did=did, task=task)),
+            DELEGATION_TIMEOUT_SECONDS)
+        self.counts["background_turns"] += 1
         return answer
 
     def host_context(self) -> str:
@@ -2307,29 +2374,73 @@ class Call:
         return await asyncio.to_thread(run_hermes, request, self.profile, True)
 
     def side_request(self, request):
-        """A background agent's prompt: it starts fresh, so it gets the call's recent words with the request."""
+        """A background agent's prompt: it starts fresh, so it gets the call's brief, the chat it opened from and the
+        call's recent words with the request (host_context), or at least the call's recent words."""
+        context = self.host_context()
+        if context:
+            return context + "\n\nRequest: " + request
         said = "\n".join(f"{'Kevin' if role == 'user' else 'Voice'}: {text[:400]}"
                          for role, text in list(self.protocol.exchanges)[-6:])
-        return (f"Kevin asked this on a live voice call while another request runs in this chat. Answer it on its "
-                f"own, in a few short spoken sentences.\n\nRecent call:\n{said or '(none)'}\n\nRequest: {request}")
+        return (f"Kevin asked this on a live voice call. Answer it on its own, in a few short spoken sentences."
+                f"\n\nRecent call:\n{said or '(none)'}\n\nRequest: {request}")
 
     async def sleep(self, seconds):  # the replay runs this on its own clock
         await asyncio.sleep(seconds)
 
+    async def until(self, job, at):
+        """Wait until `at` (monotonic) or the job ends; True while the job still runs on an open call."""
+        if (wait := at - time.monotonic()) > 0 and not job.done():
+            timer = asyncio.ensure_future(self.sleep(wait))
+            try:
+                await asyncio.wait({job, timer}, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                timer.cancel()
+        return not job.done() and not self.closed
+
+    def floor_busy(self):
+        """Kevin is talking, the voice is mid-reply or was just handed a line: the lane cards' gate (card_floor_free).
+        The duplex floor queues a status line itself (lane=True)."""
+        return not self.duplex and not self.card_floor_free(time.monotonic())
+
     async def receipt(self, did, job):
-        """One spoken receipt for a Hermes request still running after RECEIPT_SECONDS: the work goes on and its
-        answer is spoken when it lands. A request a lane already answered gets none."""
-        timer = asyncio.ensure_future(self.sleep(RECEIPT_SECONDS))
-        try:
-            await asyncio.wait({job, timer}, return_when=asyncio.FIRST_COMPLETED)
-        finally:
-            timer.cancel()
-        if (job.done() or self.closed or did in self.__dict__.get("first_said", {}) or did in self.told_queued
-                or "running" not in (self.host_slots.state(did), self.chat_slots.state(did))):
-            return  # a queued request was already told it is queued: "still working on it" would not be true
-        self.counts["receipts"] += 1
-        self.trace("delegation.receipt", did=did, s=RECEIPT_SECONDS)
-        self.speak_for(did, RECEIPT, lane=True)  # a status line: the answer supersedes it unsaid, as a lane guess
+        """Status lines for a Hermes request still running: a receipt at RECEIPT_SECONDS, its elapsed time at
+        PROGRESS_AT, then at CAP_SECONDS one honest line saying where the answer will land, and no more. Each waits
+        for a gap in the talk (a line deferred past the next mark gives way to it). None for a request a lane already
+        answered or one not yet running (it was told it is queued); its answer is spoken whenever it lands."""
+        began = time.monotonic()
+        marks = ([(RECEIPT_SECONDS, "receipt")] + [(s, "progress") for s in PROGRESS_AT if RECEIPT_SECONDS < s < CAP_SECONDS]
+                 + [(CAP_SECONDS, "cap")])
+        for i, (mark, kind) in enumerate(marks):
+            if not await self.until(job, began + mark):
+                return
+            if did in self.__dict__.get("first_said", {}):
+                return
+            if "running" not in (self.host_slots.state(did), self.chat_slots.state(did)):
+                continue  # still queued: "still working on it" would not be true
+            limit = began + (marks[i + 1][0] if i + 1 < len(marks) else DELEGATION_TIMEOUT_SECONDS)
+            while self.floor_busy():
+                if time.monotonic() >= limit or not await self.until(job, min(limit, time.monotonic() + 0.5)):
+                    break
+            if job.done() or self.closed or self.floor_busy():
+                if job.done() or self.closed:
+                    return
+                self.trace("delegation.status_deferred", did=did, kind=kind)
+                continue
+            now = time.monotonic()
+            if kind == "progress" and now - self.__dict__.get("status_at", float("-inf")) < 10:
+                continue  # another request's line just played: one status line at a time for the call
+            seconds = int(now - began) // 5 * 5
+            if kind == "receipt":
+                text = RECEIPT
+            elif kind == "progress":
+                text = PROGRESS.format(seconds=seconds)
+            else:
+                text = CAP.format(seconds=seconds, where=WHERE[self.hermes_path.get(did, "background")])
+            self.status_at = now
+            self.counts["receipts" if kind == "receipt" else f"status_{kind}"] += 1
+            self.trace("delegation.receipt" if kind == "receipt" else f"delegation.{kind}", did=did,
+                       s=round(now - began, 3), path=self.hermes_path.get(did))
+            self.speak_for(did, text, lane=True)  # a status line: the answer supersedes it unsaid, as a lane guess
 
     async def audio_health(self):
         """Once a second for the first 60 s: frames each way and event-loop lag (choppy starts, 11-16)."""

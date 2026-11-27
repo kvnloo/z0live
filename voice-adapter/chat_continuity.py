@@ -70,6 +70,27 @@ def find_chat(history, profile: str, db_path: Path | None = None) -> str:
         return ""
 
 
+def newest_chat(profile: str, db_path: Path | None = None) -> str:
+    """Stored id of the profile's newest chat (its newest continuation), or ''. A background agent only needs a chat
+    to run beside, so a call whose history matched no chat still gets the fast path instead of a cold CLI run
+    (11-27 11:20: three CLI runs, none answered before hang-up). Never a side run (bg_*) or a local session."""
+    try:
+        with sqlite3.connect(f"file:{db_path or _db(profile)}?mode=ro", uri=True, timeout=2) as db:
+            row = db.execute(f"SELECT id FROM sessions WHERE source NOT IN {NOT_A_CHAT} AND id NOT LIKE 'local-%' "
+                             "AND id NOT LIKE 'bg\\_%' ESCAPE '\\' ORDER BY started_at DESC LIMIT 1").fetchone()
+            return row[0] if row else ""
+    except sqlite3.Error:
+        return ""
+
+
+class NotStarted(RuntimeError):
+    """The dashboard refused a background run before it began (no task id): nothing runs, so another path may."""
+
+
+class ChatBusy(RuntimeError):
+    """The chat's own turn is running (the call's, or one Kevin typed): a prompt submitted now would fold into it."""
+
+
 JOINED = frozenset({"steered", "redirected"})  # prompt.submit receipts for a prompt folded into the running turn
 
 
@@ -106,11 +127,17 @@ async def ask_background(http, token: str, profile: str, sid: str, request: str,
     prompt.background, the app's /background): the RPC returns a task id at once, and the answer arrives as
     background.complete {task_id, text} on the chat's sockets. Same profile, tools and approval rules as a chat
     turn; it does not see the chat's history, so the caller puts the call's recent words in the request."""
-    ws, rpc, live, scope = await _socket(http, token, profile, sid)
     try:
-        task_id = (await rpc("prompt.background", {"session_id": live, "text": request, **scope})).get("task_id")
+        ws, rpc, live, scope = await _socket(http, token, profile, sid)
+    except RuntimeError as exc:  # session.resume refused: nothing started
+        raise NotStarted(str(exc)) from exc
+    try:
+        try:
+            task_id = (await rpc("prompt.background", {"session_id": live, "text": request, **scope})).get("task_id")
+        except RuntimeError as exc:  # e.g. 5032 agent still starting: the RPC errored, no task began
+            raise NotStarted(str(exc)) from exc
         if not task_id:
-            raise RuntimeError("prompt.background returned no task id")
+            raise NotStarted("prompt.background returned no task id")
         if on_receipt:
             on_receipt(task_id)
         async for msg in ws:
@@ -128,7 +155,8 @@ async def ask_background(http, token: str, profile: str, sid: str, request: str,
         await ws.close()
 
 
-async def ask_chat(http, token: str, profile: str, sid: str, request: str, timeout: float) -> str | None:
+async def ask_chat(http, token: str, profile: str, sid: str, request: str, timeout: float,
+                   only_if_idle: bool = False) -> str | None:
     """Submit one voice request into the chat and return the final text of the turn it started, or None when the
     chat was busy and the request joined the running turn: that turn's one final answers both, and it already
     belongs to the request that started it. A queued request waits for its own turn, after the running one."""
@@ -148,8 +176,11 @@ async def ask_chat(http, token: str, profile: str, sid: str, request: str, timeo
             raise RuntimeError(f"{method}: socket closed")
 
         scope = {"profile": profile} if profile else {}  # the dashboard picks the store per RPC, not per socket
-        live = (await rpc("session.resume", {"session_id": sid, "omit_messages": True, "inline_images": False,
-                                             "lazy": True, **scope})).get("session_id") or sid
+        resumed = await rpc("session.resume", {"session_id": sid, "omit_messages": True, "inline_images": False,
+                                               "lazy": True, **scope})
+        live = resumed.get("session_id") or sid
+        if only_if_idle and resumed.get("running"):  # a live chat reports its running turn (session_registry.py)
+            raise ChatBusy(f"chat {sid} has a turn running")
         status = (await rpc("prompt.submit", {"session_id": live, "text": request, **scope})).get("status")
         if status in JOINED:
             return None

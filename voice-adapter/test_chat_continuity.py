@@ -57,9 +57,9 @@ class FindChat(unittest.TestCase):
 
 
 class AskChat(unittest.IsolatedAsyncioTestCase):
-    async def ask(self, status, events):
+    async def ask(self, status, events, running=None, only_if_idle=False):
         """ask_chat against a dashboard socket whose prompt.submit answers `status`, then sends `events`."""
-        seen = []
+        seen = self.seen = []
 
         async def ws_handler(request):
             seen.append(("token", request.query.get("token")))
@@ -69,7 +69,8 @@ class AskChat(unittest.IsolatedAsyncioTestCase):
                 f = json.loads(msg.data)
                 seen.append((f["method"], f["params"]))
                 if f["method"] == "session.resume":
-                    await ws.send_str(json.dumps({"jsonrpc": "2.0", "id": f["id"], "result": {"session_id": "live1"}}))
+                    await ws.send_str(json.dumps({"jsonrpc": "2.0", "id": f["id"], "result": {"session_id": "live1",
+                                                 **({} if running is None else {"running": running})}}))
                 else:
                     await ws.send_str(json.dumps({"jsonrpc": "2.0", "id": f["id"], "result": {"status": status}}))
                     for kind, session, text in events:
@@ -87,7 +88,8 @@ class AskChat(unittest.IsolatedAsyncioTestCase):
         cc.WS = f"ws://127.0.0.1:{port}/api/ws"
         try:
             async with ClientSession() as http:
-                text = await asyncio.wait_for(cc.ask_chat(http, "tok", "clean", "gui1c", "is it up?", 10), 10)
+                text = await asyncio.wait_for(cc.ask_chat(http, "tok", "clean", "gui1c", "is it up?", 10,
+                                                                only_if_idle=only_if_idle), 10)
         finally:
             await runner.cleanup()
         return text, seen
@@ -111,6 +113,69 @@ class AskChat(unittest.IsolatedAsyncioTestCase):
                                             ("message.start", "live1", ""),
                                             ("message.complete", "live1", "my answer")])
         self.assertEqual(text, "my answer")
+
+    async def test_only_if_idle_never_submits_into_a_running_chat(self):
+        # 114034: the chat's own turn ran (Kevin typed in it); the submit folded the call's request into it.
+        with self.assertRaises(cc.ChatBusy):
+            await self.ask("steered", [], running=True, only_if_idle=True)
+        self.assertNotIn("prompt.submit", [m for m, _ in self.seen], "a busy chat got the prompt anyway")
+        text, seen = await self.ask("streaming", [("message.complete", "live1", "done")], running=False,
+                                    only_if_idle=True)
+        self.assertEqual(text, "done")
+
+
+class AskBackground(unittest.IsolatedAsyncioTestCase):
+    async def test_a_refused_background_run_is_not_started(self):
+        async def ws_handler(request):
+            ws = web.WebSocketResponse()
+            await ws.prepare(request)
+            async for msg in ws:
+                f = json.loads(msg.data)
+                if f["method"] == "session.resume":
+                    await ws.send_str(json.dumps({"jsonrpc": "2.0", "id": f["id"], "result": {"session_id": "live1"}}))
+                else:
+                    await ws.send_str(json.dumps({"jsonrpc": "2.0", "id": f["id"], "error": {
+                        "code": 5032, "message": "agent still starting"}}))
+            return ws
+
+        app = web.Application()
+        app.router.add_get("/api/ws", ws_handler)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        cc.WS = f"ws://127.0.0.1:{site._server.sockets[0].getsockname()[1]}/api/ws"
+        try:
+            async with ClientSession() as http:
+                with self.assertRaises(cc.NotStarted):
+                    await asyncio.wait_for(cc.ask_background(http, "tok", "clean", "gui1c", "is it up?"), 5)
+        finally:
+            await runner.cleanup()
+
+
+class NewestChat(unittest.TestCase):
+    """112025 (11-27 11:20): no chat matched the call's history, so every request went to a cold Hermes CLI run and
+    none answered before hang-up. A background agent needs only a chat to run beside: the profile's newest one."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.db = Path(self.dir.name) / "state.db"
+        with sqlite3.connect(self.db) as db:
+            db.executescript("""
+            CREATE TABLE sessions(id TEXT, source TEXT, parent_session_id TEXT, started_at REAL);
+            CREATE TABLE messages(id INTEGER PRIMARY KEY, session_id TEXT, role TEXT, content TEXT);
+            INSERT INTO sessions VALUES ('gui1','gui',NULL,1),('gui1c','gui','gui1',2),('one','oneshot',NULL,3),
+                ('sub','subagent','gui1c',4),('bg_abc123','tui',NULL,5),('local-x','local',NULL,6),
+                ('cr','cron',NULL,7),('k','kanban',NULL,8);""")
+
+    def test_newest_chat_is_the_newest_real_chat_not_a_side_run(self):
+        self.assertEqual(cc.newest_chat("", self.db), "gui1c")
+
+    def test_no_chat_is_empty(self):
+        with sqlite3.connect(self.db) as db:
+            db.execute("DELETE FROM sessions WHERE source='gui'")
+        self.assertEqual(cc.newest_chat("", self.db), "")
+        self.assertEqual(cc.newest_chat("", Path(self.dir.name) / "missing.db"), "")
 
 
 if __name__ == "__main__":

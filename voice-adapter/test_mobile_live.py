@@ -9,7 +9,7 @@ import unittest
 
 # Unit tests never spawn a real lane or driver: tests patch live.run_hermes and use fake relays.
 os.environ.setdefault('HERMES_MOBILE_VOICE_LIAISON', '0')
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from aiohttp import web, ClientSession
 from aiohttp.test_utils import TestServer
@@ -324,6 +324,105 @@ class ConcurrentHostTurnTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.runs), live.HOST_MAX + 1)
 
 
+class NoLinkedChatTests(unittest.IsolatedAsyncioTestCase):
+    """112025 (11-27 11:20): chat.resolved "" sent all three requests to cold Hermes CLI runs; none answered in the
+    61 s left. A call with the app's bearer but no matched chat runs them as background agents beside the profile's
+    newest chat; the CLI is only for when the dashboard cannot be reached."""
+
+    async def call(self):
+        call = live.Call(live.Manager(None), profile='tek')
+        call.token = 'tok'
+        sent = []
+        call.send = lambda event, to_provider=False, **kw: sent.append(event)
+        self.addAsyncCleanup(call.close, 'test')
+        call.protocol.seen.append('d1')
+        return call, sent
+
+    async def test_no_matched_chat_runs_a_background_agent_not_the_cli(self):
+        call, sent = await self.call()
+        asked = []
+
+        async def background(http, token, profile, sid, request, on_receipt=None):
+            asked.append((sid, request))
+            return 'The garden is sunny and twenty degrees.'
+
+        cli = MagicMock(side_effect=AssertionError("a cold CLI run on a call"))
+        with patch.object(live.chat_continuity, 'newest_chat', return_value='gui9'), \
+                patch.object(live.chat_continuity, 'ask_background', background), \
+                patch.object(live, 'run_hermes', cli), patch.object(live, 'RECEIPT_SECONDS', 30):
+            await asyncio.wait_for(call.host_delegate('d1', 'what is the weather in the garden'), 5)
+        cli.assert_not_called()
+        self.assertEqual([sid for sid, _ in asked], ['gui9'])
+        self.assertIn('what is the weather in the garden', asked[0][1])
+        self.assertTrue(any('sunny and twenty degrees' in str(e) for e in sent))
+
+    async def test_an_unreachable_dashboard_falls_back_to_the_cli(self):
+        call, sent = await self.call()
+
+        async def background(*a, **k):
+            raise OSError("connection refused")
+
+        with patch.object(live.chat_continuity, 'newest_chat', return_value='gui9'), \
+                patch.object(live.chat_continuity, 'ask_background', background), \
+                patch.object(live, 'run_hermes', return_value='cli answer'), patch.object(live, 'RECEIPT_SECONDS', 30):
+            await asyncio.wait_for(call.host_delegate('d1', 'what is the weather in the garden'), 5)
+        self.assertTrue(any('cli answer' in str(e) for e in sent))
+
+
+    async def test_a_background_agent_that_times_out_is_not_run_again_on_the_cli(self):
+        call, sent = await self.call()
+
+        async def background(*a, **k):
+            raise asyncio.TimeoutError()  # TimeoutError is an OSError: it must not look like an unreachable dashboard
+
+        cli = MagicMock(return_value='second run')
+        with patch.object(live.chat_continuity, 'newest_chat', return_value='gui9'), \
+                patch.object(live.chat_continuity, 'ask_background', background), \
+                patch.object(live, 'run_hermes', cli), patch.object(live, 'RECEIPT_SECONDS', 30):
+            await asyncio.wait_for(call.host_delegate('d1', 'what is the weather in the garden'), 5)
+        cli.assert_not_called()
+        self.assertTrue(any("couldn" in str(e) and "finish" in str(e) for e in sent), sent)
+
+
+    async def test_a_refused_background_run_falls_back_to_the_idle_chat_turn_then_the_cli(self):
+        call, sent = await self.call()
+        call.chat = 'chat1'
+        turns = []
+
+        async def refused(*a, **k):
+            raise live.chat_continuity.NotStarted("prompt.background: agent still starting")
+
+        async def ask_chat(http, token, profile, sid, request, timeout, only_if_idle=False):
+            turns.append((sid, only_if_idle))
+            return 'chat turn answer'
+
+        with patch.object(live.chat_continuity, 'ask_background', refused), \
+                patch.object(live.chat_continuity, 'ask_chat', ask_chat), \
+                patch.object(live, 'run_hermes', MagicMock(side_effect=AssertionError("CLI"))), \
+                patch.object(live, 'RECEIPT_SECONDS', 30):
+            await asyncio.wait_for(call.host_delegate('d1', 'what is on the TV'), 5)
+        self.assertEqual(turns, [('chat1', True)], "only an idle-checked chat turn")
+        self.assertTrue(any('chat turn answer' in str(e) for e in sent))
+
+        call2, sent2 = await self.call()  # no linked chat: the anchor refused -> the CLI, never a silent failure
+        with patch.object(live.chat_continuity, 'newest_chat', return_value='gui9'), \
+                patch.object(live.chat_continuity, 'ask_background', refused), \
+                patch.object(live, 'run_hermes', return_value='cli answer'), patch.object(live, 'RECEIPT_SECONDS', 30):
+            await asyncio.wait_for(call2.host_delegate('d1', 'what is on the TV'), 5)
+        self.assertTrue(any('cli answer' in str(e) for e in sent2))
+
+
+class StatusLineTests(unittest.TestCase):
+    def test_status_lines_are_recognised_and_promise_nothing(self):
+        lines = [live.RECEIPT, live.PROGRESS.format(seconds=30), live.CAP.format(seconds=90, where=live.WHERE["chat"]),
+                 live.CAP.format(seconds=90, where=live.WHERE["background"])]
+        for line in lines:
+            self.assertTrue(live.status_line(line), line)
+            self.assertFalse(live.promises_new_work(line), line)
+        self.assertFalse(live.status_line("The dentist is at nine thirty."))
+        self.assertTrue(live.status_line("seconds so far.", part=True))
+
+
 class BoundedHostQueueTests(unittest.IsolatedAsyncioTestCase):
     """The host path's queue past HOST_MAX: bounded, truthful about what has started, and each answer lands on its
     own request. Each Hermes run below blocks on its own gate, so the tests decide which run ends when."""
@@ -469,9 +568,11 @@ class BoundedHostQueueTests(unittest.IsolatedAsyncioTestCase):
     async def test_a_queued_request_gets_no_still_working_receipt(self):
         call = await self.call()
         running = [f"r{i}" for i in range(live.HOST_MAX)]
-        with patch.object(live, 'run_hermes', self.fake), patch.object(live, 'RECEIPT_SECONDS', 0.2):
+        # The queued notice is a line handed to the voice: status lines wait HANDED_SECONDS after it (lane cards' gate).
+        with patch.object(live, 'run_hermes', self.fake), patch.object(live, 'RECEIPT_SECONDS', 0.2), \
+                patch.object(live.lane_cards, 'HANDED_SECONDS', 0.1):
             jobs = await self.start(call, running + ["w1"])
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.8)
             self.assertFalse(any(live.RECEIPT in s for s in self.said("w1")), "the receipt claims a queued run works")
             self.assertTrue(any(live.RECEIPT in s for s in self.said("r0")), "a running request keeps its receipt")
             for did in running + ["w1"]:

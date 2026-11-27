@@ -129,13 +129,18 @@ class FakeChat:
                 frame = json.loads(msg.data)
                 rid, method, params = frame["id"], frame["method"], frame.get("params") or {}
                 if method == "session.resume":
-                    await ws.send_json({"id": rid, "result": {"session_id": params["session_id"]}})
+                    # A live chat reports whether a turn runs in it, ours or one Kevin typed (session_registry.py).
+                    await ws.send_json({"id": rid, "result": {"session_id": params["session_id"],
+                                                              "running": self.busy()}})
                 elif method == "prompt.submit":
                     # The handler runs in the server's task: find the delegation by the text it sent.
                     did = next((d for d, text in reversed(self.replay.requests) if text == params["text"]), None)
                     self.replay.submitted.append((self.replay.now, did, params["text"]))
+                    self.replay.chat_submits.append(did)
                     work, answer = self.replay.hermes.get(did, (5.0, f"answer for {did}"))
-                    if self.turn is None:
+                    if self.replay.fold_submits or self.replay.now < self.replay.chat_busy_until:
+                        await ws.send_json({"id": rid, "result": {"status": "steered"}})  # joined a turn begun since
+                    elif self.turn is None:
                         self.turn = Turn(self.replay.now + work, answer)
                         status = "streaming"
                     else:  # busy: redirect the running turn (the dashboard's default busy_input_mode)
@@ -156,6 +161,9 @@ class FakeChat:
         finally:
             self.sockets.discard(ws)
         return ws
+
+    def busy(self):
+        return self.turn is not None or self.replay.now < self.replay.chat_busy_until
 
     def next_due(self, t):
         ends = [e for e, _, _ in self.side] + ([self.turn.ends] if self.turn else [])
@@ -222,6 +230,11 @@ class Replay:
         self.requests: list[tuple[str, str]] = []  # (did, request) as host_delegate received them
         self.waiting: list[tuple[float, asyncio.Future, object]] = []
         self.backgrounded: list[str] = []  # delegations Hermes ran as background agents beside the chat's turn
+        self.chat_submits: list[str] = []  # delegations submitted into the chat itself (prompt.submit)
+        # A turn Kevin started in the chat outside the call runs until this time (114034); fold_submits: every
+        # submit joins a turn that began after the resume said idle (the race).
+        self.chat_busy_until = max((r["chat_busy_until"] for r in self.rows if "chat_busy_until" in r), default=0.0)
+        self.fold_submits = any(r.get("chat_fold_submits") for r in self.rows)
         self.guest_asked: list[tuple[float, str]] = []  # (t, request) the guest voice's own Hermes received
 
     def later(self, seconds, value):
@@ -420,12 +433,12 @@ def report(replay: Replay) -> dict:
         if len(words(whole)) > len(words(text)) + 2 and set(words(text)) <= set(words(whole)):
             fragments.append({"did": did, "sent": text[:120], "said": whole[:200]})
     import mobile_live
-    receipt = getattr(mobile_live, "RECEIPT", None)
+    status = getattr(mobile_live, "status_line", lambda text: False)
     finals, receipts, own, queued, answers = {}, {}, {}, {}, {}
     for t, e in replay.sent:
         text = "".join(c.get("text", "") for c in e.get("content", []))
         did = e.get("delegation_item_id")
-        if text.startswith(FINAL) and receipt and receipt in text:
+        if text.startswith(FINAL) and status(text):
             receipts.setdefault(did, t)  # a receipt says the work runs; it is not an answer
             continue
         if text.startswith(FINAL) and QUEUED.search(text):
@@ -696,7 +709,7 @@ def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
         ends = sorted([(opened, t, True) for opened, t in stops]
                       + [(opened, done, False) for opened, done in replies if done < float("inf") and opened not in early],
                       key=lambda x: x[1])
-        receipt = getattr(mobile_live, "RECEIPT", None)
+        status = getattr(mobile_live, "status_line", lambda text: False)
         owed: dict[str | None, list[tuple[float, str]]] = {}
         retold: dict[str | None, int] = {}  # times each answer's sentences naming something were owed (Ledger.retold)
         for opened, t, cut in ends:
@@ -726,10 +739,10 @@ def said_once(replay: Replay) -> tuple[list[dict], list[dict]]:
                 elif not cut:
                     continue  # never begun by a reply that ran its course: still pending, judged below
                 else:  # handed into this reply and never begun: all of it (its latest words: a receipt is overtaken)
-                    into = [x for at, x, late in items if late and opened <= at and not (receipt and receipt in x)
+                    into = [x for at, x, late in items if late and opened <= at and not status(x)
                             and content(x) - heard_before(at)]  # with no new words it has nothing left to hear
                     rest = into[-1] if into else ""
-                if rest and not (receipt and rest in receipt):  # a status line's rest: the answer overtakes it
+                if rest and not status(rest, part=True):  # a status line's rest: the answer overtakes it
                     owed.setdefault(did, []).append((t, rest))
         for t, ev, data in sorted(replay.floor, key=lambda x: x[0]):
             if (data.get("speaker") == leg and ev == "floor.answer_dropped" and data.get("reason") == "new_request"
