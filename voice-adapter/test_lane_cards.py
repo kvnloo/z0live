@@ -12,6 +12,7 @@ from unittest import mock
 os.environ.setdefault("HERMES_VOICE_ENGINE", "gpt-live")
 import mobile_live as live  # noqa: E402
 import lane_cards  # noqa: E402
+import receipts  # noqa: E402
 import tiers  # noqa: E402
 
 REQUEST = "How many boat sandboxes are live right now?"
@@ -178,6 +179,36 @@ class Watcher(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0.1)
         self.assertEqual(self.sent, [])
         self.assertEqual(sorted(k["reason"] for k in self.traced("lanes.card_skipped")), ["failed", "unmapped"])
+
+    async def test_a_refused_lane_is_spoken_as_failed(self):
+        self.write(ask(self.key, REQUEST, lane("a1-1", "sol 6.2", "No run started; the shell was blocked.", state="failed")))
+        await self.until(lambda: self.sent)
+        self.assertEqual(len(self.spoken()), 1)
+        self.assertTrue(self.spoken()[0].endswith("Sol lane failed. No run started; the shell was blocked."), self.spoken())
+
+    async def test_a_start_claim_needs_a_receipt(self):
+        self.write(ask(self.key, REQUEST, lane("a1-1", "sol 6.2", "Done earlier.")))
+        await self.until(lambda: self.sent)
+        self.sent.clear()
+        self.patches.append(mock.patch.object(receipts, "KANBAN_DB", Path(self.dir.name) / "no-kanban.db"))
+        self.patches[-1].start()
+        self.call.speak_for("d1", "I've started both climbs. Results after each round.")
+        self.assertTrue(self.spoken()[-1].endswith(receipts.HONEST + " Results after each round."), self.spoken())
+        self.assertEqual(len(self.traced("receipt.missing")), 1)
+        self.sent.clear()
+        self.write(ask(self.key, REQUEST, lane("a1-2", "sol 6.2", None, state="running")))
+        self.call.speak_for("d1", "I've started both climbs.")
+        self.assertTrue(self.spoken()[-1].endswith("I've started both climbs."), self.spoken())
+
+    async def test_promises_no_lane_followed_are_ledgered_at_close(self):
+        ledger = Path(self.dir.name) / "promises.jsonl"
+        with mock.patch.object(receipts, "PROMISES", ledger):
+            self.call.note_promises("Let me check. I'll add it as its own item after this call.")
+            self.write(ask(self.key, REQUEST))
+            await self.call.close("test")
+        rows = [json.loads(x) for x in ledger.read_text().splitlines()]
+        self.assertEqual([r["promise"] for r in rows], ["I'll add it as its own item after this call."])
+        self.assertEqual(len(self.traced("promise.unowned")), 1)
 
     async def test_the_watcher_stops_when_idle_and_a_new_request_restarts_it(self):
         with mock.patch.object(lane_cards, "IDLE_SECONDS", 0.05):

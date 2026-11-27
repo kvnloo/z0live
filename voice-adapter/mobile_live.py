@@ -44,6 +44,7 @@ import grok_leg  # noqa: E402 - sibling module (Grok Voice as the voice model)
 import tiers  # noqa: E402 - sibling module (fast/medium/slow model lanes)
 import lane_cards  # noqa: E402 - sibling module (the TV conductor's lane cards, spoken on their call)
 import lane_layout  # noqa: E402 - sibling module (the lanes attached to the conversation)
+import receipts  # noqa: E402 - sibling module (no "started" without a receipt; the voice's promise ledger)
 import guest_voice  # noqa: E402
 import answer_delivery  # noqa: E402 - sibling module (what each voice has actually said)
 from subscription_leg import Speaker, SubscriptionLeg  # noqa: E402
@@ -257,7 +258,9 @@ When you delegate, say at most a short neutral line such as "Let me check." The 
 already be running, may wait in line or may be refused, so never promise new work, say you are
 taking it on or handling it, or promise receipts or a follow-up. The client's answer, queued
 notice or refusal says what happened; say that.
-Do not claim work happened until the client returns its actual result. Progress arriving on
+Do not claim work happened until the client returns its actual result. Never say you started, kicked
+off or launched anything, or that it is running, unless the client's answer says so and names its job or
+task id; otherwise say it was asked for and is not confirmed yet. Progress arriving on
 the commentary channel is silent context, not something to read aloud. Present an Agent
 Final Message as your own concise answer. Never narrate routing or backend plumbing.
 Helper notes may arrive as silent context: a verified note or a correction about something
@@ -326,7 +329,8 @@ def status_line(text: str, part: bool = False) -> bool:
 CALL_CONTEXT = ("This request comes from a live voice call; answer in a few short spoken sentences. Below is the call's "
                 "brief and the chat the call was opened from: background, already handled. Use it to place the "
                 "request (which repo, PR, card or device it means). If what the request asks for is already running "
-                "(a kanban card, a session, a job), report its status and latest receipts instead of starting it again.")
+                "(a kanban card, a session, a job), report its status and latest receipts instead of starting it again. "
+                "When you start work that keeps running, name its kanban task or run id; never say started without one.")
 # Hermes runs one call may have going at once on the host path (no linked chat). Past it a request waits for a free
 # run, and the voice says it is queued instead of claiming a hand-off that has not happened.
 HOST_MAX = 3
@@ -1697,9 +1701,11 @@ class Call:
                 text = turn.get("transcript", "")
                 if turn.get("role") == "user" and isinstance(text, str):
                     self.trace.finish_turn(text or self.protocol.turn_text["user"])
-                elif turn.get("role") == "assistant" and self.ack_due:  # the voice acked a request: the gap starts
-                    self.ack_due = False
-                    self.status_at = time.monotonic()
+                elif turn.get("role") == "assistant":
+                    if self.ack_due:  # the voice acked a request: the gap starts
+                        self.ack_due = False
+                        self.status_at = time.monotonic()
+                    self.note_promises(text if isinstance(text, str) and text else self.protocol.turn_text["assistant"])
             if self.passthru:
                 self.passthru_event(kind, event)
         duplex = self.duplex
@@ -1859,6 +1865,12 @@ class Call:
     def speak_for(self, did, text, lane=False):
         if self.closed or not text.strip():
             return
+        if receipts.claims_started(text):  # 11-27: "I've started them" for climbs that never ran
+            spoken, changed = receipts.guard(text, self.has_receipt(did))
+            if changed:
+                self.counts["start_claims_unreceipted"] += 1
+                self.trace("receipt.missing", did=did, text=text[:300], said=spoken[:300])
+                text = spoken
         self.__dict__.setdefault("spoken_for", {}).setdefault(did, []).append(text)
         self.handed_at = time.monotonic()  # the voice opens its reply to this a moment later: cards wait (HANDED)
         if self.duplex:
@@ -1870,6 +1882,38 @@ class Call:
         did = did if did in self.protocol.seen else None
         for msg in self.protocol.from_mobile({"type": "session.commentary.append", "delegation_id": did, "content": text}):
             self.send(msg, to_provider=True)
+
+    def has_receipt(self, did) -> bool:
+        """Work of this call really started for this request: the conductor shows a lane running, a lane started
+        since the request, or a launch running (lane_cards.receipt), or a kanban task since the request was claimed."""
+        state = lane_cards.read(tiers.CONDUCTOR_STATE)
+        since = self.__dict__.get("did_wall", {}).get(did, time.time() - 600)
+        if state and lane_cards.receipt(state, lane_cards.call_key(self.id), since - 5, did):
+            return True
+        return receipts.kanban_started(since - 5)  # Hermes starts its own workers on the kanban board
+
+    def note_promises(self, text):
+        """The voice's own reply promised work ("I'll add it ..."): traced now, checked against lanes at close."""
+        for promise in receipts.promises(text):
+            self.__dict__.setdefault("promises_made", []).append(
+                {"wall": time.time(), "did": getattr(self, "latest_did", None), "text": promise})
+            self.trace("promise.made", did=getattr(self, "latest_did", None), text=promise)
+
+    def write_unowned_promises(self):
+        made = self.__dict__.get("promises_made") or []
+        if not made:
+            return
+        state = lane_cards.read(tiers.CONDUCTOR_STATE) or {}
+        key = lane_cards.call_key(self.id)
+        try:
+            unowned = receipts.write_ledger(self.id, made,
+                                            lambda p: lane_cards.followed(state, key, p.get("did"), p["wall"] - 5))
+        except OSError as exc:
+            LOG.warning("promise ledger write failed id=%s: %s", self.id, exc)
+            return
+        self.counts["promises_unowned"] += len(unowned)
+        for p in unowned:
+            self.trace("promise.unowned", did=p.get("did"), text=p["promise"])
 
     def passthru_event(self, kind, event):
         """Floor + voice commands for passthru, from the provider's transcripts."""
@@ -1936,6 +1980,7 @@ class Call:
         if self.lane_command(did, request):  # "add two opus lanes": the layout changes here, Hermes never runs
             return
         # passthru=True marks a delegation made while z0 sat in a meeting (this leg still hears the phone alone).
+        self.__dict__.setdefault("did_wall", {})[did] = time.time()  # receipts: work started since this request
         self.trace("delegation.start", did=did, request=(request or "")[:4000],
                    **({"passthru": True} if self.passthru and self.passthru.active else {}))
         turn = self.relay.turn if self.relay else None
@@ -2125,7 +2170,8 @@ class Call:
                         continue
                     self.cards_seen.add(ln["id"])
                     did = self.ask_dids.get(lane_cards.request_key(ask.get("text"))) or ask.get("did")
-                    if ln.get("state") != "done" or not (ln.get("card") or {}).get("summary"):
+                    # a failed lane with a card (blocked, refused) is spoken as failed; one with nothing to say is not
+                    if not (ln.get("card") or {}).get("summary"):
                         self.card_skipped("failed", did, [ln], ask=ask.get("id"))
                     elif not did:
                         self.card_skipped("unmapped", None, [ln], ask=ask.get("id"))
@@ -2703,6 +2749,7 @@ class Call:
                                     "seconds": round(time.monotonic() - self.created, 1),
                                     "counts": dict(self.counts)})
         await self.maybe_handoff(reason)
+        self.write_unowned_promises()
         self.trace("call.closed", reason=reason, seconds=round(time.monotonic() - self.created, 1),
                    counts=dict(self.counts))
         self.trace.close()

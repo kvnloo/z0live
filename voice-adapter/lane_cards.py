@@ -75,14 +75,21 @@ def first_sentence(text: str, limit: int = SUMMARY_CHARS) -> str:
     return out if out.endswith((".", "!", "?")) else out + "."
 
 
+def _said(ln: dict) -> str:
+    """A done lane's first sentence; a failed lane (blocked or refused, 11-27) says it failed, then why."""
+    text = first_sentence(ln["card"]["summary"])
+    return f"failed. {text}" if ln.get("state") == "failed" else text
+
+
 def line(lanes: list[dict]) -> str:
     """One short spoken line for lanes that finished together."""
     lanes = [ln for ln in lanes if (ln.get("card") or {}).get("summary")]
     if not lanes:
         return ""
     if len(lanes) == 1:
-        return f"{who(lanes[0])} lane: {first_sentence(lanes[0]['card']['summary'])}"
-    parts = [f"{who(ln)}: {first_sentence(ln['card']['summary'])}" for ln in lanes[:MAX_LANES]]
+        return f"{who(lanes[0])} lane {_said(lanes[0])}" if lanes[0].get("state") == "failed" else \
+            f"{who(lanes[0])} lane: {_said(lanes[0])}"
+    parts = [f"{who(ln)}: {_said(ln)}" for ln in lanes[:MAX_LANES]]
     more = len(lanes) - MAX_LANES
     return (f"{len(lanes)} lanes back. " + " ".join(parts)
             + (f" And {more} more on the TV." if more > 0 else ""))
@@ -96,3 +103,36 @@ def said_already(summary: str, said: list[str], share: float = 0.6) -> bool:
     """Most of the card's first sentence was already spoken for this request (a tier lane, Hermes, an earlier card)."""
     card, heard = _words(first_sentence(summary)), set().union(*(_words(s) for s in said)) if said else set()
     return bool(card) and len(card & heard) >= share * len(card)
+
+
+def receipt(state: dict, call: str, since: float, did: str | None = None) -> bool:
+    """Proof that work for this request started: of this call's asks (only the one whose delegation id is `did`
+    when the conductor recorded ids), a work lane running now or started at/after `since` (wall seconds) and not
+    failed, or a launch whose receipt says running. A launch lane counts only by its receipt: queued is not started."""
+    asks = [a for a in state.get("asks") or [] if isinstance(a, dict) and a.get("call") == call]
+    if did and any(a.get("did") for a in asks):
+        asks = [a for a in asks if a.get("did") == did]
+    for ask in asks:
+        for lane in ask.get("lanes") or []:
+            if not isinstance(lane, dict):
+                continue
+            if lane.get("launch") or lane.get("engine") == "kanban":
+                if ((lane.get("card") or {}).get("receipt") or {}).get("state") == "running":
+                    return True
+                continue
+            if lane.get("state") == "running":
+                return True
+            if lane.get("state") == "done" and float(lane.get("t0") or 0) >= since:
+                return True
+    return False
+
+
+def followed(state: dict, call: str, did: str | None, wall: float) -> list[str]:
+    """Lane ids of this call's request `did` (every request when ids are missing) that started at/after `wall`
+    and did not fail: what came after a promise."""
+    asks = [a for a in state.get("asks") or [] if isinstance(a, dict) and a.get("call") == call]
+    if did and any(a.get("did") for a in asks):
+        asks = [a for a in asks if a.get("did") == did]
+    return [ln["id"] for a in asks for ln in a.get("lanes") or [] if isinstance(ln, dict) and ln.get("id")
+            and ln.get("state") != "failed" and float(ln.get("t0") or 0) >= wall
+            and not (ln.get("launch") and ((ln.get("card") or {}).get("receipt") or {}).get("state") != "running")]
