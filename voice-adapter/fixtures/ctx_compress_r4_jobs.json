@@ -1,0 +1,1388 @@
+{
+"source": "C1-ctx-compress-r4 GitHub Actions run 45918447833, 6 job JSONs, scoring fields only",
+"jobs": [
+{
+"scenarios": [
+"workshop-1"
+],
+"complete": true,
+"blocks": [
+{
+"label": "A1",
+"arm": "A",
+"rows": [
+{
+"scenario": "workshop-1",
+"key": "room",
+"current": "Alder-70",
+"superseded": [
+"Birch-40"
+],
+"reply": "Your current breakout room code is Alder-70.",
+"result": "RECALL",
+"first_sentence_s": 46.2635
+},
+{
+"scenario": "workshop-1",
+"key": "parcel",
+"current": "Elm-24",
+"superseded": [],
+"reply": "Your parcel pickup code is Elm-24.",
+"result": "RECALL",
+"first_sentence_s": 46.1595
+},
+{
+"scenario": "workshop-1",
+"key": "ticket",
+"current": null,
+"superseded": [],
+"reply": "I do not have your gallery ticket code.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 46.019
+},
+{
+"scenario": "workshop-1",
+"key": "wifi",
+"current": null,
+"superseded": [],
+"reply": "Your usual studio code is Cedar-14.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 46.2184
+}
+]
+},
+{
+"label": "B1",
+"arm": "B",
+"rows": [
+{
+"scenario": "workshop-1",
+"key": "room",
+"current": "Alder-70",
+"superseded": [
+"Birch-40"
+],
+"reply": "Your current breakout room code is Alder-70.",
+"result": "RECALL",
+"first_sentence_s": 32.7048
+},
+{
+"scenario": "workshop-1",
+"key": "parcel",
+"current": "Elm-24",
+"superseded": [],
+"reply": "Your parcel pickup code is Elm-24.",
+"result": "RECALL",
+"first_sentence_s": 32.7247
+},
+{
+"scenario": "workshop-1",
+"key": "ticket",
+"current": null,
+"superseded": [],
+"reply": "I do not have your gallery ticket code.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 32.7375
+},
+{
+"scenario": "workshop-1",
+"key": "wifi",
+"current": null,
+"superseded": [],
+"reply": "Your usual studio code is Cedar-14.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 32.7308
+}
+]
+},
+{
+"label": "A2",
+"arm": "A",
+"rows": [
+{
+"scenario": "workshop-1",
+"key": "room",
+"current": "Alder-70",
+"superseded": [
+"Birch-40"
+],
+"reply": "Your current breakout room code is Alder-70.",
+"result": "RECALL",
+"first_sentence_s": 45.9118
+},
+{
+"scenario": "workshop-1",
+"key": "parcel",
+"current": "Elm-24",
+"superseded": [],
+"reply": "Your parcel pickup code is Elm-24.",
+"result": "RECALL",
+"first_sentence_s": 46.2555
+},
+{
+"scenario": "workshop-1",
+"key": "ticket",
+"current": null,
+"superseded": [],
+"reply": "I do not have your gallery ticket code.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 46.1466
+},
+{
+"scenario": "workshop-1",
+"key": "wifi",
+"current": null,
+"superseded": [],
+"reply": "Your usual studio code is Cedar-14.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 46.1325
+}
+]
+},
+{
+"label": "B2",
+"arm": "B",
+"rows": [
+{
+"scenario": "workshop-1",
+"key": "room",
+"current": "Alder-70",
+"superseded": [
+"Birch-40"
+],
+"reply": "Your current breakout room code is Alder-70.",
+"result": "RECALL",
+"first_sentence_s": 32.7882
+},
+{
+"scenario": "workshop-1",
+"key": "parcel",
+"current": "Elm-24",
+"superseded": [],
+"reply": "Your parcel pickup code is Elm-24.",
+"result": "RECALL",
+"first_sentence_s": 32.7385
+},
+{
+"scenario": "workshop-1",
+"key": "ticket",
+"current": null,
+"superseded": [],
+"reply": "I do not have your gallery ticket code.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 32.7509
+},
+{
+"scenario": "workshop-1",
+"key": "wifi",
+"current": null,
+"superseded": [],
+"reply": "Your usual studio code is Cedar-14.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 32.7783
+}
+]
+},
+{
+"label": "O1",
+"arm": "O",
+"rows": [
+{
+"scenario": "workshop-1",
+"key": "room",
+"current": "Alder-70",
+"superseded": [
+"Birch-40"
+],
+"reply": "Your current breakout room code is Alder-70.",
+"result": "RECALL",
+"first_sentence_s": 33.4888
+},
+{
+"scenario": "workshop-1",
+"key": "parcel",
+"current": "Elm-24",
+"superseded": [],
+"reply": "Your parcel pickup code is Elm-24.",
+"result": "RECALL",
+"first_sentence_s": 33.6544
+},
+{
+"scenario": "workshop-1",
+"key": "ticket",
+"current": null,
+"superseded": [],
+"reply": "SKIP",
+"result": "SKIP",
+"first_sentence_s": 33.035
+},
+{
+"scenario": "workshop-1",
+"key": "wifi",
+"current": null,
+"superseded": [],
+"reply": "SKIP",
+"result": "SKIP",
+"first_sentence_s": 33.0848
+}
+]
+}
+]
+},
+{
+"scenarios": [
+"workshop-1"
+],
+"complete": true,
+"blocks": [
+{
+"label": "A1",
+"arm": "A",
+"rows": [
+{
+"scenario": "workshop-1",
+"key": "studio",
+"current": "Cedar-14",
+"superseded": [],
+"reply": "Your usual studio code is Cedar-14.",
+"result": "RECALL",
+"first_sentence_s": 46.3046
+},
+{
+"scenario": "workshop-1",
+"key": "locker",
+"current": "Slate-31",
+"superseded": [],
+"reply": "Your usual locker label is Slate-31.",
+"result": "RECALL",
+"first_sentence_s": 46.1834
+},
+{
+"scenario": "workshop-1",
+"key": "vendor",
+"current": "Mint-57",
+"superseded": [],
+"reply": "Your workshop vendor code is Mint-57.",
+"result": "RECALL",
+"first_sentence_s": 46.2243
+},
+{
+"scenario": "workshop-1",
+"key": "flight",
+"current": "Saturday",
+"superseded": [
+"Monday",
+"Thursday"
+],
+"reply": "Your flight is now on Saturday.",
+"result": "RECALL",
+"first_sentence_s": 45.9896
+}
+]
+},
+{
+"label": "B1",
+"arm": "B",
+"rows": [
+{
+"scenario": "workshop-1",
+"key": "studio",
+"current": "Cedar-14",
+"superseded": [],
+"reply": "Your usual studio code is Cedar-14.",
+"result": "RECALL",
+"first_sentence_s": 32.7386
+},
+{
+"scenario": "workshop-1",
+"key": "locker",
+"current": "Slate-31",
+"superseded": [],
+"reply": "Your usual locker label is Slate-31.",
+"result": "RECALL",
+"first_sentence_s": 32.8999
+},
+{
+"scenario": "workshop-1",
+"key": "vendor",
+"current": "Mint-57",
+"superseded": [],
+"reply": "Your workshop vendor code is Mint-57.",
+"result": "RECALL",
+"first_sentence_s": 32.7922
+},
+{
+"scenario": "workshop-1",
+"key": "flight",
+"current": "Saturday",
+"superseded": [
+"Monday",
+"Thursday"
+],
+"reply": "Your flight is now on Saturday.",
+"result": "RECALL",
+"first_sentence_s": 32.5972
+}
+]
+},
+{
+"label": "A2",
+"arm": "A",
+"rows": [
+{
+"scenario": "workshop-1",
+"key": "studio",
+"current": "Cedar-14",
+"superseded": [],
+"reply": "Your usual studio code is Cedar-14.",
+"result": "RECALL",
+"first_sentence_s": 46.1773
+},
+{
+"scenario": "workshop-1",
+"key": "locker",
+"current": "Slate-31",
+"superseded": [],
+"reply": "Your usual locker label is Slate-31.",
+"result": "RECALL",
+"first_sentence_s": 46.3283
+},
+{
+"scenario": "workshop-1",
+"key": "vendor",
+"current": "Mint-57",
+"superseded": [],
+"reply": "Your workshop vendor code is Mint-57.",
+"result": "RECALL",
+"first_sentence_s": 46.2387
+},
+{
+"scenario": "workshop-1",
+"key": "flight",
+"current": "Saturday",
+"superseded": [
+"Monday",
+"Thursday"
+],
+"reply": "Your flight is now on Saturday.",
+"result": "RECALL",
+"first_sentence_s": 46.0463
+}
+]
+},
+{
+"label": "B2",
+"arm": "B",
+"rows": [
+{
+"scenario": "workshop-1",
+"key": "studio",
+"current": "Cedar-14",
+"superseded": [],
+"reply": "Your usual studio code is Cedar-14.",
+"result": "RECALL",
+"first_sentence_s": 32.7558
+},
+{
+"scenario": "workshop-1",
+"key": "locker",
+"current": "Slate-31",
+"superseded": [],
+"reply": "Your usual locker label is Slate-31.",
+"result": "RECALL",
+"first_sentence_s": 32.7425
+},
+{
+"scenario": "workshop-1",
+"key": "vendor",
+"current": "Mint-57",
+"superseded": [],
+"reply": "Your workshop vendor code is Mint-57.",
+"result": "RECALL",
+"first_sentence_s": 32.7271
+},
+{
+"scenario": "workshop-1",
+"key": "flight",
+"current": "Saturday",
+"superseded": [
+"Monday",
+"Thursday"
+],
+"reply": "Your flight is now on Saturday.",
+"result": "RECALL",
+"first_sentence_s": 32.5408
+}
+]
+},
+{
+"label": "O1",
+"arm": "O",
+"rows": [
+{
+"scenario": "workshop-1",
+"key": "studio",
+"current": "Cedar-14",
+"superseded": [],
+"reply": "I do not have access to your usual studio code.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 33.721
+},
+{
+"scenario": "workshop-1",
+"key": "locker",
+"current": "Slate-31",
+"superseded": [],
+"reply": "I do not have access to your usual locker label.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 33.7272
+},
+{
+"scenario": "workshop-1",
+"key": "vendor",
+"current": "Mint-57",
+"superseded": [],
+"reply": "I do not have your workshop vendor code.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 33.5741
+},
+{
+"scenario": "workshop-1",
+"key": "flight",
+"current": "Saturday",
+"superseded": [
+"Monday",
+"Thursday"
+],
+"reply": "Your flight is now on Saturday.",
+"result": "RECALL",
+"first_sentence_s": 33.5209
+}
+]
+}
+]
+},
+{
+"scenarios": [
+"workshop-2"
+],
+"complete": true,
+"blocks": [
+{
+"label": "A1",
+"arm": "A",
+"rows": [
+{
+"scenario": "workshop-2",
+"key": "room",
+"current": "Alder-71",
+"superseded": [
+"Birch-41"
+],
+"reply": "Your current breakout room code is Alder-71.",
+"result": "RECALL",
+"first_sentence_s": 56.9202
+},
+{
+"scenario": "workshop-2",
+"key": "parcel",
+"current": "Elm-25",
+"superseded": [],
+"reply": "Your parcel pickup code is Elm-25.",
+"result": "RECALL",
+"first_sentence_s": 59.3633
+},
+{
+"scenario": "workshop-2",
+"key": "ticket",
+"current": null,
+"superseded": [],
+"reply": "I do not have your gallery ticket code.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 59.258
+},
+{
+"scenario": "workshop-2",
+"key": "wifi",
+"current": null,
+"superseded": [],
+"reply": "Your usual studio code is Cedar-15.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 59.2935
+}
+]
+},
+{
+"label": "B1",
+"arm": "B",
+"rows": [
+{
+"scenario": "workshop-2",
+"key": "room",
+"current": "Alder-71",
+"superseded": [
+"Birch-41"
+],
+"reply": "Your current breakout room code is Alder-71.",
+"result": "RECALL",
+"first_sentence_s": 40.2626
+},
+{
+"scenario": "workshop-2",
+"key": "parcel",
+"current": "Elm-25",
+"superseded": [],
+"reply": "Your parcel pickup code is Elm-25.",
+"result": "RECALL",
+"first_sentence_s": 41.119
+},
+{
+"scenario": "workshop-2",
+"key": "ticket",
+"current": null,
+"superseded": [],
+"reply": "I do not have your gallery ticket code.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 41.0733
+},
+{
+"scenario": "workshop-2",
+"key": "wifi",
+"current": null,
+"superseded": [],
+"reply": "Your usual studio code is Cedar-15.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 41.2039
+}
+]
+},
+{
+"label": "A2",
+"arm": "A",
+"rows": [
+{
+"scenario": "workshop-2",
+"key": "room",
+"current": "Alder-71",
+"superseded": [
+"Birch-41"
+],
+"reply": "Your current breakout room code is Alder-71.",
+"result": "RECALL",
+"first_sentence_s": 57.0182
+},
+{
+"scenario": "workshop-2",
+"key": "parcel",
+"current": "Elm-25",
+"superseded": [],
+"reply": "Your parcel pickup code is Elm-25.",
+"result": "RECALL",
+"first_sentence_s": 59.3521
+},
+{
+"scenario": "workshop-2",
+"key": "ticket",
+"current": null,
+"superseded": [],
+"reply": "I do not have your gallery ticket code.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 59.3453
+},
+{
+"scenario": "workshop-2",
+"key": "wifi",
+"current": null,
+"superseded": [],
+"reply": "Your usual studio code is Cedar-15.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 59.4048
+}
+]
+},
+{
+"label": "B2",
+"arm": "B",
+"rows": [
+{
+"scenario": "workshop-2",
+"key": "room",
+"current": "Alder-71",
+"superseded": [
+"Birch-41"
+],
+"reply": "Your current breakout room code is Alder-71.",
+"result": "RECALL",
+"first_sentence_s": 40.228
+},
+{
+"scenario": "workshop-2",
+"key": "parcel",
+"current": "Elm-25",
+"superseded": [],
+"reply": "Your parcel pickup code is Elm-25.",
+"result": "RECALL",
+"first_sentence_s": 41.1276
+},
+{
+"scenario": "workshop-2",
+"key": "ticket",
+"current": null,
+"superseded": [],
+"reply": "I do not have your gallery ticket code.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 41.0627
+},
+{
+"scenario": "workshop-2",
+"key": "wifi",
+"current": null,
+"superseded": [],
+"reply": "Your usual studio code is Cedar-15.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 41.0911
+}
+]
+},
+{
+"label": "O1",
+"arm": "O",
+"rows": [
+{
+"scenario": "workshop-2",
+"key": "room",
+"current": "Alder-71",
+"superseded": [
+"Birch-41"
+],
+"reply": "Your current breakout room code is Alder-71.",
+"result": "RECALL",
+"first_sentence_s": 42.5667
+},
+{
+"scenario": "workshop-2",
+"key": "parcel",
+"current": "Elm-25",
+"superseded": [],
+"reply": "Your parcel pickup code is Elm-25.",
+"result": "RECALL",
+"first_sentence_s": 44.4076
+},
+{
+"scenario": "workshop-2",
+"key": "ticket",
+"current": null,
+"superseded": [],
+"reply": "SKIP",
+"result": "SKIP",
+"first_sentence_s": 43.8308
+},
+{
+"scenario": "workshop-2",
+"key": "wifi",
+"current": null,
+"superseded": [],
+"reply": "I do not have your workshop Wi-Fi code.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 44.4866
+}
+]
+}
+]
+},
+{
+"scenarios": [
+"workshop-2"
+],
+"complete": true,
+"blocks": [
+{
+"label": "A1",
+"arm": "A",
+"rows": [
+{
+"scenario": "workshop-2",
+"key": "studio",
+"current": "Cedar-15",
+"superseded": [],
+"reply": "Your usual studio code is Cedar-15.",
+"result": "RECALL",
+"first_sentence_s": 59.5627
+},
+{
+"scenario": "workshop-2",
+"key": "locker",
+"current": "Slate-32",
+"superseded": [],
+"reply": "Your usual locker label is Slate-32.",
+"result": "RECALL",
+"first_sentence_s": 59.5012
+},
+{
+"scenario": "workshop-2",
+"key": "vendor",
+"current": "Mint-58",
+"superseded": [],
+"reply": "Your workshop vendor code is Mint-58.",
+"result": "RECALL",
+"first_sentence_s": 59.4751
+},
+{
+"scenario": "workshop-2",
+"key": "flight",
+"current": "Sunday",
+"superseded": [
+"Thursday",
+"Friday"
+],
+"reply": "Your flight is now on Sunday.",
+"result": "RECALL",
+"first_sentence_s": 59.4954
+}
+]
+},
+{
+"label": "B1",
+"arm": "B",
+"rows": [
+{
+"scenario": "workshop-2",
+"key": "studio",
+"current": "Cedar-15",
+"superseded": [],
+"reply": "Your usual studio code is Cedar-15.",
+"result": "RECALL",
+"first_sentence_s": 41.259
+},
+{
+"scenario": "workshop-2",
+"key": "locker",
+"current": "Slate-32",
+"superseded": [],
+"reply": "Your usual locker label is Slate-32.",
+"result": "RECALL",
+"first_sentence_s": 41.2101
+},
+{
+"scenario": "workshop-2",
+"key": "vendor",
+"current": "Mint-58",
+"superseded": [],
+"reply": "Your workshop vendor code is Mint-58.",
+"result": "RECALL",
+"first_sentence_s": 41.2691
+},
+{
+"scenario": "workshop-2",
+"key": "flight",
+"current": "Sunday",
+"superseded": [
+"Thursday",
+"Friday"
+],
+"reply": "Your flight is now on Sunday.",
+"result": "RECALL",
+"first_sentence_s": 41.0694
+}
+]
+},
+{
+"label": "A2",
+"arm": "A",
+"rows": [
+{
+"scenario": "workshop-2",
+"key": "studio",
+"current": "Cedar-15",
+"superseded": [],
+"reply": "Your usual studio code is Cedar-15.",
+"result": "RECALL",
+"first_sentence_s": 59.5208
+},
+{
+"scenario": "workshop-2",
+"key": "locker",
+"current": "Slate-32",
+"superseded": [],
+"reply": "Your usual locker label is Slate-32.",
+"result": "RECALL",
+"first_sentence_s": 59.492
+},
+{
+"scenario": "workshop-2",
+"key": "vendor",
+"current": "Mint-58",
+"superseded": [],
+"reply": "Your workshop vendor code is Mint-58.",
+"result": "RECALL",
+"first_sentence_s": 59.499
+},
+{
+"scenario": "workshop-2",
+"key": "flight",
+"current": "Sunday",
+"superseded": [
+"Thursday",
+"Friday"
+],
+"reply": "Your flight is now on Sunday.",
+"result": "RECALL",
+"first_sentence_s": 59.3559
+}
+]
+},
+{
+"label": "B2",
+"arm": "B",
+"rows": [
+{
+"scenario": "workshop-2",
+"key": "studio",
+"current": "Cedar-15",
+"superseded": [],
+"reply": "Your usual studio code is Cedar-15.",
+"result": "RECALL",
+"first_sentence_s": 41.2741
+},
+{
+"scenario": "workshop-2",
+"key": "locker",
+"current": "Slate-32",
+"superseded": [],
+"reply": "Your usual locker label is Slate-32.",
+"result": "RECALL",
+"first_sentence_s": 41.1953
+},
+{
+"scenario": "workshop-2",
+"key": "vendor",
+"current": "Mint-58",
+"superseded": [],
+"reply": "Your workshop vendor code is Mint-58.",
+"result": "RECALL",
+"first_sentence_s": 41.2814
+},
+{
+"scenario": "workshop-2",
+"key": "flight",
+"current": "Sunday",
+"superseded": [
+"Thursday",
+"Friday"
+],
+"reply": "Your flight is now on Sunday.",
+"result": "RECALL",
+"first_sentence_s": 41.0164
+}
+]
+},
+{
+"label": "O1",
+"arm": "O",
+"rows": [
+{
+"scenario": "workshop-2",
+"key": "studio",
+"current": "Cedar-15",
+"superseded": [],
+"reply": "I do not have access to your usual studio code.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 44.5169
+},
+{
+"scenario": "workshop-2",
+"key": "locker",
+"current": "Slate-32",
+"superseded": [],
+"reply": "I do not have access to your usual locker label.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 44.5172
+},
+{
+"scenario": "workshop-2",
+"key": "vendor",
+"current": "Mint-58",
+"superseded": [],
+"reply": "I do not have your workshop vendor code.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 44.344
+},
+{
+"scenario": "workshop-2",
+"key": "flight",
+"current": "Sunday",
+"superseded": [
+"Thursday",
+"Friday"
+],
+"reply": "Your flight is now on Sunday.",
+"result": "RECALL",
+"first_sentence_s": 44.1899
+}
+]
+}
+]
+},
+{
+"scenarios": [
+"workshop-3"
+],
+"complete": true,
+"blocks": [
+{
+"label": "A1",
+"arm": "A",
+"rows": [
+{
+"scenario": "workshop-3",
+"key": "room",
+"current": "Alder-72",
+"superseded": [
+"Birch-42"
+],
+"reply": "Your current breakout room code is Alder-72.",
+"result": "RECALL",
+"first_sentence_s": 74.3433
+},
+{
+"scenario": "workshop-3",
+"key": "parcel",
+"current": "Elm-26",
+"superseded": [],
+"reply": "Your parcel pickup code is Elm-26.",
+"result": "RECALL",
+"first_sentence_s": 74.8336
+},
+{
+"scenario": "workshop-3",
+"key": "ticket",
+"current": null,
+"superseded": [],
+"reply": "I do not have your gallery ticket code.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 74.8701
+},
+{
+"scenario": "workshop-3",
+"key": "wifi",
+"current": null,
+"superseded": [],
+"reply": "Your usual studio code is Cedar-16.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 74.9224
+}
+]
+},
+{
+"label": "B1",
+"arm": "B",
+"rows": [
+{
+"scenario": "workshop-3",
+"key": "room",
+"current": "Alder-72",
+"superseded": [
+"Birch-42"
+],
+"reply": "Your current breakout room code is Alder-72.",
+"result": "RECALL",
+"first_sentence_s": 54.3368
+},
+{
+"scenario": "workshop-3",
+"key": "parcel",
+"current": "Elm-26",
+"superseded": [],
+"reply": "Your parcel pickup code is Elm-26.",
+"result": "RECALL",
+"first_sentence_s": 54.4217
+},
+{
+"scenario": "workshop-3",
+"key": "ticket",
+"current": null,
+"superseded": [],
+"reply": "SKIP",
+"result": "SKIP",
+"first_sentence_s": 53.8526
+},
+{
+"scenario": "workshop-3",
+"key": "wifi",
+"current": null,
+"superseded": [],
+"reply": "Your usual studio code is Cedar-16.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 54.4733
+}
+]
+},
+{
+"label": "A2",
+"arm": "A",
+"rows": [
+{
+"scenario": "workshop-3",
+"key": "room",
+"current": "Alder-72",
+"superseded": [
+"Birch-42"
+],
+"reply": "Your current breakout room code is Alder-72.",
+"result": "RECALL",
+"first_sentence_s": 74.249
+},
+{
+"scenario": "workshop-3",
+"key": "parcel",
+"current": "Elm-26",
+"superseded": [],
+"reply": "Your parcel pickup code is Elm-26.",
+"result": "RECALL",
+"first_sentence_s": 74.967
+},
+{
+"scenario": "workshop-3",
+"key": "ticket",
+"current": null,
+"superseded": [],
+"reply": "I do not have your gallery ticket code.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 74.8485
+},
+{
+"scenario": "workshop-3",
+"key": "wifi",
+"current": null,
+"superseded": [],
+"reply": "Your usual studio code is Cedar-16.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 74.9182
+}
+]
+},
+{
+"label": "B2",
+"arm": "B",
+"rows": [
+{
+"scenario": "workshop-3",
+"key": "room",
+"current": "Alder-72",
+"superseded": [
+"Birch-42"
+],
+"reply": "Your current breakout room code is Alder-72.",
+"result": "RECALL",
+"first_sentence_s": 54.4753
+},
+{
+"scenario": "workshop-3",
+"key": "parcel",
+"current": "Elm-26",
+"superseded": [],
+"reply": "Your parcel pickup code is Elm-26.",
+"result": "RECALL",
+"first_sentence_s": 54.546
+},
+{
+"scenario": "workshop-3",
+"key": "ticket",
+"current": null,
+"superseded": [],
+"reply": "SKIP",
+"result": "SKIP",
+"first_sentence_s": 53.7828
+},
+{
+"scenario": "workshop-3",
+"key": "wifi",
+"current": null,
+"superseded": [],
+"reply": "Your usual studio code is Cedar-16.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 54.4404
+}
+]
+},
+{
+"label": "O1",
+"arm": "O",
+"rows": [
+{
+"scenario": "workshop-3",
+"key": "room",
+"current": "Alder-72",
+"superseded": [
+"Birch-42"
+],
+"reply": "Your current breakout room code is Alder-72.",
+"result": "RECALL",
+"first_sentence_s": 55.1762
+},
+{
+"scenario": "workshop-3",
+"key": "parcel",
+"current": "Elm-26",
+"superseded": [],
+"reply": "Your parcel pickup code is Elm-26.",
+"result": "RECALL",
+"first_sentence_s": 55.3478
+},
+{
+"scenario": "workshop-3",
+"key": "ticket",
+"current": null,
+"superseded": [],
+"reply": "SKIP",
+"result": "SKIP",
+"first_sentence_s": 54.6944
+},
+{
+"scenario": "workshop-3",
+"key": "wifi",
+"current": null,
+"superseded": [],
+"reply": "SKIP",
+"result": "SKIP",
+"first_sentence_s": 54.8
+}
+]
+}
+]
+},
+{
+"scenarios": [
+"workshop-3"
+],
+"complete": true,
+"blocks": [
+{
+"label": "A1",
+"arm": "A",
+"rows": [
+{
+"scenario": "workshop-3",
+"key": "studio",
+"current": "Cedar-16",
+"superseded": [],
+"reply": "Your usual studio code is Cedar-16.",
+"result": "RECALL",
+"first_sentence_s": 75.4086
+},
+{
+"scenario": "workshop-3",
+"key": "locker",
+"current": "Slate-33",
+"superseded": [],
+"reply": "Your usual locker label is Slate-33.",
+"result": "RECALL",
+"first_sentence_s": 75.2564
+},
+{
+"scenario": "workshop-3",
+"key": "vendor",
+"current": "Mint-59",
+"superseded": [],
+"reply": "Your workshop vendor code is Mint-59.",
+"result": "RECALL",
+"first_sentence_s": 75.1364
+},
+{
+"scenario": "workshop-3",
+"key": "flight",
+"current": "Wednesday",
+"superseded": [
+"Sunday",
+"Tuesday"
+],
+"reply": "Your flight is now on Wednesday.",
+"result": "RECALL",
+"first_sentence_s": 74.7799
+}
+]
+},
+{
+"label": "B1",
+"arm": "B",
+"rows": [
+{
+"scenario": "workshop-3",
+"key": "studio",
+"current": "Cedar-16",
+"superseded": [],
+"reply": "Your usual studio code is Cedar-16.",
+"result": "RECALL",
+"first_sentence_s": 54.5552
+},
+{
+"scenario": "workshop-3",
+"key": "locker",
+"current": "Slate-33",
+"superseded": [],
+"reply": "Your usual locker label is Slate-33.",
+"result": "RECALL",
+"first_sentence_s": 54.5376
+},
+{
+"scenario": "workshop-3",
+"key": "vendor",
+"current": "Mint-59",
+"superseded": [],
+"reply": "Your workshop vendor code is Mint-59.",
+"result": "RECALL",
+"first_sentence_s": 54.6579
+},
+{
+"scenario": "workshop-3",
+"key": "flight",
+"current": "Wednesday",
+"superseded": [
+"Sunday",
+"Tuesday"
+],
+"reply": "Your flight is now on Wednesday.",
+"result": "RECALL",
+"first_sentence_s": 54.4533
+}
+]
+},
+{
+"label": "A2",
+"arm": "A",
+"rows": [
+{
+"scenario": "workshop-3",
+"key": "studio",
+"current": "Cedar-16",
+"superseded": [],
+"reply": "Your usual studio code is Cedar-16.",
+"result": "RECALL",
+"first_sentence_s": 75.2944
+},
+{
+"scenario": "workshop-3",
+"key": "locker",
+"current": "Slate-33",
+"superseded": [],
+"reply": "Your usual locker label is Slate-33.",
+"result": "RECALL",
+"first_sentence_s": 75.2203
+},
+{
+"scenario": "workshop-3",
+"key": "vendor",
+"current": "Mint-59",
+"superseded": [],
+"reply": "Your workshop vendor code is Mint-59.",
+"result": "RECALL",
+"first_sentence_s": 75.415
+},
+{
+"scenario": "workshop-3",
+"key": "flight",
+"current": "Wednesday",
+"superseded": [
+"Sunday",
+"Tuesday"
+],
+"reply": "Your flight is now on Wednesday.",
+"result": "RECALL",
+"first_sentence_s": 74.9548
+}
+]
+},
+{
+"label": "B2",
+"arm": "B",
+"rows": [
+{
+"scenario": "workshop-3",
+"key": "studio",
+"current": "Cedar-16",
+"superseded": [],
+"reply": "Your usual studio code is Cedar-16.",
+"result": "RECALL",
+"first_sentence_s": 54.6115
+},
+{
+"scenario": "workshop-3",
+"key": "locker",
+"current": "Slate-33",
+"superseded": [],
+"reply": "Your usual locker label is Slate-33.",
+"result": "RECALL",
+"first_sentence_s": 54.6503
+},
+{
+"scenario": "workshop-3",
+"key": "vendor",
+"current": "Mint-59",
+"superseded": [],
+"reply": "Your workshop vendor code is Mint-59.",
+"result": "RECALL",
+"first_sentence_s": 54.678
+},
+{
+"scenario": "workshop-3",
+"key": "flight",
+"current": "Wednesday",
+"superseded": [
+"Sunday",
+"Tuesday"
+],
+"reply": "Your flight is now on Wednesday.",
+"result": "RECALL",
+"first_sentence_s": 54.5206
+}
+]
+},
+{
+"label": "O1",
+"arm": "O",
+"rows": [
+{
+"scenario": "workshop-3",
+"key": "studio",
+"current": "Cedar-16",
+"superseded": [],
+"reply": "I do not have access to your usual studio code.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 55.5892
+},
+{
+"scenario": "workshop-3",
+"key": "locker",
+"current": "Slate-33",
+"superseded": [],
+"reply": "I do not have your usual locker label information.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 55.566
+},
+{
+"scenario": "workshop-3",
+"key": "vendor",
+"current": "Mint-59",
+"superseded": [],
+"reply": "I do not have your workshop vendor code.",
+"result": "OFF_FORMAT",
+"first_sentence_s": 55.5209
+},
+{
+"scenario": "workshop-3",
+"key": "flight",
+"current": "Wednesday",
+"superseded": [
+"Sunday",
+"Tuesday"
+],
+"reply": "Your flight is now on Wednesday.",
+"result": "RECALL",
+"first_sentence_s": 55.2554
+}
+]
+}
+]
+}
+]
+}
