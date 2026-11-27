@@ -73,10 +73,18 @@ def main():
         "sessions", help="Recent Hermes sessions with one-line summaries (read-only)"
     )
     sessions_cmd.add_argument("--limit", type=int, default=8)
+    sub.add_parser("job", help="Durable jobs on the kanban board: start|status|list|stop|sync (z0live job --help)")
     engine_cmd = sub.add_parser(
         "engine", help="Show or set the voice model for the next call (lanes.voice.actor in the lanes config)"
     )
     engine_cmd.add_argument("name", nargs="?", choices=sorted(ENGINE_ACTORS))
+    if len(sys.argv) > 1 and sys.argv[1] == "job":  # own argument parser: voice-adapter/jobs.py
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("z0live_jobs", Path(__file__).resolve().parents[1] / "voice-adapter/jobs.py")
+        jobs = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(jobs)
+        return jobs.main(sys.argv[2:])
     args = parser.parse_args()
     if args.command == "engine":
         from z0live_desktop import lanes as lanes_mod

@@ -29,6 +29,7 @@ hermes plugins install "$repo" --ref "$ref" --enable
 | `z0live_status` | Voice engine for the next call, the second voice, lane models, lane server health, and the latest call's trace summary. Read only. |
 | `z0live_configure` | Change the next call's engine or second voice, or change the adapter's fast/medium/slow model tiers. Use `reset_tiers: true` to restore the default tiers. |
 | `z0live_lanes`, `/z0live-lanes` | Change the separate desktop helper-lane board in plain words: "gimme 2 fast lanes, 2 small, 2 large, one council". |
+| `z0live_job` | Start, track and stop a long job (a hill climb, a sweep) on the Hermes kanban board, so it keeps running after the call. `start` returns a receipt and writes it to the request ledger; `status`/`list` fold the board's state and result back into the ledger. CLI: `z0live job start\|status\|list\|stop\|sync`. |
 | `z0live_say` | Send a stock line such as "I'm still checking the details." to the active call linked to this Hermes session. |
 
 The tools steer the z0live services; installing those is a separate step (`deploy/macos/install.sh`, see

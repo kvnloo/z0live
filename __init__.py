@@ -254,6 +254,42 @@ def make_lanes(cfg, installed):
     return handle
 
 
+def _jobs_module(root):
+    """voice-adapter/jobs.py loaded by path (stdlib only), so the tool and `z0live job` share one runner."""
+    key = "_z0live_plugin_jobs"
+    if key not in sys.modules:
+        spec = importlib.util.spec_from_file_location(key, Path(root) / "voice-adapter/jobs.py")
+        if spec is None or spec.loader is None:
+            raise ImportError("z0live jobs runner is missing")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[key] = module
+        spec.loader.exec_module(module)
+    return sys.modules[key]
+
+
+def make_job(cfg):
+    def handle(args: Dict[str, Any], **_kw: Any) -> str:
+        try:
+            jobs = _jobs_module(_path(cfg("z0live_repo") or ROOT))
+            action = (args.get("action") or "list").strip()
+            if action == "start":
+                return json.dumps(jobs.start(
+                    args.get("brief") or "", title=args.get("title") or "", engine=args.get("engine") or "kanban",
+                    model=args.get("model") or "", provider=args.get("provider") or "", item=args.get("item") or "",
+                    call=args.get("call") or "", cmd=args.get("cmd") or "", workspace=args.get("workspace") or "",
+                    goal=args.get("goal") is not False, by="agent"))
+            if action in ("status", "stop"):
+                if not args.get("id"):
+                    return json.dumps({"ok": False, "error": f"{action} needs id"})
+                return json.dumps(getattr(jobs, action)(args["id"]))
+            if action == "list":
+                return json.dumps({"ok": True, "jobs": jobs.list_jobs(bool(args.get("open_only")))})
+            return json.dumps({"ok": False, "error": "action is start, status, list or stop"})
+        except Exception as exc:  # a tool handler never raises
+            return json.dumps({"ok": False, "error": f"z0live_job failed: {type(exc).__name__}"})
+    return handle
+
+
 PROGRESS_TOKEN_ENV = "Z0LIVE_PROGRESS_TOKEN"
 
 
@@ -333,6 +369,29 @@ LANES_SCHEMA = {
         "request": {"type": "string"},
     }},
 }
+JOB_SCHEMA = {
+    "name": "z0live_job",
+    "description": ("Start and track a LONG job that must keep running after this call or turn (a hill climb, a sweep, a "
+                    "build). action=start queues it on the Hermes kanban board (a worker agent runs it unattended) and "
+                    "returns the receipt (task id); only say a job started if start returned ok with a receipt. "
+                    "status/list fold the board into the request ledger and return the state (waiting, running, "
+                    "done, blocked) and the result text. stop ends a job. Use for work, not for quick answers."),
+    "parameters": {"type": "object", "additionalProperties": False, "required": ["action"], "properties": {
+        "action": {"type": "string", "enum": ["start", "status", "list", "stop"]},
+        "brief": {"type": "string", "description": "start: the full self-contained brief for the worker"},
+        "title": {"type": "string"},
+        "item": {"type": "string", "description": "start: the ledger item id this job answers, so a repeat is one job"},
+        "call": {"type": "string", "description": "start: the call id, when no item exists yet"},
+        "model": {"type": "string", "description": "start: pin the worker model (newest only; never ultrafast)"},
+        "provider": {"type": "string"},
+        "engine": {"type": "string", "enum": ["kanban", "pid"]},
+        "cmd": {"type": "string", "description": "start with engine=pid: the shell command to run"},
+        "workspace": {"type": "string", "description": "start: scratch | worktree | dir:<path>"},
+        "goal": {"type": "boolean", "description": "start: keep the worker going until a judge agrees it is done (default true)"},
+        "id": {"type": "string", "description": "status/stop: the job id from start"},
+        "open_only": {"type": "boolean"},
+    }},
+}
 
 
 def register(ctx) -> None:
@@ -363,6 +422,9 @@ def register(ctx) -> None:
                       emoji="🎛️")
     ctx.register_tool(name="z0live_lanes", toolset=TOOLSET, schema=LANES_SCHEMA, handler=lanes_tool,
                       check_fn=lambda: installed() and not_worker(), description="Show or change the lanes attached to the conversation", emoji="🎚️")
+    ctx.register_tool(name="z0live_job", toolset=TOOLSET, schema=JOB_SCHEMA, handler=make_job(cfg),
+                      check_fn=lambda: installed() and (_path(cfg("z0live_repo") or ROOT) / "voice-adapter/jobs.py").is_file(),
+                      description="Start, track and stop long z0live jobs on the Hermes kanban board", emoji="🧗")
     lines = _read_json(ROOT / "voice-adapter/progress_lines.json") or []
     ctx.register_tool(name="z0live_say", toolset=TOOLSET, handler=make_say(lines),
                       check_fn=lambda: bool(lines and _secret(PROGRESS_TOKEN_ENV)),
