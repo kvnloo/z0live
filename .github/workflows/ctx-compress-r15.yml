@@ -1,0 +1,172 @@
+name: z0live C1-ctx-compress-r15 blind held-out test of r14 (r14 vs r4, r13 rival, 2810), on gemma4-e2b Q4_K_M (CPU)
+# C1-ctx-compress-r15 (C1/C2 context, track E). Harness-only round: brief_compress.py is r14's byte for byte.
+# NEW BLIND held-out set r15 (vet, car, pottery): user fact sentences written by a free hosted LLM that saw only a
+# neutral spec (never the compressor, the rule or an earlier set), copied verbatim. Gated: genuine updates (STALE,
+# PRIMARY G1e: B no worse than r4), older fact of a still-true similar pair (LOSS, PRIMARY G1), static facts (recall).
+# Dev / no-regression sets (gated probes only): r14, r13, r12, r6 recency, r8.
+# Arms A = bench/brief_compress_r4.py (baseline), B = production r14, R = bench/brief_compress_r13.py (report-only
+# rival), O = full brief (report-only). Harness = bench/ctx_compress_r15_eval.py over the frozen r10/r2 harness.
+# Verdict = bench/ctx_compress_r15_verdict.py (gates G1, G1e, G1s, G1b, G1c, G2-G7). Blocks B,A,B,A,O (main),
+# B,A,B,A,O,R (r15), B,A,B,A (dev). 24 jobs = 3 scenarios x {lo, hi (main), hx, hy (r15), dw (r14), dx (r13),
+# dy (recency + r8), dz (r12)}. Synthetic text only. Prereg: voice-adapter/bench/ctx-compress-r15-PREREG.md
+on:
+  # dispatch by file name 404s while the file is not on the default branch; the push that adds this file is the trigger
+  push:
+    branches: [ci/ctx-compress-r15]
+    paths: [".github/workflows/ctx-compress-r15.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ctx-compress-r15-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  LLAMA_TAG: b12527
+  LLAMA_SHA256: c2758c87b9dd41293653e665fa3b06f5853d69243443d5d06d930683a55e35e4   # llama-b12527-bin-ubuntu-arm64.tar.gz
+  REPO: unsloth/gemma-4-E2B-it-GGUF
+  REV: 0314792d7f1f7e229411f620751375812bb9faf2
+  FILE: gemma-4-E2B-it-Q4_K_M.gguf
+  SHA: 740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8   # = HF LFS oid at REV
+  BLOCKS_MAIN: "B,A,B,A,O"
+  BLOCKS_PROBE: "B,A,B,A,O,R"
+  BLOCKS_DEV: "B,A,B,A"
+jobs:
+  abab:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 65
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [0, 1, 2]
+        half: [lo, hi, hx, hy, dw, dx, dy, dz]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Runner CPU / RAM / disk
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          lscpu | tee lscpu.txt
+          cpu=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)
+          echo "CPU_MODEL=${cpu:-unknown} ($(uname -m), $(nproc) cpus)" >> "$GITHUB_ENV"
+          echo "runner CPU: ${cpu:-unknown} ($(uname -m), $(nproc) cpus)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: llama.cpp ${{ env.LLAMA_TAG }} (prebuilt ubuntu arm64 CPU)
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/llama" && cd "$RUNNER_TEMP/llama"
+          curl -fsSL --retry 5 --retry-all-errors -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_TAG}/llama-${LLAMA_TAG}-bin-ubuntu-arm64.tar.gz"
+          echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
+          tar xzf llama.tgz
+          server=$(find "$RUNNER_TEMP/llama" -type f -name llama-server | head -1)
+          test -x "$server"
+          echo "LLAMA_SERVER=$server" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$(dirname "$server")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+      - name: Restore GGUF cache
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/models/${{ env.FILE }}
+          key: gguf-${{ env.SHA }}
+      - name: Download GGUF (pinned by sha256, 3 attempts)
+        if: steps.cache.outputs.cache-hit != 'true'
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/models"
+          for i in 1 2 3; do
+            if curl -fsSL --retry 5 --retry-all-errors --speed-limit 2000000 --speed-time 60 -o "$RUNNER_TEMP/models/$FILE" "https://huggingface.co/$REPO/resolve/$REV/$FILE" \
+               && echo "$SHA  $RUNNER_TEMP/models/$FILE" | sha256sum -c -; then exit 0; fi
+            echo "download attempt $i failed"; rm -f "$RUNNER_TEMP/models/$FILE"; sleep $((20 * i))
+          done
+          exit 1
+      - name: Save GGUF cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/models/${{ env.FILE }}
+          key: gguf-${{ env.SHA }}
+      - name: Verify frozen inputs
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          echo "$SHA  $RUNNER_TEMP/models/$FILE" | sha256sum -c -
+          grep -E '^[0-9a-f]{64}  (voice-adapter|\.github)/' voice-adapter/bench/ctx-compress-r15-FREEZE.sha256 | sha256sum -c -
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: BABA(OR) bench r15 (scenario ${{ matrix.scenario }} ${{ matrix.half }})
+        timeout-minutes: 55
+        env:
+          HALF: ${{ matrix.half }}
+          SC: ${{ matrix.scenario }}
+        run: |
+          set -euo pipefail
+          # set, probe indices, blocks, deadline (s) per harness run; dy runs two sets back to back
+          case "$HALF" in
+            lo) RUNS=("main 0,1,2,3 $BLOCKS_MAIN 2580") ;;
+            hi) RUNS=("main 4,5,6,7 $BLOCKS_MAIN 2580") ;;
+            # r15 probe groups = ctx_compress_r15_eval.R15_GROUPS (scenario 1 = car has 9 probes; test-checked)
+            hx) if [ "$SC" = 1 ]; then P=0,1,2,3,4; else P=0,1,2,3; fi; RUNS=("r15 $P $BLOCKS_PROBE 3000") ;;
+            hy) if [ "$SC" = 1 ]; then P=5,6,7,8; else P=4,5,6,7; fi; RUNS=("r15 $P $BLOCKS_PROBE 3000") ;;
+            dw) RUNS=("r14 0,1,2,3,4,5,6 $BLOCKS_DEV 3000") ;;
+            dx) RUNS=("r13 0,1,2,3,4 $BLOCKS_DEV 3000") ;;
+            dy) RUNS=("recency 0,1,2 $BLOCKS_DEV 1400" "r8 0,1,2,5 $BLOCKS_DEV 1500") ;;
+            dz) RUNS=("r12 0,1,2,3,4,5,6 $BLOCKS_DEV 3000") ;;
+            *) echo "unknown half $HALF"; exit 1 ;;
+          esac
+          python -m pip install --quiet "aiohttp>=3.9,<4"   # tiers.py imports aiohttp
+          (cd voice-adapter && python -m unittest -v test_ctx_compress_r2_eval test_brief_compress_r2 test_brief_compress test_brief_compress_r3 test_brief_compress_r4 test_ctx_compress_r5_gates test_brief_compress_r6 test_ctx_compress_r6 test_brief_compress_r7 test_ctx_compress_r8 test_brief_compress_r9 test_ctx_compress_r9 test_ctx_compress_r10 test_brief_compress_r11 test_ctx_compress_r11 test_ctx_compress_r12 test_ctx_compress_r13 test_ctx_compress_r14 test_ctx_compress_r15)   # no model
+          mkdir -p out
+          cp lscpu.txt out/
+          for run in "${RUNS[@]}"; do
+            read -r SET PROBES BLOCKS DL <<< "$run"
+            export BLOCKS
+            python voice-adapter/bench/ctx_compress_r15_eval.py --set "$SET" --dry --scenarios "$SC" | tee "out/dry-$SET.json"
+            meta=$(python -c 'import json,os;print(json.dumps({k.lower():os.environ[k] for k in ("REPO","REV","FILE","SHA","LLAMA_TAG","CPU_MODEL","BLOCKS")}))')
+            mkdir -p "out/logs-$SET"
+            python voice-adapter/bench/ctx_compress_r15_eval.py --set "$SET" --gguf "$RUNNER_TEMP/models/$FILE" --blocks "$BLOCKS" \
+              --scenarios "$SC" --probes "$PROBES" --deadline-s "$DL" --meta "$meta" \
+              --out "out/ctx-compress-r15-s${SC}-${HALF}-${SET}.json" --logdir "out/logs-$SET"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ctx-compress-r15-s${{ matrix.scenario }}-${{ matrix.half }}
+          path: out/
+          if-no-files-found: warn
+          retention-days: 30
+  verdict:
+    needs: abab
+    if: always()
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ctx-compress-r15-s*
+          path: jobs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Frozen r15 verdict (r2 verdict + r5 gates + r15 / dev sets, presence-split INVENTED, latency, gates G1, G1e, G1s, G1b, G1c, G2-G7)
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          grep -E '^[0-9a-f]{64}  (voice-adapter|\.github)/' voice-adapter/bench/ctx-compress-r15-FREEZE.sha256 | sha256sum -c -
+          python -m pip install --quiet "aiohttp>=3.9,<4"   # presence() imports the harness (tiers.py imports aiohttp)
+          mkdir -p out
+          python voice-adapter/bench/ctx_compress_r15_eval.py --presence > out/presence.json
+          python voice-adapter/bench/ctx_compress_r15_verdict.py $(find jobs -name 'ctx-compress-r15-s*.json' | sort) | tee out/verdict.json
+          { echo '```'; jq '{outcome, failed, checks, null_reasons, band, aa_flips, bb_flips, flips, r15_two_true_loss, r15_update_stale, r15_update_stale_split, r15_update_correct, r15_static_recall, r15_two_new_recall_report_only, r14_a3_loss, dev_fm_loss, stale, unique_recall, invented_present, invented_absent_report_only, latency, recall: .main_r2.recall}' out/verdict.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ctx-compress-r15-verdict
+          path: out/
+          retention-days: 30

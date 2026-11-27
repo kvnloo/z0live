@@ -1,0 +1,98 @@
+{
+ "about": "C1-ctx-compress-r15 blind held-out set. Every 'text' is a verbatim user sentence from a chat written by a free hosted LLM that saw only a neutral spec (no compressor, rule, or earlier set). The experimenter added only the probes, gold values, categories, the noise topic and the padding (harness). Gold = newest valid value in the blind text (updates) / each value (still-true pairs). raw_sha256 = sha256 of the raw blind text file (kept outside the repo).",
+ "categories": {
+  "UPD_SAME": "genuine update, the code is named with the same words as the first time (cue words like new / updated aside)",
+  "UPD_RENAMED": "genuine update, the code is named with a different noun / label than the first time",
+  "TWO_OLD": "older fact of a still-true pair described with very similar wording (gated, old-fact LOSS)",
+  "TWO_NEW": "newer fact of that pair (report-only)",
+  "STATIC": "fact never updated: free-form or one-off (gated recall)"
+ },
+ "scenarios": [
+  {"name": "r15-vet", "raw": "vet-a3.txt", "raw_sha256": "b6f40313b92f57b49dc2a970549e78e1b295f9c5257d3a2451abac9e6d00c153",
+   "noise": {"topic": "vet", "noun": "Clinic", "items": ["leash", "collar", "kennel", "brush", "blanket", "bowl", "carrier"]},
+   "old": [
+    {"text": "My booking reference is PUP-102.", "value": "PUP-102"},
+    {"text": "My cat's microchip number is CHIP-77.", "value": "CHIP-77"},
+    {"text": "My clinic door code is DOOR-44.", "value": "DOOR-44"},
+    {"text": "Bella loves chasing laser pointers, code LASER-23.", "value": "LASER-23"},
+    {"text": "The clinic offers weekend appointments, tag WEEK-7.", "value": "WEEK-7"},
+    {"text": "I keep a spare key for the kennel, code KEY-88.", "value": "KEY-88"},
+    {"text": "My favorite vet tech is TECH-9.", "value": "TECH-9"}],
+   "new": [
+    {"text": "My go-to vet tech is TECH-12.", "value": "TECH-12"},
+    {"text": "I need to change my booking reference to PUP-205.", "value": "PUP-205"},
+    {"text": "The microchip ID has been updated to CHIP-88.", "value": "CHIP-88"},
+    {"text": "The access code is now DOOR-55.", "value": "DOOR-55"}],
+   "probes": [
+    {"key": "u1", "cat": "UPD_SAME", "slot": "old only", "ask": "What is my booking reference now?", "current": "PUP-205", "superseded": ["PUP-102"]},
+    {"key": "u2", "cat": "UPD_RENAMED", "slot": "old only", "ask": "What is my cat's microchip number now?", "current": "CHIP-88", "superseded": ["CHIP-77"]},
+    {"key": "u3", "cat": "UPD_RENAMED", "slot": "old only", "ask": "What is my clinic door code now?", "current": "DOOR-55", "superseded": ["DOOR-44"]},
+    {"key": "p_old", "cat": "TWO_OLD", "slot": "both", "ask": "What is the code for my favorite vet tech?", "current": "TECH-9", "superseded": []},
+    {"key": "s1", "cat": "STATIC", "slot": "none", "ask": "What is the code for Bella chasing laser pointers?", "current": "LASER-23", "superseded": []},
+    {"key": "s2", "cat": "STATIC", "slot": "none", "ask": "What is the tag for the clinic's weekend appointments?", "current": "WEEK-7", "superseded": []},
+    {"key": "s3", "cat": "STATIC", "slot": "none", "ask": "What is the code for my spare kennel key?", "current": "KEY-88", "superseded": []},
+    {"key": "p_new", "cat": "TWO_NEW", "slot": "both", "ask": "What is the code for my go-to vet tech?", "current": "TECH-12", "superseded": []}],
+   "dropped": [
+    "small-talk turns (greeting, sunny day / walk, park with the kids, thanks): no fact; replaced by the harness topic noise as in earlier rounds",
+    "user 'Could you confirm everything for me?' and the assistant summary listing every current code: not a user fact sentence; an assistant turn restating all values would put every current code in the noise region",
+    "assistant replies: replaced by the harness acknowledgement (as in earlier rounds)"]},
+  {"name": "r15-car", "raw": "car-a2.txt", "raw_sha256": "d669678051a1a7ae85e8c58f324e9cd5f22e9f09261f4476d16e9eff251cb567",
+   "noise": {"topic": "car", "noun": "Trip", "items": ["map", "cooler", "roof box", "charger", "snack", "playlist", "mirror"]},
+   "old": [
+    {"text": "My car rental booking reference is BOOK-01.", "value": "BOOK-01"},
+    {"text": "My driver's license ID is ID-02.", "value": "ID-02"},
+    {"text": "My apartment door code is DOOR-03.", "value": "DOOR-03"},
+    {"text": "My flight number is FLT-06.", "value": "FLT-06"},
+    {"text": "Seat preference: window is SEAT-08.", "value": "SEAT-08"},
+    {"text": "I will be traveling with my dog is DOG-09.", "value": "DOG-09"},
+    {"text": "The weather looks sunny for our trip is WEATHER-10.", "value": "WEATHER-10"},
+    {"text": "My favorite pizza place is Luigi's is PIZZA-11.", "value": "PIZZA-11"},
+    {"text": "My credit card number is CC-11.", "value": "CC-11"}],
+   "new": [
+    {"text": "The flight number for my trip is FLT-06 is FLT-07.", "value": "FLT-07"},
+    {"text": "My new apartment door code is DOOR-04.", "value": "DOOR-04"},
+    {"text": "My updated car rental booking reference is BOOK-05.", "value": "BOOK-05"},
+    {"text": "My updated credit card number is CC-12.", "value": "CC-12"}],
+   "probes": [
+    {"key": "u1", "cat": "UPD_SAME", "slot": "both (cue word inside the new subject)", "ask": "What is my car rental booking reference now?", "current": "BOOK-05", "superseded": ["BOOK-01"]},
+    {"key": "u2", "cat": "UPD_SAME", "slot": "both (cue word inside the new subject)", "ask": "What is my apartment door code now?", "current": "DOOR-04", "superseded": ["DOOR-03"]},
+    {"key": "u3", "cat": "UPD_SAME", "slot": "both (cue word inside the new subject)", "ask": "What is my credit card number now?", "current": "CC-12", "superseded": ["CC-11"]},
+    {"key": "p_old", "cat": "TWO_OLD", "slot": "old only", "ask": "What is my flight number?", "current": "FLT-06", "superseded": []},
+    {"key": "s1", "cat": "STATIC", "slot": "slot", "ask": "What is my driver's license ID?", "current": "ID-02", "superseded": []},
+    {"key": "s2", "cat": "STATIC", "slot": "none", "ask": "What is the code for my window seat preference?", "current": "SEAT-08", "superseded": []},
+    {"key": "s3", "cat": "STATIC", "slot": "slot (my dog is)", "ask": "What is the code for traveling with my dog?", "current": "DOG-09", "superseded": []},
+    {"key": "s4", "cat": "STATIC", "slot": "none", "ask": "What is the code for the sunny weather on our trip?", "current": "WEATHER-10", "superseded": []},
+    {"key": "s5", "cat": "STATIC", "slot": "slot", "ask": "What is the code for my favorite pizza place?", "current": "PIZZA-11", "superseded": []}],
+   "dropped": [
+    "probe p_new (FLT-07): the blind sentence 'The flight number for my trip is FLT-06 is FLT-07.' names both codes, so its gold is ambiguous; the sentence itself is kept in the chat",
+    "small-talk turns (how is your day, coffee, road-trip tips): no fact; replaced by the harness topic noise",
+    "assistant replies: replaced by the harness acknowledgement"]},
+  {"name": "r15-pottery", "raw": "pottery-a2.txt", "raw_sha256": "9a5f3c99213669f6752be5fbec3a5e6668b6d6e3050009c2fa6f31036c964e4b",
+   "noise": {"topic": "pottery", "noun": "Studio", "items": ["kiln", "wheel", "apron", "sponge", "trimming tool", "shelf", "bucket"]},
+   "old": [
+    {"text": "I found a booking reference for the first class, it's ClayRef-01.", "value": "ClayRef-01"},
+    {"text": "My membership ID is MemberID-45.", "value": "MemberID-45"},
+    {"text": "I love the smell of fresh clay, code Aroma-12.", "value": "Aroma-12"},
+    {"text": "I need a parking spot near the studio, code Park-21.", "value": "Park-21"},
+    {"text": "Teal is my favorite glaze color, code Glaze-33.", "value": "Glaze-33"},
+    {"text": "I have a cat named Luna, code Cat-05.", "value": "Cat-05"},
+    {"text": "I prefer wheel-throwing for pottery, code Style-09.", "value": "Style-09"}],
+   "new": [
+    {"text": "I need a bike rack near the studio, code Rack-22.", "value": "Rack-22"},
+    {"text": "I changed my booking, new reference is ClayRef-02.", "value": "ClayRef-02"},
+    {"text": "I got a new membership card, it's MemberID-78.", "value": "MemberID-78"},
+    {"text": "I switched to hand-building, code Style-10.", "value": "Style-10"}],
+   "probes": [
+    {"key": "u1", "cat": "UPD_RENAMED", "slot": "none", "ask": "What is my booking reference for the class now?", "current": "ClayRef-02", "superseded": ["ClayRef-01"]},
+    {"key": "u2", "cat": "UPD_RENAMED", "slot": "old only", "ask": "What is my membership ID now?", "current": "MemberID-78", "superseded": ["MemberID-45"]},
+    {"key": "u3", "cat": "UPD_SAME", "slot": "none", "ask": "What is the code for my pottery style now?", "current": "Style-10", "superseded": ["Style-09"]},
+    {"key": "p_old", "cat": "TWO_OLD", "slot": "none", "ask": "What is the code for my parking spot near the studio?", "current": "Park-21", "superseded": []},
+    {"key": "s1", "cat": "STATIC", "slot": "none", "ask": "What is the code for the smell of fresh clay?", "current": "Aroma-12", "superseded": []},
+    {"key": "s2", "cat": "STATIC", "slot": "none", "ask": "What is the code for my favorite glaze color?", "current": "Glaze-33", "superseded": []},
+    {"key": "s3", "cat": "STATIC", "slot": "none", "ask": "What is the code for my cat Luna?", "current": "Cat-05", "superseded": []},
+    {"key": "p_new", "cat": "TWO_NEW", "slot": "none", "ask": "What is the code for my bike rack near the studio?", "current": "Rack-22", "superseded": []}],
+   "dropped": [
+    "small-talk turns (joining a class, weather, class times, parking area / bike rack / glaze tips / Luna / clay smell follow-ups, advanced classes, payment, thanks): no code, so no fact sentence; replaced by the harness topic noise",
+    "assistant replies: replaced by the harness acknowledgement"]}
+ ]
+}
