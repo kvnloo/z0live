@@ -7,7 +7,8 @@ compress_brief(text, budget_chars) returns a verbatim, in-order subset of the br
      line up to the next asker line; the asker is the first speaker seen) and trailer lines (after the last
      exchange, e.g. a Status line);
   3. header and trailer are always kept, then exchanges are added greedily in this priority order, each only if it
-     still fits: "fact" exchanges newest first, then filler spread evenly over the chat (every other filler
+     still fits: "fact" exchanges shortest first (C1-ctx-compress-r4; equal sizes newest first; was: newest
+     first), then filler spread evenly over the chat (every other filler
      exchange counted back from the newest older filler, newest first; then the skipped fillers, newest first, only
      if budget is left; C56-live-compress-r3, was: all filler newest first), then a filler newest exchange last
      (C56-live-compress-r4, was: the newest exchange always kept first). An exchange is
@@ -81,7 +82,10 @@ def compress_brief(text: str, budget_chars: int) -> str:
     # from the newest filler, then the skipped ones (newest first) only if budget is still left.
     # C56-live-compress-r4: the newest exchange is no longer always kept first. A fact newest exchange is kept with
     # the facts; a filler newest exchange is tried last, only if budget is still left (was: order started with n - 1).
-    facts = [i for i in reversed(range(n)) if fact[i]]
+    # C1-ctx-compress-r4: facts are tried by density, shortest exchange first (stable sort, so equal sizes stay newest
+    # first), so a one-line user statement is not crowded out by newer facts with long explanatory replies
+    # (was: all facts newest first).
+    facts = sorted((i for i in reversed(range(n)) if fact[i]), key=lambda i: _size([exchanges[i]]))
     order = facts + filler[0::2] + filler[1::2] + ([] if fact[n - 1] else [n - 1])
     keep = set()
     for i in order:

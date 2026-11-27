@@ -3,6 +3,7 @@
 bench/brief_compress_r2.py is the frozen r2 compress_brief (byte copy of brief_compress.py at e43c29f,
 sha256 f5478ee3...). Changed fixtures, exactly: the three context_eval briefs (capitalised and lowercase labels),
 which hold reply-less user lines; FULL, OTHER, slm-v2-e5 and slm-v2-live hold none and stay byte-identical.
+C1-ctx-compress-r4: these tests now run on bench/brief_compress_r3.py (frozen r3 copy); r4 tests: test_brief_compress_r4.
 """
 import sys
 import unittest
@@ -10,7 +11,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "bench"))
-import brief_compress  # noqa: E402
+import brief_compress_r3 as brief_compress  # noqa: E402  (r4: r3 semantics pinned to the frozen r3 copy)
 import brief_compress_r2 as r2  # noqa: E402
 import context_eval  # noqa: E402
 import ctx_compress_r2_eval as harness  # noqa: E402
