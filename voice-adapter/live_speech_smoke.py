@@ -8,6 +8,7 @@ from fractions import Fraction
 import json
 from pathlib import Path
 import time
+from tempfile import TemporaryDirectory
 
 from aiohttp import ClientSession
 import av
@@ -96,4 +97,7 @@ async def main():
             for t in tasks:t.cancel()
             await asyncio.gather(*tasks,return_exceptions=True)
 
-if __name__=='__main__':asyncio.run(main())
+if __name__ == "__main__":
+    with TemporaryDirectory(prefix="z0live-smoke-traces-") as traces:
+        live.TRACE_DIR = Path(traces)
+        asyncio.run(main())

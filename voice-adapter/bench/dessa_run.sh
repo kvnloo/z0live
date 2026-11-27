@@ -15,7 +15,7 @@ for e in $ENGINES; do
       bench/local_voice_replay.py --clip 60 --out "$OUT/$LABEL-$e" > "$OUT/$LABEL-$e.json" 2> "$OUT/$LABEL-$e.err") &
     local_pid=$!
   else
-    HERMES_VOICE_ENGINE=$e HERMES_MOBILE_VOICE_TRACE_DIR=$OUT/$LABEL-$e/traces env -u PYTHONPATH timeout 900 \
+    HERMES_VOICE_ENGINE=$e env -u PYTHONPATH timeout 900 \
       "${DESSA_PYTHON:-.venv/bin/python}" bench/dessa_replay.py --clip 60 --out "$OUT/$LABEL-$e" > "$OUT/$LABEL-$e.json" 2> "$OUT/$LABEL-$e.err" &
   fi
 done

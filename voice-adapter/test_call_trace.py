@@ -67,6 +67,36 @@ class CallTraceTests(unittest.IsolatedAsyncioTestCase):
         self.addAsyncCleanup(call.close, "test")
         return call
 
+    async def test_unittest_cannot_write_to_the_real_trace_store(self):
+        real = Path.home() / ".local/share/z0live/voice-traces"
+
+        def snapshot():
+            if not real.exists():
+                return {}
+            entries = {}
+            for path in (real, *real.glob("**/*")):
+                stat = path.stat()
+                entries[path] = (stat.st_size, stat.st_mtime_ns)
+            return entries
+
+        before = snapshot()
+        session = Path(live._TEST_TRACE_SESSION.name)
+        self.assertEqual(Path(os.environ["HERMES_MOBILE_VOICE_TRACE_DIR"]), session)
+        with patch.object(live, "TRACE_DIR", session):
+            call = await self.make_call()
+            self.assertTrue(call.trace.path.is_relative_to(session))
+            self.assertTrue(call.trace.path.is_file())
+        alias = self.directory / "real-traces"
+        alias.symlink_to(real, target_is_directory=True)
+        for unsafe in (real, alias):
+            with patch.object(live, "TRACE_DIR", unsafe), patch.object(live, "Trace") as writer:
+                with self.assertRaisesRegex(RuntimeError, "require a temporary directory"):
+                    await self.make_call()
+                writer.assert_not_called()
+        with patch.object(live, "TRACE_DIR", real), patch.dict(os.environ, {"Z0LIVE_ALLOW_UNSAFE_TEST_TRACES": "1"}):
+            self.assertEqual(live._call_trace_dir(), real)
+        self.assertEqual(snapshot(), before)
+
     def rows(self, kind):
         return [row for path in self.directory.glob("*/*.jsonl") for row in map(json.loads, path.read_text().splitlines())
                 if row["ev"] == kind]

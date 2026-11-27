@@ -23,6 +23,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -701,8 +702,34 @@ class Protocol:
 
 
 # Local per-call traces. Read them with trace_report.py.
-TRACE_DIR = Path(os.environ.get("HERMES_MOBILE_VOICE_TRACE_DIR",
-                                "/mnt/zer0models/sft-svlm/data/voice-traces/hermes-mobile-live"))
+_TRACE_ENV = "HERMES_MOBILE_VOICE_TRACE_DIR"
+_TRACE_DEFAULT = Path("/mnt/zer0models/sft-svlm/data/voice-traces/hermes-mobile-live")
+_TRACE_CONFIGURED = Path(os.environ.get(_TRACE_ENV, _TRACE_DEFAULT)).expanduser()
+_TEST_TRACE_SESSION = None
+
+
+def _test_trace_guard():
+    return "unittest" in sys.modules and os.environ.get("Z0LIVE_ALLOW_UNSAFE_TEST_TRACES") != "1"
+
+
+if _test_trace_guard():
+    # Override inherited launchd/shell settings for the suite and any children it starts.
+    _TEST_TRACE_SESSION = tempfile.TemporaryDirectory(prefix="z0live-unittest-traces-")
+    os.environ[_TRACE_ENV] = _TEST_TRACE_SESSION.name
+TRACE_DIR = Path(os.environ.get(_TRACE_ENV, _TRACE_DEFAULT)).expanduser()
+
+
+def _call_trace_dir():
+    if _test_trace_guard():
+        # Check at use time so a patched TRACE_DIR cannot bypass isolation.
+        day = (TRACE_DIR / time.strftime("%Y-%m-%d")).resolve()
+        protected = (_TRACE_CONFIGURED, _TRACE_DEFAULT, Path.home() / ".local/share/z0live/voice-traces")
+        if (not day.is_relative_to(Path(tempfile.gettempdir()).resolve())
+                or any(day.is_relative_to(root.resolve()) for root in protected)):
+            raise RuntimeError("unittest voice traces require a temporary directory")
+    return TRACE_DIR
+
+
 ADAPTER_REV = hashlib.sha1(Path(__file__).read_bytes()).hexdigest()[:12]
 RELEASE = Path(__file__).resolve().parents[1].name  # releases/<sha>/voice-adapter: the deployed commit, on /_z0live/ready
 LEVEL_ON = 800          # s16 peak (~-32 dBFS) that counts as sound
@@ -1478,7 +1505,7 @@ class Call:
         self.manager = manager
         self.profile = profile
         self.id = "hermes-subscription-" + uuid.uuid4().hex
-        self.trace = Trace(self.id, TRACE_DIR)
+        self.trace = Trace(self.id, _call_trace_dir())
         self.mobile = RTCPeerConnection(RTCConfiguration(iceServers=[]))
         self.subscription = self.new_subscription(active=True)
         self.primary_audio: Speaker | None = None

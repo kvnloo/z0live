@@ -4,6 +4,7 @@ from collections import Counter
 import json
 from pathlib import Path
 import time
+from tempfile import TemporaryDirectory
 
 from aiohttp import ClientSession
 from aiortc import RTCPeerConnection, RTCSessionDescription, RTCConfiguration, AudioStreamTrack
@@ -66,5 +67,7 @@ async def main():
             for task in tasks:task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
 
-if __name__ == '__main__':
-    asyncio.run(main())
+if __name__ == "__main__":
+    with TemporaryDirectory(prefix="z0live-smoke-traces-") as traces:
+        live.TRACE_DIR = Path(traces)
+        asyncio.run(main())

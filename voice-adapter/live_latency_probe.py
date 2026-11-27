@@ -8,6 +8,7 @@ import asyncio, json, re, sys, time
 from array import array
 from fractions import Fraction
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import av
 from aiohttp import ClientSession
@@ -139,4 +140,6 @@ async def main():
             await pc.close()
 
 
-asyncio.run(main())
+with TemporaryDirectory(prefix="z0live-latency-traces-") as traces:
+    live.TRACE_DIR = Path(traces)
+    asyncio.run(main())

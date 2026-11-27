@@ -110,7 +110,12 @@ async def replay(name: str, clip_s: float, out: Path):
     delay = float(os.environ.get("REPLAY_HERMES_DELAY", "2.5"))
     async with ClientSession() as http:
         manager = live.Manager(http)
-        call = live.Call(manager)
+        original_trace_dir = live.TRACE_DIR
+        try:
+            live.TRACE_DIR = out / "traces"
+            call = live.Call(manager)
+        finally:
+            live.TRACE_DIR = original_trace_dir
         manager.calls[call.id] = call
 
         async def hermes(did, request):  # no agent turn: a quick, neutral answer

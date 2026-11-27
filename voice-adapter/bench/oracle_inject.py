@@ -101,7 +101,7 @@ async def run(questions, root):
         "HERMES_MOBILE_VOICE_LANES": "0", "HERMES_MOBILE_VOICE_CLIENT_DELEGATION": "0",
         "HERMES_VOICE_HANDOFF": "off", "VOICE_WARM_HAIKU": "0", "HERMES_VOICE_ENGINE": "gpt-live",
         "Z0LIVE_GUEST": "off", "Z0LIVE_TIERS": "on", "PROBE_HERMES_DELAY": "12", "PROBE_LISTEN": "22",
-        "HERMES_MOBILE_VOICE_TRACE": "1", "HERMES_MOBILE_VOICE_TRACE_DIR": str(root / "traces"),
+        "HERMES_MOBILE_VOICE_TRACE": "1", "Z0LIVE_CONTEXT_PROBE_TRACES": str(root / "traces"),
         "Z0LIVE_TRACE_AUDIO": "0", "PROBE_SAVE": "", "PROBE_SAVE_IN": "",
     })
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

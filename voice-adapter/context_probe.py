@@ -13,6 +13,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from collections import Counter
 from fractions import Fraction
@@ -21,7 +22,6 @@ from pathlib import Path
 os.environ.setdefault("HERMES_MOBILE_VOICE_LANES", "0")
 os.environ.setdefault("VOICE_WARM_HAIKU", "0")
 os.environ.setdefault("HERMES_VOICE_HANDOFF", "off")
-os.environ.setdefault("HERMES_MOBILE_VOICE_TRACE_DIR", os.environ.get("TMPDIR", "/tmp") + "/voice-probe-traces")
 
 import av  # noqa: E402
 from aiohttp import ClientSession  # noqa: E402
@@ -117,7 +117,13 @@ async def probe(history, *, prompt=None, prepare=None, hermes_answer=HERMES_ANSW
     client.addTrack(prompt)
     async with ClientSession() as http:
         manager = live.Manager(http)
-        call = live.Call(manager, profile=os.environ.get("PROBE_PROFILE", "poteto"))
+        traces = os.environ.get("Z0LIVE_CONTEXT_PROBE_TRACES") or tempfile.mkdtemp(prefix="z0live-context-traces-")
+        original_trace_dir = live.TRACE_DIR
+        try:
+            live.TRACE_DIR = Path(traces)
+            call = live.Call(manager, profile=os.environ.get("PROBE_PROFILE", "poteto"))
+        finally:
+            live.TRACE_DIR = original_trace_dir
         manager.calls[call.id] = call
         delegate = call.host_delegate
 
