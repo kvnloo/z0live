@@ -110,7 +110,9 @@ class CompressBrief(unittest.TestCase):
             sys_full, ask_full = slm_bench.messages(SUITE, case)
             sys_small, ask_small = slm_bench.messages(small, case)
             self.assertEqual(ask_small, ask_full)
-            self.assertLess(len(sys_small), len(sys_full) - 2000, case["id"])
+            # tiers.snapshot now compresses itself, so the uncompressed brief is the reference
+            self.assertGreater(len(FULL) - len(brief_compress.compress_brief(FULL, E5_CHARS)), 2000, case["id"])
+            self.assertLessEqual(len(sys_full), len(sys_small) + 40, case["id"])
             for role, text in case.get("turns") or []:
                 self.assertIn(text, sys_small)
 
