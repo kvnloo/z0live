@@ -323,6 +323,8 @@ def describe(layout: dict) -> str:
 
 
 # ---------------------------------------------------------------- spoken / typed commands (precision over recall)
+# Verbs are pool edits only: "stop/kill the lanes" is the conductor's stop control (RX_STOP), and "use/start N X
+# lanes" reads as an instruction for one ask (conductor explicit()), so those stay with the conductor.
 NUM = {"a": 1, "an": 1, "one": 1, "another": 1, "single": 1, "two": 2, "to": 2, "too": 2, "couple": 2, "pair": 2,
        "three": 3, "four": 4, "for": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
 _MODEL = r"(?P<model>haikus?|sonnets?|opus(?:es)?|sols?|soul|sole|saul|gpt|codex|sr|semantic router|router|fable|free)"
@@ -331,13 +333,13 @@ _KIND = r"(?:(?P<kind>answer|voice|worker|research|tv)\s+)?"
 _ROLE = (r"(?:\s+(?:to|in|on|for|into|from|off)\s+(?:the\s+|this\s+)?(?P<role>fast|medium|slow|research|tv|call|voice|"
          r"answer|worker)(?:\s+(?:tier|lane|lanes|pool))?)?")
 _LEAD = r"^(?:(?:hey |ok |okay |so )?(?:z0|zero|z ?zero),?\s+)?(?:(?:please|can you|could you|would you|go ahead and|let's|lets)\s+)*"
-_ADD = re.compile(_LEAD + r"(?:add|attach|give me|spin up|bring in|put on|start)\s+" + _N + r"\s+(?:more\s+)?"
+_ADD = re.compile(_LEAD + r"(?:add|attach|give me|spin up|bring in|put on)\s+" + _N + r"\s+(?:more\s+)?"
                   + _MODEL + r"\s+" + _KIND + r"lanes?\b" + _ROLE + r"\W*(?:please)?\W*$", re.I)
-_SET = re.compile(_LEAD + r"(?:set|make it|use|i want|go with)\s+(?:the\s+)?" + _N + r"\s+" + _MODEL + r"\s+" + _KIND
+_SET = re.compile(_LEAD + r"(?:set|make it)\s+(?:the\s+)?" + _N + r"\s+" + _MODEL + r"\s+" + _KIND
                   + r"lanes?\b"
                   + _ROLE + r"\W*$", re.I)
 _SET2 = re.compile(_LEAD + r"(?:set|make)\s+(?:the\s+)?" + _MODEL + r"\s+" + _KIND + r"lanes?\s+(?:to\s+)?" + _N + _ROLE + r"\W*$", re.I)
-_REMOVE = re.compile(_LEAD + r"(?:drop|remove|detach|kill|lose|get rid of|stop)\s+(?:(?:the|all(?: the)?|my)\s+)?"
+_REMOVE = re.compile(_LEAD + r"(?:drop|remove|detach|lose|get rid of)\s+(?:(?:the|all(?: the)?|my)\s+)?"
                      r"(?:" + _N + r"\s+)?(?:of\s+the\s+)?" + _MODEL + r"\s+" + _KIND + r"lanes?\b" + _ROLE + r"\W*(?:please)?\W*$", re.I)
 # "how many lanes (do I have|are attached|are on the call)", "what's the lane layout": the layout, not what is running.
 _LIST = re.compile(_LEAD + r"(?:(?:how many lanes(?: do i have| are attached| are on (?:the|this) call| have i got)?)"
@@ -345,7 +347,7 @@ _LIST = re.compile(_LEAD + r"(?:(?:how many lanes(?: do i have| are attached| ar
                    r"|(?:what lanes (?:do i have|are attached)))\W*$", re.I)
 
 
-_FILLER = re.compile(r"^(?:(?:yeah|yes|yep|uh|um|uhm|so|and|ok|okay|alright|all right|for sure|now|also|then|great|cool|"
+_FILLER = re.compile(r"^(?:(?:yeah|yes|yep|uh|um|uhm|so|and|ok|okay|alright|all right|for sure|sure|sounds good|got it|now|also|then|great|cool|"
                      r"right|well|hey|oh)\b[\s,.]*)+", re.I)
 _FILLER_END = re.compile(r"(?:[\s,]+(?:right now|now|please|for me|thanks|thank you|real quick))+$", re.I)
 
@@ -363,8 +365,12 @@ def command(text: str) -> dict | None:
     t = " ".join(str(text or "").replace("’", "'").split()).strip()
     if not t or len(t) > 300:
         return None
-    t = [p for p in re.split(r"(?<=[.!?])\s+", t) if p.strip(" .!?")][-1:]  # the last sentence is the command
-    t = _FILLER_END.sub("", _FILLER.sub("", t[0] if t else "").strip(" .!?,")).strip(" .!?,")
+    parts = [p for p in re.split(r"(?<=[.!?])\s+", t) if p.strip(" .!?")]
+    # The last sentence is the command, and only when everything before it is filler ("Yeah, for sure."):
+    # "Research the boat sandboxes. Use a sol lane." is a research ask, not a pool edit.
+    if not parts or any(_FILLER.sub("", p).strip(" .!?,") for p in parts[:-1]):
+        return None
+    t = _FILLER_END.sub("", _FILLER.sub("", parts[-1]).strip(" .!?,")).strip(" .!?,")
     if not t or len(t) > 120 or re.search(r"\b(don't|do not|never|didn't|shouldn't|why|said|asked|if|not)\b", t, re.I):
         return None
     if _LIST.match(t):

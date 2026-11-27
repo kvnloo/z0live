@@ -1964,7 +1964,7 @@ class Call:
         if not text:
             return False
         cmd, now = lane_layout.command(text), time.monotonic()
-        key = (json.dumps(cmd, sort_keys=True), " ".join(user.lower().split()))
+        key = json.dumps(cmd, sort_keys=True)  # the command alone: the user text changes when a delegation beats it
         recent = self.__dict__.setdefault("layout_done", {})
         if cmd["action"] != "list" and now - recent.get(key, -99) < 20:
             self.trace("lanes.layout_repeat", did=did, cmd=cmd)

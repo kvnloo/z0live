@@ -346,6 +346,10 @@ def register(ctx) -> None:
     def can_configure() -> bool:
         return installed() and (_path(cfg("z0live_repo") or ROOT) / "bin/z0live").is_file()
 
+    def not_worker() -> bool:
+        # TV conductor workers run `hermes chat` in this profile; they must not edit the pool they run in.
+        return os.environ.get("Z0LIVE_LANE_WORKER") != "1"
+
     lanes_tool = make_lanes(cfg, installed)
 
     def lanes_command(raw_args: str = "", invocation: Any = None) -> str:
@@ -355,10 +359,10 @@ def register(ctx) -> None:
     ctx.register_tool(name="z0live_status", toolset=TOOLSET, schema=STATUS_SCHEMA, handler=make_status(cfg),
                       check_fn=installed, description="z0live voice stack status (read only)", emoji="🎙️")
     ctx.register_tool(name="z0live_configure", toolset=TOOLSET, schema=CONFIGURE_SCHEMA, handler=make_configure(cfg),
-                      check_fn=can_configure, description="Pick the z0live engine, second voice and model tiers",
+                      check_fn=lambda: can_configure() and not_worker(), description="Pick the z0live engine, second voice and model tiers",
                       emoji="🎛️")
     ctx.register_tool(name="z0live_lanes", toolset=TOOLSET, schema=LANES_SCHEMA, handler=lanes_tool,
-                      check_fn=installed, description="Show or change the lanes attached to the conversation", emoji="🎚️")
+                      check_fn=lambda: installed() and not_worker(), description="Show or change the lanes attached to the conversation", emoji="🎚️")
     lines = _read_json(ROOT / "voice-adapter/progress_lines.json") or []
     ctx.register_tool(name="z0live_say", toolset=TOOLSET, handler=make_say(lines),
                       check_fn=lambda: bool(lines and _secret(PROGRESS_TOKEN_ENV)),

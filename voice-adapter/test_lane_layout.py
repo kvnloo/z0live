@@ -53,8 +53,8 @@ class ParseTests(unittest.TestCase):
             "remove one haiku lane please": {"action": "remove", "model": "haiku", "count": 1, "role": ""},
             "set the haiku lanes to 2": {"action": "set", "model": "haiku", "count": 2, "role": ""},
             "how many lanes": {"action": "list"},
-            # a real delegation request from the 11-27 call (fillers before the question)
-            "Yeah, for sure. Uh, and how many lanes are attached right now": {"action": "list"},
+            # the shape delegations arrive in: fillers, then the question (synthetic)
+            "Okay, sounds good. Um, and how many lanes are attached right now": {"action": "list"},
         }
         for text, want in cases.items():
             with self.subTest(text=text):
@@ -64,7 +64,9 @@ class ParseTests(unittest.TestCase):
         for text in ["So is it working ? Like the lanes now? Yes", "why did you add two opus lanes",
                      "he said add two opus lanes", "don't add two opus lanes", "how many lanes are running",
                      "add two terra lanes", "what's the weather", "add two opus lanes and then email Sarah", "",
-                     "the fast lane on the highway was blocked"]:
+                     "the fast lane on the highway was blocked", "Research the boat sandboxes. Use a sol lane.",
+                     "Check the builds. Add two sol lanes.", "stop the sol lanes", "kill two opus lanes",
+                     "use 2 sol lanes", "start three haiku lanes"]:
             with self.subTest(text=text):
                 self.assertIsNone(L.command(text))
 
@@ -271,6 +273,14 @@ class VoiceCommandTests(Tmp, unittest.IsolatedAsyncioTestCase):
             await self.call.host_delegate("d2", "add two opus lanes")
         self.assertEqual(L.current()[0]["research"]["opus"], 4)
 
+    async def test_delegation_before_and_after_the_user_final_applies_once(self):
+        with patch.object(live, "run_hermes", side_effect=AssertionError("Hermes must not run")):
+            self.call.protocol.turn_text["user"] = "what's the weather"  # previous turn: the final is not in yet
+            await self.call.host_delegate("d1", "add two opus lanes")
+            self.call.protocol.turn_text["user"] = "uh add two opus lanes"  # the final lands, the voice delegates again
+            await self.call.host_delegate("d2", "Add two opus lanes.")
+        self.assertEqual(L.current()[0]["research"]["opus"], 4)
+
     async def test_user_words_count_when_the_request_is_paraphrased(self):
         self.call.protocol.turn_text["user"] = "uh drop the sol lanes from the call"
         with patch.object(live, "run_hermes", side_effect=AssertionError("Hermes must not run")):
@@ -374,6 +384,24 @@ class PluginToolTests(Tmp):
 
     def test_board_requests_still_reach_the_broker_board(self):
         self.assertEqual(self.call(request="board gimme 2 fast lanes")["error"], "z0live stack not configured")
+
+    def test_conductor_workers_never_see_the_lane_tools(self):
+        tools = {}
+
+        class Ctx:
+            def get_config(self, key, default=None):
+                return default
+
+            def register_tool(self, name, **kw):
+                tools[name] = kw
+
+            def register_command(self, *a, **kw):
+                pass
+
+        self.plugin.register(Ctx())
+        with patch.dict(os.environ, {"Z0LIVE_LANE_WORKER": "1"}):
+            self.assertFalse(tools["z0live_lanes"]["check_fn"]())
+            self.assertFalse(tools["z0live_configure"]["check_fn"]())
 
     def test_registered_with_the_new_parameters(self):
         tools = {}
