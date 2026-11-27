@@ -543,6 +543,8 @@ class Protocol:
                 self.turn_text["assistant"] = (self.turn_text["assistant"] + text)[-16000:]
             return []
         if kind in ("session.started", "session.closed", "error"):
+            if kind == "session.started":  # a renewed session has no reply open (a lost turn.done never sticks)
+                self.assistant_open = False
             if kind == "error" and not isinstance(event.get("error"), dict):
                 return [{"type": "error", "error": {"message": str(event.get("message") or "Voice provider error")[:500]}}]
             return [event]
@@ -558,6 +560,7 @@ class Protocol:
         if kind == "turn.created":
             if (event.get("turn") or {}).get("role") == "user":
                 self.user_open = True
+                self.assistant_open = False  # the caller talks: that turn gates now, and a cut reply never sticks
             else:  # the voice is replying, so the caller's turn is over even without its turn.done
                 self.user_open = False
                 self.assistant_open = True
@@ -1464,6 +1467,7 @@ class Call:
         self.card_watch = None  # the watch_cards task, while one runs
         self.cards_busy = False  # a lane of this call's asks is still running (state.json, last read)
         self.last_delegation_at = float("-inf")
+        self.handed_at = float("-inf")  # when speak_for last handed a voice a line
         self.token = ""  # the app's own bearer, for submitting voice turns into its open chat
         self.chat_lookup = None
         self.context_text = ""  # recent chat history text, for the ttft lane
@@ -1780,6 +1784,7 @@ class Call:
         if self.closed or not text.strip():
             return
         self.__dict__.setdefault("spoken_for", {}).setdefault(did, []).append(text)
+        self.handed_at = time.monotonic()  # the voice opens its reply to this a moment later: cards wait (HANDED)
         if self.duplex:
             config = self.duplex.config
             self.duplex.floor.enqueue(Answer("primary", did, text, lane), config.name if config else "")
@@ -1970,7 +1975,8 @@ class Call:
         """Nobody is talking: the caller has no turn open, the voice no reply open, and both audio legs are quiet.
         The single-voice call has no Floor (prod, 11-27): this is the gate; with two voices speak_for adds the floor's."""
         p = self.protocol
-        return not (p.user_open or p.assistant_open or self.audio_loud(now))
+        return not (p.user_open or p.assistant_open or self.audio_loud(now)
+                    or now - getattr(self, "handed_at", float("-inf")) < lane_cards.HANDED_SECONDS)
 
     def audio_loud(self, now) -> bool:
         return now - self.input_loud_at < lane_cards.QUIET_SECONDS or now - self.output_loud_at < lane_cards.QUIET_SECONDS

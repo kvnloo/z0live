@@ -17,6 +17,7 @@ POLL_SECONDS = 1.0     # one stat() per call per second; the file is parsed only
 BATCH_SECONDS = 1.5    # lanes finishing this close together are one line
 HOLD_SECONDS = 90.0    # a line the floor never let out by then is dropped (floor_busy)
 QUIET_SECONDS = 1.0    # the phone's mic and the voice's output both quiet this long
+HANDED_SECONDS = 4.0   # a line handed to the voice this recently: its reply has not opened yet (no merge into it)
 IDLE_SECONDS = 180.0   # no lane of this call running or due: the watcher stops (the next request restarts it)
 MAX_LANES = 3          # in one line; the rest are "on the TV"
 SUMMARY_CHARS = 160

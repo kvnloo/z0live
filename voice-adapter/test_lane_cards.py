@@ -54,7 +54,8 @@ class Watcher(unittest.IsolatedAsyncioTestCase):
         self.dir = tempfile.TemporaryDirectory()
         self.path = Path(self.dir.name) / "state.json"
         self.path.write_text(json.dumps({"asks": []}))
-        fast = dict(POLL_SECONDS=0.01, BATCH_SECONDS=0.05, QUIET_SECONDS=0.05, HOLD_SECONDS=5.0, IDLE_SECONDS=5.0)
+        fast = dict(POLL_SECONDS=0.01, BATCH_SECONDS=0.05, QUIET_SECONDS=0.15, HOLD_SECONDS=5.0, IDLE_SECONDS=5.0,
+                    HANDED_SECONDS=0.15)
         self.patches = [mock.patch.object(tiers, "CONDUCTOR_STATE", self.path)] + \
                        [mock.patch.object(lane_cards, k, v) for k, v in fast.items()]
         for p in self.patches:
@@ -128,16 +129,27 @@ class Watcher(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.sent, [])
         self.call.protocol.assistant_open = False
         self.call.output_loud_at = live.time.monotonic()  # the voice's last words still playing
-        await asyncio.sleep(0.02)
+        await asyncio.sleep(0.03)
         self.assertEqual(self.sent, [])
         await self.until(lambda: self.sent)
         self.assertGreater(self.traced("lanes.card_spoken")[0]["held_s"], 0.3)
+
+    async def test_held_right_after_an_answer_was_handed_before_its_reply_opens(self):
+        self.call.speak_for("d1", "The boats are on the TV now.")  # Hermes's answer; no turn.created yet
+        self.sent.clear()
+        self.write(ask(self.key, REQUEST, lane("a1-1", "sol 6.2", "9 boat sandboxes live.")))
+        await asyncio.sleep(0.08)
+        self.assertEqual(self.sent, [])
+        await self.until(lambda: self.sent)
 
     async def test_the_protocol_tracks_the_voices_open_reply(self):
         p = self.call.protocol
         p.from_provider({"type": "turn.created", "turn": {"role": "assistant", "id": "a1"}})
         self.assertTrue(p.assistant_open)
         p.from_provider({"type": "turn.done", "turn": {"role": "assistant", "id": "a1", "transcript": "Okay."}})
+        self.assertFalse(p.assistant_open)
+        p.from_provider({"type": "turn.created", "turn": {"role": "assistant", "id": "a2"}})  # cut: no turn.done
+        p.from_provider({"type": "turn.created", "turn": {"role": "user", "id": "u2"}})
         self.assertFalse(p.assistant_open)
 
     async def test_quiet_for_a_request_kevin_moved_on_from(self):
