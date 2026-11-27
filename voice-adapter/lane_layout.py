@@ -10,7 +10,8 @@
 the conductor's worker pool for the one-shot TV lanes; a bare "add 3 sol lanes" changes those. No file means no change: tiers.load falls back to tiers.json
 and the conductor to its own pool, so the first write seeds from what runs now.
 
-Writes are validated (known models only, no 6.1, caps) and atomic: a flock serializes read-modify-write across the
+Codex families (sol, astra, terra, luna) always run the newest listed version (latest_codex). Writes are validated
+(known models only, caps) and atomic: a flock serializes read-modify-write across the
 voice slots and Hermes, and each write goes to its own tmp file before os.replace. Stdlib only: the Hermes plugin
 loads this file by path, and the conductor reads the JSON itself.
 """
@@ -33,12 +34,49 @@ CLAUDE = "claude-subscription-directsdk-experimental"
 CODEX = "openai-codex"
 SR_URL = os.environ.get("Z0LIVE_SR_URL", "http://100.78.215.21:30899/v1")
 VOICE_TIERS = ("fast", "medium", "slow")
+CODEX_MODELS = Path(os.environ.get("Z0LIVE_CODEX_MODELS", str(Path.home() / ".codex/models_cache.json")))
+# Newest per family on 11-27 (used when the catalog cannot be read): 6.2 has only sol/astra, terra is newest at 6.1,
+# luna at 6.
+CODEX_FALLBACK = {"sol": "gpt-6.2-sol", "astra": "gpt-6.2-astra", "terra": "gpt-6.1-terra", "luna": "gpt-6-luna"}
+
+
+def latest_codex(family: str, path: Path | None = None) -> str:
+    """The newest listed `gpt-<version>-<family>` in this account's Codex catalog (Kevin, 11-27: "just use the latest
+    version for every role"), or the 11-27 fallback. A new release (say gpt-6.3-terra) is picked up on the next start
+    with no code change."""
+    try:
+        models = json.loads((path or CODEX_MODELS).read_text()).get("models") or []
+    except (OSError, ValueError, AttributeError):
+        return CODEX_FALLBACK[family]
+    best = None
+    for m in models:
+        slug = str(m.get("slug") or "") if isinstance(m, dict) else ""
+        hit = re.fullmatch(r"gpt-(\d+(?:\.\d+)*)-" + re.escape(family), slug)
+        if not hit or m.get("visibility", "list") != "list":
+            continue
+        version = tuple(int(x) for x in hit.group(1).split("."))
+        version += (0,) * (3 - len(version))
+        if best is None or version > best[0]:
+            best = (version, slug)
+    return best[1] if best else CODEX_FALLBACK[family]
+
+
+def _codex(family: str, home: str) -> dict:
+    slug = latest_codex(family)
+    version = slug.split("-")[1]
+    return {"binding": {"provider": CODEX, "model": slug}, "home": home,
+            "label": f"GPT {version if '.' in version else version + '.0'} {family.capitalize()}"}
+
+
 # name -> voice binding (None: research only) and its home tier (where "add N <name> lanes" goes on the call).
 MODELS = {
     "haiku": {"binding": {"provider": CLAUDE, "model": "claude-haiku-5-5"}, "home": "fast", "label": "Haiku 5.5"},
     "sonnet": {"binding": {"provider": CLAUDE, "model": "claude-sonnet-5-5"}, "home": "medium", "label": "Sonnet 5.5"},
     "opus": {"binding": {"provider": CLAUDE, "model": "claude-opus-5-5"}, "home": "slow", "label": "Opus 5.5"},
-    "sol": {"binding": {"provider": CODEX, "model": "gpt-6.2-sol"}, "home": "medium", "label": "GPT 6.2 Sol"},
+    "sol": _codex("sol", "medium"),
+    "astra": _codex("astra", "slow"),
+    "terra": _codex("terra", "medium"),
+    "luna": _codex("luna", "fast"),
     # vllm-sr on the mbp picks a free upstream per request (groq/nim); lane_server routes it via base_url.
     "sr": {"binding": {"provider": "custom", "model": "vllm-sr/turbo", "base_url": SR_URL}, "home": "fast",
            "label": "semantic router"},
@@ -47,14 +85,16 @@ MODELS = {
 # Words Kevin (or the speech-to-text) uses for each model.
 ALIASES = {"haiku": "haiku", "haikus": "haiku", "sonnet": "sonnet", "sonnets": "sonnet", "opus": "opus",
            "opuses": "opus", "sol": "sol", "sols": "sol", "soul": "sol", "sole": "sol", "saul": "sol",
-           "gpt": "sol", "codex": "sol", "sr": "sr", "router": "sr", "semantic router": "sr", "free": "sr",
+           "gpt": "sol", "codex": "sol", "astra": "astra", "astras": "astra", "astro": "astra", "terra": "terra",
+           "terras": "terra", "tera": "terra", "terror": "terra", "luna": "luna", "lunas": "luna", "sr": "sr", "router": "sr", "semantic router": "sr", "free": "sr",
            "fable": "fable", "advisor": "fable"}
 CAP_TIER = 6        # racing more copies than this per voice tier only burns quota
 CAP_RESEARCH = 18   # per model in the TV pool (the conductor's ultra cap: 18 lanes per ask)
 CAP_POOL = 30       # whole TV pool
 # Seeds when neither layout.json nor the older files say otherwise (matches tiers.json and POOL_DEFAULT, 11-27).
 VOICE_DEFAULT = {"fast": {"haiku": 3}, "medium": {"sonnet": 1, "sol": 1}, "slow": {"opus": 1, "sol": 1}}
-RESEARCH_DEFAULT = {"haiku": 3, "sonnet": 2, "sol": 10, "opus": 2, "sr": 0, "fable": 0}
+# Kevin's mix (11-27): 3 haiku, 2 sonnet, 5 terra, 5 sol, 2 opus, each at its newest version.
+RESEARCH_DEFAULT = {"haiku": 3, "sonnet": 2, "terra": 5, "sol": 5, "opus": 2, "astra": 0, "luna": 0, "sr": 0, "fable": 0}
 
 
 class LayoutError(ValueError):
@@ -71,8 +111,10 @@ def _name(word: str) -> str:
         return w
     if w in ALIASES:
         return ALIASES[w]
-    if re.search(r"6\.1|terra", w):
-        raise LayoutError(f"no 6.1 models; valid models: {valid_names()}")
+    # A versioned name ("gpt-6.1-terra", "6.2 sol") means that family: lanes always run its newest version.
+    fam = re.search(r"\b(sol|astra|terra|luna)\b", w.replace("-", " "))
+    if fam:
+        return fam.group(1)
     raise LayoutError(f"unknown model {word!r}; valid models: {valid_names()}")
 
 
@@ -327,7 +369,8 @@ def describe(layout: dict) -> str:
 # lanes" reads as an instruction for one ask (conductor explicit()), so those stay with the conductor.
 NUM = {"a": 1, "an": 1, "one": 1, "another": 1, "single": 1, "two": 2, "to": 2, "too": 2, "couple": 2, "pair": 2,
        "three": 3, "four": 4, "for": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
-_MODEL = r"(?P<model>haikus?|sonnets?|opus(?:es)?|sols?|soul|sole|saul|gpt|codex|sr|semantic router|router|fable|free)"
+_MODEL = (r"(?P<model>haikus?|sonnets?|opus(?:es)?|sols?|soul|sole|saul|gpt|codex|astras?|astro|terras?|tera|terror|"
+          r"lunas?|sr|semantic router|router|fable|free)")
 _N = r"(?P<n>\d{1,2}|a|an|one|another|single|two|to|too|couple(?: of)?|pair(?: of)?|three|four|for|five|six|seven|eight|nine|ten)"
 _KIND = r"(?:(?P<kind>answer|voice|worker|research|tv)\s+)?"
 _ROLE = (r"(?:\s+(?:to|in|on|for|into|from|off)\s+(?:the\s+|this\s+)?(?P<role>fast|medium|slow|research|tv|call|voice|"

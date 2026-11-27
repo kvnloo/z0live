@@ -234,7 +234,7 @@ def make_lanes(cfg, installed):
             if args.get("action") or request.lower() != "board" and not request.lower().startswith("board "):
                 try:
                     out = layout(args, request)
-                except ValueError as exc:  # LayoutError: unknown model, 6.1, caps
+                except ValueError as exc:  # LayoutError: unknown model, caps
                     return json.dumps({"ok": False, "error": str(exc)})
                 if out is not None:
                     return json.dumps(out, ensure_ascii=False)
@@ -327,7 +327,7 @@ LANES_SCHEMA = {
                     "desktop broker's helper board instead."),
     "parameters": {"type": "object", "additionalProperties": False, "properties": {
         "action": {"type": "string", "enum": list(LAYOUT_ACTIONS)},
-        "model": {"type": "string", "enum": ["haiku", "sonnet", "opus", "sol", "sr", "fable"]},
+        "model": {"type": "string", "enum": ["haiku", "sonnet", "opus", "sol", "astra", "terra", "luna", "sr", "fable"]},
         "count": {"type": "integer", "minimum": 0, "maximum": 18},
         "role": {"type": "string", "enum": ["research", "voice", "fast", "medium", "slow"]},
         "request": {"type": "string"},

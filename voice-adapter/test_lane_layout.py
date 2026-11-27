@@ -63,7 +63,7 @@ class ParseTests(unittest.TestCase):
     def test_not_commands(self):
         for text in ["So is it working ? Like the lanes now? Yes", "why did you add two opus lanes",
                      "he said add two opus lanes", "don't add two opus lanes", "how many lanes are running",
-                     "add two terra lanes", "what's the weather", "add two opus lanes and then email Sarah", "",
+                     "what's the weather", "add two opus lanes and then email Sarah", "",
                      "the fast lane on the highway was blocked", "Research the boat sandboxes. Use a sol lane.",
                      "Check the builds. Add two sol lanes.", "stop the sol lanes", "kill two opus lanes",
                      "use 2 sol lanes", "start three haiku lanes"]:
@@ -77,17 +77,33 @@ class ValidateTests(Tmp):
             L.act("add", "gemini", 1)
         self.assertIn("haiku, sonnet, opus, sol", str(e.exception))
 
-    def test_no_61_models(self):
-        for word in ("terra", "gpt-6.1-terra", "6.1 sol"):
-            with self.subTest(word=word), self.assertRaises(L.LayoutError) as e:
-                L.act("add", word, 1)
-            self.assertIn("no 6.1", str(e.exception))
+    def test_every_family_runs_its_newest_version(self):
+        # Kevin, 11-27: "just use the latest version for every role". Versioned names mean the family.
+        for word, fam in (("terra", "terra"), ("gpt-6.1-terra", "terra"), ("6.1 sol", "sol"), ("astra", "astra"),
+                          ("luna", "luna")):
+            with self.subTest(word=word):
+                self.assertEqual(L._name(word), fam)
+        self.assertEqual(L.command("add two terra lanes"), {"action": "add", "model": "terra", "count": 2, "role": ""})
+        self.assertEqual(L.command("add an astra lane to the call")["model"], "astra")
+
+    def test_latest_codex_reads_the_catalog(self):
+        cat = Path(self.dir.name) / "models_cache.json"
+        cat.write_text(json.dumps({"models": [
+            {"slug": "gpt-6.2-sol", "visibility": "list"}, {"slug": "gpt-6.1-terra", "visibility": "list"},
+            {"slug": "gpt-5.6-terra", "visibility": "list"}, {"slug": "gpt-6.3-terra", "visibility": "hide"},
+            {"slug": "gpt-6.10-sol", "visibility": "list"}, {"slug": "gpt-6-luna", "visibility": "list"},
+            {"slug": "gpt-reserve", "visibility": "hide"}]}))
+        self.assertEqual(L.latest_codex("terra", cat), "gpt-6.1-terra")  # hidden 6.3 is not offered
+        self.assertEqual(L.latest_codex("sol", cat), "gpt-6.10-sol")     # numeric, not string, order
+        self.assertEqual(L.latest_codex("luna", cat), "gpt-6-luna")
+        self.assertEqual(L.latest_codex("astra", cat), L.CODEX_FALLBACK["astra"])  # missing -> fallback
+        self.assertEqual(L.latest_codex("sol", Path(self.dir.name) / "missing.json"), L.CODEX_FALLBACK["sol"])
 
     def test_caps(self):
         with self.assertRaises(L.LayoutError):
             L.act("add", "haiku", 4, "voice")  # fast already has 3; cap 6 per tier
         with self.assertRaises(L.LayoutError):
-            L.act("add", "sol", 9)  # worker pool: 10 + 9 > 18
+            L.act("add", "sol", 14)  # worker pool: 5 + 14 > 18
 
     def test_last_voice_lane_cannot_go(self):
         L.act("remove", "sonnet", role="voice")
@@ -122,9 +138,9 @@ class StoreTests(Tmp):
 
     def test_bare_add_means_worker_lanes(self):
         out = L.act("add", "sol", 2)
-        self.assertEqual(out["layout"]["research"]["sol"], 12)
+        self.assertEqual(out["layout"]["research"]["sol"], 7)
         self.assertEqual(out["layout"]["voice"], L.VOICE_DEFAULT)
-        self.assertEqual(L.act("add", "sol", 3)["layout"]["research"]["sol"], 15)  # the brief's "add 3 sol lanes"
+        self.assertEqual(L.act("add", "sol", 3)["layout"]["research"]["sol"], 10)  # the brief's "add 3 sol lanes"
         self.assertIn("Added 2 GPT 6.2 Sol to the worker lanes", out["say"])
 
     def test_add_writes_and_tiers_load_sees_it_at_once(self):
@@ -138,7 +154,7 @@ class StoreTests(Tmp):
     def test_remove_all_of_a_model_from_every_tier(self):
         out = L.act("remove", "sol", role="voice")
         self.assertEqual(out["layout"]["voice"], {"fast": {"haiku": 3}, "medium": {"sonnet": 1}, "slow": {"opus": 1}})
-        self.assertEqual(out["layout"]["research"]["sol"], 10)  # the TV pool is its own role
+        self.assertEqual(out["layout"]["research"]["sol"], 5)  # the TV pool is its own role
 
     def test_research_role_and_set(self):
         L.act("set", "sol", 4, "research")
@@ -147,7 +163,7 @@ class StoreTests(Tmp):
     def test_invalid_file_is_ignored_by_readers(self):
         self.path.write_text("{not json")
         self.assertIsNone(L.load())
-        self.path.write_text(json.dumps({"voice": {"fast": {"gpt-6.1-terra": 1}}, "research": {}}))
+        self.path.write_text(json.dumps({"voice": {"fast": {"gemini": 1}}, "research": {}}))
         self.assertIsNone(L.load())
 
     def test_write_is_atomic_and_leaves_no_tmp(self):
@@ -361,7 +377,7 @@ class PluginToolTests(Tmp):
         self.assertEqual(json.loads(self.path.read_text())["by"], "hermes")
 
     def test_words_work_too(self):
-        self.assertEqual(self.call(request="add 2 sol lanes")["layout"]["research"]["sol"], 12)
+        self.assertEqual(self.call(request="add 2 sol lanes")["layout"]["research"]["sol"], 7)
         self.assertIn("Answer lanes on the call", self.call()["say"])
 
     def test_errors_list_valid_models(self):
