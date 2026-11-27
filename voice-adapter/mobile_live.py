@@ -1909,7 +1909,14 @@ class Call:
         tiers are traced, not spoken: on 11-20 three tier answers and Hermes landed within 4.4 s and the voice
         spoke a garbled merge. Lanes go quiet once a newer request starts or Hermes answers."""
         began, cfg = time.monotonic(), tiers.load()
-        context = tiers.snapshot(self.context_text, list(self.protocol.exchanges))
+        # never let the live picture delay the race: a cold TV view can take ~1 s to build
+        try:
+            tv, lanes = await asyncio.wait_for(asyncio.gather(asyncio.to_thread(tv_screen, 0.35),
+                                                              asyncio.to_thread(tiers.live_facts)), 0.4)
+        except (asyncio.TimeoutError, Exception):  # noqa: BLE001
+            tv, lanes = "", ""
+        context = tiers.snapshot(self.context_text, list(self.protocol.exchanges),
+                                 live="\n\n".join(x for x in (tv, lanes) if x))
         said = self.__dict__.setdefault("tier_said", {}).setdefault(did, [])
 
         async def one(name):

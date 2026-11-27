@@ -40,7 +40,9 @@ SYSTEM = ("You are the {tier} lane on Kevin's live voice call; what you write ma
           "SKIP and nothing else when the request needs his phone, screen, apps, files, messages, email or any "
           "action; needs live data such as weather, news or the state of his builds; or asks a personal fact that "
           "is not in the context. Never say you can't do something; reply SKIP instead (his Hermes chat, which has "
-          "the tools, is already on it). Never invent numbers or claim something worked.")
+          "the tools, is already on it). Never invent numbers or claim something worked. Exception: when the context "
+          "below includes 'Live lanes' or what his TV shows, that IS live data: answer questions about running lanes, "
+          "lane results and the TV screen from it, naming how old a result is.")
 
 
 def load() -> dict:
@@ -56,10 +58,40 @@ def load() -> dict:
     return TIERS
 
 
-def snapshot(brief: str, exchanges) -> str:
-    """The one context every lane sees: the chat brief, then the call so far."""
+CONDUCTOR_STATE = Path(os.environ.get("Z0LIVE_CONDUCTOR", str(Path.home() / ".local/share/z0live/conductor"))) / "state.json"
+
+
+def live_facts(now: float | None = None, path: Path | None = None) -> str:
+    """What is running right now, from the TV conductor's state file: lanes running by model, and the newest finished
+    lane answers. 11-27: with only the chat brief, every tier answered SKIP to "how many lanes" and "what's running"."""
+    import time
+    now = now or time.time()
+    try:
+        st = json.loads((path or CONDUCTOR_STATE).read_text())
+    except (OSError, ValueError):
+        return ""
+    lanes = [(a, ln) for a in st.get("asks", []) for ln in a.get("lanes", [])]
+    running = [ln for _, ln in lanes if ln.get("state") == "running"]
+    by_model: dict[str, int] = {}
+    for ln in running:
+        by_model[ln.get("model") or "?"] = by_model.get(ln.get("model") or "?", 0) + 1
+    done = sorted((ln for _, ln in lanes if ln.get("state") == "done" and (ln.get("card") or {}).get("summary")),
+                  key=lambda ln: ln.get("t1") or 0, reverse=True)[:6]
+    out = [f"Lanes running now: {len(running)}" + (" (" + ", ".join(f"{n} {m}" for m, n in by_model.items()) + ")"
+                                                   if by_model else "")]
+    for ln in running[:6]:
+        out.append(f"- running: {ln.get('title', '')} ({ln.get('model', '')}, {int(now - (ln.get('t0') or now))} s)")
+    for ln in done:
+        c = ln["card"]
+        out.append(f"- finished {int((now - (ln.get('t1') or now)) / 60)} min ago, {ln.get('title', '')}: {c['summary']}")
+    return "Live lanes (from the TV conductor):\n" + "\n".join(out)
+
+
+def snapshot(brief: str, exchanges, live: str = "") -> str:
+    """The one context every lane sees: what is live now, the chat brief, then the call so far."""
     turns = "\n".join(f"{'Kevin' if role == 'user' else 'You'}: {text}" for role, text in exchanges)
-    return (f"Context from his Hermes chat:\n{brief[-6000:]}\n\n" if brief else "") + \
+    return (f"{live}\n\n" if live else "") + \
+           (f"Context from his Hermes chat:\n{brief[-6000:]}\n\n" if brief else "") + \
            (f"This call so far:\n{turns}" if turns else "")
 
 

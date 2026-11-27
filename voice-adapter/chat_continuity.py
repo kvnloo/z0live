@@ -52,6 +52,12 @@ def find_chat(history, profile: str, db_path: Path | None = None) -> str:
                 "WHERE m.id > (SELECT max(id) FROM messages) - ? AND m.role='user' "
                 f"AND s.source NOT IN {NOT_A_CHAT} ORDER BY m.id DESC", (RECENT,))
             sid = next((s for s, c in rows if isinstance(c, str) and _key(c) in keys), "")
+            if not sid:  # 11-27: two days of lanes pushed a live chat's turns ~80k rows back; search recent chats instead
+                rows = db.execute(
+                    "SELECT m.session_id, substr(m.content,1,400) FROM messages m WHERE m.role='user' AND m.session_id IN "
+                    f"(SELECT id FROM sessions WHERE source NOT IN {NOT_A_CHAT} AND id NOT LIKE 'local-%' "
+                    "ORDER BY started_at DESC LIMIT 80) ORDER BY m.id DESC")
+                sid = next((s for s, c in rows if isinstance(c, str) and _key(c) in keys), "")
             while sid:  # newest continuation: a GUI chat rolls over to a child at each handoff
                 # a subagent is also a child of the chat, but it is the chat's helper, never its continuation
                 child = db.execute(f"SELECT id FROM sessions WHERE parent_session_id=? AND source NOT IN {NOT_A_CHAT} "

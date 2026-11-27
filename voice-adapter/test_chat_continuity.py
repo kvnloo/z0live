@@ -36,6 +36,16 @@ class FindChat(unittest.TestCase):
                 INSERT INTO messages(session_id,role,content) VALUES ('sub1','user','troubleshoot z0live please');""")
         self.assertEqual(cc.find_chat(HIST, "", self.db), "gui1c")
 
+    def test_finds_a_chat_whose_turns_are_older_than_the_recent_window(self):
+        old = cc.RECENT
+        cc.RECENT = 1  # only the newest row is "recent"; the chat's message is older
+        try:
+            with sqlite3.connect(self.db) as db:
+                db.execute("INSERT INTO messages(session_id,role,content) VALUES ('one','user','noise')")
+            self.assertEqual(cc.find_chat(HIST, "", self.db), "gui1c")
+        finally:
+            cc.RECENT = old
+
     def test_matches_an_earlier_user_message_with_whitespace_drift(self):
         hist = [{"role": "user", "content": [{"text": "troubleshoot   z0live\nplease"}]},
                 {"role": "user", "content": [{"text": "a restated wrapper the db never stored"}]}]
