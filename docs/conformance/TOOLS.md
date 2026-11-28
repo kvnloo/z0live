@@ -19,7 +19,7 @@ Test isolation: `tempfile.TemporaryDirectory` Store; two synthetic paired device
 | --- | --- |
 | Live builtin catalog vs actual `Store.tool` branches | Each declared builtin has a corresponding dispatch route; names are read dynamically from `core.TOOLS` and parsed from the actual dispatcher, not copied into a separate closed name list |
 | Registered app tool vs builtin | App tool is session schema only; direct broker dispatch is `LookupError` / HTTP 404; `tool_call` and `tool_result` events are inert audit records |
-| `tell_hermes` valid kind/text | New `direct` job is `queued`, with originating session and no run ID; never device-verified or completed |
+| `tell_hermes` valid kind/text | With liaison mode selected, a `direct` request or `feedback_note` is `queued`, with originating session and no run ID; never device-verified or completed |
 | Invalid kind/text/body/arguments | `ValueError` / HTTP 400; no job |
 | Foreign session or device bearer | `LookupError` / HTTP 404; no job |
 | Missing bearer | HTTP 401, including `/v1/tools/*` |
@@ -34,7 +34,7 @@ Test isolation: `tempfile.TemporaryDirectory` Store; two synthetic paired device
 
 - The broker validates the app-tool registration envelope (`type=function`, name regex, object `parameters`, uniqueness and caps). It does **not** implement a general JSON Schema validator for builtin call arguments; `tell_hermes` specifically checks kind/text, `summarize` checks text, and `get_context` returns metadata. Do not present registration as phone action authorization.
 - Static route comparison examines direct `if name == "..." ` branches in the current `Store.tool`. If Hermes changes dispatch architecture, the assertion should be adapted to the real route registry; it must not be weakened by hardcoding only old builtin names.
-- The HTTP test asserts current error mapping: malformed input 400, unpaired 401, foreign/unknown 404, queued 200. A response of `queued` proves only accepted persistent work, not actual agent execution.
+- The liaison-mode HTTP test asserts error mapping: malformed input 400, unpaired 401, foreign/unknown 404, queued 200. A response of `queued` proves only accepted persistent work, not actual agent execution.
 - This suite does not execute real Hermes jobs, OAuth mint, OpenAI Realtime, local Android tools, Dash, Garden Room, or physical audio. Provider/runtime/device qualification remains **NOT RUN**.
 
 Source: [API contract](https://github.com/kvnloo/z0live/blob/main/docs/API.md); tests mirror existing `desktop/tests/test_broker.py` server/Store patterns. New voice-tool implementations on `main` remain Hermes-owned.

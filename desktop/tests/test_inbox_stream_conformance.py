@@ -99,7 +99,7 @@ class InboxStreamConformance(unittest.TestCase):
         self.assertIs(first["has_more"], True)
         self.assertEqual(first["messages"][0], {
             "id": ids[0], "say": "synthetic 0", "action": None,
-            "params": {}, "session_id": self.sid,
+            "params": {}, "session_id": self.sid, "source": "page-0",
         })
         status, second = self.json_get("/v1/inbox?after=" + str(first["after"]), self.token)
         self.assertEqual(status, 200)

@@ -20,6 +20,8 @@ import urllib.request
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from z0live_desktop import core
 from z0live_desktop.core import Store
+from z0live_desktop.ring_recording import NAMES as RING_NAMES
+from z0live_desktop.work_tools import TOOLS as WORK_TOOLS
 from z0live_desktop.server import Handler, Server
 
 
@@ -39,6 +41,8 @@ def local_tool(name="open_app"):
 
 class ToolConformance(unittest.TestCase):
     def setUp(self):
+        # Exercise the durable enqueue path without dispatching a live worker.
+        self.enterContext(patch.object(Store, "realtime_work", return_value=False))
         self.tempdir = tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR"))
         self.store = Store(self.tempdir.name)
         self.token = self.store.pair("conformance-owner")
@@ -92,6 +96,8 @@ class ToolConformance(unittest.TestCase):
             and isinstance(node.comparators[0], ast.Constant)
             and isinstance(node.comparators[0].value, str)
         }
+        route_names.update(RING_NAMES)
+        route_names.update(spec["name"] for spec in WORK_TOOLS)
         self.assertEqual(set(schema_names), route_names,
                          "Every builtin in the live catalog needs a Store.tool route")
 
@@ -109,7 +115,9 @@ class ToolConformance(unittest.TestCase):
             self.assertEqual(result["status"], "queued")
             self.assertTrue(result["ok"])
         jobs = self.jobs()
-        self.assertEqual([job["kind"] for job in jobs], ["direct"] * len(core.KINDS))
+        self.assertEqual([job["kind"] for job in jobs],
+                         ["direct" if kind == "request" else "feedback_note"
+                          for kind in sorted(core.KINDS)])
         self.assertEqual([job["text"] for job in jobs],
                          ["Owner " + kind + ": synthetic message"
                           for kind in sorted(core.KINDS)])

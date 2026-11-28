@@ -175,9 +175,9 @@ class HTTPSecurityConformance(unittest.TestCase):
                 self.assert_denied_no_side_effect(
                     400, path, method="POST", body=body, token=self.token,
                     content_type=ctype)
-        too_big = b" " * 1_000_001
         self.assert_denied_no_side_effect(
-            400, path, method="POST", body=too_big, token=self.token)
+            400, path, method="POST", token=self.token,
+            extra_headers={"Content-Length": "1000001"})
 
     def test_mint_tool_count_and_text_limit_preflight_no_side_effect(self):
         cases = [
