@@ -1,0 +1,830 @@
+{
+  "ask_static": [
+    "Remind me what you said about the {thing}.",
+    "What was the note on the {thing}?",
+    "Can you recap the {thing} details?",
+    "What did we log for the {thing}?",
+    "Refresh my memory on the {thing}.",
+    "What's the standing info for the {thing}?"
+  ],
+  "ask_update": [
+    "What's the current status of the {thing}?",
+    "Where does the {thing} stand now?",
+    "What's the latest on the {thing}?",
+    "How's the {thing} looking at the moment?",
+    "Give me the up-to-date info on the {thing}.",
+    "What's the {thing} set to right now?"
+  ],
+  "codewords": [
+    "tiger",
+    "cinnamon",
+    "lavender",
+    "rain",
+    "oak",
+    "saffron",
+    "storm",
+    "pine",
+    "mint",
+    "flint",
+    "hazel",
+    "blizzard",
+    "copper",
+    "sage",
+    "sapphire",
+    "coyote",
+    "bamboo",
+    "mist",
+    "ember",
+    "peach"
+  ],
+  "colours": [
+    "scarlet",
+    "turquoise",
+    "chartreuse",
+    "magenta",
+    "indigo",
+    "amber",
+    "ivory",
+    "emerald",
+    "azure",
+    "golden",
+    "silver",
+    "crimson",
+    "violet",
+    "beige",
+    "maroon",
+    "olive",
+    "navy",
+    "fuchsia"
+  ],
+  "names": [
+    "Emma",
+    "Liam",
+    "Aisha",
+    "Carlos",
+    "Ming",
+    "Sofia",
+    "Yusuf",
+    "Nina",
+    "Omar",
+    "Kira",
+    "Javier",
+    "Lena",
+    "Ravi",
+    "Hana",
+    "Igor",
+    "Anika",
+    "Mohamed",
+    "Yara",
+    "Jamal",
+    "Keiko",
+    "Raj",
+    "Leila",
+    "Boris",
+    "Tessa",
+    "Viktor",
+    "Zara",
+    "Luca",
+    "Marta",
+    "Santiago",
+    "Yvonne",
+    "Nikolai",
+    "Eleni",
+    "Diego",
+    "Ari",
+    "Mia",
+    "Kofi"
+  ],
+  "pairs": {
+    "D1": [
+      {
+        "new": "Correction: the {thing} should be under code {V} now.",
+        "old": "I recorded the {thing} with reference {V}."
+      },
+      {
+        "new": "Actually I switched the {thing} to identifier {V}.",
+        "old": "My notes show the {thing} tagged as {V}."
+      },
+      {
+        "new": "Updated: the {thing} is now recorded as {V}.",
+        "old": "The {thing} is listed under code {V} in my spreadsheet."
+      },
+      {
+        "new": "I changed the {thing}'s tag to {V}.",
+        "old": "Got the {thing} logged with identifier {V}."
+      },
+      {
+        "new": "The {thing} has been relabeled with {V}.",
+        "old": "I attached the {thing} to the file named {V}."
+      },
+      {
+        "new": "Now the {thing} appears as {V} in my list.",
+        "old": "The {thing} currently bears the reference {V}."
+      },
+      {
+        "new": "I've updated the {thing} to use code {V}.",
+        "old": "For the {thing}, I used the tag {V}."
+      },
+      {
+        "new": "The {thing} is currently marked as {V}.",
+        "old": "The system shows the {thing} as {V}."
+      }
+    ],
+    "D2": [
+      {
+        "new": "{V}: Change of plans, the {thing} will be dropped off on {day} at {time}.",
+        "old": "{V}: I'll drop off the {thing} this {day} around {time}."
+      },
+      {
+        "new": "{V}: Actually the {thing} pickup is shifted to {day} at {time}.",
+        "old": "{V}: Got to pick up the {thing} on {day} at {time}, don't be late."
+      },
+      {
+        "new": "{V}: Updated meeting for the {thing} now on {day} at {time}.",
+        "old": "{V}: Meeting about the {thing} scheduled for {day} at {time}."
+      },
+      {
+        "new": "{V}: Heads up, the {thing} is now set for {day} at {time}.",
+        "old": "{V}: Reminder: {thing} needs attention this {day} at {time}."
+      },
+      {
+        "new": "{V}: Service for the {thing} moved to {day} at {time}.",
+        "old": "{V}: I'm planning to service the {thing} on {day} at {time}."
+      },
+      {
+        "new": "{V}: Quick update \u2013 {thing} now at {day} at {time}.",
+        "old": "{V}: Quick note \u2013 {thing} appointment this {day} at {time}."
+      },
+      {
+        "new": "{V}: FYI the {thing} got rescheduled to {day} at {time}.",
+        "old": "{V}: Don't forget the {thing} on {day} at {time}."
+      },
+      {
+        "new": "{V}: Slot changed for the {thing} to {day} at {time}.",
+        "old": "{V}: Got a slot for the {thing} this {day} around {time}."
+      }
+    ],
+    "D3": [
+      {
+        "new": "Actually, the {thing} now uses code {V}.",
+        "old": "The {thing} carries the code {V}."
+      },
+      {
+        "new": "I've updated the {thing}'s identifier to {V}.",
+        "old": "I noted {V} as the identifier for my {thing}."
+      },
+      {
+        "new": "The {thing} should be referenced as {V} now.",
+        "old": "My {thing} is associated with the reference {V}."
+      },
+      {
+        "new": "New tag for the {thing} is {V}.",
+        "old": "The tag {V} belongs to the {thing}."
+      },
+      {
+        "new": "The {thing} has been re\u2011coded to {V}.",
+        "old": "For the {thing}, I use the numeric code {V}."
+      },
+      {
+        "new": "Current listing shows the {thing} as {V}.",
+        "old": "The {thing} is marked with {V} in my inventory."
+      },
+      {
+        "new": "I've switched the {thing} to code {V}.",
+        "old": "I assigned {V} to the {thing}."
+      },
+      {
+        "new": "The {thing} is presently logged under {V}.",
+        "old": "The {thing} shows up under {V}."
+      }
+    ],
+    "N1": [
+      {
+        "new": "{V}: I just confirmed that my {thing} is on {day} at {time}.",
+        "old": "{V}: I booked my {thing} for {day} at {time}."
+      },
+      {
+        "new": "{V}: The {thing} will actually happen on {day} at {time}.",
+        "old": "{V}: My {thing} is slated for {day} at {time}."
+      },
+      {
+        "new": "{V}: I need to remember my {thing} on {day} at {time}.",
+        "old": "{V}: Don't forget my {thing} on {day} at {time}."
+      },
+      {
+        "new": "{V}: I have a slot for {thing} on {day} at {time}.",
+        "old": "{V}: The appointment for my {thing} is on {day} at {time}."
+      },
+      {
+        "new": "{V}: I just booked the {thing} for {day} at {time}.",
+        "old": "{V}: I have a reservation for my {thing} on {day} at {time}."
+      },
+      {
+        "new": "{V}: The {thing} is scheduled to happen on {day} at {time}.",
+        "old": "{V}: My {thing} is booked for {day} at {time}."
+      },
+      {
+        "new": "{V}: I confirmed the {thing} for {day} at {time}.",
+        "old": "{V}: I set up my {thing} for {day} at {time}."
+      },
+      {
+        "new": "{V}: I have to keep my {thing} on {day} at {time}.",
+        "old": "{V}: The {thing} I need is on {day} at {time}."
+      }
+    ],
+    "N2": [
+      {
+        "new": "I checked with {V} about the {thing} and then we decided on {day} at {time}.",
+        "old": "I mentioned the {thing} to {V} before we set the meeting on {day} at {time}."
+      },
+      {
+        "new": "After a quick chat with {V} on the {thing}, we agreed to meet on {day} at {time}.",
+        "old": "After consulting {V} about the {thing}, we booked it for {day} at {time}."
+      },
+      {
+        "new": "I told {V} the plan for the {thing}, after which we penciled in {day} at {time}.",
+        "old": "I ran the {thing} past {V}, then confirmed the slot on {day} at {time}."
+      },
+      {
+        "new": "I looped {V} in about the {thing} before finalizing {day} at {time}.",
+        "old": "Discussed the {thing} with {V} earlier, and later chose {day} at {time}."
+      },
+      {
+        "new": "I consulted {V} regarding the {thing} and later chose {day} at {time}.",
+        "old": "I asked {V} regarding the {thing} and later arranged it on {day} at {time}."
+      },
+      {
+        "new": "I updated {V} on the {thing} then set the appointment for {day} at {time}.",
+        "old": "I briefed {V} on the {thing} and then set the date for {day} at {time}."
+      },
+      {
+        "new": "I ran the details of the {thing} by {V} before confirming {day} at {time}.",
+        "old": "I shared the {thing} details with {V} before locking in {day} at {time}."
+      },
+      {
+        "new": "I mentioned the {thing} to {V}, then we locked the time for {day} at {time}.",
+        "old": "I got {V}'s input on the {thing}, then we settled on {day} at {time}."
+      }
+    ],
+    "N3c": [
+      {
+        "new": "the {thing} now uses codeword {V} valid for {n} days",
+        "old": "the {thing} runs on codeword {V} valid for {n} days"
+      },
+      {
+        "new": "the {thing} switches to codeword {V} for {n} days",
+        "old": "codeword {V} governs the {thing} for {n} days"
+      },
+      {
+        "new": "we updated the {thing} to codeword {V} lasting {n} days",
+        "old": "the {thing} operates under codeword {V} lasting {n} days"
+      },
+      {
+        "new": "the {thing} adopts codeword {V} with a {n}-day expiry",
+        "old": "current codeword for the {thing} is {V} with a {n}-day expiry"
+      },
+      {
+        "new": "the {thing} moves to codeword {V} good for {n} days",
+        "old": "the {thing} is tied to codeword {V} good for {n} days"
+      },
+      {
+        "new": "the {thing} now follows codeword {V} for {n} days",
+        "old": "codeword {V} controls the {thing} for {n} days"
+      },
+      {
+        "new": "the {thing} shifts to codeword {V} valid {n} days",
+        "old": "the {thing} relies on codeword {V} valid {n} days"
+      },
+      {
+        "new": "the {thing} gets codeword {V} for {n} days",
+        "old": "active codeword for the {thing} is {V} for {n} days"
+      }
+    ],
+    "N3p": [
+      {
+        "new": "{V} was where I logged the {thing} in bay {n}.",
+        "old": "{V}, I stored the {thing} in bay {n}."
+      },
+      {
+        "new": "Having reached {V}, I assigned the {thing} to slot {n}.",
+        "old": "After arriving at {V}, I placed the {thing} into slot {n}."
+      },
+      {
+        "new": "Once in {V}, the {thing} went to row {n}.",
+        "old": "In {V} I left the {thing} at row {n}."
+      },
+      {
+        "new": "After landing at {V}, I put the {thing} into bay {n}.",
+        "old": "When I got to {V}, I tucked the {thing} into bay {n}."
+      },
+      {
+        "new": "When I was at {V}, I placed the {thing} in slot {n}.",
+        "old": "At {V} I set the {thing} down in slot {n}."
+      },
+      {
+        "new": "From {V} I recorded the {thing} in row {n}.",
+        "old": "From {V} I moved the {thing} to row {n}."
+      },
+      {
+        "new": "Upon arriving at {V}, I stowed the {thing} in bay {n}.",
+        "old": "Landing in {V}, I secured the {thing} in bay {n}."
+      },
+      {
+        "new": "In {V}, I filed the {thing} under slot {n}.",
+        "old": "Touching down at {V}, I filed the {thing} under slot {n}."
+      }
+    ],
+    "N4": [
+      {
+        "new": "the {thing} is now {V} size {n}",
+        "old": "the {thing} comes in {V} with size {n}"
+      },
+      {
+        "new": "the {thing} ships in {V} model {n}",
+        "old": "{V} is the colour of the {thing} model {n}"
+      },
+      {
+        "new": "we got the {thing} in {V} size {n}",
+        "old": "the {thing} appears in {V} size {n}"
+      },
+      {
+        "new": "the {thing} now features {V} with spec {n}",
+        "old": "the {thing} features {V} and a {n} spec"
+      },
+      {
+        "new": "the {thing} updated to {V} at size {n}",
+        "old": "{V} marks the {thing} at size {n}"
+      },
+      {
+        "new": "the {thing} changed to {V} size {n}",
+        "old": "the {thing} is offered in {V} size {n}"
+      },
+      {
+        "new": "the {thing} now shows {V} for model {n}",
+        "old": "the {thing} shows {V} for model {n}"
+      },
+      {
+        "new": "the {thing} switched to {V} with size {n}",
+        "old": "{V} colour on the {thing} with size {n}"
+      }
+    ],
+    "N5": [
+      {
+        "new": "the {thing} was handed to {V}",
+        "old": "the {thing} is {V}"
+      },
+      {
+        "new": "the {thing} went to {V}",
+        "old": "{V} is the colour of the {thing}"
+      },
+      {
+        "new": "the {thing} got passed to {V}",
+        "old": "the {thing} appears in {V}"
+      },
+      {
+        "new": "the {thing} was given to {V}",
+        "old": "the {thing} comes in {V}"
+      },
+      {
+        "new": "the {thing} transferred to {V}",
+        "old": "{V} describes the {thing}"
+      },
+      {
+        "new": "the {thing} moved to {V}",
+        "old": "the {thing} shows {V}"
+      },
+      {
+        "new": "the {thing} was delivered to {V}",
+        "old": "the {thing} looks {V}"
+      },
+      {
+        "new": "the {thing} handed over to {V}",
+        "old": "{V} paints the {thing}"
+      }
+    ],
+    "N6": [
+      {
+        "new": "{X}: the {thing} relocated to {V} on {day} at {time}",
+        "old": "{X}: the {thing} is in {V} on {day} at {time}"
+      },
+      {
+        "new": "{X}: the {thing} now sits in {V} on {day} at {time}",
+        "old": "{X}: find the {thing} at {V} on {day} at {time}"
+      },
+      {
+        "new": "{X}: the {thing} moved to {V} on {day} at {time}",
+        "old": "{X}: the {thing} stays at {V} on {day} at {time}"
+      },
+      {
+        "new": "{X}: the {thing} shifted to {V} on {day} at {time}",
+        "old": "{X}: locate the {thing} in {V} on {day} at {time}"
+      },
+      {
+        "new": "{X}: the {thing} transferred to {V} on {day} at {time}",
+        "old": "{X}: the {thing} is stored in {V} on {day} at {time}"
+      },
+      {
+        "new": "{X}: the {thing} now resides in {V} on {day} at {time}",
+        "old": "{X}: you can get the {thing} at {V} on {day} at {time}"
+      },
+      {
+        "new": "{X}: the {thing} relocated to {V} on {day} at {time}",
+        "old": "{X}: the {thing} sits in {V} on {day} at {time}"
+      },
+      {
+        "new": "{X}: the {thing} changed location to {V} on {day} at {time}",
+        "old": "{X}: the {thing} remains at {V} on {day} at {time}"
+      }
+    ],
+    "N7": [
+      {
+        "new": "{V} noted the {thing}. It\u2019s set for {day} at {time}.",
+        "old": "{V} mentioned the {thing}. It\u2019s scheduled for {day} at {time}."
+      },
+      {
+        "new": "{V} referenced the {thing}. The meeting falls on {day} at {time}.",
+        "old": "{V} talked about the {thing}. The appointment is {day} at {time}."
+      },
+      {
+        "new": "{V} pointed out the {thing}. It occurs {day} at {time}.",
+        "old": "{V} brought up the {thing}. It happens {day} at {time}."
+      },
+      {
+        "new": "{V} highlighted the {thing}. The slot is {day} at {time}.",
+        "old": "{V} flagged the {thing}. The slot is {day} at {time}."
+      },
+      {
+        "new": "{V} recalled the {thing}. It\u2019s on {day} at {time}.",
+        "old": "{V} reminded me of the {thing}. It\u2019s on {day} at {time}."
+      },
+      {
+        "new": "{V} noted the {thing}. Expect it {day} at {time}.",
+        "old": "{V} mentioned the {thing}. Expect it {day} at {time}."
+      },
+      {
+        "new": "{V} discussed the {thing}. The time is {day} at {time}.",
+        "old": "{V} spoke about the {thing}. The time is {day} at {time}."
+      },
+      {
+        "new": "{V} raised the {thing}. It\u2019s planned for {day} at {time}.",
+        "old": "{V} brought the {thing} up. It\u2019s planned for {day} at {time}."
+      }
+    ]
+  },
+  "places": [
+    "London",
+    "Paris",
+    "Tokyo",
+    "Berlin",
+    "Moscow",
+    "Sydney",
+    "Dubai",
+    "Rome",
+    "Madrid",
+    "Toronto",
+    "Mumbai",
+    "Seoul",
+    "Cairo",
+    "Nairobi",
+    "Hanoi",
+    "Lisbon",
+    "Bogota",
+    "Vancouver",
+    "Istanbul",
+    "Athens"
+  ],
+  "statics": {
+    "S1": [
+      "The tag code for the {thing} is {V}.",
+      "I've logged the {thing} under reference {V}.",
+      "Tag {V} belongs to the {thing}.",
+      "You'll find the {thing} filed under code {V}.",
+      "The {thing} carries identifier {V}.",
+      "Reference {V} is assigned to the {thing}."
+    ],
+    "S2": [
+      "{V} looks after the {thing} and checks it every {n} days.",
+      "The {thing} is {V}'s responsibility, reviewed each {n} days.",
+      "{V} maintains the {thing} on a {n}-day cycle.",
+      "Every {n} days {V} inspects the {thing}.",
+      "{V} is the caretaker for the {thing}, schedule {n} days.",
+      "The {thing} falls to {V}, with a {n}-day check interval."
+    ],
+    "S3": [
+      "The {thing} is {V}.",
+      "Colour of the {thing}: {V}.",
+      "You'll see the {thing} in {V}.",
+      "The {thing} comes in {V}.",
+      "{V} is the shade of the {thing}.",
+      "I'd call the {thing} {V}."
+    ],
+    "S4": [
+      "Codeword for the {thing} is {V}, valid {n} days.",
+      "The {thing} uses codeword {V}, expires in {n} days.",
+      "{V} unlocks the {thing}, good for {n} days.",
+      "Access the {thing} with {V}, {n} day window.",
+      "The {thing}'s keyword is {V}, lasts {n} days.",
+      "{V} flags the {thing}, active {n} days."
+    ],
+    "S5": [
+      "The {thing} sits in {V}, row {n}.",
+      "You'll find the {thing} at {V}, row {n}.",
+      "{V} stores the {thing} on row {n}.",
+      "Row {n} in {V} holds the {thing}.",
+      "The {thing} is kept in {V}, row {n}.",
+      "Location {V}, row {n} for the {thing}."
+    ]
+  },
+  "stems": [
+    "Castle",
+    "Harbor",
+    "Mountain",
+    "Cave",
+    "River",
+    "Bridge",
+    "Forest",
+    "Valley",
+    "Tower",
+    "Dock",
+    "Island",
+    "Meadow",
+    "Grove",
+    "Lighthouse",
+    "Cliff",
+    "Pond",
+    "Barn",
+    "Mansion",
+    "Bungalow",
+    "Villa",
+    "Cottage",
+    "Farmhouse",
+    "Cabin",
+    "Estate",
+    "Palace",
+    "Quarry",
+    "Moor",
+    "Glade",
+    "Gulf",
+    "Lagoon",
+    "Bay",
+    "Dune",
+    "Peak",
+    "Ridge"
+  ],
+  "things_events": [
+    "dentist appointment",
+    "car maintenance",
+    "haircut",
+    "gym session",
+    "tax filing",
+    "wedding rehearsal",
+    "team meeting",
+    "project deadline",
+    "doctor visit",
+    "family dinner",
+    "birthday party",
+    "vacation trip",
+    "job interview",
+    "home inspection",
+    "moving day",
+    "baby shower",
+    "road trip",
+    "movie night",
+    "conference talk",
+    "music concert"
+  ],
+  "things_objects": [
+    "bike lock",
+    "dog leash",
+    "phone case",
+    "garden gloves",
+    "wallet",
+    "keychain",
+    "umbrella",
+    "coffee mug",
+    "flash drive",
+    "water bottle",
+    "headphones",
+    "sunglasses",
+    "watch",
+    "notebook",
+    "pen set",
+    "tape measure",
+    "flashlight",
+    "first aid kit",
+    "toolbox",
+    "tool kit",
+    "car key",
+    "house key",
+    "remote control",
+    "camera lens",
+    "garden hose",
+    "lawn mower"
+  ],
+  "topics": [
+    {
+      "items": [
+        "soap",
+        "brush",
+        "bucket",
+        "towel",
+        "spray",
+        "wax",
+        "rinse"
+      ],
+      "noun": "Car Wash"
+    },
+    {
+      "items": [
+        "hammer",
+        "screwdriver",
+        "wrench",
+        "saw",
+        "pliers",
+        "drill",
+        "nails"
+      ],
+      "noun": "Tool Shed"
+    },
+    {
+      "items": [
+        "brush",
+        "roller",
+        "primer",
+        "palette",
+        "easel",
+        "canvas",
+        "thinner"
+      ],
+      "noun": "Paint Studio"
+    },
+    {
+      "items": [
+        "spanner",
+        "tire",
+        "pump",
+        "chain",
+        "brake",
+        "wheel",
+        "brakepad"
+      ],
+      "noun": "Bicycle Repair"
+    },
+    {
+      "items": [
+        "shovel",
+        "rake",
+        "hose",
+        "trowel",
+        "pruner",
+        "seed",
+        "mulch"
+      ],
+      "noun": "Garden Shed"
+    },
+    {
+      "items": [
+        "saw",
+        "plane",
+        "lathe",
+        "sanding",
+        "clamp",
+        "screw",
+        "wood"
+      ],
+      "noun": "Wood Workshop"
+    },
+    {
+      "items": [
+        "anvil",
+        "tongs",
+        "forge",
+        "hammers",
+        "steel",
+        "coal",
+        "quenching"
+      ],
+      "noun": "Metal Forge"
+    },
+    {
+      "items": [
+        "vacuum",
+        "brush",
+        "rug",
+        "stain",
+        "mop",
+        "tile",
+        "pad"
+      ],
+      "noun": "Carpet Shop"
+    },
+    {
+      "items": [
+        "knife",
+        "spatula",
+        "pan",
+        "pot",
+        "saucepan",
+        "whisk",
+        "tongs"
+      ],
+      "noun": "Kitchen Depot"
+    },
+    {
+      "items": [
+        "scissors",
+        "thread",
+        "fabric",
+        "sewing",
+        "needle",
+        "button",
+        "zipper"
+      ],
+      "noun": "Clothing Boutique"
+    },
+    {
+      "items": [
+        "solder",
+        "soldering",
+        "resistor",
+        "capacitor",
+        "cable",
+        "breadboard",
+        "chip"
+      ],
+      "noun": "Electronics Hub"
+    },
+    {
+      "items": [
+        "collar",
+        "leash",
+        "food",
+        "bowel",
+        "toy",
+        "treat",
+        "kennel"
+      ],
+      "noun": "Pet Supplies"
+    },
+    {
+      "items": [
+        "pen",
+        "paper",
+        "stapler",
+        "folder",
+        "binder",
+        "marker",
+        "notebook"
+      ],
+      "noun": "Office Supply"
+    },
+    {
+      "items": [
+        "skis",
+        "poles",
+        "boots",
+        "helmet",
+        "gloves",
+        "goggles",
+        "sled"
+      ],
+      "noun": "Ski Lodge"
+    },
+    {
+      "items": [
+        "block",
+        "doll",
+        "car",
+        "crayon",
+        "paint",
+        "lego",
+        "stick"
+      ],
+      "noun": "Toy Factory"
+    },
+    {
+      "items": [
+        "novel",
+        "magazine",
+        "bookmark",
+        "author",
+        "cover",
+        "paperback",
+        "hardcover"
+      ],
+      "noun": "Book Store"
+    },
+    {
+      "items": [
+        "guitar",
+        "mic",
+        "drum",
+        "keyboard",
+        "amp",
+        "mixing",
+        "record"
+      ],
+      "noun": "Music Studio"
+    }
+  ]
+}
