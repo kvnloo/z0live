@@ -91,6 +91,84 @@ class TurnMetrics(unittest.TestCase):
         self.assertEqual(asyncio.run(collect()), [np.ones(4, '<i2').tobytes()])
 
 
+def tone_clip(lead_s=0.3, speech_s=1.0, tail_s=0.2, amp=3000):
+    """Silence, a 1 kHz tone (well above -43 dBFS), then a short quiet tail: speech ends at lead_s + speech_s."""
+    t = np.arange(int(speech_s * osb.RATE)) / osb.RATE
+    tone = (amp * np.sin(2 * np.pi * 1000 * t + np.pi / 2)).astype('<i2')  # cos: last sample is not a zero crossing
+    return np.concatenate([np.zeros(int(lead_s * osb.RATE), '<i2'), tone,
+                           np.zeros(int(tail_s * osb.RATE), '<i2')]).tobytes()
+
+
+class FakeSleep:
+    def __init__(self, clock):
+        self.clock = clock
+
+    async def __call__(self, seconds):
+        self.clock.now += round(seconds * 1e9)
+
+
+class Endpointing(unittest.TestCase):
+    def test_eos_is_declared_one_silence_window_after_speech_end(self):
+        clip = tone_clip()
+        for silence_ms in (500, 300):
+            end_s, eos_s, utt = osb.endpoint_offline(clip, silence_ms=silence_ms)
+            self.assertAlmostEqual(end_s, 1.3, delta=1 / osb.RATE)
+            self.assertGreaterEqual(eos_s - end_s, silence_ms / 1000 - 1e-6)
+            self.assertLessEqual(eos_s - end_s, silence_ms / 1000 + 0.02)  # one 20 ms frame of quantization
+            self.assertGreaterEqual(len(utt) // 2, osb.RATE)  # the whole 1 s of speech reaches STT
+
+    def test_speech_running_to_clip_end_still_endpoints_on_appended_silence(self):
+        end_s, eos_s, _ = osb.endpoint_offline(tone_clip(tail_s=0), silence_ms=500)
+        self.assertAlmostEqual(end_s, 1.3, delta=1 / osb.RATE)
+        self.assertAlmostEqual(eos_s - end_s, 0.5, delta=0.02)
+
+    def test_live_turn_adds_endpointer_delay_to_eos_first_audio(self):
+        clock = FakeClock()
+        row = asyncio.run(osb.run_live_turn(fake_stages(clock), tone_clip(), turn_id=1, silence_ms=500,
+                                            clock=clock, sleep=FakeSleep(clock)))
+        self.assertTrue(row['ok'])
+        self.assertAlmostEqual(row['endpointer_ms'], 500, delta=20)
+        self.assertEqual(row['eos_to_first_audio_ms'], 210)
+        self.assertAlmostEqual(row['speech_end_to_first_audio_ms'], row['endpointer_ms'] + 210)
+        self.assertAlmostEqual(row['endpointer_declared_ms'], row['endpointer_ms'])
+
+    def test_silent_clip_is_an_endpointer_error(self):
+        clock = FakeClock()
+        row = asyncio.run(osb.run_live_turn(fake_stages(clock), b'\x00\x00' * 16000, clock=clock,
+                                            sleep=FakeSleep(clock)))
+        self.assertFalse(row['ok'])
+        self.assertEqual(row['error_stage'], 'endpointer')
+        self.assertIsNone(row['speech_end_to_first_audio_ms'])
+
+    def test_pause_longer_than_window_is_a_split_error_not_a_negative_latency(self):
+        clip = tone_clip(tail_s=0.7) + tone_clip(lead_s=0, tail_s=0)  # 0.7 s pause mid-utterance
+        clock = FakeClock()
+        row = asyncio.run(osb.run_live_turn(fake_stages(clock), clip, silence_ms=500, clock=clock,
+                                            sleep=FakeSleep(clock)))
+        self.assertFalse(row['ok'])
+        self.assertEqual(row['error'], 'split before speech end')
+        self.assertLess(row['endpointer_declared_ms'], 0)
+        self.assertIsNone(row['speech_end_to_first_audio_ms'])
+
+    def test_zero_window_is_the_offline_eos_of_od_slice_1(self):
+        clock = FakeClock()
+        row = asyncio.run(osb.run_live_turn(fake_stages(clock), tone_clip(), silence_ms=0, clock=clock))
+        self.assertEqual(row['eos_to_first_audio_ms'], 210)
+        self.assertIsNone(row['endpointer_ms'])
+
+    def test_summary_bars_the_speech_end_metric_when_present(self):
+        rows = [{'arm': arm, 'ok': True, 'endpointer_ms': 500, 'eos_to_first_audio_ms': 300,
+                 'speech_end_to_first_audio_ms': 800 + i, 'eos_to_stt_ms': 100, 'stt_to_first_token_ms': 30,
+                 'first_token_to_first_clause_ms': 100, 'first_clause_to_first_audio_ms': 70}
+                for arm in ('A', 'A2') for i in range(5)]
+        s = osb.summarize(rows)
+        self.assertEqual(s['primary'], 'speech_end_to_first_audio_ms')
+        self.assertEqual(s['dominant_stage'], 'endpointer_ms')
+        self.assertFalse(s['bar']['p50_le_500'])
+        self.assertTrue(s['bar']['p95_le_1000'])
+        self.assertAlmostEqual(s['aa_band_ms']['p50'], 0)
+
+
 class Schedule(unittest.TestCase):
     def test_aa_arms_interleave_and_cover_every_utterance(self):
         plan = osb.schedule(runs=3, n_utts=12, seed=7)

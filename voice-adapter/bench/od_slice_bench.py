@@ -6,10 +6,15 @@ Stages (all local, offline):
   model = a private llama.cpp llama-server on an ephemeral 127.0.0.1 port (local_voice_replay.server), streamed
   TTS   = Lure MLX via bench/lure_tts_helper.py (LureTTS from local_voice_replay), --lure-first-chunk-frames 1 default
 Inputs are synthetic utterance WAVs (16 kHz mono int16 + manifest.json with the spoken text), e.g. made once with
---make-utterances (Lure speaks fixed public questions). EOS = the moment the whole utterance is handed to the engine
-(offline STT; no endpointer hangover is included). Per turn (ms from EOS, perf_counter clock of the engine):
+--make-utterances (Lure speaks fixed public questions).
+Endpointer (OD-slice-2): each utterance plus trailing silence is streamed in 20 ms frames at real-time deadlines
+through local_voice_replay.Endpointer (energy VAD, --vad-db, --endpointer-silence-ms; default 500 ms = the provider
+server_vad silence window the deployed engines leave at default). EOS = the moment the endpointer finalizes the
+utterance; speech_end = the wall time of the clip's last sample at or above the VAD threshold. Per turn (ms):
+  endpointer_ms (speech_end -> EOS)
   eos_to_stt_ms, stt_to_first_token_ms, first_token_to_first_clause_ms, first_clause_to_first_audio_ms
-  (these four sum to) eos_to_first_audio_ms
+  (these four sum to) eos_to_first_audio_ms; endpointer_ms + eos_to_first_audio_ms = speech_end_to_first_audio_ms
+--endpointer-silence-ms 0 restores the OD-slice-1 offline EOS (whole clip handed over; no endpointer).
 Design: arms A and A2 are the same config (A/A), interleaved over --runs runs (A,A2 / A2,A / ...); each pass plays
 every utterance once in a seeded order. --gate CMD runs before every pass; a nonzero exit stops the bench (aborted).
 """
@@ -36,8 +41,11 @@ sys.path.insert(0, str(HERE.parent))  # chained_engine; local_voice_replay is im
 import chained_engine as ce  # noqa: E402
 
 STAGES = ('eos_to_stt_ms', 'stt_to_first_token_ms', 'first_token_to_first_clause_ms', 'first_clause_to_first_audio_ms')
-METRICS = STAGES + ('eos_to_first_audio_ms',)
+METRICS = ('endpointer_ms',) + STAGES + ('eos_to_first_audio_ms', 'speech_end_to_first_audio_ms')
 RATE = 16000
+FRAME = 320  # 20 ms at 16 kHz, the Endpointer's frame
+VAD_DB = -43.0  # local_voice_replay --vad-db default
+ENDPOINT_SILENCE_MS = 500  # provider server_vad default silence window (GPT-Live / Grok sessions set none)
 QUESTIONS = (  # public, generic test prompts (no private content)
     'What is the capital of France?', 'How many legs does a spider have?', 'What color is the sky on a clear day?',
     'Who wrote Romeo and Juliet?', 'What is the boiling point of water in Celsius?', 'How many days are in a week?',
@@ -69,6 +77,78 @@ def as_bytes(tts):
     return stage
 
 
+def speech_end_sample(pcm16, db=VAD_DB):
+    """Index of the last sample whose magnitude reaches the VAD threshold (the true end of speech), or None."""
+    x = np.abs(np.frombuffer(pcm16, '<i2').astype(np.int32))
+    voiced = np.nonzero(x >= 32768 * 10 ** (db / 20))[0]
+    return int(voiced[-1]) if len(voiced) else None
+
+
+def _endpointer(db, silence_ms):
+    if str(HERE) not in sys.path:
+        sys.path.insert(0, str(HERE))
+    import local_voice_replay as lvr
+    return lvr.Endpointer(db, silence_ms)
+
+
+def padded_frames(pcm16, silence_ms):
+    """The utterance plus trailing silence (>= silence window + 300 ms, >= 1 s), cut into 20 ms frames."""
+    x = np.frombuffer(pcm16, '<i2')
+    tail = max(RATE, RATE * (silence_ms + 300) // 1000)
+    x = np.concatenate([x, np.zeros(tail + (-(len(x) + tail)) % FRAME, '<i2')])
+    return x.reshape(-1, FRAME)
+
+
+def endpoint_offline(pcm16, db=VAD_DB, silence_ms=ENDPOINT_SILENCE_MS):
+    """Sample clock only: (speech_end_s, eos_s, utterance bytes); eos_s = end of the frame that finalized."""
+    ep, end = _endpointer(db, silence_ms), speech_end_sample(pcm16, db)
+    end_s = None if end is None else (end + 1) / RATE
+    for k, frame in enumerate(padded_frames(pcm16, silence_ms)):
+        _, out = ep.feed(frame, (k + 1) * FRAME / RATE)
+        if out is not None:
+            return end_s, (k + 1) * FRAME / RATE, out.tobytes()
+    return end_s, None, None
+
+
+async def stream_endpoint(pcm16, db=VAD_DB, silence_ms=ENDPOINT_SILENCE_MS, clock=time.perf_counter_ns,
+                          sleep=asyncio.sleep):
+    """Real-time paced: frame k is fed at its end deadline. Returns (speech_end_ns, eos_ns, utterance bytes)."""
+    ep, end = _endpointer(db, silence_ms), speech_end_sample(pcm16, db)
+    t0 = clock()
+    speech_end_ns = None if end is None else t0 + (end + 1) * 1_000_000_000 // RATE
+    for k, frame in enumerate(padded_frames(pcm16, silence_ms)):
+        due = t0 + (k + 1) * FRAME * 1_000_000_000 // RATE
+        if (wait := due - clock()) > 0:
+            await sleep(wait / 1e9)
+        _, out = ep.feed(frame, (k + 1) * FRAME / RATE)
+        if out is not None:
+            return speech_end_ns, clock(), out.tobytes()
+    return speech_end_ns, None, None
+
+
+async def run_live_turn(stages, pcm, turn_id=0, db=VAD_DB, silence_ms=ENDPOINT_SILENCE_MS,
+                        clock=time.perf_counter_ns, sleep=asyncio.sleep):
+    """Endpointer, then one engine turn; adds endpointer_ms and speech_end_to_first_audio_ms to run_turn's row."""
+    if not silence_ms:
+        return await run_turn(stages, pcm, turn_id=turn_id, clock=clock)
+    speech_end_ns, eos_ns, utt = await stream_endpoint(pcm, db, silence_ms, clock, sleep)
+    if eos_ns is None or speech_end_ns is None:
+        row = {'turn_id': turn_id, 'ok': False, 'error_stage': 'endpointer', 'error': 'no utterance finalized'}
+        row.update({k: None for k in METRICS})
+        return row
+    if eos_ns < speech_end_ns:  # a mid-utterance pause >= the window finalized early: the turn would be split
+        row = {'turn_id': turn_id, 'ok': False, 'error_stage': 'endpointer', 'error': 'split before speech end',
+               'endpointer_declared_ms': (eos_ns - speech_end_ns) / 1e6, 'transcript': None, 'reply': None}
+        row.update({k: None for k in METRICS})
+        return row
+    row = await run_turn(stages, utt, turn_id=turn_id, clock=clock)
+    row['endpointer_declared_ms'] = (eos_ns - speech_end_ns) / 1e6
+    if row['ok']:
+        row['endpointer_ms'] = (row['eos_ns'] - speech_end_ns) / 1e6  # to the engine's own EOS mark
+        row['speech_end_to_first_audio_ms'] = row['endpointer_ms'] + row['eos_to_first_audio_ms']
+    return row
+
+
 async def run_turn(stages, pcm, turn_id=0, clock=time.perf_counter_ns):
     """One ChainedEngine turn; returns a row with the four stage gaps and EOS -> first audio (ms)."""
     marks = {}
@@ -93,7 +173,8 @@ async def run_turn(stages, pcm, turn_id=0, clock=time.perf_counter_ns):
         row.update(eos_to_stt_ms=ms(r.stt_ns), stt_to_first_token_ms=ms(r.first_token_ns - r.stt_ns),
                    first_token_to_first_clause_ms=ms(clause_ns - r.first_token_ns),
                    first_clause_to_first_audio_ms=ms(r.first_audio_ns - clause_ns),
-                   eos_to_first_audio_ms=ms(r.first_audio_ns))
+                   eos_to_first_audio_ms=ms(r.first_audio_ns), eos_ns=marks['t0'],
+                   endpointer_ms=None, speech_end_to_first_audio_ms=None)
     else:
         row.update({k: None for k in METRICS})
     return row
@@ -114,7 +195,7 @@ def _stats(rows):
     ok = [r for r in rows if r.get('ok')]
     out = {'n': len(ok), 'errors': len(rows) - len(ok)}
     for k in METRICS:
-        xs = [r[k] for r in ok]
+        xs = [r[k] for r in ok if r.get(k) is not None]
         out[k] = {'p50': pct(xs, .5), 'p95': pct(xs, .95), 'min': min(xs, default=None), 'max': max(xs, default=None)}
     if any('stt_exact' in r for r in ok):
         out['stt_exact_rate'] = sum(bool(r.get('stt_exact')) for r in ok) / len(ok)
@@ -124,13 +205,15 @@ def _stats(rows):
 def summarize(rows):
     arms = {a: _stats([r for r in rows if r.get('arm') == a]) for a in sorted({r.get('arm') for r in rows})}
     pooled = _stats(rows)
+    primary = ('speech_end_to_first_audio_ms' if pooled['speech_end_to_first_audio_ms']['p50'] is not None
+               else 'eos_to_first_audio_ms')
     band = None
     if {'A', 'A2'} <= arms.keys() and arms['A']['n'] and arms['A2']['n']:
-        a, b = arms['A']['eos_to_first_audio_ms'], arms['A2']['eos_to_first_audio_ms']
+        a, b = arms['A'][primary], arms['A2'][primary]
         band = {'p50': abs(a['p50'] - b['p50']), 'p95': abs(a['p95'] - b['p95'])}
-    p50s = {k: pooled[k]['p50'] for k in STAGES if pooled[k]['p50'] is not None}
-    e2a = pooled['eos_to_first_audio_ms']
-    return {'arms': arms, 'pooled': pooled, 'aa_band_ms': band,
+    p50s = {k: pooled[k]['p50'] for k in ('endpointer_ms',) + STAGES if pooled[k]['p50'] is not None}
+    e2a = pooled[primary]
+    return {'primary': primary, 'arms': arms, 'pooled': pooled, 'aa_band_ms': band,
             'dominant_stage': max(p50s, key=p50s.get) if p50s else None,
             'bar': {'p50_le_500': e2a['p50'] is not None and e2a['p50'] <= 500,
                     'p95_le_1000': e2a['p95'] is not None and e2a['p95'] <= 1000}}
@@ -239,8 +322,10 @@ async def bench(a):
 
         stages = (stt.stt, model, as_bytes(lure.tts))
         for i in range(a.warmup):
-            row = await run_turn(stages, utts[i % len(utts)][1], turn_id=-1 - i)
-            print(json.dumps({'warmup': i, 'ok': row['ok'], 'e2a': row['eos_to_first_audio_ms']}), file=sys.stderr)
+            row = await run_live_turn(stages, utts[i % len(utts)][1], turn_id=-1 - i, db=a.vad_db,
+                                      silence_ms=a.endpointer_silence_ms)
+            print(json.dumps({'warmup': i, 'ok': row['ok'], 'e2a': row['eos_to_first_audio_ms'],
+                              'se2a': row['speech_end_to_first_audio_ms']}), file=sys.stderr)
         turn = 0
         for p in plan:
             if not gate_ok(a.gate):
@@ -248,16 +333,18 @@ async def bench(a):
                 break
             for idx in p['order']:
                 m, pcm = utts[idx]
-                row = await run_turn(stages, pcm, turn_id=turn)
+                row = await run_live_turn(stages, pcm, turn_id=turn, db=a.vad_db, silence_ms=a.endpointer_silence_ms)
                 turn += 1
                 row.update(run=p['run'], arm=p['arm'], utt=m['file'], expected=m['text'],
                            stt_exact=norm_words(row['transcript']) == norm_words(m['text']),
                            load1=os.getloadavg()[0])
                 rows.append(row)
-                print(json.dumps({k: row[k] for k in ('run', 'arm', 'utt', 'ok', 'eos_to_first_audio_ms')}),
+                print(json.dumps({k: row[k] for k in ('run', 'arm', 'utt', 'ok', 'endpointer_ms',
+                                                      'eos_to_first_audio_ms', 'speech_end_to_first_audio_ms')}),
                       file=sys.stderr, flush=True)
     return {'bench': 'od_slice_bench', 'aborted': aborted, 'wall_s': round(time.monotonic() - t_start, 2),
             'runs': a.runs, 'warmup': a.warmup, 'seed': a.seed, 'lure_first_chunk_frames': a.lure_first_chunk_frames,
+            'vad_db': a.vad_db, 'endpointer_silence_ms': a.endpointer_silence_ms,
             'n_utterances': len(utts), 'utterances_sha256': hashlib.sha256(
                 b''.join(pcm for _, pcm in utts)).hexdigest(), 'summary': summarize(rows), 'rows': rows}
 
@@ -280,10 +367,15 @@ def parse_args(argv=None):
     ap.add_argument('--runs', type=int, default=3)
     ap.add_argument('--warmup', type=int, default=2)
     ap.add_argument('--seed', type=int, default=1)
+    ap.add_argument('--vad-db', type=float, default=VAD_DB, help='Endpointer energy threshold (dBFS)')
+    ap.add_argument('--endpointer-silence-ms', type=int, default=ENDPOINT_SILENCE_MS,
+                    help='trailing-silence window before EOS (multiple of 20 in 80..2000; 0 = offline EOS)')
     ap.add_argument('--gate', help='command run before every pass; nonzero exit aborts the bench')
     a = ap.parse_args(argv)
     if a.make_utterances is None and not (a.out and a.utterances and a.whisper_model and a.gguf):
         ap.error('bench needs --out, --utterances, --whisper-model and --gguf (or use --make-utterances)')
+    if a.endpointer_silence_ms % 20 or not (a.endpointer_silence_ms == 0 or 80 <= a.endpointer_silence_ms <= 2000):
+        ap.error('--endpointer-silence-ms must be 0 or a multiple of 20 in 80..2000')
     for name in ('out', 'make_utterances'):
         p = getattr(a, name)
         if p is not None:
