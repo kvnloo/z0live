@@ -213,6 +213,12 @@ class Replay(unittest.IsolatedAsyncioTestCase):
         finally:
             await call.close("test")
 
+    async def test_completion_worded_as_doing_a_round_still_needs_proof(self):
+        said, _ = await self.run_path("B", 412, AT_412, "The orchard monitor did its second round at 11:20 PM.",
+                                      "say more about that")
+        self.assertIn(ls.CANT_CONFIRM, said)
+        self.assertNotIn("11:20", said)
+
     async def test_earlier_cards_obey_corrections_and_the_proof_gate(self):
         call, sent = self.call_at(412, AT_412)
         try:
