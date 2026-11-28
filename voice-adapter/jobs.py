@@ -1,4 +1,4 @@
-"""z0live jobs: ask -> durable owned job -> proof -> reported back (Kevin's 11-27 call).
+"""z0live jobs: ask -> durable owned job -> proof -> reported back (the owner's 11-27 call).
 
 A job is a long piece of work (a hill climb, a sweep, a build) that must keep running after the call ends and after the
 agent that started it is gone. The executor is the Hermes kanban board of profile `tek`: the host gateway's dispatcher
@@ -66,7 +66,7 @@ WORKER_RULES = (
     "\n\n---\nJOB RULES (z0live): this is a durable job started from a voice call. Work unattended, never ask questions; "
     "if a decision is missing, choose the safest reading and say so. Use only the newest models; never service_tier or "
     "ultrafast. Commit work to a feature branch, never main. Private call words never go into git. When finished, "
-    "complete the task and make the summary the answer Kevin should hear: what shipped, exact paths/commits/ids, "
+    "complete the task and make the summary the answer the owner should hear: what shipped, exact paths/commits/ids, "
     "numbers before/after, what is left. If you cannot finish, block the task with the reason in one sentence."
 )
 
@@ -247,9 +247,9 @@ def start(brief: str, title: str = "", engine: str = "kanban", model: str = "", 
             led_err = led_err or e
         if engine == "kanban":
             body = brief
-            if bot and bot != ASSIGNEE:  # cfg 11-28: a card handed to another bot names who asked, and keeps Kevin's gate
-                body = (f"Requested from z0live by {ASSIGNEE} ({by}) on call {call or 'none'} for Kevin.\n"
-                        "Config, secret or spending changes still need Kevin's explicit go: block this card with the "
+            if bot and bot != ASSIGNEE:  # cfg 11-28: a card handed to another bot names who asked, and keeps the owner's gate
+                body = (f"Requested from z0live by {ASSIGNEE} ({by}) on call {call or 'none'} for the owner.\n"
+                        "Config, secret or spending changes still need the owner's explicit go: block this card with the "
                         "question for him; do not assume this card is that go.\n\n" + brief)
             jid, ref_err = _start_kanban(body, title, model, provider, workspace, max_runtime, goal, key, by,
                                          bot or ASSIGNEE)

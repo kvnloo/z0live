@@ -210,7 +210,7 @@ class SpeakFirstGateTests(unittest.IsolatedAsyncioTestCase):
             await live.AudioBridge(Source(0), call, "input").recv()
             self.assertEqual(peak(await voice.recv()), 0)  # phone silence does not open it
             await live.AudioBridge(Source(5000), call, "input").recv()
-            self.assertGreater(peak(await voice.recv()), 0)  # Kevin spoke: the voice is heard from now on
+            self.assertGreater(peak(await voice.recv()), 0)  # the owner spoke: the voice is heard from now on
             call.message(said, True)
             self.assertTrue(any("output_transcript" in str(m.get("type")) for m in call.to_mobile))
         finally:
@@ -260,7 +260,7 @@ class VoiceSessionContinuityTests(unittest.TestCase):
 
 
 class ConcurrentHostTurnTests(unittest.IsolatedAsyncioTestCase):
-    """Take 7 of the 11-22 film call: Kevin's long-run ask never reached Hermes during the call. It waited behind the
+    """Take 7 of the 11-22 film call: The owner's long-run ask never reached Hermes during the call. It waited behind the
     call's running request (one turn at a time per call), while the voice said "Got it, I'll handle that"."""
 
     def setUp(self):

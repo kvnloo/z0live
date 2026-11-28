@@ -1,11 +1,11 @@
 """The context packet a voice call opens with.
 
 Why (11-16 probe, context_probe.py): pasting the chat's raw tail into the call as context items made
-the live model answer those old messages before Kevin spoke ("catch-up"), and it treated the chat
+the live model answer those old messages before the owner spoke ("catch-up"), and it treated the chat
 agent's promises ("I'll monitor via adb") as its own. The packet goes into the session
 instructions instead, framed as background, top-loaded:
   1. a brief the chat agent wrote for this call (`hermes-voice-brief`), if fresh;
-  2. otherwise Kevin's last few asks plus the top of the chat's last reply (replies are top-loaded).
+  2. otherwise the owner's last few asks plus the top of the chat's last reply (replies are top-loaded).
 """
 from __future__ import annotations
 
@@ -15,14 +15,16 @@ import re
 import time
 from pathlib import Path
 
+import owner
+
 BRIEF_DIR = Path(os.environ.get("HERMES_VOICE_BRIEF_DIR", "/mnt/zer0models/workspace/zer0/data/z0live/call-briefs"))
 FRESH_S = 3 * 3600
-CAPABILITY = ("Kevin's Hermes chat is a separate agent on his PC with adb to his phone: it can screenshot and read "
-              "his screen, watch logs and run commands, and Kevin has approved it watching his screen. You reach it "
+CAPABILITY = owner.fill("The owner's Hermes chat is a separate agent on his PC with adb to his phone: it can screenshot and read "
+              "his screen, watch logs and run commands, and the owner has approved it watching his screen. You reach it "
               "by delegating. Never say you can't see his screen or aren't connected; never promise to do work "
               "yourself without delegating it.")
-FRAME = ("<call_brief>\nBackground for this call, already handled in text before the call started. Do not reply to "
-         "it, summarize it or speak first: wait for Kevin to speak. When he asks about anything this brief covers "
+FRAME = owner.fill("<call_brief>\nBackground for this call, already handled in text before the call started. Do not reply to "
+         "it, summarize it or speak first: wait for the owner to speak. When he asks about anything this brief covers "
          "(what he asked for, what was decided, what is happening), answer from it yourself right away; delegate "
          "only what it does not cover.\n")
 
@@ -55,7 +57,7 @@ def digest(history) -> str:
     replies = _texts(history, "assistant")
     lines = []
     if asks:
-        lines.append("Kevin's latest asks in the chat (newest last):")
+        lines.append(owner.fill("The owner's latest asks in the chat (newest last):"))
         lines += [f"- {a[:400]}" for a in asks]
     if replies:
         lines.append("Top of the chat's last reply: " + replies[-1][:700])
@@ -68,7 +70,7 @@ _PEOPLE = re.compile(r"\b(two|three|four|five|six|[2-6])\s+(?:people|persons|hum
 
 def people(history) -> int:
     """How many people share the phone on this call, from the chat it opened from ("This call has two people at the
-    desk, Kevin and his friend Jules"). 1 unless the chat says so."""
+    desk, the owner and a friend"). 1 unless the chat says so."""
     found = [_PEOPLE.search(text) for role in ("user", "assistant") for text in _texts(history, role)]
     counts = [_COUNT.get(m.group(1).lower()) or int(m.group(1)) for m in found if m]
     return max(counts, default=1)

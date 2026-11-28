@@ -190,7 +190,7 @@ class Replay(unittest.IsolatedAsyncioTestCase):
 
     async def test_a_status_question_the_voice_never_delegates_is_answered_from_the_records(self):
         # Live probe 11-28 03:16 (release 1a35311): the voice said "Let me check.", sent no delegation, and 70 s later
-        # said "Three lanes are active right now." with 0 TV lanes and 1 card running. Kevin's own words are enough.
+        # said "Three lanes are active right now." with 0 TV lanes and 1 card running. The owner's own words are enough.
         call, sent = self.call_at(412, AT_412)
         try:
             user = {"type": "turn.done", "turn": {"id": "u1", "role": "user", "start_ms": 0, "end_ms": 2000,

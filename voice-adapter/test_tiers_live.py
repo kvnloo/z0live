@@ -32,7 +32,7 @@ class LiveFacts(unittest.TestCase):
         self.assertIn("Live lanes", tiers.SYSTEM)
 
     def test_snapshot_without_live_is_unchanged(self):
-        self.assertEqual(tiers.snapshot("b", [("user", "hi")]), "Context from his Hermes chat:\nb\n\nThis call so far:\nKevin: hi")
+        self.assertEqual(tiers.snapshot("b", [("user", "hi")]), "Context from his Hermes chat:\nb\n\nThis call so far:\nUser: hi")
 
 
 if __name__ == "__main__":

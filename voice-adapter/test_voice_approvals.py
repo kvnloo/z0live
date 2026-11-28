@@ -159,7 +159,7 @@ class RunsClientTests(unittest.TestCase):
 
 
 class CallTests(unittest.IsolatedAsyncioTestCase):
-    """The call speaks the pending command, takes Kevin's next words as the answer, and keeps the phrase out of the
+    """The call speaks the pending command, takes the owner's next words as the answer, and keeps the phrase out of the
     trace, the lanes and new Hermes runs."""
 
     async def asyncSetUp(self):

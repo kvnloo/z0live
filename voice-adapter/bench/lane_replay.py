@@ -164,7 +164,7 @@ def parse_json(text):
     return json.loads(m.group(0)) if m else {}
 
 
-LABEL = ("You label one request from Kevin's live voice call for a benchmark. A small 'lane' model sees ONLY the "
+LABEL = ("You label one request from the owner's live voice call for a benchmark. A small 'lane' model sees ONLY the "
          "context below (chat brief, live lanes, the call so far) and must reply in one or two spoken sentences or "
          "SKIP. Hermes, with tools, answered later; its answer is shown for reference. Label:\n"
          "A = a correct, useful spoken reply is possible from the context or general knowledge/reasoning (including "
@@ -176,7 +176,7 @@ LABEL = ("You label one request from Kevin's live voice call for a benchmark. A 
 
 def case_prompt(case, context_chars=9000):
     from_ctx = "\n\n".join(x for x in (case.get("live", ""), case.get("brief", "")[-6000:]) if x)
-    turns = "\n".join(f"{'Kevin' if r == 'user' else 'Voice'}: {t}" for r, t in case["exchanges"])
+    turns = "\n".join(f"{'User' if r == 'user' else 'Voice'}: {t}" for r, t in case["exchanges"])
     return (f"CONTEXT:\n{from_ctx[-context_chars:]}\n\nCALL SO FAR:\n{turns}\n\nREQUEST: {case['request']}\n\n"
             f"HERMES LATER ANSWERED (reference, may be partial): {case.get('reference', '')[:1500]}")
 
@@ -259,7 +259,7 @@ async def run(args):
 
 
 # ---------------------------------------------------------------- judge
-RUBRIC = ("You grade what a fast voice 'lane' said aloud to Kevin on a live call, first, before Hermes (who has "
+RUBRIC = ("You grade what a fast voice 'lane' said aloud to the owner on a live call, first, before Hermes (who has "
           "tools) answered later. The lane saw only the context shown. Score 0-10:\n"
           "9-10 correct, directly answers or usefully moves the conversation, consistent with context and the "
           "reference, short enough to speak;\n7-8 correct and useful but partial or a bit generic;\n"
@@ -280,7 +280,7 @@ async def judge(args):
         async def one(row):
             if "score" in row and not args.force:
                 return
-            said = row.get("text") or "[the lane said nothing (SKIP); Kevin waits for Hermes]"
+            said = row.get("text") or "[the lane said nothing (SKIP); the owner waits for Hermes]"
             async with sem:
                 for attempt in range(2):
                     try:

@@ -115,7 +115,7 @@ class AskChat(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(text, "my answer")
 
     async def test_only_if_idle_never_submits_into_a_running_chat(self):
-        # 114034: the chat's own turn ran (Kevin typed in it); the submit folded the call's request into it.
+        # 114034: the chat's own turn ran (the owner typed in it); the submit folded the call's request into it.
         with self.assertRaises(cc.ChatBusy):
             await self.ask("steered", [], running=True, only_if_idle=True)
         self.assertNotIn("prompt.submit", [m for m, _ in self.seen], "a busy chat got the prompt anyway")
@@ -179,7 +179,7 @@ class NewestChat(unittest.TestCase):
 
 
 class ChatMemory(unittest.TestCase):
-    """11-27 13:00: Kevin found the call "dumb, 0 context on any of our work". Since f62dc9a every request runs as a
+    """Regression: a call had almost no context because each request ran as a
     background agent, which does not see the chat; it got only the chat's last ~6,000 characters (two status replies).
     The chat's newest compaction summary holds the whole project state, so the agent gets it plus the turns since."""
 
@@ -201,8 +201,8 @@ class ChatMemory(unittest.TestCase):
                     ("c", "tool", '{"diff": "+ (\\"[CONTEXT COMPACTION] fake summary in a patch\\")"}'),
                     ("c", "assistant", "I quoted [CONTEXT COMPACTION] in a reply, still not a summary"),
                     ("c", "assistant", ""),
-                    ("c", "user", "lets add sol lanes"),
-                    ("c", "assistant", "Done: 10 sol lanes."),
+                    ("c", "user", "add a review lane"),
+                    ("c", "assistant", "Done: one review lane."),
                     ("c", "user", "[IMPORTANT: Background process proc_x completed]"),
                     ("other", "user", "an ask from another chat")]
             db.executemany("INSERT INTO messages(session_id, role, content) VALUES (?,?,?)", rows)
@@ -219,9 +219,9 @@ class ChatMemory(unittest.TestCase):
         self.assertNotIn("huge tool dump", text)
         self.assertNotIn("Background process", text)
         self.assertNotIn("another chat", text)
-        self.assertLess(text.index("z0live voice calls"), text.index("lets add sol lanes"))
-        self.assertIn("Kevin: lets add sol lanes", text)
-        self.assertIn("Assistant: Done: 10 sol lanes.", text)
+        self.assertLess(text.index("z0live voice calls"), text.index("add a review lane"))
+        self.assertIn("User: add a review lane", text)
+        self.assertIn("Assistant: Done: one review lane.", text)
 
     def test_caps_keep_the_newest_turns(self):
         with sqlite3.connect(self.db) as db:
@@ -235,7 +235,7 @@ class ChatMemory(unittest.TestCase):
     def test_no_summary_still_gives_recent_turns_and_bad_input_is_empty(self):
         with sqlite3.connect(self.db) as db:
             db.execute("DELETE FROM messages WHERE content LIKE '%CONTEXT COMPACTION%'")
-        self.assertIn("lets add sol lanes", cc.chat_memory("", "c", self.db))
+        self.assertIn("add a review lane", cc.chat_memory("", "c", self.db))
         self.assertEqual(cc.chat_memory("", "", self.db), "")
         self.assertEqual(cc.chat_memory("", "c", Path(self.dir.name) / "missing.db"), "")
 

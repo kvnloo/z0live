@@ -38,13 +38,13 @@ python3 - "$OUT/$G.json" "$PORT" <<'EOF'
 import json, os, statistics, sys, time, urllib.request
 out, port = sys.argv[1], sys.argv[2]
 U = f"http://127.0.0.1:{port}"
-facts = ["Kevin is building z0live, a voice layer over Hermes with fast and slow model lanes.",
+facts = ["The owner is building z0live, a voice layer over Hermes with fast and slow model lanes.",
          "The open chat is about overnight hill-climbs on phone lanes and Dessa-level turn timing.",
          "The S25 Ultra reaches about one second to first word on its GPU with Gemma 4 E2B.",
          "The tablet runs CPU only and needs about thirty seconds for a one thousand token prompt.",
          "Lanes are stateless; one context snapshot of brief plus recent turns goes to every lane.",
          "A lane answers in one or two short spoken sentences, or says SKIP when it cannot help."]
-brief = "<|im_start|>system\nYou are a fast voice lane for Kevin. Call brief follows.\n"
+brief = "<|im_start|>system\nYou are a fast voice lane for the owner. Call brief follows.\n"
 i = 0
 while len(brief) < int(os.environ.get("BRIEF_CHARS", "4300")):
     brief += f"- ({i}) " + facts[i % len(facts)] + "\n"; i += 1
@@ -80,7 +80,7 @@ if os.environ.get("BRIEF_FILE"):
                                                   "chat_template_kwargs": {"enable_thinking": False}}))["prompt"]
     n_brief, exchanges = ntok(lane([], "")), []
     for k, u in enumerate(users):
-        r = turn(lane(exchanges, u)); r["turn"] = k; rows.append(r); exchanges += [("Kevin", u), ("You", r["text"].strip())]
+        r = turn(lane(exchanges, u)); r["turn"] = k; rows.append(r); exchanges += [("User", u), ("You", r["text"].strip())]
         print(f"turn {k} ttft {r['ttft_s']:6.2f}s prompt_n {r['prompt_n']} cache_n {r['cache_n']}", flush=True)
     ctl = turn(lane(exchanges, "Thanks."), cache=False)
 else:

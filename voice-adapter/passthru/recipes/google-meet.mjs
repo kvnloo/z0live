@@ -1,4 +1,4 @@
-// Google Meet: guest join screen (Kevin admits "z0" from inside the meeting).
+// Google Meet: guest join screen (the owner admits "z0" from inside the meeting).
 export default {
   name: 'google-meet',
   match: /meet\.google\.com/,

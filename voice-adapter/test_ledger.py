@@ -55,7 +55,7 @@ class LedgerTest(unittest.TestCase):
         ledger.result(a, "job", "boom", ok=False)
         self.assertEqual(ledger.items("c1")[0]["state"], "failed")
         b = ledger.open_item("c1", "y", "action", "job")
-        ledger.state(b, "blocked", "job", "needs Kevin")
+        ledger.state(b, "blocked", "job", "needs the owner")
         self.assertEqual(ledger.items("c1", open_only=True)[0]["state"], "blocked")
 
     def test_claim_without_receipt_is_unstarted_after_120s(self):

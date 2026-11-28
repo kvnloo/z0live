@@ -13,6 +13,8 @@ import json
 import sqlite3
 from pathlib import Path
 
+import owner
+
 WS = "ws://127.0.0.1:9119/api/ws"
 
 
@@ -89,9 +91,9 @@ SUMMARY_MARK = "CONTEXT COMPACTION"
 def chat_memory(profile: str, sid: str, db_path: Path | None = None, summary_cap: int = 24000,
                 tail_cap: int = 16000) -> str:
     """What a background agent beside chat `sid` needs to know about it: the chat's newest compaction summary (the
-    whole project state, ~29k chars on 11-27) and Kevin's and the assistant's turns since, newest kept first. A
+    whole project state, ~29k chars on 11-27) and the owner's and the assistant's turns since, newest kept first. A
     background agent does not see the chat (ask_background), and the 6,000-char tail it had was two status replies,
-    so the call felt like it had "0 context on any of the work" (11-27 13:00). Tool rows and runtime envelopes
+    so the call lacked useful context. Tool rows and runtime envelopes
     ([IMPORTANT: ..., [Context from ...) are skipped. '' when there is no chat or no store."""
     if not sid:
         return ""
@@ -115,7 +117,7 @@ def chat_memory(profile: str, sid: str, db_path: Path | None = None, summary_cap
         cut = summary.find(f"[{SUMMARY_MARK}")
         summary = summary[cut:] if cut >= 0 else summary
         # Drop the compaction preamble ("Do NOT answer questions ... do not call tools, wait for a new user message"):
-        # it is addressed to the chat's next turn, and a background agent reading it may decline Kevin's request.
+        # it is addressed to the chat's next turn, and a background agent reading it may decline the owner's request.
         body = summary.find("\n## ")
         if body >= 0:
             summary = summary[body + 1:]
@@ -126,7 +128,7 @@ def chat_memory(profile: str, sid: str, db_path: Path | None = None, summary_cap
         text = content.strip()
         if not text or (text.startswith("[") and not text.startswith("[OUT-OF-BAND USER MESSAGE")):
             continue
-        line = f"{'Kevin' if role == 'user' else 'Assistant'}: {text[:3000]}"
+        line = f"{owner.LABEL if role == 'user' else 'Assistant'}: {text[:3000]}"
         if used + len(line) > tail_cap:
             break
         tail.append(line)
@@ -144,7 +146,7 @@ class NotStarted(RuntimeError):
 
 
 class ChatBusy(RuntimeError):
-    """The chat's own turn is running (the call's, or one Kevin typed): a prompt submitted now would fold into it."""
+    """The chat's own turn is running (the call's, or one the owner typed): a prompt submitted now would fold into it."""
 
 
 JOINED = frozenset({"steered", "redirected"})  # prompt.submit receipts for a prompt folded into the running turn

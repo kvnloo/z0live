@@ -12,14 +12,15 @@ from pathlib import Path
 import av
 
 import grok_leg
+import owner
 
 FILE = Path(os.environ.get("Z0LIVE_VOICES_FILE", str(Path.home() / ".config/z0live/voices.json")))
 NAME = re.compile(r"\b(grok|groc|grog|grock)\b", re.I)  # how STT hears the name
-PERSONA = """You are Grok, the second voice on Kevin's live call. The first voice is Hermes (GPT-Live), his
-assistant, which does his real work. Kevin brings you in by name. Answer only what he asked you, in one to three
+PERSONA = owner.fill("""You are Grok, the second voice on the owner's live call. The first voice is Hermes (GPT-Live), his
+assistant, which does his real work. The owner brings you in by name. Answer only what he asked you, in one to three
 short spoken sentences, as yourself: direct, a little playful, never long. Do not claim to do tasks or use tools;
-if he wants something done, say Hermes can do it. Context notes about the call arrive as system messages."""
-PRIMARY_NOTE = ("A second voice, Grok, is on this call. When Kevin talks to Grok by name, say nothing and let Grok "
+if he wants something done, say Hermes can do it. Context notes about the call arrive as system messages.""")
+PRIMARY_NOTE = owner.fill("A second voice, Grok, is on this call. When the owner talks to Grok by name, say nothing and let Grok "
                 "answer. Notes starting 'Grok said:' tell you what Grok told him.")
 HOLD_S = 1.2  # floor stays with Grok this long after its audio ends, so the primary's tail does not leak in
 
@@ -46,10 +47,10 @@ class GuestConfig:
 
     @property
     def primary_note(self):
-        return (f"A second voice, {self.name}, is on this call. When Kevin addresses {self.name} by name"
+        return owner.fill(f"A second voice, {self.name}, is on this call. When the owner addresses {self.name} by name"
                 f"{' (including tek or teknium)' if self.profile == 'tek' else ''}, say nothing and do not "
                 f"delegate; let the guest answer. Notes beginning '{self.name} said' are what {self.name} already "
-                f"told Kevin, and he heard it: never repeat, summarize or re-ask it. When Kevin comes back to you, "
+                f"told the owner, and he heard it: never repeat, summarize or re-ask it. When the owner comes back to you, "
                 f"answer only what he says to you then.")
 
 
@@ -84,7 +85,7 @@ class GuestVoice(grok_leg.GrokLeg):
 
     def __init__(self, call):
         super().__init__(call, PERSONA)
-        self.addressed = False   # Kevin named Grok this turn: its reply may play
+        self.addressed = False   # the owner named Grok this turn: its reply may play
         self.claimed_at = 0.0    # first moment the primary must go quiet
         self.until = 0.0         # floor held until (monotonic)
         self.heard = ""          # this user turn's transcript, as the primary hears it
@@ -122,7 +123,7 @@ class GuestVoice(grok_leg.GrokLeg):
             turn = event.get("turn") or {}
             if turn.get("role") == "user":
                 self.heard, self.seen = "", len(user_text)
-                self.ask()  # Kevin finished the turn that named Grok
+                self.ask()  # the owner finished the turn that named Grok
             elif turn.get("role") == "assistant":
                 was_muted, self.muted = self.muted, False
                 if was_muted:
@@ -133,7 +134,7 @@ class GuestVoice(grok_leg.GrokLeg):
                 self.flush_notes()
 
     def claim(self):
-        """Kevin named Grok: the primary goes quiet now, Grok answers once his turn ends."""
+        """The owner named Grok: the primary goes quiet now, Grok answers once his turn ends."""
         self.addressed, self.asked, self.played, self.claimed_at = True, False, 0, time.monotonic()
         self.until = time.monotonic() + 30  # released when Grok's audio ends (or on barge-in)
         self.call.trace("guest.claimed", heard=self.heard[:300])
@@ -165,7 +166,7 @@ class GuestVoice(grok_leg.GrokLeg):
             self.ready = True
             self.call.trace("guest.ready", voice="grok")
         elif ty == "input_audio_buffer.speech_started" and self.output.buf:
-            self.output.clear()  # Kevin barged in on Grok
+            self.output.clear()  # the owner barged in on Grok
             self.until = time.monotonic() + 0.2
         elif ty == "input_audio_buffer.committed":
             self.ask()  # Grok's VAD saw the turn end
@@ -183,7 +184,7 @@ class GuestVoice(grok_leg.GrokLeg):
             said = (ev.get("transcript") or "").strip()
             self.call.trace("guest.said", text=said[:500], after_claim_s=round(time.monotonic() - self.claimed_at, 2))
             if said:
-                self.notes.append("Grok said (to Kevin, already spoken; do not repeat it): " + said)
+                self.notes.append(owner.fill("Grok said (to the owner, already spoken; do not repeat it): ") + said)
         elif ty == "response.done" and self.asked:
             self.addressed = self.asked = False
             self.flush_notes()

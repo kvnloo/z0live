@@ -83,15 +83,15 @@ class FastLaneAsk(unittest.IsolatedAsyncioTestCase):
         call.trace = lambda *a, **k: None
         call.say_first = lambda did, text, **k: False
         old = m.tv_screen
-        m.tv_screen = lambda: "Kevin's 85-inch TV is showing the z0 lanes 'factory' view right now."
+        m.tv_screen = lambda: "The owner's 85-inch TV is showing the z0 lanes 'factory' view right now."
         try:
             await call.ttft_lane("d1", "what am I looking at")
         finally:
             m.tv_screen = old
         self.assertEqual(len(seen), 1)
-        self.assertIn("Kevin: show me the factory", seen[0])
+        self.assertIn("User: show me the factory", seen[0])
         self.assertIn("'factory' view", seen[0])
-        self.assertTrue(seen[0].rstrip().endswith("Kevin now asks: what am I looking at"))
+        self.assertTrue(seen[0].rstrip().endswith("User now asks: what am I looking at"))
 
 
 if __name__ == "__main__":

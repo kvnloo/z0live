@@ -18,6 +18,7 @@ from pathlib import Path
 from aiohttp import ClientTimeout
 
 import brief_compress
+import owner
 import lane_layout
 
 CLAUDE = "claude-subscription-directsdk-experimental"
@@ -37,9 +38,9 @@ URL = os.environ.get("Z0LIVE_LANE_URL", "http://127.0.0.1:8646/v1/ask")
 SKIP = re.compile(r"(\bSKIP\b|^\W*(model guard|the hook flagged))")
 # v2 (11-19): v1 said "any lookup you cannot do from the text below" and Gemma 4 E4B / Qwen3.5-9B / LFM3 then
 # skipped general knowledge ("What's the capital of Canada?" -> SKIP) while Haiku did not.
-SYSTEM = ("You are the {tier} lane on Kevin's live voice call; what you write may be spoken aloud. Answer in one or "
+SYSTEM = owner.fill("You are the {tier} lane on the owner's live voice call; what you write may be spoken aloud. Answer in one or "
           "two short spoken sentences, most important fact first. Answer general knowledge, math and reasoning "
-          "yourself. For Kevin's own plans and facts use only the conversation and context below. Reply with exactly "
+          "yourself. For the owner's own plans and facts use only the conversation and context below. Reply with exactly "
           "SKIP and nothing else when the request needs his phone, screen, apps, files, messages, email or any "
           "action; needs live data such as weather, news or the state of his builds; or asks a personal fact that "
           "is not in the context. Never say you can't do something; reply SKIP instead (his Hermes chat, which has "
@@ -101,7 +102,7 @@ BRIEF_BUDGET = 2810  # C56-live-compress: halves cold lane first answer vs the 6
 def snapshot(brief: str, exchanges, live: str = "", ledger: str = "") -> str:
     """The one context every lane sees: what is live now, the chat brief, the call's request ledger (earlier answers,
     promises, proof), then the call so far."""
-    turns = "\n".join(f"{'Kevin' if role == 'user' else 'You'}: {text}" for role, text in exchanges)
+    turns = "\n".join(f"{owner.LABEL if role == 'user' else 'You'}: {text}" for role, text in exchanges)
     return (f"{live}\n\n" if live else "") + \
            (f"Context from his Hermes chat:\n{brief_compress.compress_brief(brief, BRIEF_BUDGET)}\n\n" if brief else "") + \
            (f"{ledger}\n\n" if ledger else "") + \

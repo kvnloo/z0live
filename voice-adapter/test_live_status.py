@@ -13,7 +13,7 @@ _TZ = os.environ.get("TZ")
 
 
 def setUpModule():
-    os.environ["TZ"] = "America/Chicago"  # clock times in the answers are Kevin's wall clock (CI runs in UTC)
+    os.environ["TZ"] = "America/Chicago"  # clock times in the answers are the owner's wall clock (CI runs in UTC)
     time.tzset()
 
 

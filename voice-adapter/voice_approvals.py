@@ -1,4 +1,4 @@
-"""N230: a Hermes approval prompt reaches the call; Kevin approves it by saying his pass-phrase.
+"""N230: a Hermes approval prompt reaches the call; the owner approves it by saying his pass-phrase.
 
 Hermes already ships the request side: an API host's ``POST /v1/runs`` emits an ``approval.request`` event (request id,
 redacted command, description, choices) on ``GET /v1/runs/{id}/events`` and parks the run until
