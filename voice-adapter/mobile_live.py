@@ -1799,7 +1799,13 @@ class Call:
         if not from_provider and kind in ("session.input_audio.mute", "session.input_audio.unmute"):
             self.muted = kind.endswith(".mute")
             return
+        final_action, final_id = "", ""
         if from_provider:
+            if kind == "input_transcript.added" or (kind == "turn.created" and (event.get("turn") or {}).get("role") == "user"):
+                self.controlled_final = False
+            elif kind == "delegation.created" and getattr(self, "controlled_final", False):
+                self.trace("delegation.joined", did=(event.get("item") or {}).get("id"), reason="spoken_action")
+                return  # a late provider paraphrase belongs to the already handled caller turn
             if kind == "input_transcript.added":
                 text = (event.get("item") or {}).get("text")
                 if isinstance(text, str) and text.strip():
@@ -1812,8 +1818,9 @@ class Call:
                     said = text or self.protocol.turn_text["user"]
                     if heard is not None:
                         pass  # N230: an approval answer (approval_mask decided it); never a status question
-                    elif said and live_status.topics(said):  # N216: his own words; the voice may never delegate it
-                        self.spawn(self.status_answer(f"turn-{turn.get('id') or uuid.uuid4().hex[:8]}", said))
+                    elif said:
+                        final_action = said
+                        final_id = str(turn.get("id") or uuid.uuid4().hex[:8])
                 elif turn.get("role") == "assistant" and self.ack_due:  # the voice acked a request: the gap starts
                     self.ack_due = False
                     self.status_at = time.monotonic()
@@ -1841,14 +1848,29 @@ class Call:
                 self.counts["output_gated_text"] += 1  # its audio is silenced (AudioBridge): keep its words off the app
                 continue
             self.send(msg, to_provider=not from_provider)
-        if self.relay and from_provider and heard is None and not self.approvals:  # N230: an answer never reaches lanes
+        handled = False
+        if final_action and not self.closed and not self.muted and not self.approvals \
+                and time.monotonic() >= self.approval_quiet_until:
+            did = f"turn-{final_id}"
+            if not duplex and self.profile != "guest":  # duplex keeps its addressed-utterance path
+                pending = self.protocol.pending_host
+                action_did = pending[0][0] if pending else did
+                handled = self.lane_command(action_did, final_action, final=True) or self.bot_ask(
+                    action_did, final_action, final=True)
+                if handled:
+                    self.controlled_final = True
+                    self.protocol.asked.clear()
+                    self.protocol.last_request = final_action
+            if not handled and live_status.topics(final_action):
+                self.spawn(self.status_answer(did, final_action))
+        if self.relay and from_provider and heard is None and not self.approvals and not handled:
             if kind == "input_transcript.added" and self.protocol.turn_text["user"]:
                 self.spawn(self.relay.transcript(self.protocol.turn_text["user"], False))
             elif kind == "turn.done" and (event.get("turn") or {}).get("role") == "user" and self.protocol.last_user:
                 self.spawn(self.lane_final(self.protocol.last_user, self.trace.turn_id))
         while self.protocol.pending_host:
             did, request = self.protocol.pending_host.pop(0)
-            if request is None:  # a second delegation for an utterance already handed off: no run of its own
+            if handled or request is None:  # deterministic action or duplicate delegation: no Hermes run
                 self.counts["host_delegation_joined"] += 1
                 self.trace("delegation.joined", did=did, request=self.protocol.last_request[:300])
             elif not duplex or duplex.may_delegate("primary", did):
@@ -2260,14 +2282,14 @@ class Call:
         return any((CLAIMS_WORK.search(sent) or PROMISES_WORK.search(sent)) and not NEGATED.search(sent)
                    for sent in re.split(r"(?<=[.!?])\s+|\n+", text.strip())[:2])  # the verdict leads
 
-    def lane_command(self, did, request):
+    def lane_command(self, did, request, *, final=False):
         """A spoken lane command ("add two opus lanes", "drop the sol lanes", "how many lanes do I have") changes or
         reads lane_layout at once and speaks its receipt. One utterance changes the layout once: a second delegation
         of the same words within 20 s is swallowed, not applied again. True when the request was a lane command."""
         user = str(self.protocol.turn_text.get("user") or "") if hasattr(self.protocol, "turn_text") else ""
         # Kevin's own words only back up a request that is itself about lanes: a delegation can beat his turn.done,
         # and the previous utterance ("add two opus lanes") must never swallow "what's the weather".
-        text = next((t for t in (request, user if re.search(r"\blanes?\b", request or "", re.I) else "")
+        text = next((t for t in (request, user if not final and re.search(r"\blanes?\b", request or "", re.I) else "")
                      if lane_layout.command(t)), None)
         if not text:
             return False
@@ -2279,14 +2301,17 @@ class Call:
             return True
         recent[key] = now
         result = lane_layout.run(text, by="voice:" + self.id[-8:])
+        if result is None:
+            return False
         self.counts["lane_layout_" + ("ok" if result.get("ok") else "refused")] += 1
-        self.trace("lanes.layout", did=did, request=(request or "")[:300], cmd=cmd, ok=result.get("ok"), say=result.get("say", "")[:300],
+        speech = result.get("receipt") or result.get("say") or ""
+        self.trace("lanes.layout", did=did, request=(request or "")[:300], cmd=cmd, ok=result.get("ok"), say=speech[:300],
                    error=result.get("error"))
         if not self.closed:
-            self.speak_for(did, result.get("say") or "")
+            self.speak_for(did, speech)
         return True
 
-    def bot_ask(self, did, request):
+    def bot_ask(self, did, request, *, final=False):
         """A spoken "ask @pc to list the drive" / "ask the PC bot ..." goes straight to that profile's own Hermes host
         (ask_bot.py; GPT-Live has no tools, so the words are the command). The ask, its delivery id (receipt kind ask)
         and the answer land on this call's ledger item; the answer is spoken when it comes. Never on a guest-profile
@@ -2297,7 +2322,7 @@ class Call:
         names = ask_bot.hosts()
         # Kevin's own words back up a paraphrased request only when the request still names that bot.
         named = any(re.search(rf"\b{re.escape(n)}\b", request or "", re.I) for n in names)
-        hit = next((h for h in map(ask_bot.parse, (request, user if named else "")) if h), None)
+        hit = next((h for h in map(ask_bot.parse, (request, user if named and not final else "")) if h), None)
         if not hit:
             return False
         profile, message = hit
@@ -2307,11 +2332,11 @@ class Call:
             self.trace("ask.repeat", did=did, profile=profile)
             return True
         recent[key] = now
-        self.trace("ask.start", did=did, profile=profile, message=message[:500])
-        self.ledger_open(did, request)
+        self.trace("ask.start", did=did, profile=profile, message=ask_bot.mask(message)[:500])
+        self.ledger_open(did, ask_bot.mask(request))
         self.counts["bot_asks"] += 1
         if not self.closed:
-            self.speak_for(did, f"Sent to {profile}. I'll read you its answer when it comes.")
+            self.speak_for(did, f"Asking {profile}. I'll read you its answer when it comes.")
 
         async def run():
             began = time.monotonic()
@@ -2324,7 +2349,10 @@ class Call:
                        item=result.get("item"), error=result.get("error"), answer=(result.get("answer") or "")[:2000],
                        s=round(time.monotonic() - began, 3))
             if not self.closed:
-                self.speak_for(did, result.get("say") or f"I couldn't reach {profile}.")
+                if result.get("ok") is True:
+                    self.speak_for(did, result.get("say") or "")
+                else:
+                    self.speak_for(did, f"I couldn't reach {profile}.")
         self.spawn(run())
         return True
 
@@ -2574,7 +2602,7 @@ class Call:
         """The TV conductor runs lanes for this request (it reads our delegation.start): watch for their cards."""
         self.ask_dids[lane_cards.request_key(request)] = did
         self.last_delegation_at = time.monotonic()
-        if (self.card_watch is None or self.card_watch.done()) and tiers.CONDUCTOR_STATE.exists():
+        if self.card_watch is None or self.card_watch.done():
             self.card_watch = self.spawn(self.watch_cards())
 
     def card_floor_free(self, now) -> bool:
@@ -2647,6 +2675,8 @@ class Call:
         call's is running and no request came for IDLE_SECONDS; the next request starts it again."""
         path, key, mtime = tiers.CONDUCTOR_STATE, lane_cards.call_key(self.id), None
         pending: list[tuple[str, dict, float]] = []  # (did, lane, first seen)
+        start_seen = self.__dict__.setdefault("conductor_starts_seen", set())
+        start_pending = {}
         last_new = float("-inf")
         while not self.closed:
             await self.sleep(lane_cards.POLL_SECONDS)
@@ -2661,10 +2691,15 @@ class Call:
                 mtime = stamp
                 self.cards_busy = lane_cards.busy(state, key)
                 for ask, ln in lane_cards.lanes_of(state, key):
+                    did = self.ask_dids.get(lane_cards.request_key(ask.get("text") or "")) or ask.get("did")
+                    # A poll may first see a completed worker. t0 distinguishes it from a synthetic card.
+                    if ln["id"] not in start_seen and (ln.get("state") == "running" or
+                                                       (ln.get("state") == "done" and ln.get("t0"))):
+                        start_seen.add(ln["id"])
+                        start_pending.setdefault((ask.get("id"), did), []).append(ln)
                     if ln["id"] in self.cards_seen or ln.get("state") not in ("done", "failed"):
                         continue
                     self.cards_seen.add(ln["id"])
-                    did = self.ask_dids.get(lane_cards.request_key(ask.get("text"))) or ask.get("did")
                     self.card_ledger(did, ln)
                     if ln.get("state") != "done" or not (ln.get("card") or {}).get("summary"):
                         self.card_skipped("failed", did, [ln], ask=ask.get("id"))
@@ -2673,6 +2708,18 @@ class Call:
                     else:
                         pending.append((did, ln, now))
                         last_new = now
+            if start_pending and not self.approvals and self.card_floor_free(now):
+                group = next(iter(start_pending))
+                ask_id, did = group
+                lanes = start_pending.pop(group)
+                models = Counter(lane_cards.who(ln) if ln.get("model") not in (None, "-") else "worker"
+                                 for ln in lanes)
+                names = [f"{lane_layout.spoken_n(n)} {model} lane{'s' if n != 1 else ''}" for model, n in models.items()]
+                line = " and ".join(names)
+                text = line[0].upper() + line[1:] + " started."
+                self.trace("lanes.start_receipt", did=did, ask=ask_id, lanes=[ln["id"] for ln in lanes], text=text)
+                self.speak_for(did, text, lane=True)
+                continue  # give the receipt the floor before any result cards
             latest = getattr(self, "latest_did", None)
             for did, ln, _ in [p for p in pending if p[0] != latest]:
                 # Not dropped: already in the ledger (card_ledger), and said once in one line while the floor is free.
@@ -2683,7 +2730,7 @@ class Call:
             if self.closed or latest != getattr(self, "latest_did", None):
                 continue
             if not pending:
-                if not self.cards_busy and now - self.last_delegation_at > lane_cards.IDLE_SECONDS:
+                if not start_pending and not self.cards_busy and now - self.last_delegation_at > lane_cards.IDLE_SECONDS:
                     break
                 continue
             held = now - min(p[2] for p in pending)

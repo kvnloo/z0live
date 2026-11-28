@@ -164,7 +164,7 @@ class VoiceAskTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(got[0][:2], ("pc", "list the drive."))
         self.assertEqual(got[0][2]["item"], self.call.item_of["d1"])  # the ledger item this call opened
         self.assertEqual(got[0][2]["call"], self.call.ledger_call)
-        self.assertIn("Sent to pc", self.spoken())
+        self.assertIn("Asking pc", self.spoken())
         self.assertIn("pc says: the drive holds backups", self.spoken())
 
     async def test_user_words_back_a_paraphrase_that_names_the_bot(self):
