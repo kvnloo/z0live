@@ -293,6 +293,15 @@ class CallTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.call.counts["approval_delegation_swallowed"], 1)
         self.assertNotIn("harbor", self.trace_text().lower())
 
+    async def test_an_approval_bug_drops_the_event_not_the_call(self):
+        await self.raise_prompt()
+        with mock.patch.object(self.live.Call, "approval_mask", side_effect=TypeError("boom")):
+            self.user_streams([" Blue", " Harbor", " Lantern"])  # must not raise into the data channel
+        self.assertEqual(self.call.counts["approval_mask_error"], 6)  # 3 input_transcript + created + 2 deltas
+        self.assertEqual(self.responded, [])  # nothing approved: Hermes' timeout decides
+        self.assertNotIn("harbor", self.trace_text().lower())
+        self.assertFalse(self.call.closed)
+
     async def test_guest_call_never_takes_a_prompt(self):
         self.call.profile = "guest"
         self.call.approval_event("d1", "pc", self.client, "run_1", {"event": "approval.request", "request_id": "r"})

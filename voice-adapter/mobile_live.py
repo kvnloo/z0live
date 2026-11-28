@@ -1778,7 +1778,14 @@ class Call:
         kind = str(event.get("type", ""))[:80]
         heard = None
         if from_provider and self.approvals:  # N230: his words while a prompt waits are its answer, not a turn
-            event, heard = self.approval_mask(kind, event)
+            try:
+                event, heard = self.approval_mask(kind, event)
+            except Exception as exc:  # noqa: BLE001 - an exception here would close the data channel (the call)
+                # Fail closed: drop this event (it may carry the phrase unmasked) and leave the prompt to Hermes'
+                # own timeout. Probe 11-28 05:08: a TypeError raised here hung up the whole call.
+                self.counts["approval_mask_error"] += 1
+                self.trace("approval.error", type=kind, error=type(exc).__name__)
+                return
         self.trace("rx", src="provider" if from_provider else "mobile", type=kind, event=slim(event))
         self.counts[("provider:" if from_provider else "mobile:") + kind] += 1
         if from_provider and kind == "session.started":
