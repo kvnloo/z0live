@@ -1624,7 +1624,7 @@ class Call:
         self.spoken_for: dict = {}  # delegation id -> every line handed to a voice for it (lane cards never repeat)
         self.ask_dids: dict[str, str] = {}  # conductor ask text (lane_cards.request_key) -> delegation id
         self.item_of: dict[str, str] = {}  # delegation id -> request ledger item id
-        self.earlier_cards: list[dict] = []  # finished lanes of earlier requests: one line, never silently dropped
+        self.earlier_cards: list[tuple[str, dict]] = []  # finished lanes of earlier requests: one line, never silently dropped
         self.cards_seen: set[str] = set()  # conductor lane ids already spoken or skipped
         self.card_watch = None  # the watch_cards task, while one runs
         self.cards_busy = False  # a lane of this call's asks is still running (state.json, last read)
@@ -2598,22 +2598,37 @@ class Call:
         self.ledger_do(request_ledger.receipt, item, "conductor", "lane", str(ln.get("id")), str(ln.get("model") or ""))
         self.ledger_do(request_ledger.result, item, f"lane:{lane_cards.who(ln)}", text, ok, [str(ln.get("id"))], final)
 
-    def say_earlier_cards(self, now, latest):
+    async def say_earlier_cards(self, now, latest):
         """At most one short line, at least EARLIER_GAP apart, for lanes of requests Kevin moved on from."""
         if not self.earlier_cards or not latest or now - self.__dict__.get("earlier_at", float("-inf")) < EARLIER_GAP:
             return
         if not self.card_floor_free(now) or not self.status_gap_open(now, acks=False):
             return
         said = list(self.spoken_for.get(latest, []))
-        fresh = [ln for ln in self.earlier_cards if not lane_cards.said_already(ln["card"]["summary"], said)]
-        self.earlier_cards = []
-        text = lane_cards.earlier_line(fresh)
+        fresh = []
+        batch, self.earlier_cards = self.earlier_cards, []
+        for did, ln in batch:
+            summary = ln["card"]["summary"]
+            if lane_cards.superseded(summary, did, self.spoken_for):
+                self.card_skipped("superseded", did, [ln])
+            elif not lane_cards.said_already(summary, said):
+                fresh.append((did, ln))
+        lanes = [ln for _, ln in fresh]
+        if len(lanes) == 1:
+            summary = lane_cards.first_sentence(lanes[0]["card"]["summary"], 100)
+            if await self.gate_claims(latest, summary, "earlier_card") != summary:
+                return
+            now = time.monotonic()
+            if self.closed or not self.card_floor_free(now) or not self.status_gap_open(now, acks=False):
+                self.earlier_cards.extend(fresh)
+                return
+        text = lane_cards.earlier_line(lanes)
         if not text:
             return
         self.earlier_at = now
         self.stamp_status(now)
         self.counts["lane_cards_earlier_spoken"] += 1
-        self.trace("lanes.card_earlier_spoken", did=latest, lanes=[ln["id"] for ln in fresh], text=text[:500])
+        self.trace("lanes.card_earlier_spoken", did=latest, lanes=[ln["id"] for ln in lanes], text=text[:500])
         self.speak_for(latest, text, lane=True)
 
     def card_skipped(self, reason, did, lanes, **data):
@@ -2658,10 +2673,12 @@ class Call:
             latest = getattr(self, "latest_did", None)
             for did, ln, _ in [p for p in pending if p[0] != latest]:
                 # Not dropped: already in the ledger (card_ledger), and said once in one line while the floor is free.
-                self.earlier_cards.append(ln)
+                self.earlier_cards.append((did, ln))
                 self.card_skipped("earlier", did, [ln], latest=latest)
             pending = [p for p in pending if p[0] == latest]
-            self.say_earlier_cards(now, latest)
+            await self.say_earlier_cards(now, latest)
+            if self.closed or latest != self.latest_did:
+                continue
             if not pending:
                 if not self.cards_busy and now - self.last_delegation_at > lane_cards.IDLE_SECONDS:
                     break
@@ -2675,14 +2692,16 @@ class Call:
                 continue
             said, fresh = list(self.spoken_for.get(latest, [])), []
             for _, ln, _ in pending:
-                if lane_cards.said_already(ln["card"]["summary"], said):
+                if lane_cards.superseded(ln["card"]["summary"], latest, self.spoken_for):
+                    self.card_skipped("superseded", latest, [ln])
+                elif lane_cards.said_already(ln["card"]["summary"], said):
                     self.card_skipped("already_said", latest, [ln])
                 else:
                     fresh.append(ln)
                     said.append(ln["card"]["summary"])
             pending = []
             text = await self.card_text(fresh)
-            if not text:
+            if not text or self.closed or latest != self.latest_did:
                 continue
             self.counts["lane_cards_spoken"] += 1
             self.trace("lanes.card_spoken", did=latest, lanes=[ln["id"] for ln in fresh],
