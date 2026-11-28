@@ -80,7 +80,8 @@ def parse(text: str, names: list[str] | None = None, me: str = "") -> tuple[str,
     if not table:
         return None
     alt = "|".join(_alias_pattern(a) for a in sorted(table, key=len, reverse=True))
-    name = rf"(?P<name>{alt})(?![\w-])"  # not \b: "P.C." ends on a dot
+    # Not \b: "P.C." ends on a dot. The speech model also glues the word on: "At PCBot, list the WD drive" (11-28).
+    name = rf"(?P<name>{alt})(?:(?![\w-])|(?=bot\b))"
     to = rf"\b{VERB}\s+(?:(?:a|the)\s+)?(?:message\s+to\s+)?(?:the\s+)?"
     forms = (
         # "at PC bot, ..." / "@pc ..." at the start of the request ("bot" is possessive: never the message)
@@ -202,7 +203,8 @@ def spoken(result: dict, label: str) -> str:
         return f"{label} says: {result.get('reply') or 'nothing (an empty reply)'}"
     if result.get("refused"):
         return "Messaging other bots isn't available on this profile."
-    return f"I couldn't get an answer from {label}: {result.get('error') or result.get('status') or 'unknown error'}."
+    why = str(result.get("error") or result.get("status") or "unknown error").strip().rstrip(".")
+    return f"I couldn't get an answer from {label[:1].lower() + label[1:]}: {why}."
 
 
 def main(argv: list[str]) -> int:

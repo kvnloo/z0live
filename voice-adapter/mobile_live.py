@@ -2246,7 +2246,7 @@ class Call:
         user = str(self.protocol.turn_text.get("user") or "") if hasattr(self.protocol, "turn_text") else ""
         me = self.profile or ""
         hit = bot_dm.parse(request, me=me)
-        if not hit and user and re.search(r"\bbot\b|@", request or "", re.I):  # the voice paraphrased Kevin's words
+        if not hit and user and re.search(r"bot\b|@", request or "", re.I):  # the voice paraphrased Kevin's words
             hit = bot_dm.parse(user, me=me)
         if not hit:
             return False

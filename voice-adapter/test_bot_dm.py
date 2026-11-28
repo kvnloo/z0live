@@ -23,6 +23,9 @@ class ParseTests(unittest.TestCase):
         cases = {
             "at PC bot list the WD drive": ("pc", "list the WD drive"),
             "At PC bot, list the WD drive.": ("pc", "list the WD drive"),
+            # what gpt-live actually delegated for the spoken words on 11-28
+            "At PCBot, list the WD drive, which volumes are mounted": ("pc", "list the WD drive, which volumes are mounted"),
+            "ask the pcbot to list the WD drive": ("pc", "list the WD drive"),
             "@pc list the WD drive": ("pc", "list the WD drive"),
             "at p.c. bot what's on the WD drive?": ("pc", "what's on the WD drive"),
             "Ask the PC bot to list the WD drive.": ("pc", "list the WD drive"),
