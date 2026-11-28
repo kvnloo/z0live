@@ -213,6 +213,24 @@ and checks one local answer through the lane server. If that check fails, it res
 When the primary is GPT-Live, choose a guest in `~/.config/z0live/voices.json`. The adapter reads it at the start
 of each call. Changing it does not restart or affect an open call.
 
+`{"guest":"grok"}` keeps the regular Grok guest. To make Grok the intent manager and GPT-Live the chief of staff:
+
+```json
+{"guest": {"engine": "grok", "role": "intent-manager"}}
+```
+
+The intent manager can recommend or redirect priorities, not authorize actions as the caller. The optional
+`guest.template` path loads a short, explicitly selected text brief into Grok's instructions; only point it at
+material approved for the Grok provider. The adapter does not read or send a whole repo automatically.
+
+Both voices receive the same bounded call snapshot (opening brief, recent turns, current live facts and request
+ledger) at startup, at periodic recap refreshes, and when GPT-Live's session is renewed. Grok's instructions take
+the latest snapshot in place of the previous one. Silent notes carry the voices' replies, and GPT-Live is told
+whether Grok's audio actually made it onto the call output. Check `guest.context`, `guest.done` and `guest.played`
+in the call trace; a transcript alone does not prove audio played.
+
+For a GPT-Live guest instead:
+
 ```json
 {"guest": {"engine": "gpt-live", "profile": "tek", "name": "tek", "voice": "ember"}}
 ```

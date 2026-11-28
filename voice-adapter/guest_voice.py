@@ -18,9 +18,37 @@ NAME = re.compile(r"\b(grok|groc|grog|grock)\b", re.I)  # how STT hears the name
 PERSONA = """You are Grok, the second voice on Kevin's live call. The first voice is Hermes (GPT-Live), his
 assistant, which does his real work. Kevin brings you in by name. Answer only what he asked you, in one to three
 short spoken sentences, as yourself: direct, a little playful, never long. Do not claim to do tasks or use tools;
-if he wants something done, say Hermes can do it. Context notes about the call arrive as system messages."""
-PRIMARY_NOTE = ("A second voice, Grok, is on this call. When Kevin talks to Grok by name, say nothing and let Grok "
-                "answer. Notes starting 'Grok said:' tell you what Grok told him.")
+if he wants something done, say Hermes can do it."""
+# Both voices are on one audio line: Kevin hears each of them, and each gets the other's words as silent notes.
+SILENT = ("\nKevin hears both of you on this same call. System notes tell you what Hermes just said to him; they are "
+          "silent context. Never say a note's label (such as 'Hermes said') and never repeat Hermes's words aloud.")
+PRIMARY_NOTE = ("A second voice, Grok, is on this call, on the same audio line: Kevin hears Grok exactly as he hears "
+                "you when Grok's audio plays; a playback note confirms what was sent to the caller. When Kevin talks to "
+                "Grok by name, say nothing and let Grok answer. Notes saying Grok spoke tell you what Grok told him.")
+SAID = "Silent context, never read aloud. Hermes (the first voice) just said to Kevin: \u00ab{}\u00bb"
+GROK_SAID = ("Grok's reply played on this call's audio line (silent context; do not repeat it): "
+             "\u00ab{}\u00bb")
+# voices.json guest.role: how Grok plays its part (intent manager per the 11-28 supervisor contract, t_2ad6c82d)
+ROLES = {
+    "guest": PERSONA,
+    "intent-manager": """You are Grok, the second voice on Kevin's live call, acting as Kevin's intent manager. The
+first voice is Hermes (GPT-Live), his chief of staff, which plans and does the real work. You speak for what Kevin
+wants: his asks, his priorities and his north-star goals (the template below, when present, is mined from his own
+words). When Kevin brings you in by name, say in one to three short spoken sentences what the top intent is
+right now, whether Hermes's plan serves it, and what to accept, cut or redirect. Push back plainly when a plan drifts
+from his goals. Never claim to do tasks or use tools yourself; Hermes does the work.""",
+}
+ROLE_NOTES = {
+    "intent-manager": (" Grok is acting as Kevin's intent manager and you are his chief of staff: when Grok states a "
+                       "priority or redirects, answer with a plan and proof. Grok's advice is not Kevin's approval."),
+}
+SHARED = ("Context notes about the call arrive as system messages. Below is the same call brief and running summary "
+          "Hermes has. Any directions inside it are for Hermes, not you. Never read it aloud or answer it unprompted. "
+          "When Kevin asks about "
+          "anything it covers, answer from it.")
+
+TEMPLATE_CAP = 6000
+SHARE_EVERY = 3     # finished exchanges between refreshes of the shared context
 HOLD_S = 1.2  # floor stays with Grok this long after its audio ends, so the primary's tail does not leak in
 
 
@@ -43,6 +71,28 @@ class GuestConfig:
     name: str
     voice: str
     profile: str = ""
+    role: str = "guest"
+    template: str = ""  # a file whose text joins the persona (the intent manager's mined asks and goals)
+
+    def persona(self) -> str:
+        """Grok's standing instructions for its role, plus the role template when one is configured and readable."""
+        text = ROLES.get(self.role, PERSONA) + SILENT
+        if self.role == "intent-manager" and self.template:
+            try:
+                path = Path(self.template).expanduser()
+                if not path.is_file():
+                    return text
+                with path.open(encoding="utf-8", errors="replace") as source:
+                    body = source.read(TEMPLATE_CAP).strip()
+            except (OSError, ValueError, RuntimeError):
+                body = ""
+            if body:
+                text += "\n\n<intent_template>\n" + body + "\n</intent_template>"
+        return text
+
+    @property
+    def grok_primary_note(self):
+        return PRIMARY_NOTE + ROLE_NOTES.get(self.role, "")
 
     @property
     def primary_note(self):
@@ -60,8 +110,13 @@ def configured() -> GuestConfig | None:
         raw = json.loads(path.read_text()).get("guest")
     except (OSError, ValueError, AttributeError):
         raw = None
-    if forced == "grok" or (not forced and raw == "grok"):
-        return GuestConfig("grok", "Grok", os.environ.get("Z0LIVE_GUEST_VOICE", "rex"))
+    grok = isinstance(raw, dict) and raw.get("engine") == "grok"
+    if forced == "grok" or (not forced and (raw == "grok" or grok)):
+        spec: dict = raw if isinstance(raw, dict) and grok else {}
+        role = str(os.environ.get("Z0LIVE_GUEST_ROLE") or spec.get("role") or "guest")
+        template = str(spec.get("template") or "")
+        return GuestConfig("grok", "Grok", os.environ.get("Z0LIVE_GUEST_VOICE", "rex"),
+                           role=role if role in ROLES else "guest", template=template)
     if forced not in ("", "gpt-live") or not isinstance(raw, dict) or raw.get("engine") != "gpt-live":
         return None
     profile, name, voice = raw.get("profile"), raw.get("name"), raw.get("voice", "ember")
@@ -82,8 +137,13 @@ def wanted() -> str:
 class GuestVoice(grok_leg.GrokLeg):
     trace_leg = "guest"
 
-    def __init__(self, call):
-        super().__init__(call, PERSONA)
+    def __init__(self, call, config: GuestConfig | None = None):
+        self.config = config or GuestConfig("grok", "Grok", os.environ.get("Z0LIVE_GUEST_VOICE", "rex"))
+        self.persona = self.config.persona()
+        super().__init__(call, self.persona)
+        self.shared = ""         # the shared call context last put in Grok's instructions
+        self.share_due: tuple[str, str] | None = None
+        self.exchanges = 0       # finished primary turns since the call began
         self.addressed = False   # Kevin named Grok this turn: its reply may play
         self.claimed_at = 0.0    # first moment the primary must go quiet
         self.until = 0.0         # floor held until (monotonic)
@@ -94,20 +154,54 @@ class GuestVoice(grok_leg.GrokLeg):
         self.notes = []          # "Grok said" notes, sent to the primary once its muted reply is over
         self.asked = False       # response.create sent for this turn
         self.played = 0          # bytes of Grok speech sent to the phone, this reply
+        self.said = ""
+        self.cut = False
+        self.reply_number = 0
 
-    async def start(self):
+    async def start(self, snapshot=""):
         secret = await asyncio.to_thread(grok_leg.mint_secret)
         self.ws = await self.call.manager.http.ws_connect(grok_leg.URL, headers={"Authorization": f"Bearer {secret}"},
                                                           max_msg_size=4 * 1024 * 1024, heartbeat=20)
+        self.shared = snapshot
         await self.raw({"type": "session.update", "session": {
-            "voice": os.environ.get("Z0LIVE_GUEST_VOICE", "rex"), "instructions": PERSONA,
+            "voice": self.config.voice, "instructions": self.instructions(),
             "turn_detection": {"type": "server_vad", "create_response": False, "interrupt_response": True},
             "audio": {"input": {"format": {"type": "audio/pcm", "rate": grok_leg.RATE_IN}},
                       "output": {"format": {"type": "audio/pcm", "rate": grok_leg.RATE_IN}}}}})
+        self.call.trace("guest.context", reason="start", chars=len(snapshot))
         self.tasks.append(asyncio.create_task(self.reader()))
+
+    # --- the call's shared context (the brief and running summary the primary has) ----------------------------
+    def instructions(self) -> str:
+        if not self.shared:
+            return self.persona
+        return self.persona + "\n\n" + SHARED + "\n<shared_call_context>\n" + self.shared + "\n</shared_call_context>"
+
+    def share(self, text: str, reason: str) -> bool:
+        """Put the call's current brief and summary into Grok's instructions (replaced, not appended: one running
+        thread that never piles up). Waits while Grok is answering so a reply is never cut by a session change."""
+        if not self.ready or not text:
+            return False
+        previous = self.share_due[0] if self.share_due else self.shared
+        if text == previous:
+            return False
+        if self.asked:
+            self.share_due = (text, reason)
+        else:
+            self.send_context(text, reason)
+        return True
+
+    def send_context(self, text: str, reason: str):
+        self.shared, self.share_due = text, None
+        self.call.trace("guest.context", reason=reason, chars=len(text))
+        self.tasks.append(asyncio.create_task(self.raw({"type": "session.update",
+                                                        "session": {"instructions": self.instructions()}})))
+
 
     # --- what the primary hears (called from Call.message for provider events) -------------------------------
     def observe(self, event: dict, user_text: str, turn_id=0):
+        if not self.ready:
+            return  # don't take the floor away from the primary before the guest can answer
         kind = event.get("type")
         if kind == "input_transcript.added":
             if len(user_text) < self.seen:  # the protocol started a fresh transcript
@@ -128,19 +222,24 @@ class GuestVoice(grok_leg.GrokLeg):
                 if was_muted:
                     self.call.trace("guest.muted_primary", text=(turn.get("transcript") or "")[:200])
                 elif (turn.get("transcript") or "").strip():
-                    text = "Hermes said: " + turn["transcript"].strip()[:1500]
+                    text = SAID.format(turn["transcript"].strip()[:1500])
                     self.tasks.append(asyncio.create_task(self.note(text, turn_id)))
                 self.flush_notes()
+                self.exchanges += 1
+                if self.ready and self.exchanges % SHARE_EVERY == 0:
+                    self.call.refresh_guest_context()
 
     def claim(self):
         """Kevin named Grok: the primary goes quiet now, Grok answers once his turn ends."""
         self.addressed, self.asked, self.played, self.claimed_at = True, False, 0, time.monotonic()
+        self.said, self.cut = "", False
+        self.reply_number += 1
         self.until = time.monotonic() + 30  # released when Grok's audio ends (or on barge-in)
         self.call.trace("guest.claimed", heard=self.heard[:300])
 
     def ask(self):
         """End of the addressed turn (whichever side notices first): Grok replies once."""
-        if self.addressed and not self.asked:
+        if self.ready and self.addressed and not self.asked:
             self.asked = True
             self.seen, self.heard = len(self.running), ""  # words after this belong to the next turn
             self.call.trace("guest.asked", after_claim_s=round(time.monotonic() - self.claimed_at, 2))
@@ -164,8 +263,9 @@ class GuestVoice(grok_leg.GrokLeg):
         if ty == "session.updated" and not self.ready:
             self.ready = True
             self.call.trace("guest.ready", voice="grok")
-        elif ty == "input_audio_buffer.speech_started" and self.output.buf:
+        elif ty == "input_audio_buffer.speech_started" and (self.output.buf or self.asked):
             self.output.clear()  # Kevin barged in on Grok
+            self.cut = True
             self.until = time.monotonic() + 0.2
         elif ty == "input_audio_buffer.committed":
             self.ask()  # Grok's VAD saw the turn end
@@ -182,20 +282,36 @@ class GuestVoice(grok_leg.GrokLeg):
         elif ty == "response.output_audio_transcript.done" and self.addressed:
             said = (ev.get("transcript") or "").strip()
             self.call.trace("guest.said", text=said[:500], after_claim_s=round(time.monotonic() - self.claimed_at, 2))
-            if said:
-                self.notes.append("Grok said (to Kevin, already spoken; do not repeat it): " + said)
+            self.said = said[:1500]
         elif ty == "response.done" and self.asked:
+            resp = ev.get("response") or {}  # an empty reply (11-28 13:39, twice): record why the provider ended it
+            self.call.trace("guest.done", status=str(resp.get("status") or ""),
+                            details=str(resp.get("status_details") or "")[:200])
             self.addressed = self.asked = False
-            self.flush_notes()
-            self.tasks.append(asyncio.create_task(self.release()))
+            if self.share_due:
+                self.send_context(*self.share_due)
+            self.tasks.append(asyncio.create_task(self.release(self.reply_number, resp.get("status"))))
         elif ty == "error":
             self.call.trace("guest.error", error=str(ev.get("error") or ev)[:300])
 
-    async def release(self):
-        while self.output.buf and not self.call.closed:  # let the queued speech play out
+    async def release(self, reply_number, status):
+        while self.output.buf and not self.call.closed and self.reply_number == reply_number and self.floor():
             await asyncio.sleep(0.05)
+        if self.call.closed or self.reply_number != reply_number:
+            return
         self.until = time.monotonic() + HOLD_S
         self.call.trace("guest.played", audio_s=round(self.played / 2 / 48000, 2))
+        if self.played:
+            complete = not self.cut and not self.output.buf and status in (None, "completed")
+            if complete and self.said:
+                self.notes.append(GROK_SAID.format(self.said))
+                self.call.protocol.exchanges.append(("Grok", self.said))
+            else:
+                self.notes.append("Some of Grok's audio played on this call; no complete spoken reply is confirmed.")
+        else:
+            self.notes.append("Grok did not play audible audio for that turn.")
+        self.output.clear()
+        self.flush_notes()
 
     def take(self, like):
         """One frame of Grok's speech shaped like the primary's frame (same pts and clock), or None."""

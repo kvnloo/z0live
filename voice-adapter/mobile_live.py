@@ -1660,7 +1660,8 @@ class Call:
         self.guest = None
         if self.guest_config:
             self.guest = (GPTGuest(self, self.guest_config) if self.guest_config.engine == "gpt-live"
-                          else guest_voice.GuestVoice(self))
+                          else guest_voice.GuestVoice(self, self.guest_config))
+        self.brief = ""  # the call brief the primary opened with (shared with the Grok guest)
         self.duplex = self.guest if isinstance(self.guest, GPTGuest) else None  # the call's floor, if it has one
         if self.duplex:  # each voice's request is only the caller's words to that voice
             self.protocol.own = lambda said: self.guest.own_words("primary", said)
@@ -1824,6 +1825,8 @@ class Call:
         duplex = self.duplex
         if from_provider:
             audible = duplex.observe("primary", event) if duplex else True
+            if isinstance(self.guest, guest_voice.GuestVoice) and self.guest.floor():
+                audible = False  # do not put muted primary words into the shared recap
             translated = self.protocol.from_provider(event, assistant_audible=audible)
         else:
             translated = self.protocol.from_mobile(event)
@@ -1888,12 +1891,17 @@ class Call:
             # persona and the call brief go in as context, framed as background so they are not answered.
             channel = os.environ.get("HERMES_VOICE_BRIEF_CHANNEL", "developer")
             brief = call_brief.build(history, self.chat, note=self.call_note)
+            self.brief = brief
+            grok = self.guest if isinstance(self.guest, guest_voice.GuestVoice) else None
+            opening = PERSONA + "\n" + (grok.config.grok_primary_note if grok else brief)
+            self.opening_context = self.brief_events(opening, channel)
+            snapshot = self.guest_context() if grok else ""
             if self.guest:
-                self.spawn(self.start_guest(brief))
-            persona = PERSONA + ("\n" + guest_voice.PRIMARY_NOTE if isinstance(self.guest, guest_voice.GuestVoice) else "")
-            self.opening_context = self.brief_events(persona + "\n" + brief, channel)
+                self.spawn(self.start_guest(snapshot))
             for event in self.opening_context:
                 self.send(event, True, turn_id=0)
+            if grok:
+                self.guest_note(snapshot)
             if not self.leg:
                 self.spawn(self.renew_subscription())
             self.spawn(self.watchdog())
@@ -1939,23 +1947,18 @@ class Call:
             self.duplex.set_people(people)
         return context
 
-    async def start_guest(self, brief):
+    async def start_guest(self, snapshot):
         guest = self.guest
         if guest is None:
             return
         try:
-            await guest.start()
             if isinstance(guest, GPTGuest):
+                await guest.start()
                 guest.note(guest.persona)
                 self.guest_note(guest.config.primary_note)
                 self.spawn(self.renew_subscription(guest))
             else:
-                for _ in range(100):  # session.updated arrives within ~1 s
-                    if guest.ready or self.closed:
-                        break
-                    await asyncio.sleep(0.05)
-                if brief:
-                    await guest.note("Background on Kevin's chat (do not read aloud):\n" + brief[:6000])
+                await guest.start(snapshot)
         except Exception as exc:  # noqa: BLE001 - the call goes on with one voice
             if isinstance(guest, GPTGuest):
                 guest.failed("setup_" + type(exc).__name__)
@@ -1963,6 +1966,27 @@ class Call:
                 self.trace("guest.failed", error=type(exc).__name__, detail=str(exc)[:300])
                 self.guest = None
                 await guest.close()
+
+    def guest_context(self) -> str:
+        """Build once per refresh. Both destinations get these exact same bounded facts."""
+        recent = self.call_recap(self.protocol)
+        live = live_picture()
+        ledger = self.ledger_brief(max_chars=2500, proof_rule=False)
+        parts = ["Shared call background (latest snapshot; not a new request). Stay silent until addressed. "
+                 "Use live facts over historical notes; do not repeat prior actions or read this aloud.",
+                 self.brief[:6000], recent,
+                 "Live right now:\n" + live[:1500] if live else "", ledger]
+        return "\n\n".join(p for p in parts if p)
+
+    @staticmethod
+    def call_recap(protocol):
+        return "\n".join(f"{role}: {' '.join(text.split())[:400]}" for role, text in protocol.exchanges)
+
+    def refresh_guest_context(self):
+        if isinstance(self.guest, guest_voice.GuestVoice):
+            snapshot = self.guest_context()
+            if self.guest.share(snapshot, "turns"):
+                self.guest_note(snapshot)
 
     def guest_note(self, text):
         for part in chunks(text):
@@ -3180,9 +3204,12 @@ class Call:
             if (self.closed or owner.closed or not candidate.output or candidate.output.readyState != "live"
                     or candidate.peer.connectionState != "connected" or candidate.channel.readyState != "open"):
                 raise RuntimeError("Replacement voice transport disconnected")
-            recent = "\n".join(f"{role}: {' '.join(text.split())[:400]}" for role, text in protocol.exchanges)
+            grok = self.guest if not guest and isinstance(self.guest, guest_voice.GuestVoice) else None
+            recent = self.call_recap(protocol)
             summary = ("Continuing the same call. This is a recap, not a new request. Stay silent until Kevin "
                        "speaks again; do not repeat prior actions or answers.\n" + recent)
+            if grok:
+                summary = self.guest_context()
             opening = self.brief_events(guest.persona) if guest else self.opening_context
             if not guest and duplex and duplex.floor.available:
                 opening = opening + self.brief_events(duplex.config.primary_note)
@@ -3209,6 +3236,8 @@ class Call:
                 self.flush(self.provider_dc, self.to_provider)
             if duplex:
                 duplex.transport_replaced(source)
+            if grok:
+                grok.share(summary, "renewal")
             trace("renewed" if guest else "call.renewed", seconds=round(time.monotonic() - self.created, 3),
                   recap_turns=len(protocol.exchanges), mobile=self.mobile.connectionState)
         finally:

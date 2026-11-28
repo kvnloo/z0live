@@ -1,13 +1,20 @@
 """Guest voice: who holds the floor, when Grok is asked to speak, and what the phone hears. No network."""
 import asyncio
+from collections import deque
+import json
 import os
+import tempfile
 import unittest
 from fractions import Fraction
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import av
 import numpy as np
 
 import guest_voice
+import mobile_live
 
 
 class FakeCall:
@@ -15,6 +22,7 @@ class FakeCall:
 
     def __init__(self):
         self.traces, self.sent = [], []
+        self.protocol = SimpleNamespace(exchanges=deque(maxlen=8))
 
     def trace(self, ev, **kw):
         self.traces.append(ev)
@@ -42,6 +50,7 @@ class GuestTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.call = FakeCall()
         self.guest = guest_voice.GuestVoice(self.call)
+        self.guest.ready = True
         self.raws = []
 
         async def raw(event, **_):
@@ -101,13 +110,17 @@ class GuestTest(unittest.IsolatedAsyncioTestCase):
         self.guest.observe({"type": "output_transcript.added"}, "")  # GPT-Live answers anyway
         self.guest.addressed = True
         self.guest.on_event({"type": "response.output_audio_transcript.done", "transcript": "Saturn."})
+        self.guest.output.buf.extend(b"\x01\x00" * 960)
+        await guest_voice.FloorSwitch(Source(frame()), self.guest).recv()
         self.guest.on_event({"type": "response.done"})
+        await self.settle()
         self.guest.until = 0  # Grok's hold is over, but the primary's muted reply is still playing
         self.assertTrue(self.guest.floor())
         self.assertEqual(self.call.sent, [])  # the note waits: the primary would read it out
         self.guest.observe({"type": "turn.done", "turn": {"role": "assistant", "transcript": "Saturn."}}, "")
         self.assertFalse(self.guest.floor())
         self.assertIn("Saturn.", self.call.sent[0]["content"][0]["text"])
+        self.assertEqual(list(self.call.protocol.exchanges), [("Grok", "Saturn.")])
 
     async def test_wanted_reads_env_and_file(self):
         os.environ["Z0LIVE_GUEST"] = "off"
@@ -115,6 +128,150 @@ class GuestTest(unittest.IsolatedAsyncioTestCase):
         os.environ["Z0LIVE_GUEST"] = "grok"
         self.assertEqual(guest_voice.wanted(), "grok")
         del os.environ["Z0LIVE_GUEST"]
+
+
+class SharedContextTest(unittest.IsolatedAsyncioTestCase):
+    """Grok gets the brief and running summary the primary has (11-28: one running thread for both voices)."""
+
+    async def asyncSetUp(self):
+        self.call = FakeCall()
+        self.context = "Brief: Kevin's codeword today is PELICAN."
+        self.call.guest_context = lambda: self.context
+        self.guest = guest_voice.GuestVoice(self.call)
+        self.guest.ready = True
+        self.call.refresh_guest_context = lambda: self.guest.share(self.context, "turns")
+        self.raws = []
+
+        async def raw(event, **_):
+            self.raws.append(event)
+        self.guest.raw = raw
+
+    async def settle(self):
+        for _ in range(3):
+            await asyncio.sleep(0)
+
+    def updates(self):
+        return [e["session"]["instructions"] for e in self.raws if e["type"] == "session.update"]
+
+    async def test_start_refresh_puts_the_brief_in_grok_instructions_once(self):
+        self.call.manager = SimpleNamespace(http=SimpleNamespace(ws_connect=AsyncMock()))
+        self.guest.reader = AsyncMock()
+        with patch.object(guest_voice.grok_leg, "mint_secret", return_value="fixture"):
+            await self.guest.start(self.context)
+        self.guest.share(self.context, "turns")
+        await self.settle()
+        [text] = self.updates()
+        self.assertIn("PELICAN", text)
+        self.assertTrue(text.startswith(self.guest.persona))
+        self.assertIn("guest.context", self.call.traces)
+
+    async def test_refresh_replaces_the_context_not_appends(self):
+        self.guest.share(self.context, "start")
+        self.context = "Brief: the codeword is now HERON."
+        self.guest.share(self.context, "renewal")
+        await self.settle()
+        last = self.updates()[-1]
+        self.assertIn("HERON", last)
+        self.assertNotIn("PELICAN", last)
+
+    async def test_refresh_waits_while_grok_answers_then_applies(self):
+        self.guest.claim()
+        self.guest.ask()
+        self.guest.share(self.context, "renewal")
+        self.guest.share("Newest snapshot only", "turns")
+        await self.settle()
+        self.assertEqual(self.updates(), [])  # a session change mid-reply could cut Grok off
+        self.guest.on_event({"type": "response.done", "response": {"status": "completed"}})
+        await self.settle()
+        [text] = self.updates()
+        self.assertIn("Newest snapshot only", text)
+        self.assertNotIn("PELICAN", text)
+
+    async def test_summary_follows_the_call_every_few_exchanges(self):
+        for i in range(guest_voice.SHARE_EVERY):
+            self.context = f"Call so far: turn {i}"
+            self.guest.observe({"type": "turn.done", "turn": {"role": "assistant", "transcript": f"ok {i}"}}, "")
+        await self.settle()
+        self.assertIn(f"turn {guest_voice.SHARE_EVERY - 1}", self.updates()[-1])
+
+    async def test_refresh_routes_same_snapshot_to_both_voices(self):
+        self.call.guest = self.guest
+        self.call.brief = "Opening brief"
+        self.call.call_recap = mobile_live.Call.call_recap
+        self.call.protocol.exchanges.append(("user", "Summary-only fact: lavender compass"))
+        self.call.ledger_brief = lambda **_: "Current request ledger"
+        primary = []
+        self.call.guest_note = primary.append
+        self.call.guest_context = lambda: mobile_live.Call.guest_context(self.call)
+        with patch.object(mobile_live, "live_picture", return_value="TV is idle") as live:
+            mobile_live.Call.refresh_guest_context(self.call)
+        live.assert_called_once()
+        await self.settle()
+        [snapshot] = primary
+        self.assertIn(f"<shared_call_context>\n{snapshot}\n</shared_call_context>", self.updates()[-1])
+        for fact in ("Opening brief", "lavender compass", "TV is idle", "Current request ledger"):
+            self.assertIn(fact, snapshot)
+
+    async def test_hermes_turn_note_has_no_speakable_label(self):
+        # 13:39 call: Grok said "Same line now. Hermes said: Cool..." because the note began "Hermes said:"
+        self.guest.observe({"type": "turn.done", "turn": {"role": "assistant", "transcript": "Cool."}}, "")
+        await self.settle()
+        note = [e for e in self.raws if e["type"] == "conversation.item.create"][0]["item"]["content"][0]["text"]
+        self.assertFalse(note.startswith("Hermes said"))
+        self.assertIn("never read aloud", note)
+        self.assertIn("Never say a note's label", self.guest.persona)
+
+    async def test_primary_is_not_told_empty_grok_reply_played(self):
+        # 13:39 call: GPT-Live said "Grok's audio might be on a different route"
+        self.assertIn("same audio line", guest_voice.PRIMARY_NOTE)
+        self.guest.claim()
+        self.guest.ask()
+        self.guest.on_event({"type": "response.output_audio_transcript.done", "transcript": "Saturn."})
+        self.guest.on_event({"type": "response.done", "response": {"status": "cancelled",
+                                                                   "status_details": {"reason": "turn_detected"}}})
+        await self.settle()
+        self.assertIn("guest.done", self.call.traces)
+        text = self.call.sent[0]["content"][0]["text"]
+        self.assertIn("did not play audible audio", text)
+        self.assertNotIn("Saturn.", text)
+        self.assertFalse(self.call.protocol.exchanges)
+
+
+class RoleConfigTest(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.file = Path(self.dir.name) / "voices.json"
+        os.environ["Z0LIVE_VOICES_FILE"] = str(self.file)
+        os.environ.pop("Z0LIVE_GUEST", None)
+        os.environ.pop("Z0LIVE_GUEST_ROLE", None)
+
+    def tearDown(self):
+        os.environ.pop("Z0LIVE_VOICES_FILE", None)
+        self.dir.cleanup()
+
+    def test_legacy_string_is_the_plain_guest(self):
+        self.file.write_text(json.dumps({"guest": "grok"}))
+        config = guest_voice.configured()
+        self.assertEqual((config.engine, config.role), ("grok", "guest"))
+        self.assertTrue(config.persona().startswith(guest_voice.PERSONA))
+
+    def test_intent_manager_role_and_template(self):
+        template = Path(self.dir.name) / "intent.md"
+        template.write_text("North star: ship z0live.")
+        self.file.write_text(json.dumps({"guest": {"engine": "grok", "role": "intent-manager",
+                                                   "template": str(template)}}))
+        config = guest_voice.configured()
+        self.assertEqual(config.role, "intent-manager")
+        self.assertIn("intent manager", config.persona())
+        self.assertIn("North star: ship z0live.", config.persona())
+        self.assertIn("chief of staff", config.grok_primary_note)
+        self.assertEqual(guest_voice.GuestVoice(FakeCall(), config).persona, config.persona())
+
+    def test_unknown_role_falls_back_and_missing_template_is_ignored(self):
+        self.file.write_text(json.dumps({"guest": {"engine": "grok", "role": "boss", "template": "/nope/x.md"}}))
+        config = guest_voice.configured()
+        self.assertEqual(config.role, "guest")
+        self.assertNotIn("intent_template", config.persona())
 
 
 if __name__ == "__main__":
