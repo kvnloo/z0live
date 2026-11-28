@@ -44,8 +44,12 @@ TIMED = {"input_audio_buffer.speech_started", "input_audio_buffer.speech_stopped
 
 def mint_secret() -> str:
     """A short-lived client secret from Hermes's xAI login (xai_secret.py under the Hermes runtime)."""
-    runtime = json.loads(subprocess.check_output([HERMES_BIN, "--print-runtime-command"], text=True, timeout=20))
-    out = subprocess.run([runtime[0], "-I", str(SECRET_SCRIPT)], capture_output=True, text=True, timeout=30)
+    # The xAI login can live in a profile other than the service's default Hermes home (Z0LIVE_XAI_HERMES_HOME).
+    env = dict(os.environ)
+    if os.environ.get("Z0LIVE_XAI_HERMES_HOME"):
+        env["HERMES_HOME"] = os.environ["Z0LIVE_XAI_HERMES_HOME"]
+    runtime = json.loads(subprocess.check_output([HERMES_BIN, "--print-runtime-command"], text=True, timeout=20, env=env))
+    out = subprocess.run([runtime[0], "-I", str(SECRET_SCRIPT)], capture_output=True, text=True, timeout=30, env=env)
     if out.returncode != 0:
         raise RuntimeError("Grok Voice login unavailable: " + (out.stderr.strip().splitlines() or ["?"])[-1][:200])
     return json.loads(out.stdout)["value"]
