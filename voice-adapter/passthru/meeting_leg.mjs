@@ -41,9 +41,15 @@ const { chromium } = playwright();
 const recipe = cfg.create ? ALL.find(r => r.name === cfg.create) : ALL.find(r => r.match.test(cfg.url));
 if (!recipe || (cfg.create && !recipe.create)) { say('join.failed', { detail: 'no recipe for ' + (cfg.create || cfg.url) }); process.exit(2); }
 const url = cfg.create ? recipe.home : (recipe.rewrite ? recipe.rewrite(cfg.url) : cfg.url);
-const browser = await chromium.launch({
-  headless: cfg.headless !== false,
+const headless = cfg.headless !== false;
+// Google Meet answers "You can't join this video call" to anything that looks automated: the old
+// headless shell, a "HeadlessChrome" user agent or the --enable-automation flag. Headless runs use
+// the full Chromium build (new headless mode) with those tells removed. Proven by e2e_meet.py.
+const launchOpts = {
+  headless,
+  ignoreDefaultArgs: ['--enable-automation'],
   args: [
+    '--disable-blink-features=AutomationControlled',
     '--autoplay-policy=no-user-gesture-required',
     '--use-fake-ui-for-media-stream',               // grant mic/camera without a prompt; our init script supplies the streams
     '--enable-features=WebRtcHideLocalIpsWithMdns',
@@ -51,12 +57,22 @@ const browser = await chromium.launch({
     // (Local/Private Network Access). Only this throwaway z0 profile gets the exemption.
     '--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests,PrivateNetworkAccessSendPreflights,PrivateNetworkAccessRespectPreflightResults',
   ],
-});
+};
+let browser;
+try { browser = await chromium.launch(headless ? { ...launchOpts, channel: process.env.Z0LIVE_PASSTHRU_CHANNEL || 'chromium' } : launchOpts); }
+catch (e) { say('launch.fallback', { detail: String(e).slice(0, 200) }); browser = await chromium.launch(launchOpts); }
+const plainUA = () => {
+  const os = process.platform === 'darwin' ? 'Macintosh; Intel Mac OS X 10_15_7' : process.platform === 'win32' ? 'Windows NT 10.0; Win64; x64' : 'X11; Linux x86_64';
+  return `Mozilla/5.0 (${os}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${browser.version().split('.')[0]}.0.0.0 Safari/537.36`;
+};
 const context = await browser.newContext({
   viewport: { width: 1280, height: 800 },
   permissions: ['microphone', 'camera'],
   bypassCSP: true,   // the app's CSP would block inject.js's loopback socket to the adapter
-  userAgent: cfg.userAgent || undefined,
+  userAgent: cfg.userAgent || (headless ? plainUA() : undefined),
+  // Optional signed-in identity (Playwright storageState JSON, 0600). Google Meet refuses anonymous
+  // automated guests, so z0 joins Meet as a real Google account when this is set.
+  storageState: cfg.storageState || process.env.Z0LIVE_PASSTHRU_STATE || undefined,
 });
 await context.grantPermissions(['microphone', 'camera'], { origin: new URL(url).origin }).catch(() => {});
 await context.addInitScript({ content: `window.__Z0_PASSTHRU_CFG__ = ${JSON.stringify({ ws: cfg.ws, token: cfg.token, name: cfg.name })};\n` + readFileSync(join(here, 'inject.js'), 'utf8') });
@@ -123,6 +139,7 @@ readline.createInterface({ input: process.stdin }).on('line', async line => {
     else if (m.cmd === 'unshare') await unshare();
     else if (m.cmd === 'leave') await shutdown();
     else if (m.cmd === 'status') say('status', { stats: await stats(), sharing: !!sharePage });
+    else if (m.cmd === 'shot' && m.path) { await page.screenshot({ path: m.path }); say('shot', { path: m.path }); }
     else if (m.cmd === 'eval' && process.env.Z0LIVE_PASSTHRU_DEBUG) say('eval', { out: String(await page.evaluate(m.js)).slice(0, 800) });
   } catch (e) { say('cmd.failed', { cmd: m.cmd, detail: String(e).slice(0, 300) }); }
 }).on('close', shutdown);
