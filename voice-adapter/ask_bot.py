@@ -250,12 +250,11 @@ def ask(profile: str, message: str, call: str = "", item: str = "", by: str = BY
 
     def send(sid):
         if on_approval is not None:
-
             return _run(profile, table[profile], sid, messages, timeout, on_approval)
         return _post(profile, table[profile], sid, messages, timeout)
 
     try:
-        answer = None
+        answer, cid, echoed = None, "", ""
         with topic_sessions.session_flock(state / "ask-locks", f"{profile}-{session}", SESSION_WAIT_S) as held:
             if held:
                 try:

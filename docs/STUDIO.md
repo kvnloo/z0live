@@ -288,6 +288,17 @@ Set `voices.json` `profile` to the same name; the adapter reads `~/.config/z0liv
 per call. It never falls back to the primary's chat if its host is unavailable. If you change the host's
 `--port`, match it with `Z0LIVE_GUEST_HOST_PORT` in the voice adapter.
 
+**Adding a guest by voice, for one call** (`voice-adapter/guest_join.py`): with `voices.json` at `{}`, say
+"add Tek to the call" (also "bring PC in" or "get Tek on the call"). Kevin's turn and the voice's delegation of it both
+run the same join, at most once in 20 s. Hermes says only "One sec.", the guest's session starts, and the guest
+answers in its own voice: "Hi Kevin, Tek here." Tek speaks as `ember`, PC as `cove`, and Hermes stays on
+`sol`. "Remove Tek from the call" (or "Tek, you can go") ends the guest. Hermes says "Tek is off the call
+now." and drops anything Tek had not said yet. `voices.json` is never written. A profile can join only when
+it has `guest-hosts/<profile>.key` and a host port: `Z0LIVE_JOIN_HOSTS` (JSON `{name: port}`), else
+`~/.config/z0live/join-hosts.json`, else tek on `Z0LIVE_GUEST_HOST_PORT` (18644) plus `ask_bot.hosts()` (pc 18645).
+Only one guest can be on a call. Real-session check: `.venv/bin/python live_join_probe.py OUT [tek|pc]` (writes
+report.json and phone.wav).
+
 `{"guest": "grok"}` still selects Grok (requires `hermes auth add xai-oauth`; no guest Hermes tools).
 `{"guest": ""}` disables the guest. `Z0LIVE_VOICES_FILE` selects an alternate file for a probe without touching
 live config. `Z0LIVE_GUEST=off` disables the guest for that adapter process.
@@ -320,6 +331,34 @@ turn the call didn't start still joins that turn (receipt `steered` or `redirect
 by its one final message. The adapter does not resubmit a failed turn because Hermes may
 already have acted. The API-only host on 8644 serves the core's lanes, not call hand-offs: a
 per-call API conversation ran hand-offs one at a time with no one to approve tools (11-20 night).
+
+### One chat per project group (`topic_sessions.py`)
+
+A background agent is a new `bg_*` session every time: 86 of them on 11-28, most of them cold
+repeats of the same few projects. Now each hand-off is sorted into a project group first (z0live
+calls, Grok and xAI, TV dashboard, Dash and S Pen, Meetings, Phones and cameras, groot, Tokens and
+routing, Hermes, else `general`). It then runs as a turn of that group's chat, titled
+`z0live · <group>`. The chat is found by exact title (`session.list {title}`, which follows a compacted
+chat to its newest part) or created once with the group's repo as its folder. Follow-ups see the
+group's earlier turns, and the chat shows in the app under its project. A request with no project
+word stays in the call's last group for 5 minutes (`Z0LIVE_TOPIC_STICKY_SECONDS`).
+
+A new group chat's first turn gets the anchored chat's memory. Its first turn on each call gets the
+call brief. Later turns get only the call's last few lines and the ledger. A turn that lands while
+the group chat is busy is queued behind the running turn (`queued: true`); it never steers into it.
+Past `Z0LIVE_TOPIC_DEPTH` (2) requests in one group, or when the dashboard refuses before the submit,
+the request runs beside the chat as a background agent, as it did before. Traces:
+`delegation.topic` (group, why, chat, created, status), `delegation.topic_overflow` and
+`delegation.topic_refused`. Groups can be replaced with `~/.config/z0live/topic-groups.json`.
+`Z0LIVE_TOPIC_SESSIONS=0` turns the whole feature off.
+
+The guest leg and `ask @bot` key their API-server session by group and day
+(`z0live-guest-<group>-<YYYYMMDD>`, `z0live-ask-<caller>-<group>-<YYYYMMDD>`), not by call. If that
+session answers 409 (busy), the request falls back to the call's own session.
+
+Check it with `voice-adapter/topic_replay.py <day>`, which counts sessions before and after from the
+day's traces and `state.db`, and with `voice-adapter/live_topic_probe.py`, which runs two turns on
+the real dashboard in a probe group chat and then archives it.
 
 `HERMES_VOICE_MAX_CALL_SECONDS` defaults to 14400. Each GPT-Live leg uses its own advertised expiry.
 The adapter prepares a silent replacement and swaps it in at a quiet boundary if time allows.
