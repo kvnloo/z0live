@@ -75,7 +75,7 @@ class FloorTest(unittest.TestCase):
                 self.assertEqual(floor.owner, expected)
 
     def test_with_people_on_the_call_a_bot_gets_the_floor_by_name_or_a_follow_up_request(self):
-        # 11-22 film call, take 7: Kevin and a friend at one phone; their talk to each other ran Hermes and got speech.
+        # 11-22 film call, take 7: The owner and a friend at one phone; their talk to each other ran Hermes and got speech.
         floor = Floor(0, lambda *a, **k: None, available=True, people=2)
         floor.change("people", "people_on_call", 0)
         floor.user_turn(None, "Is the glass theme on your phone yet?", 1, 2, final=True)
@@ -107,14 +107,14 @@ class FloorTest(unittest.TestCase):
         self.assertEqual((floor.owner, floor.reason), ("primary", "answer_ready"))
 
     def test_with_people_on_the_call_a_request_that_cut_off_the_bot_stays_with_it(self):
-        # Take 8: Kevin began his next request as Hermes finished; Hermes then began "Actually," and Kevin's barge-in
+        # Take 8: The owner began his next request as Hermes finished; Hermes then began "Actually," and the owner's barge-in
         # cut it. Measured against that last reply (begun after him), his request was taken for people talk and
         # never reached Hermes.
         floor = Floor(0, lambda *a, **k: None, available=True, people=2)
         floor.user_turn(Address.OTHER, "Hermes, what's on my phone versus staging?", 1, 2, final=True)
         floor.reply_started("primary", 3)
         floor.reply_finished("primary", 17, 3)
-        floor.reply_started("primary", 23)  # "Actually," while Kevin (since 20) is already talking
+        floor.reply_started("primary", 23)  # "Actually," while the owner (since 20) is already talking
         floor.reply_finished("primary", 24, 23)  # the barge-in
         floor.user_turn(None, "Yeah. Merged isn't done. Get all of it onto my S25", 20, 28, final=True)
         self.assertEqual(floor.owner, "primary")
@@ -158,7 +158,7 @@ class PrimaryCall(FakeCall):
         self.protocol = live.Protocol(host_delegation=True)
         self.tasks = []
         self.manager = type("Manager", (), {"http": None})()
-        self.delegated = []  # (did, request) the floor handed to Kevin's Hermes
+        self.delegated = []  # (did, request) the floor handed to the owner's Hermes
 
     async def host_delegate(self, did, request):
         self.delegated.append((did, request))
@@ -190,7 +190,7 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_suppressed_reply_never_leaks_audio_text_or_context(self):
         self.guest.observe("primary", turn("done", "Tek, what shipped?"))
-        self.assertFalse(self.guest.observe("primary", output("Not for Kevin.")))
+        self.assertFalse(self.guest.observe("primary", output("Not for the owner.")))
         self.guest.message(json.dumps(output("A release.")))
         self.guest.audio.extend(b"\xe8\x03" * 960)
         self.assertTrue((self.guest.output(frame()).to_ndarray() == 1000).all())
@@ -198,10 +198,10 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
         self.guest.observe("primary", turn("done", "Hermes, take over", 2000, 2600, tid="redirect"))
         self.assertFalse(self.guest.observe("primary", output("Still the same hidden reply.")))
         self.assertFalse(self.guest.output(frame()).to_ndarray().any())
-        self.guest.observe("primary", turn("done", "Not for Kevin.", role="assistant", tid="hidden"))
+        self.guest.observe("primary", turn("done", "Not for the owner.", role="assistant", tid="hidden"))
         self.assertTrue(self.guest.observe("primary", output("New reply.")))
         self.assertTrue((self.guest.output(frame()).to_ndarray() == 7).all())
-        self.assertFalse(any("Not for Kevin" in str(msg) for msg in self.call.sent))
+        self.assertFalse(any("Not for the owner" in str(msg) for msg in self.call.sent))
 
     async def test_a_reply_the_floor_muted_is_heard_once_the_floor_passes_back_for_its_answer(self):
         # Take 12, line 3: Hermes's answer waited while the people talked. The primary's reply opened (as the floor
@@ -928,7 +928,7 @@ class OneDecisionTest(TimedGuestTest):
         self.assertEqual(self.tek.call_count, 1)
 
     async def test_an_unnamed_follow_up_goes_to_the_bot_that_just_replied_and_waits_for_the_utterance_to_end(self):
-        # Take 10: Hermes's "Right" 1.4 s into Kevin's long-run ask made "Yeah, merged isn't" his final; takes 10
+        # Take 10: Hermes's "Right" 1.4 s into the owner's long-run ask made "Yeah, merged isn't" his final; takes 10
         # and 11 never handed the ask to Hermes.
         g = self.guest
         g.set_people(2)
@@ -944,7 +944,7 @@ class OneDecisionTest(TimedGuestTest):
         g.observe("primary", turn("created", "", role="assistant", tid="a3"))
         self.assertFalse(g.observe("primary", output("Right.")), "the floor has not decided: the bot stays muted")
         g.observe("primary", turn("done", "Yeah, merged isn't", 11000, 12000, tid="p3"))
-        self.call.input_loud_at = 113.9  # Kevin is still talking; his words trail the mic
+        self.call.input_loud_at = 113.9  # the owner is still talking; his words trail the mic
         self.at(114)
         g.end_of_utterance()
         self.assertEqual(len(self.call.delegated), 1, "no decision while the mic is loud")
@@ -1061,7 +1061,7 @@ class GuestContextTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(m["role"] == "system" and "The work is hermes-android." in m["content"] for m in messages))
 
     @patch.object(live, "HOST_DELEGATION", True)
-    async def test_kevins_hermes_on_the_oneshot_path_gets_the_same_context(self):
+    async def test_owners_hermes_on_the_oneshot_path_gets_the_same_context(self):
         call = await self.call()
         call.protocol.seen.append("d1")
         call.send = lambda *a, **k: None
@@ -1077,7 +1077,7 @@ class GuestContextTest(unittest.IsolatedAsyncioTestCase):
 PR_28 = "kvnloo/hermes-android#28"
 PR_28_TITLE = "fix(glass): stop the crash on every launch after picking Glass"
 # The brief the chat agent wrote for the call (hermes-voice-brief): the primary voice opens with it.
-FILM_BRIEF = (f"Glass on Kevin's S25: {PR_28} '{PR_28_TITLE}' is merged into hermes-android staging; the phone still "
+FILM_BRIEF = (f"Glass on the owner's S25: {PR_28} '{PR_28_TITLE}' is merged into hermes-android staging; the phone still "
               "runs last night's 4.0.9.")
 # A chat whose words never name the repo: only the written brief places "PR 28".
 VAGUE_CHAT = [{"role": "user", "content": [{"type": "input_text", "text": "is the glass fix on my phone yet?"}]}]
@@ -1141,7 +1141,7 @@ class GuestCallBriefTest(unittest.IsolatedAsyncioTestCase):
         asked = await self.ask_tek(call)
         self.assertIn(PR_28, asked.context)
         self.assertNotIn("<call_brief>", asked.context)  # framing for the voice model, not for a Hermes run
-        self.assertNotIn("wait for Kevin to speak", asked.context)
+        self.assertNotIn("wait for the owner to speak", asked.context)
 
     async def test_each_call_gives_tek_hermes_only_its_own_context(self):
         film = await self.call(REPO_CHAT, FILM_BRIEF)
@@ -1226,13 +1226,13 @@ class PrimaryDelegationTest(unittest.IsolatedAsyncioTestCase):
         return ran
 
     @patch.object(live, "HOST_DELEGATION", True)
-    async def test_kevins_hermes_never_runs_a_request_addressed_to_tek(self):
+    async def test_owners_hermes_never_runs_a_request_addressed_to_tek(self):
         self.assertEqual(await self.delegate("Tek, delete the old release branch"), [])
 
     @patch.object(live, "HOST_DELEGATION", True)
     async def test_words_said_to_tek_never_join_the_next_request_to_hermes(self):
         # 11-21 two-voice probe: after "Tek, what did you work on today?" and Tek's answer, "Hermes, back to you"
-        # delegated "Tek, what did you work on today Thanks, Tek. Hermes, back to you" to Kevin's Hermes.
+        # delegated "Tek, what did you work on today Thanks, Tek. Hermes, back to you" to the owner's Hermes.
         config = guest_voice.GuestConfig("gpt-live", "tek", "ember", "tek")
         with patch.dict(live.os.environ, {"HERMES_VOICE_ENGINE": "gpt-live"}), \
                 patch.object(live.guest_voice, "configured", return_value=config):
@@ -1279,5 +1279,5 @@ class PrimaryDelegationTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("work on today", guest_ran[0])
 
     @patch.object(live, "HOST_DELEGATION", True)
-    async def test_kevins_hermes_runs_a_request_addressed_to_it(self):
+    async def test_owners_hermes_runs_a_request_addressed_to_it(self):
         self.assertEqual(await self.delegate("Delete the old release branch"), ["Delete the old release branch"])

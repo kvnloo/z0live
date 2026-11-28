@@ -1,4 +1,4 @@
-"""The request ledger: what Kevin asked for, who promised it, what proves it started, and what came of it.
+"""The request ledger: what the owner asked for, who promised it, what proves it started, and what came of it.
 
 One append-only JSON-lines file, ~/.local/share/z0live/ledger/ledger.jsonl (the directory comes from the env var
 Z0LIVE_LEDGER, read on every call so a test can point it at a temp dir). Every writer (the voice adapter, Hermes
@@ -13,7 +13,7 @@ by path like lane_layout.py.
     items(call=None, open_only=False) -> [dict]   folded view, newest first
     brief(call, max_chars=4000) -> str            what the next agent must read: open promises, receipts, results
 
-The rule the whole loop rests on: nobody tells Kevin work "started" or "done" unless the item has a receipt or a result.
+The rule the whole loop rests on: nobody tells the owner work "started" or "done" unless the item has a receipt or a result.
 A claim with no receipt after NOT_STARTED_SECONDS is `unstarted` in the folded view (and "NOT STARTED" in brief()); that
 is derived, never a stored state. For an action only pid|kanban|cron|commit|file receipts are proof: a `lane` receipt
 says an answerer was launched, not that the action happened.
@@ -245,7 +245,7 @@ def _line(it: dict, now: float, full: bool) -> str:
     return "\n".join(out)
 
 
-BRIEF_HEAD = ("Request ledger for this call. It is the record of what Kevin asked, what was promised, and what proves "
+BRIEF_HEAD = ("Request ledger for this call. It is the record of what the owner asked, what was promised, and what proves "
               "it. Never tell him work started, is running or is done unless an item below shows proof (a proof line) "
               "or a result. Do not repeat answers already given below; do not make a promise a new item would have to "
               "keep unless you start the work and record its proof.")

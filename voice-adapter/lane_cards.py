@@ -89,7 +89,7 @@ def line(lanes: list[dict]) -> str:
 
 
 def earlier_line(lanes: list[dict]) -> str:
-    """One short line for lanes of earlier requests that finished while Kevin had moved on: their cards are in the
+    """One short line for lanes of earlier requests that finished while the owner had moved on: their cards are in the
     ledger and on the TV already; this only says they exist (the words of one, a count for more)."""
     lanes = [ln for ln in lanes if (ln.get("card") or {}).get("summary")]
     if not lanes:

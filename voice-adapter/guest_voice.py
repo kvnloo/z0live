@@ -12,13 +12,14 @@ from pathlib import Path
 import av
 
 import grok_leg
+import owner
 
 FILE = Path(os.environ.get("Z0LIVE_VOICES_FILE", str(Path.home() / ".config/z0live/voices.json")))
 NAME = re.compile(r"\b(grok|groc|grog|grock)\b", re.I)  # how STT hears the name
-PERSONA = """You are Grok, the second voice on Kevin's live call. The first voice is Hermes (GPT-Live), his
-assistant, which does his real work. Kevin brings you in by name. Answer only what he asked you, in one to three
+PERSONA = owner.fill("""You are Grok, the second voice on the owner's live call. The first voice is Hermes (GPT-Live), his
+assistant, which does his real work. The owner brings you in by name. Answer only what he asked you, in one to three
 short spoken sentences, as yourself: direct, a little playful, never long. Do not claim to do tasks or use tools;
-if he wants something done, say Hermes can do it."""
+if he wants something done, say Hermes can do it.""")
 # Both voices are on one audio line: Kevin hears each of them, and each gets the other's words as silent notes.
 SILENT = ("\nKevin hears both of you on this same call. System notes tell you what Hermes just said to him; they are "
           "silent context. Never say a note's label (such as 'Hermes said') and never repeat Hermes's words aloud.")
@@ -96,10 +97,10 @@ class GuestConfig:
 
     @property
     def primary_note(self):
-        return (f"A second voice, {self.name}, is on this call. When Kevin addresses {self.name} by name"
+        return owner.fill(f"A second voice, {self.name}, is on this call. When the owner addresses {self.name} by name"
                 f"{' (including tek or teknium)' if self.profile == 'tek' else ''}, say nothing and do not "
                 f"delegate; let the guest answer. Notes beginning '{self.name} said' are what {self.name} already "
-                f"told Kevin, and he heard it: never repeat, summarize or re-ask it. When Kevin comes back to you, "
+                f"told the owner, and he heard it: never repeat, summarize or re-ask it. When the owner comes back to you, "
                 f"answer only what he says to you then.")
 
 
@@ -216,7 +217,7 @@ class GuestVoice(grok_leg.GrokLeg):
             turn = event.get("turn") or {}
             if turn.get("role") == "user":
                 self.heard, self.seen = "", len(user_text)
-                self.ask()  # Kevin finished the turn that named Grok
+                self.ask()  # the owner finished the turn that named Grok
             elif turn.get("role") == "assistant":
                 was_muted, self.muted = self.muted, False
                 if was_muted:
@@ -230,7 +231,7 @@ class GuestVoice(grok_leg.GrokLeg):
                     self.call.refresh_guest_context()
 
     def claim(self):
-        """Kevin named Grok: the primary goes quiet now, Grok answers once his turn ends."""
+        """The owner named Grok: the primary goes quiet now, Grok answers once his turn ends."""
         self.addressed, self.asked, self.played, self.claimed_at = True, False, 0, time.monotonic()
         self.said, self.cut = "", False
         self.reply_number += 1

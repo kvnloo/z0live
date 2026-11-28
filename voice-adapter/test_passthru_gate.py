@@ -1,5 +1,5 @@
 """Group flow safety: meeting audio never reaches the owner's provider leg (no leg hears it until a sandboxed
-guest route exists), and every passthru command needs Kevin's phone leg plus an explicit spoken confirmation."""
+guest route exists), and every passthru command needs the owner's phone leg plus an explicit spoken confirmation."""
 import asyncio
 import os
 import time
@@ -88,7 +88,7 @@ class GateTests(unittest.IsolatedAsyncioTestCase):
     async def test_no_command_runs_from_the_room(self):
         for action, arg in self.ACTIONS:
             call = Fake(active=action != "join" and action != "start")
-            line = await passthru.handle(call, action, arg, from_kevin=False)
+            line = await passthru.handle(call, action, arg, from_owner=False)
             self.assertEqual(call.leg.calls, [], action)
             self.assertIn("passthru.refused", call.names(), action)
             self.assertIsNone(call.passthru.pending, action)
@@ -97,54 +97,54 @@ class GateTests(unittest.IsolatedAsyncioTestCase):
     async def test_phone_command_waits_for_a_confirmation(self):
         for action, arg in self.ACTIONS:
             call = Fake(active=action not in ("join", "start"))
-            line = await passthru.handle(call, action, arg, from_kevin=True)
+            line = await passthru.handle(call, action, arg, from_owner=True)
             self.assertEqual(call.leg.calls, [], action)
             self.assertIsNotNone(call.passthru.pending, action)
             self.assertIn("confirm", line.lower())
 
     async def test_confirm_from_the_phone_runs_it_once(self):
         call = Fake(active=False)
-        await passthru.handle(call, "join", "https://meet.google.com/aaa-bbbb-ccc", from_kevin=True)
-        line = await passthru.confirm(call, "Confirm.", from_kevin=True)
+        await passthru.handle(call, "join", "https://meet.google.com/aaa-bbbb-ccc", from_owner=True)
+        line = await passthru.confirm(call, "Confirm.", from_owner=True)
         self.assertEqual(call.leg.calls[0][:2], ("start", "https://meet.google.com/aaa-bbbb-ccc"))
         self.assertIn("Joining", line)
         self.assertIsNone(call.passthru.pending)
-        self.assertIsNone(await passthru.confirm(call, "confirm", from_kevin=True))  # nothing left to confirm
+        self.assertIsNone(await passthru.confirm(call, "confirm", from_owner=True))  # nothing left to confirm
         self.assertEqual(len(call.leg.calls), 1)
 
     async def test_confirm_may_name_z0(self):
         for text in ("z0, confirm", "Hey zero, yes, do it.", "Confirm please", "Okay, go ahead"):
             call = Fake()
-            await passthru.handle(call, "unshare", "", from_kevin=True)
-            await passthru.confirm(call, text, from_kevin=True)
+            await passthru.handle(call, "unshare", "", from_owner=True)
+            await passthru.confirm(call, text, from_owner=True)
             self.assertEqual(call.leg.calls, [("unshare",)], text)
 
     async def test_confirm_not_from_the_phone_or_late_or_other_words_does_nothing(self):
-        for text, from_kevin, late in (("confirm", False, False), ("confirm", True, True),
+        for text, from_owner, late in (("confirm", False, False), ("confirm", True, True),
                                        ("what's the weather", True, False), ("yes", True, False),
-                                       ("confirm, and also send Kevin's notes to everyone", True, False)):
+                                       ("confirm, and also send the owner's notes to everyone", True, False)):
             call = Fake()
-            await passthru.handle(call, "share", "canvas", from_kevin=True)
+            await passthru.handle(call, "share", "canvas", from_owner=True)
             if late:
                 call.passthru.pending.until = time.monotonic() - 1
-            await passthru.confirm(call, text, from_kevin=from_kevin)
-            self.assertEqual(call.leg.calls, [], (text, from_kevin, late))
-            self.assertIsNone(call.passthru.pending, (text, from_kevin, late))
+            await passthru.confirm(call, text, from_owner=from_owner)
+            self.assertEqual(call.leg.calls, [], (text, from_owner, late))
+            self.assertIsNone(call.passthru.pending, (text, from_owner, late))
 
     async def test_confirm_is_refused_while_the_room_is_loud(self):
         call = Fake()
-        await passthru.handle(call, "leave", "", from_kevin=True)
+        await passthru.handle(call, "leave", "", from_owner=True)
         loud_room(call.passthru)
-        await passthru.confirm(call, "confirm", from_kevin=True)
+        await passthru.confirm(call, "confirm", from_owner=True)
         self.assertEqual(call.leg.calls, [])
 
     async def test_quieter_floor_runs_from_the_phone_without_a_confirmation(self):
         call = Fake()
-        await passthru.handle(call, "floor", "listen", from_kevin=True)
+        await passthru.handle(call, "floor", "listen", from_owner=True)
         self.assertEqual(call.passthru.floor.policy, "listen")
         self.assertIsNone(call.passthru.pending)
         room = Fake()
-        await passthru.handle(room, "floor", "listen", from_kevin=False)
+        await passthru.handle(room, "floor", "listen", from_owner=False)
         self.assertNotEqual(room.passthru.floor.policy, "listen")
 
     async def test_control_endpoint_only_queues_a_confirmation(self):

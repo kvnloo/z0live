@@ -41,7 +41,7 @@ CODEX_FALLBACK = {"sol": "gpt-6.2-sol", "astra": "gpt-6.2-astra", "terra": "gpt-
 
 
 def latest_codex(family: str, path: Path | None = None) -> str:
-    """The newest listed `gpt-<version>-<family>` in this account's Codex catalog (Kevin, 11-27: "just use the latest
+    """The newest listed `gpt-<version>-<family>` in this account's Codex catalog (the owner, 11-27: "just use the latest
     version for every role"), or the 11-27 fallback. A new release (say gpt-6.3-terra) is picked up on the next start
     with no code change."""
     try:
@@ -82,7 +82,7 @@ MODELS = {
            "label": "semantic router"},
     "fable": {"binding": None, "home": "research", "label": "Haiku + Fable advisor"},
 }
-# Words Kevin (or the speech-to-text) uses for each model.
+# Words the owner (or the speech-to-text) uses for each model.
 ALIASES = {"haiku": "haiku", "haikus": "haiku", "sonnet": "sonnet", "sonnets": "sonnet", "opus": "opus",
            "opuses": "opus", "sol": "sol", "sols": "sol", "soul": "sol", "sole": "sol", "saul": "sol",
            "gpt": "sol", "codex": "sol", "astra": "astra", "astras": "astra", "astro": "astra", "terra": "terra",
@@ -96,7 +96,7 @@ CAP_POOL = 30       # whole TV pool
 # at p50 3.4 s and skipped more, while Terra took 2.05 s and Luna 1.72 s. Across 77 replayed asks, useful answers within
 # 3 s rose from 0.70 to 0.78.
 VOICE_DEFAULT = {"fast": {"terra": 2}, "medium": {"sonnet": 1, "sol": 1}, "slow": {"opus": 1, "sol": 1}}
-# Kevin's mix (11-27): 3 haiku, 2 sonnet, 5 terra, 5 sol, 2 opus, each at its newest version.
+# The owner's mix (11-27): 3 haiku, 2 sonnet, 5 terra, 5 sol, 2 opus, each at its newest version.
 RESEARCH_DEFAULT = {"haiku": 3, "sonnet": 2, "terra": 5, "sol": 5, "opus": 2, "astra": 0, "luna": 0, "sr": 0, "fable": 0}
 
 
@@ -272,7 +272,7 @@ def change(edit, by: str = "", path: Path | None = None) -> dict:
 
 # ---------------------------------------------------------------- actions (the Hermes tool and the call share these)
 def _role(role: str | None, name: str) -> str:
-    """Where a lane goes. Bare "N X lanes" means worker lanes (the TV pool): Kevin's numbers (3 haiku, 2 sonnet,
+    """Where a lane goes. Bare "N X lanes" means worker lanes (the TV pool): the owner's numbers (3 haiku, 2 sonnet,
     10 sol, 2 opus) are worker counts, and 10 sol racers on the call would be 10 identical SKIPs (LANES-BACKEND.md).
     "answer"/"voice"/"call" lanes race on every spoken request, in the model's home tier unless one is named."""
     role = (role or "").lower().strip()

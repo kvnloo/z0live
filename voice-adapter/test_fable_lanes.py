@@ -47,7 +47,7 @@ class FableLanes(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(said, [("d1", "Broker is up.")])
 
     async def test_an_older_question_goes_quiet_once_a_newer_one_starts(self):
-        """18:41 call: Q1's 45 s lane spoke over Kevin's follow-up "did you listen to anything I asked"."""
+        """18:41 call: Q1's 45 s lane spoke over the owner's follow-up question."""
         with tempfile.TemporaryDirectory() as home:
             root = Path(home) / ".hermes/profiles/clean/cache/fast-lane/fable/voice-d1"
             root.mkdir(parents=True)
@@ -57,7 +57,7 @@ class FableLanes(unittest.IsolatedAsyncioTestCase):
             with mock.patch.object(Path, "home", return_value=Path(home)):
                 task = asyncio.ensure_future(mobile_live.Call.fable_lanes(call, "d1", time.time() - 1))
                 await asyncio.sleep(0.1)
-                call.latest_did = "d2"  # Kevin asked something new
+                call.latest_did = "d2"  # the owner asked something new
                 (root / "history.json").write_text(json.dumps({"lane": "history", "answer": "late and off-topic"}))
                 await asyncio.wait_for(task, 5)  # the speaker exits instead of waiting for the call to close
         self.assertEqual(said, [])

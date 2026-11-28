@@ -9,6 +9,8 @@ DIR/<lane>.json as each finishes; DIR/summary.txt collects them. Prints one line
 import argparse, json, os, re, subprocess, sys, threading, time
 from pathlib import Path
 
+import owner
+
 # Host-portable roots: this file lives in <z0live>/voice-adapter; the home repo sits beside the other repos.
 Z0LIVE = os.environ.get('Z0LIVE_REPO', str(Path(__file__).resolve().parents[1]))
 HOME_REPO = os.environ.get('Z0LIVE_HOME_REPO') or next(
@@ -22,7 +24,7 @@ ANGLES = {
     'history': f'What changed recently: `git -C {Z0LIVE} log --oneline -15` and current HEAD/branch, plus known open issues `gh issue list -R kvnloo/z0live --limit 15`. Match the symptom to a known bug.',
 }
 Z0LIVE_ANGLES = dict(ANGLES)
-# Default lanes answer whatever Kevin asked; the z0live-debug angles above apply only when he asks about
+# Default lanes answer whatever the owner asked; the z0live-debug angles above apply only when he asks about
 # the call/voice stack itself (a 15:18 PR question got five z0live health reports otherwise).
 GENERAL = {
     'sessions': 'Live Hermes sessions (the Hermes backend; what every bot/tab is doing now): for each '
@@ -33,7 +35,7 @@ GENERAL = {
                 '(messages where session_id=ID and role=\'user\' order by timestamp desc limit 1). Report title, age, status.',
     'github': 'GitHub, as kvnloo: `gh search prs --author kvnloo --sort updated --limit 30` (add --merged/--state), '
               '`gh pr view URL --comments`, `gh api repos/OWNER/REPO/pulls/N/reviews`, `gh api` for who merged/reviewed.',
-    'history': 'Kevin\'s past agent sessions: read-only `sqlite3 -readonly` on each ~/.hermes/profiles/*/state.db '
+    'history': 'The owner\'s past agent sessions: read-only `sqlite3 -readonly` on each ~/.hermes/profiles/*/state.db '
                '(messages_fts MATCH keywords; messages has session_id, role, content, timestamp). Newest first. '
                "Add `and coalesce(m.content,'') != ''`: empty-content rows are earlier agents' search calls, not history.",
     'files': f'Local notes and repos: {HOME_REPO}/map/INDEX.md names every repo; Grep/Read the matching ones '
@@ -42,10 +44,12 @@ GENERAL = {
     'web': 'Public web: WebSearch/WebFetch for upstream projects, docs or people mentioned.',
 }
 LIVE_WORDS = re.compile(r'\b(z0live|this call|voice|lanes?|relay|latency|glitch\w*|broker|transport)\b', re.I)
-GENERAL_INTRO = ('You are a FAST LANE helping Kevin during his live voice call: answer exactly what he asked, '
+GENERAL_INTRO = owner.fill('You are a FAST LANE helping the owner during his live voice call: answer exactly what he asked, '
                  'not something adjacent. READ ONLY: never edit, post, comment, merge or restart anything. '
                  'Final reply: <=4 short speech-friendly lines with concrete names/numbers/links, '
                  'or "nothing found on this angle".')
+GENERAL['history'] = owner.fill(GENERAL['history'])
+OWNERS = owner.fill("the owner's")
 CWD, MODEL = HOME_REPO, 'haiku'
 TOOLS = ['Read', 'Grep', 'Glob', 'WebSearch', 'WebFetch', 'Bash(journalctl:*)', 'Bash(systemctl --user status:*)',
          'Bash(systemctl --user cat:*)', 'Bash(ss:*)', 'Bash(git -C:*)', 'Bash(gh search:*)', 'Bash(gh pr:*)',
@@ -65,17 +69,17 @@ FAST_STEPS = 'Process: run 1-3 quick reads for your angle, then answer. Do not c
 
 def prompt(q, angle, fable=True):
     if not fable:
-        return (f'You are a FAST LANE on z0live (repo {Z0LIVE}) during Kevin\'s live voice call. READ ONLY.\n{FAST_STEPS}'
-                f'Your angle: {angle}\n\nKevin said: {q}\n\nFinal reply: <=3 short speech-friendly lines with evidence, '
+        return (f'You are a FAST LANE on z0live (repo {Z0LIVE}) during {OWNERS} live voice call. READ ONLY.\n{FAST_STEPS}'
+                f'Your angle: {angle}\n\n{owner.LABEL} said: {q}\n\nFinal reply: <=3 short speech-friendly lines with evidence, '
                 'or "nothing found on this angle".') if not INTRO else f'{INTRO}\n{FAST_STEPS}Your angle: {angle}\n\nQuestion: {q}'
     if INTRO:
         return (f'{INTRO}\nMANDATORY process: 1) run quick reads for your angle; 2) call the advisor with what you found; '
                 f'3) answer. Do not finish without the advisor call.\nYour angle: {angle}\n\nQuestion: {q}')
-    return (f'You are a FAST LANE troubleshooting z0live (Kevin\'s realtime voice broker, repo {Z0LIVE}) while he is '
+    return (f'You are a FAST LANE troubleshooting z0live ({OWNERS} realtime voice broker, repo {Z0LIVE}) while he is '
             'on a live voice call. Be quick. READ ONLY: never edit, restart or write anything.\n'
             'MANDATORY process: 1) run 2-5 quick reads for your angle; 2) call the advisor with what you found; '
             '3) answer. Do not finish without the advisor call.\n'
-            f'Your angle: {angle}\n\nKevin said: {q}\n\n'
+            f'Your angle: {angle}\n\n{owner.LABEL} said: {q}\n\n'
             'Final reply: <=5 short lines, plain speech-friendly facts with file/command evidence, or "nothing found on this angle".')
 
 

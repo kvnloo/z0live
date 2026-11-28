@@ -56,7 +56,7 @@ class ReplayContract(unittest.TestCase):
         self.assertEqual(report["unanswered"], [])
 
     def test_a_request_past_the_side_bound_is_queued_not_folded_into_the_running_turn(self):
-        # Take 7 of the 11-22 film call, chat path: Kevin's long-run ask waited behind a running turn while the voice
+        # Take 7 of the 11-22 film call, chat path: The owner's long-run ask waited behind a running turn while the voice
         # said "Got it, I'll handle that". With the chat turn and SIDE_MAX background agents busy, the next request
         # was still submitted into the busy chat: the dashboard redirected the running turn, so that request had no
         # answer of its own and the first request was answered with the redirect's words. Now it waits for a free
@@ -298,11 +298,11 @@ def guest_speech(t0, t1, text, tid):
     return [{**row, "src": "guest"} for row in speech(t0, t1, text, tid)]
 
 
-# Two people at one phone (Kevin and a friend) and two bots (Hermes, Tek). Take 7 of the 11-22 film call: timing and
+# Two people at one phone (the owner and a friend) and two bots (Hermes, Tek). Take 7 of the 11-22 film call: timing and
 # event order from its trace, words made up.
 PEOPLE = [{"role": "user", "content": [{"type": "input_text", "text": "status on the laptop beta?"}]},
           {"role": "assistant", "content": [{"type": "output_text", "text": "This call has two people at the desk, "
-                                             "Kevin and his friend Sam, and two bots: Hermes and Tek. When Kevin and "
+                                             "The owner and his friend Sam, and two bots: Hermes and Tek. When the owner and "
                                              "Sam talk to each other, stay quiet."}]}]
 
 
@@ -310,7 +310,7 @@ def take7(handoff="Got it, I'll handle that and keep receipts."):
     """Take 7 of the 11-22 film call, both legs; `handoff` is the voice's own line as it hands line 3 to Hermes. Lines 0, 1 and 5 are the people talking to each other; 2 and 3 are
     to Hermes (by name, then the next request in that exchange); 4 is to Tek by name."""
     return (GUEST
-                # 0. friend -> Kevin
+                # 0. friend -> the owner
                 + heard(6.2, 12.3, "Hey, wait, is the dark mode on your laptop yet? I don't see it on mine", "g0", "guest")
                 + heard(6.8, 12.9, "Hey, wait, is the dark mode on your laptop yet? I don't see it on mine", "p0")
                 + guest_delegation(11.75, "gd0", "Hey, wait, is the dark mode on your laptop yet?")
@@ -318,13 +318,13 @@ def take7(handoff="Got it, I'll handle that and keep receipts."):
                 + hermes("d0", 40, "Your laptop is on last night's build.")
                 + guest_speech(12.0, 14.6, "Yeah, let me check that quickly.", "ga0")
                 + speech(12.95, 14.7, "I'll check your laptop quickly.", "a0")
-                # 1. Kevin -> friend
+                # 1. The owner -> friend
                 + heard(13.4, 17.8, "No. I think it's still last night's build", "p1")
                 + heard(13.0, 19.0, "No. I think it's still last night's build", "g1", "guest")
                 + guest_delegation(18.7, "gd1", ". I think it's still last night's build")
                 + speech(17.9, 23.6, "Mm-hm. Yeah, it's still on the older build.", "a1")
                 + guest_speech(19.1, 22.0, "Thanks, checking that now.", "ga1")
-                # 2. Kevin -> Hermes, by name
+                # 2. The owner -> Hermes, by name
                 + heard(23.2, 27.8, "Hermes, what's actually on my laptop right now versus the beta", "p2")
                 + heard(22.6, 27.9, "Hermes, what's actually on my laptop right now versus the beta", "g2", "guest")
                 + delegation(27.0, "d2", "Hermes, what's actually on my laptop right now versus the beta")
@@ -332,7 +332,7 @@ def take7(handoff="Got it, I'll handle that and keep receipts."):
                 + hermes("d2", 12, "Your laptop runs build 9. The beta has twenty newer changes.")
                 + speech(28.0, 40.9, "I'll take a quick look. Your laptop runs build 9. The beta has twenty newer "
                                      "changes.", "a2")
-                # 3. Kevin -> Hermes, the next request in that exchange (no name)
+                # 3. The owner -> Hermes, the next request in that exchange (no name)
                 + heard(40.2, 52.6, "Yeah. Shipped isn't done. Get all of it onto my laptop, prove each one, and "
                                     "make it update itself. Take as long as you need, just send receipts", "p3")
                 + heard(41.6, 52.7, "Yeah. Shipped isn't done. Get all of it onto my laptop, prove each one, and "
@@ -367,8 +367,8 @@ def replayed(rows, history=PEOPLE):
 
 class PeopleOnTheCall(unittest.TestCase):
     def test_bots_stay_quiet_while_the_people_talk_to_each_other(self):
-        # Take 7: the friend's "Is the glass theme on your phone yet?" (to Kevin) ran a Hermes job that checked the
-        # phone, Tek drafted a reply, and Kevin's "No, I think it's still last night's build" got bot speech too.
+        # Take 7: a question from the friend to the owner ran a Hermes job that checked the
+        # phone, Tek drafted a reply, and the owner's reply got bot speech too.
         r = replayed(take7())
         self.assertEqual([did for did, _ in r.requests], ["d2", "d3"], "Hermes runs only the two requests to it")
         self.assertEqual(len(r.guest_asked), 1, "Tek's Hermes runs only the question to Tek")
@@ -379,8 +379,8 @@ class PeopleOnTheCall(unittest.TestCase):
         self.assertNotIn("I'll check", after_tek)
 
     def test_with_hermes_the_only_bot_it_stays_quiet_while_the_people_talk_to_each_other(self):
-        # Take 7's lines with no second voice on the call (Kevin, a friend and Hermes). The people gate lived only in
-        # the two-voice path, so here Hermes still ran the friend's question to Kevin and answered Kevin's reply.
+        # Take 7's lines with no second voice on the call (the owner, a friend and Hermes). The people gate lived only in
+        # the two-voice path, so here Hermes still ran the friend's question to the owner and answered the owner's reply.
         r = replayed([row for row in take7() if row.get("src") != "guest"])
         self.assertEqual([did for did, _ in r.requests], ["d2", "d3"],
                          "Hermes runs its named request and the next request in that exchange, nothing else")
@@ -392,7 +392,7 @@ class PeopleOnTheCall(unittest.TestCase):
         self.assertEqual(after, "", "the friend's reaction to Tek gets no reply from Hermes")
 
     def test_with_one_person_on_the_call_an_unnamed_question_still_goes_to_hermes(self):
-        # Control: the gate is for calls with more than one person. Alone with Hermes, Kevin never says its name.
+        # Control: the gate is for calls with more than one person. Alone with Hermes, the owner never says its name.
         r = replayed([row for row in take7() if row.get("src") != "guest"], history=None)
         self.assertIn("d0", [did for did, _ in r.requests])
         self.assertTrue("".join(text for t, text in r.heard if t < 27.8), "Hermes answers out loud")
@@ -424,7 +424,7 @@ class PeopleOnTheCall(unittest.TestCase):
         self.assertFalse([text for text in about if mobile_live.promises_new_work(text)])
 
     def test_a_request_the_bot_talks_over_is_judged_on_the_whole_utterance(self):
-        # Take 10: Kevin began his long-run ask 12 ms after Hermes's answer ended; 1.4 s in, Hermes's voice said
+        # Take 10: The owner began his long-run ask 12 ms after Hermes's answer ended; 1.4 s in, Hermes's voice said
         # "Right" over him. That output committed his turn as final at "Yeah, merged isn't" (no request in it yet), so
         # it was taken for people talk and the ask never reached Hermes. His turn.done came 8 s later with all of it.
         ask = "Yeah, merged isn't done. Get all of it onto my laptop, prove each one, and make it update itself"
@@ -448,7 +448,7 @@ class PeopleOnTheCall(unittest.TestCase):
                 + [{"t": 52.3, "src": "provider", "rx": {"type": "turn.done", "turn": {
                     "id": "p3", "role": "user", "transcript": ask, "start_ms": 41800, "end_ms": 51400}}}]
                 + hermes("d3", 20, "That run is already going as card 7.")
-                # Kevin's mic stayed loud through his ask while its words trailed (the trace's input spans)
+                # The owner's mic stayed loud through his ask while its words trailed (the trace's input spans)
                 + [{"t": 42.4, "input_loud": True}, {"t": 51.4, "input_loud": False}])
         r = replay.Replay([{"t": 0.5, "src": "provider", "rx": {"type": "session.started"}}] + rows, history=PEOPLE)
         import asyncio
@@ -456,11 +456,11 @@ class PeopleOnTheCall(unittest.TestCase):
         # On the call the voice obeyed the people note sent at 44.0 s and never delegated; the replay's recorded voice
         # delegates anyway, so the contract is that no such note goes out while the ask is still being spoken.
         notes = [t for t, event in r.sent if "talking to each other" in json.dumps(event)]
-        self.assertEqual(notes, [], "no people-talk note while Kevin's request to Hermes is still being spoken")
+        self.assertEqual(notes, [], "no people-talk note while the owner's request to Hermes is still being spoken")
         self.assertEqual([did for did, _ in r.requests], ["d2", "d3"], "the long-run ask reaches Hermes")
 
     def test_an_answer_waits_until_the_caller_has_finished_the_next_request(self):
-        # Take 11: Hermes's answer to line 2 reached the voice at 51.0 s, 8 s into Kevin's long-run ask (turn.done at
+        # Take 11: Hermes's answer to line 2 reached the voice at 51.0 s, 8 s into the owner's long-run ask (turn.done at
         # 52.1). The voice answered the ask from it and never handed the ask to Hermes.
         ask = "Yeah, merged isn't done. Get all of it onto my laptop, prove each one, and make it update itself"
         words = ask.split()
@@ -696,7 +696,7 @@ BOATS = "How many boat sandboxes are live right now?"
 
 
 def lane_card_call():
-    """A request whose TV lanes finish while Kevin talks and the voice answers, then one he moved on from."""
+    """A request whose TV lanes finish while the owner talks and the voice answers, then one he moved on from."""
     ask = {"id": "a1", "call": "{call}", "text": BOATS, "state": "running", "lanes": []}
     sol = card_lane("a1-1", "sol 6.2", "9 boat sandboxes live, all idle.")
     haiku = card_lane("a1-2", "haiku 5.5", "The oldest boat is three days old.")
@@ -767,7 +767,7 @@ class HermesPathNeverSilent(unittest.TestCase):
         import mobile_live
         with patch.object(mobile_live, "CHAT_TURNS", True, create=True):
             r, report = replay_rows(rows)
-        self.assertEqual(r.chat_submits, [], "a busy chat never gets a prompt.submit (it redirects Kevin's turn)")
+        self.assertEqual(r.chat_submits, [], "a busy chat never gets a prompt.submit (it redirects the owner's turn)")
         self.assertEqual(report["held"], [])
         self.assertLess(report["own_answer_s"]["d1"], 12)
 
@@ -799,7 +799,7 @@ class HermesPathNeverSilent(unittest.TestCase):
         self.assertIn("sorted into six albums", report["answers"].get("d1", ""), "the late answer is still spoken")
 
 
-    def test_no_progress_line_while_kevin_is_talking(self):
+    def test_no_progress_line_while_owner_is_talking(self):
         rows = (turn(5, 10, "user", "Check how much of my usage I have left across every account", "u1")
                 + delegation(9.8, "d1", "usage left") + turn(10, 11, "assistant", "On it.", "a1")
                 + hermes("d1", 120, "You have about forty percent left on the main account.")

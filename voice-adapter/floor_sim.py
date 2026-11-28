@@ -1,7 +1,7 @@
 """Multi-party floor simulator: film call 1 with a scripted caller and scripted voices, through the real adapter.
 
 Each seed is one call (replay.Replay on a simulated clock), judged by replay.checks on what the phone got:
-  caller   the film's six lines (Jules and Kevin; 0, 1 and 5 to each other, 2-3 to Hermes, 4 to Tek), each start
+  caller   the film's six lines (Jules and the owner; 0, 1 and 5 to each other, 2-3 to Hermes, 4 to Tek), each start
            jittered so lines overlap the bots, Tek's name heard as Tek/Tech/Teck/Tec, the guest leg's ASR hearing
            its own variant, words trailing the mic by 0.3-1.5 s, the mic loud while the caller talks
   voices   both legs answer every caller turn with a short draft of their own (self-started, as GPT-Live does) and

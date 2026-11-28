@@ -39,7 +39,7 @@ async def progress(request):
     elif not call.provider_ready or call.provider_dc.readyState != "open":
         raise web.HTTPConflict()
     # One status budget for the call (mobile_live.STATUS_GAP): a line inside the gap of another status line or the
-    # voice's ack, or over Kevin or a reply, is dropped. Still 204: an error only makes the agent try again.
+    # voice's ack, or over the owner or a reply, is dropped. Still 204: an error only makes the agent try again.
     if not call.take_status("ingress"):
         return web.Response(status=204)
     if call.leg:
