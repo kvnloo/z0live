@@ -8,6 +8,7 @@ from typing import Callable, Literal
 Leg = Literal["primary", "guest"]
 Owner = Literal["primary", "guest", "people"]  # "people": the people on the call are talking to each other
 IDLE_SECONDS = 20.0
+GREETING = "z0live-join-"  # delegation id prefix of a joining guest's hello (guest_join)
 FOLLOW_UP_SECONDS = 20.0  # with people on the call, an unnamed request this soon after a bot's reply is to that bot
 _WORD = r"[\w\u0b80-\u0bff]"
 # A request or question in the words, not only a remark ("Get all of it onto my S25", "can you check"). Used only to keep
@@ -161,12 +162,17 @@ class Floor:
             self.change(legs[0], "answer_ready", now)
         return bool(legs)
 
-    def failed(self, name: str, now: float) -> None:
+    def failed(self, name: str, now: float, *, line: str | None = None, reason: str = "guest_failed") -> None:
+        """The guest is gone (it failed, or Kevin sent it off: reason "guest_left"). Hermes says `line`."""
         self.available = False
-        self.change("primary", "guest_failed", now)
-        self.answers["primary"].appendleft(Answer("primary", None, f"{name} disconnected. I can keep going with you."))
+        self.change("primary", reason, now)
+        line = f"{name} disconnected. I can keep going with you." if line is None else line
+        if line:
+            self.answers["primary"].appendleft(Answer("primary", None, line))
         while self.answers["guest"]:
-            self.enqueue(self.answers["guest"].popleft(), name)
+            answer = self.answers["guest"].popleft()
+            if not str(answer.delegation_id or "").startswith(GREETING):  # its hello is no answer for Hermes to read
+                self.enqueue(answer, name)
 
     def enqueue(self, answer: Answer, name: str) -> None:
         if answer.leg == "guest" and not self.available:

@@ -257,6 +257,17 @@ Set `voices.json` `profile` to the same name; the adapter reads `~/.config/z0liv
 per call. It never falls back to the primary's chat if its host is unavailable. If you change the host's
 `--port`, match it with `Z0LIVE_GUEST_HOST_PORT` in the voice adapter.
 
+**Adding a guest by voice, for one call** (`voice-adapter/guest_join.py`): with `voices.json` at `{}`, say
+"add Tek to the call" (also "bring PC in" or "get Tek on the call"). Kevin's turn and the voice's delegation of it both
+run the same join, at most once in 20 s. Hermes says only "One sec.", the guest's session starts, and the guest
+answers in its own voice: "Hi Kevin, Tek here." Tek speaks as `ember`, PC as `cove`, and Hermes stays on
+`sol`. "Remove Tek from the call" (or "Tek, you can go") ends the guest. Hermes says "Tek is off the call
+now." and drops anything Tek had not said yet. `voices.json` is never written. A profile can join only when
+it has `guest-hosts/<profile>.key` and a host port: `Z0LIVE_JOIN_HOSTS` (JSON `{name: port}`), else
+`~/.config/z0live/join-hosts.json`, else tek on `Z0LIVE_GUEST_HOST_PORT` (18644) plus `ask_bot.hosts()` (pc 18645).
+Only one guest can be on a call. Real-session check: `.venv/bin/python live_join_probe.py OUT [tek|pc]` (writes
+report.json and phone.wav).
+
 `{"guest": "grok"}` still selects Grok (requires `hermes auth add xai-oauth`; no guest Hermes tools).
 `{"guest": ""}` disables the guest. `Z0LIVE_VOICES_FILE` selects an alternate file for a probe without touching
 live config. `Z0LIVE_GUEST=off` disables the guest for that adapter process.
