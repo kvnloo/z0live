@@ -2,7 +2,7 @@
 """Adapter-added overhead of chained_engine.ChainedEngine (on_device STT -> model -> TTS) with fake stages.
 
 Fake stages sleep a fixed injected latency (stt before returning, model before its first token, tts before
-its first chunk), then return instantly. Per turn:
+the first chunk of the first clause only), then return instantly. Per turn:
   overhead_injected = EOS->first_audio - (stt + model_first + tts_first injected)   (includes asyncio timer overshoot)
   overhead_stage    = EOS->first_audio - (same three gaps measured inside the fakes) (engine-only cost)
 Arms: zero (0/0/0 ms) run twice for an A/A noise band, lat50 (50/50/50 ms) once. Each arm: RUNS fresh event
@@ -53,8 +53,10 @@ def fakes(stt_ms, model_ms, tts_ms, gaps):
             yield tok
 
     async def tts(clause):
+        # Only the first clause sleeps: EOS->first_audio ends at that clause's first chunk, so later clauses' latency
+        # never entered the metric but cost ~tts_ms of wall per turn (the 319 s > 300 s budget miss in OD-harness).
         t = time.perf_counter_ns()
-        if tts_ms:
+        if tts_ms and "tts" not in gaps:
             await asyncio.sleep(tts_ms / 1000)
         gaps.setdefault("tts", time.perf_counter_ns() - t)  # first clause's first chunk only
         for _ in range(CHUNKS_PER_CLAUSE):
