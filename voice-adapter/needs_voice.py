@@ -33,8 +33,12 @@ def _say(r):
 
 def summary(rows, fresh):
     n = len(rows)
-    head = f"While you're away from the TV: {n} card{'s' if n != 1 else ''} need{'s' if n == 1 else ''} you."
-    return " ".join([head, "Top: " + "; and ".join(_say(r) for r in fresh[:2]) + ".",
+    # The count is its own sentence and the examples are named as examples: a run that said "Top: A; and B" was
+    # retold by the voice as "two things need you" while 33 did.
+    head = f"While you're away from the TV: {n} blocked card{'s' if n != 1 else ''} wait{'s' if n == 1 else ''} on you."
+    top = fresh[:2]
+    lead = "The one you haven't heard" if len(top) == 1 else f"The top two of the {n}"
+    return " ".join([head, f"{lead}: " + "; and ".join(_say(r) for r in top) + ".",
                      "Say show me blockers when you're back at the TV."])
 
 

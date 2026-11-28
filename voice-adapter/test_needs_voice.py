@@ -24,12 +24,12 @@ class WatchTest(unittest.TestCase):
         self.assertIsNone(w.step(payload(False), now=200))  # seen on the TV a moment ago: nothing to say
         text, ids = w.step(payload(False, NEW), now=300)
         self.assertEqual(ids, {"t_d"})
-        self.assertTrue(text.startswith("While you're away from the TV: 4 cards need you. Top: grant Full Disk Access"))
+        self.assertTrue(text.startswith("While you're away from the TV: 4 blocked cards wait on you. The one you haven't heard: grant Full"))
 
     def test_away_summary_once_then_only_new_cards(self):
         w = nv.Watch()
         text, ids = w.step(payload(False), now=100)
-        self.assertTrue(text.startswith("While you're away from the TV: 3 cards need you."))
+        self.assertTrue(text.startswith("While you're away from the TV: 3 blocked cards wait on you. The top two of the 3: add"))
         self.assertIn("add command_allowlist line to config.yaml", text)
         self.assertNotIn("t_a", text)  # ids are for the screen, not the voice
         w.said(ids, now=100)
@@ -117,7 +117,7 @@ class RunTest(unittest.TestCase):
             self.assertEqual(set(nv.load_memory(mem)), {"t_a", "t_a2", "t_b", "t_c"})
         self.assertEqual(len(polls), 2)  # first poll: floor busy, nothing said; second: said
         self.assertEqual(call.sent[0]["type"], "session.commentary.append")
-        self.assertIn("3 cards need you", call.sent[0]["content"])
+        self.assertIn("3 blocked cards wait on you", call.sent[0]["content"])
         self.assertEqual(call.traces[0][0], "needs.spoken")
 
     def test_run_is_silent_before_the_first_exchange(self):
