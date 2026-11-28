@@ -26,7 +26,7 @@ class SnapshotCompress(unittest.TestCase):
         self.assertNotIn("Oak-1", out)
         self.assertIn("Live lanes", out)
         self.assertIn("Job receipt", out)
-        self.assertIn("Kevin: Which berth?", out)
+        self.assertIn("User: Which berth?", out)
 
     def test_long_brief_is_capped_and_keeps_header(self):
         lines = ["Header line"]
@@ -37,7 +37,7 @@ class SnapshotCompress(unittest.TestCase):
         self.assertLessEqual(len(body), tiers.BRIEF_BUDGET)
         # r4+ (C56-live-compress-r4) deliberately stops force-keeping the newest exchange; the live call turns follow.
         self.assertIn("Header line", body)
-        self.assertIn("Kevin: now", out)
+        self.assertIn("User: now", out)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""Passthru: z0 joins Kevin's other call (Meet, Zoom web, Teams, any WebRTC page, canvas, whiteboard).
+"""Passthru: z0 joins the owner's other call (Meet, Zoom web, Teams, any WebRTC page, canvas, whiteboard).
 
 Android lets only one ordinary app hear the mic, and call audio (USAGE_VOICE_COMMUNICATION) cannot
 be captured, so the phone cannot merge a Meet call into the z0 call. Instead a browser on the Studio
@@ -8,17 +8,17 @@ live z0 call:
   meeting participants ──browser tap──▶ RoomAudio (counted, bounded; heard by no provider leg for now)
   z0's voice (provider output) ──AudioBridge tee──▶ browser mic ──▶ meeting
 
-Group flow safety: Kevin's provider leg hears his phone alone, so nobody in the meeting can talk to his full
+Group flow safety: The owner's provider leg hears his phone alone, so nobody in the meeting can talk to his full
 profile. Routing the room to a sandboxed guest leg is separate, tracked work; until then no leg hears it.
-Every command needs Kevin's phone leg (loud, unmuted) and then a spoken "confirm" on the phone while the room
+Every command needs the owner's phone leg (loud, unmuted) and then a spoken "confirm" on the phone while the room
 is quiet (``handle``/``judge``).
 
 Floor policy (``Z0LIVE_PASSTHRU_FLOOR``, default ``addressed``): in a meeting z0 speaks into the room
 only for a turn that names it ("z0, ...", "hey zero", "Hermes, ..."). ``open`` lets every reply
-through, ``listen`` never speaks into the room. Kevin's own phone leg keeps hearing every reply
+through, ``listen`` never speaks into the room. The owner's own phone leg keeps hearing every reply
 unless ``Z0LIVE_PASSTHRU_PHONE`` is ``mute``.
 
-Voice control is parsed from Kevin's own transcript (``command()``), so it works with any engine and
+Voice control is parsed from the owner's own transcript (``command()``), so it works with any engine and
 needs no model tool; each command waits for "confirm": "z0 merge the calls", "join my meeting", "share my screen", "share the canvas",
 "stop sharing", "leave the meeting".
 """
@@ -38,6 +38,8 @@ import time
 from typing import Callable
 
 import numpy as np
+
+import owner
 
 HERE = Path(__file__).resolve().parent
 LEG_SCRIPT = HERE / "passthru" / "meeting_leg.mjs"
@@ -76,8 +78,8 @@ def addressed(text: str) -> bool:
 
 
 def command(text: str, *, active: bool) -> tuple[str, str] | None:
-    """Parse a passthru command from Kevin's transcript. Outside passthru only "join" counts, and
-    only when Kevin names z0 or says "passthru"/"merge", so ordinary talk about meetings stays talk."""
+    """Parse a passthru command from the owner's transcript. Outside passthru only "join" counts, and
+    only when the owner names z0 or says "passthru"/"merge", so ordinary talk about meetings stays talk."""
     text = (text or "").strip()
     if not text:
         return None
@@ -203,7 +205,7 @@ def mix_into(frame, room: np.ndarray | None, gain: float = ROOM_GAIN):
 @dataclass
 class Floor:
     policy: str = os.environ.get("Z0LIVE_PASSTHRU_FLOOR", "addressed")
-    released_at: float = float("-inf")   # Kevin or a guest named z0 at this time
+    released_at: float = float("-inf")   # the owner or a guest named z0 at this time
     reply_open: bool = False             # the current assistant reply may reach the room
     tail_until: float = float("-inf")
 
@@ -247,7 +249,7 @@ class Passthru:
         self.runner = None
         self.base = ""        # http://127.0.0.1:PORT of this leg's loopback app
         self.mirror = None    # PhoneMirror while the phone screen is shared
-        self.pending: Pending | None = None  # one command waiting for Kevin's spoken "confirm"
+        self.pending: Pending | None = None  # one command waiting for the owner's spoken "confirm"
 
     @property
     def active(self) -> bool:
@@ -269,7 +271,7 @@ class Passthru:
         if not ws_url:
             ws_url = await self.serve()
         cfg = {"url": url, "ws": ws_url + "?call=" + self.call.id, "token": self.token,
-               "name": os.environ.get("Z0LIVE_PASSTHRU_NAME", "z0 (Kevin's assistant)"),
+               "name": os.environ.get("Z0LIVE_PASSTHRU_NAME", f"z0 ({owner.NAME}'s assistant)" if owner.NAME else "z0 (assistant)"),
                "headless": headless, "share": share, "create": create}
         self.proc = await asyncio.create_subprocess_exec(
             self.node, str(self.script), json.dumps(cfg), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -423,7 +425,7 @@ class Passthru:
 
 # ---------------------------------------------------------------------------- phone screen
 def adb_prefix() -> list[str]:
-    """How the Studio reaches Kevin's phone. The S25 sits on groot's adb (the Studio has no route to it)."""
+    """How the Studio reaches the owner's phone. The S25 sits on groot's adb (the Studio has no route to it)."""
     return (os.environ.get("Z0LIVE_PASSTHRU_ADB") or "ssh -o ConnectTimeout=4 -o BatchMode=yes groot adb").split()
 
 
@@ -516,9 +518,9 @@ def shlex_quote(s: str) -> str:
 
 
 # ---------------------------------------------------------------------------- control
-CONFIRM_TTL = 20.0          # seconds a command waits for Kevin's "confirm"
+CONFIRM_TTL = 20.0          # seconds a command waits for the owner's "confirm"
 ROOM_QUIET = 4.0            # the room must be quiet this long before a confirm counts (no bleed from the meeting)
-NO_CONFIRM = {"floor:listen", "floor:addressed"}  # quieter floors: Kevin's phone leg alone is enough
+NO_CONFIRM = {"floor:listen", "floor:addressed"}  # quieter floors: the owner's phone leg alone is enough
 CONFIRM = re.compile(rf"^\W*(?:(?:hey\W+)?{_NAME}\W+)?(?:(?:yes|yeah|yep|ok(?:ay)?|sure)\W+)?(?:i\W+)?(?:confirm(?:ed)?|do it|go ahead)\b"
                      r"(?:\W+(?:please|now|thanks|thank you|it|that))*\W*$", re.I)
 WHAT = {"start": "start a new meeting", "join": "join the meeting", "leave": "leave the meeting",
@@ -542,10 +544,10 @@ def canvas_url() -> str:
 
 
 def say(call, text: str):
-    """Have z0 tell Kevin something short in its own voice (commentary for GPT-Live, note+response for Grok)."""
+    """Have z0 tell the owner something short in its own voice (commentary for GPT-Live, note+response for Grok)."""
     if call.closed:
         return
-    line = "Passthru update. Tell Kevin in one short sentence: " + text
+    line = owner.fill("Passthru update. Tell the owner in one short sentence: ") + text
     if getattr(call, "leg", None):
         call.spawn(call.leg.note(line, call.trace.turn_id))
         call.spawn(call.leg.raw({"type": "response.create"}))
@@ -560,14 +562,14 @@ def describe(action: str, arg: str) -> str:
     return WHAT.get(action if action != "floor" else "floor:" + arg, action)
 
 
-async def handle(call, action: str, arg: str = "", *, from_kevin: bool) -> str:
-    """Ask for one passthru command. ``from_kevin``: Kevin's phone leg was loud for this turn (or his chat's
+async def handle(call, action: str, arg: str = "", *, from_owner: bool) -> str:
+    """Ask for one passthru command. ``from_owner``: the owner's phone leg was loud for this turn (or his chat's
     loopback control). Nothing runs yet: the command waits for ``confirm`` (quieter floors run at once)."""
     p = call.passthru
     key = action if action != "floor" else "floor:" + arg
-    if not from_kevin:
+    if not from_owner:
         call.trace("passthru.refused", action=action, arg=arg[:80], why="not_phone_leg")
-        return "Only Kevin, speaking on his phone, can run meeting commands."
+        return owner.fill("Only the owner, speaking on his phone, can run meeting commands.")
     if key in NO_CONFIRM:
         return await execute(call, action, arg)
     p.pending = Pending(action, arg, time.monotonic() + CONFIRM_TTL)
@@ -575,8 +577,8 @@ async def handle(call, action: str, arg: str = "", *, from_kevin: bool) -> str:
     return f'To {describe(action, arg)}, say "confirm" on your phone. Anything else cancels.'
 
 
-def judge(call, text: str, *, from_kevin: bool) -> "Pending | str | None":
-    """Kevin's next phone turn answers a pending command: the confirmed Pending, a refusal line, or None when
+def judge(call, text: str, *, from_owner: bool) -> "Pending | str | None":
+    """The owner's next phone turn answers a pending command: the confirmed Pending, a refusal line, or None when
     nothing was pending, it expired, or the turn said something else (the turn is then an ordinary one). A
     pending command never outlives the turn after it."""
     p = call.passthru
@@ -590,21 +592,21 @@ def judge(call, text: str, *, from_kevin: bool) -> "Pending | str | None":
     if not CONFIRM.match((text or "").strip()):
         call.trace("passthru.cancelled", action=pend.action)
         return None
-    if not from_kevin or now - p.room.loud_at < ROOM_QUIET:
+    if not from_owner or now - p.room.loud_at < ROOM_QUIET:
         call.trace("passthru.refused", action=pend.action,
-                   why="confirm_not_phone_leg" if not from_kevin else "room_loud")
+                   why="confirm_not_phone_leg" if not from_owner else "room_loud")
         return "That confirm didn't come from your phone alone, so I did nothing. Ask again when the room is quiet."
     call.trace("passthru.confirmed", action=pend.action)
     return pend
 
 
-async def confirm(call, text: str, *, from_kevin: bool) -> str | None:
-    verdict = judge(call, text, from_kevin=from_kevin)
+async def confirm(call, text: str, *, from_owner: bool) -> str | None:
+    verdict = judge(call, text, from_owner=from_owner)
     return await execute(call, verdict.action, verdict.arg) if isinstance(verdict, Pending) else verdict
 
 
 async def execute(call, action: str, arg: str = "") -> str:
-    """Run one passthru command that Kevin has confirmed. Returns what z0 should say (also traced)."""
+    """Run one passthru command that the owner has confirmed. Returns what z0 should say (also traced)."""
     p = call.passthru
     if action == "start":
         await p.start("", create=SERVICE)
@@ -661,9 +663,9 @@ async def execute(call, action: str, arg: str = "") -> str:
     return "I didn't catch that passthru command."
 
 
-async def run_command(call, action: str, arg: str, *, from_kevin: bool):
+async def run_command(call, action: str, arg: str, *, from_owner: bool):
     try:
-        line = await handle(call, action, arg, from_kevin=from_kevin)
+        line = await handle(call, action, arg, from_owner=from_owner)
     except Exception as exc:  # noqa: BLE001 - a failed join must never break the call
         call.trace("passthru.failed", action=action, detail=str(exc)[:300])
         line = "Passthru hit an error: " + str(exc)[:120]
@@ -684,7 +686,7 @@ async def run_verdict(call, verdict: "Pending | str"):
 
 
 def send_link(call, link: str):
-    """Put the meeting link in Kevin's Hermes chat transcript (text only; never spoken)."""
+    """Put the meeting link in the owner's Hermes chat transcript (text only; never spoken)."""
     try:
         call.send(call.protocol.transcript("assistant", "\n" + link + "\n"))
     except Exception:  # noqa: BLE001
@@ -725,8 +727,8 @@ async def control(request):
         return web.json_response({"active": p.active, "url_host": re.sub(r"^https?://([^/]+).*", r"\1", p.url) if p.url else "",
                                   "sharing": p.sharing, "floor": p.floor.policy, "room_frames": p.room.received,
                                   **p.counts})
-    # Kevin's chat may ask; the command still waits for his spoken "confirm" on the phone leg.
-    line = await handle(call, action, arg, from_kevin=True)
+    # The owner's chat may ask; the command still waits for his spoken "confirm" on the phone leg.
+    line = await handle(call, action, arg, from_owner=True)
     say(call, line)
     return web.json_response({"ok": True, "say": line, "pending": p.pending is not None})
 

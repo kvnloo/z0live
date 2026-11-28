@@ -1,6 +1,6 @@
-"""Ask another Hermes bot profile: "ask @pc to list the drive" (Kevin's 11-27 call).
+"""Ask another Hermes bot profile: "ask @pc to list the drive" (the owner's 11-27 call).
 
-Kevin asks one bot (on a call or in chat) to pass a message to another profile and bring the answer back. The other
+The owner asks one bot (on a call or in chat) to pass a message to another profile and bring the answer back. The other
 profile answers in its own Hermes host: the unsandboxed API-only host that launchd runs per profile
 (desktop/hermes_host.py --profile <name>, key in ~/.config/z0live/guest-hosts/<name>.key). The asking agent never runs
 `hermes -p <name>` itself: tek's agents live under the seatbelt profile, which denies writes to other profiles'
@@ -34,7 +34,7 @@ DENIED = {"guest"}  # a guest never reaches another bot, and no bot reaches the 
 TIMEOUT_S = 900
 MAX_MESSAGE = 4000
 BY = "ask"
-SYSTEM = ("This message comes from Kevin's {caller} bot, relaying what Kevin asked on his {via}. Do what he asks with "
+SYSTEM = ("This message comes from the owner's {caller} bot, relaying what the owner asked on his {via}. Do what he asks with "
           "your own tools, then answer in a few short plain sentences: your reply is read aloud to him. Never include "
           "secrets, keys or passwords in the reply.")
 SECRET = re.compile(

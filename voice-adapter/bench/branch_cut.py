@@ -1,7 +1,7 @@
 """Offline test for speculative branching (docs/SPECULATIVE-BRANCHING.md, attack item 2).
 
 For each question: answer the full text and a version cut early, with the same fast lane model and the same lane
-prompt as a live call; a grader model says whether the early answer gives Kevin the same substantive response.
+prompt as a live call; a grader model says whether the early answer gives the owner the same substantive response.
 Hit rate = how often answering before he finished would have been right.
 
 Cuts are word-fraction cuts (70% and 85% of the words); real transcripts have no pause timestamps here, so this

@@ -13,6 +13,8 @@ import json
 import sqlite3
 from pathlib import Path
 
+import owner
+
 WS = "ws://127.0.0.1:9119/api/ws"
 
 
@@ -33,8 +35,8 @@ def user_texts(history) -> list[str]:
 
 
 NOT_A_CHAT = "('oneshot','tool','cron','kanban','subagent')"
-# Never Kevin's chat: local sessions, side runs (bg_*) and z0live's own api_server runs (z0live-ask-*, probes).
-NOT_KEVINS = "id NOT LIKE 'local-%' AND id NOT LIKE 'bg\\_%' ESCAPE '\\' AND id NOT LIKE 'z0live-%'"
+# Never the owner's chat: local sessions, side runs (bg_*) and z0live's own api_server runs (z0live-ask-*, probes).
+NOT_OWNER_CHATS = "id NOT LIKE 'local-%' AND id NOT LIKE 'bg\\_%' ESCAPE '\\' AND id NOT LIKE 'z0live-%'"
 RECENT = 20000  # only the newest message rows: a full-table scan took ~28 s and stalled call setup
 
 
@@ -78,7 +80,7 @@ def newest_chat(profile: str, db_path: Path | None = None) -> str:
     (11-27 11:20: three CLI runs, none answered before hang-up). Never a side run (bg_*) or a local session."""
     try:
         with sqlite3.connect(f"file:{db_path or _db(profile)}?mode=ro", uri=True, timeout=2) as db:
-            row = db.execute(f"SELECT id FROM sessions WHERE source NOT IN {NOT_A_CHAT} AND {NOT_KEVINS} "
+            row = db.execute(f"SELECT id FROM sessions WHERE source NOT IN {NOT_A_CHAT} AND {NOT_OWNER_CHATS} "
                              "ORDER BY started_at DESC LIMIT 1").fetchone()
             return row[0] if row else ""
     except sqlite3.Error:
@@ -86,8 +88,8 @@ def newest_chat(profile: str, db_path: Path | None = None) -> str:
 
 
 PIN = Path.home() / ".config" / "z0live" / "anchor-session"
-ANCHOR_WINDOW_S = 6 * 3600  # only chats Kevin typed in during the last 6 h compete
-DECAY_PER_HOUR = 2.0  # score = log2(1 + chat size) - 2 per hour since Kevin's last message in it
+ANCHOR_WINDOW_S = 6 * 3600  # only chats the owner typed in during the last 6 h compete
+DECAY_PER_HOUR = 2.0  # score = log2(1 + chat size) - 2 per hour since the owner's last message in it
 
 
 def _pinned(db, path: Path) -> str:
@@ -129,9 +131,9 @@ def _continuation(db, sid: str) -> str:
 
 
 def rank_chats(db, now: float, window: float = ANCHOR_WINDOW_S) -> list[tuple[float, str, float, int]]:
-    """Kevin's chats with a user message in the window, best first: (score, sid, last user message ts, size)."""
+    """The owner's chats with a user message in the window, best first: (score, sid, last user message ts, size)."""
     import math
-    rows = db.execute(f"SELECT id, message_count FROM sessions WHERE source NOT IN {NOT_A_CHAT} AND {NOT_KEVINS} "
+    rows = db.execute(f"SELECT id, message_count FROM sessions WHERE source NOT IN {NOT_A_CHAT} AND {NOT_OWNER_CHATS} "
                       "AND (coalesce(last_activity_at, started_at) > ? OR started_at > ?) "
                       "ORDER BY coalesce(last_activity_at, started_at) DESC LIMIT 200",
                       (now - window, now - 30 * 86400)).fetchall()
@@ -154,8 +156,8 @@ def anchor_chat(profile: str, db_path: Path | None = None, now: float | None = N
     """(stored id, why) of the chat a call's background agents run beside when the call matched no chat.
 
     11-28 10:15: newest_chat picked a 22-message side chat started a minute earlier, so the call's memory was 170
-    chars instead of the ~40k of the 559-message chat Kevin had typed in one minute before that. Now: a pin file
-    (~/.config/z0live/anchor-session holding a session id) wins; else the chat with Kevin's most recent message in
+    chars instead of the ~40k of the 559-message chat the owner had typed in one minute before that. Now: a pin file
+    (~/.config/z0live/anchor-session holding a session id) wins; else the chat with the owner's most recent message in
     the last 6 h, weighted by size (log2 of its messages, -2 per hour of age), so a big working chat beats a tiny
     side chat a few minutes newer (each doubling of size is worth 30 min of recency: 559 vs 22 messages = 2.3 h).
     Else the newest chat."""
@@ -181,9 +183,9 @@ SUMMARY_MARK = "CONTEXT COMPACTION"
 def chat_memory(profile: str, sid: str, db_path: Path | None = None, summary_cap: int = 24000,
                 tail_cap: int = 16000) -> str:
     """What a background agent beside chat `sid` needs to know about it: the chat's newest compaction summary (the
-    whole project state, ~29k chars on 11-27) and Kevin's and the assistant's turns since, newest kept first. A
+    whole project state, ~29k chars on 11-27) and the owner's and the assistant's turns since, newest kept first. A
     background agent does not see the chat (ask_background), and the 6,000-char tail it had was two status replies,
-    so the call felt like it had "0 context on any of the work" (11-27 13:00). Tool rows and runtime envelopes
+    so the call lacked useful context. Tool rows and runtime envelopes
     ([IMPORTANT: ..., [Context from ...) are skipped. '' when there is no chat or no store."""
     if not sid:
         return ""
@@ -207,7 +209,7 @@ def chat_memory(profile: str, sid: str, db_path: Path | None = None, summary_cap
         cut = summary.find(f"[{SUMMARY_MARK}")
         summary = summary[cut:] if cut >= 0 else summary
         # Drop the compaction preamble ("Do NOT answer questions ... do not call tools, wait for a new user message"):
-        # it is addressed to the chat's next turn, and a background agent reading it may decline Kevin's request.
+        # it is addressed to the chat's next turn, and a background agent reading it may decline the owner's request.
         body = summary.find("\n## ")
         if body >= 0:
             summary = summary[body + 1:]
@@ -218,7 +220,7 @@ def chat_memory(profile: str, sid: str, db_path: Path | None = None, summary_cap
         text = content.strip()
         if not text or (text.startswith("[") and not text.startswith("[OUT-OF-BAND USER MESSAGE")):
             continue
-        line = f"{'Kevin' if role == 'user' else 'Assistant'}: {text[:3000]}"
+        line = f"{owner.LABEL if role == 'user' else 'Assistant'}: {text[:3000]}"
         if used + len(line) > tail_cap:
             break
         tail.append(line)
@@ -236,7 +238,7 @@ class NotStarted(RuntimeError):
 
 
 class ChatBusy(RuntimeError):
-    """The chat's own turn is running (the call's, or one Kevin typed): a prompt submitted now would fold into it."""
+    """The chat's own turn is running (the call's, or one the owner typed): a prompt submitted now would fold into it."""
 
 
 JOINED = frozenset({"steered", "redirected"})  # prompt.submit receipts for a prompt folded into the running turn

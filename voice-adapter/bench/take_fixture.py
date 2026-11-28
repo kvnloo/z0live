@@ -25,7 +25,7 @@ NUMBERS = set(answer_delivery._NUMBERS.values()) | {"thirty", "forty", "fifty", 
 # Words the floor, the replay or the voice's guards read (guest_floor, mobile_live.PROMISE/QUEUED/RECEIPT/FULL,
 # answer_delivery), plus everyday function words. Everything else is scrambled.
 KEEP = (answer_delivery._STOP | NUMBERS | set(re.findall(r"[a-z]+", " ".join((
-    "hermes herms tek tech tec teck teknium primary assistant gpt grok kevin jules s",
+    "hermes herms tek tech tec teck teknium primary assistant gpt grok jules s",
     "hey hi hello ok okay mm mmm hmm uh um huh yep thanks thank sure right nice wait no not",
     "please need want get make put install check show tell find send give run start stop look pull open fix prove try",
     "ship merge deploy update keep move add remove delete write read over back hear",

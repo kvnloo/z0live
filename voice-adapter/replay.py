@@ -129,7 +129,7 @@ class FakeChat:
                 frame = json.loads(msg.data)
                 rid, method, params = frame["id"], frame["method"], frame.get("params") or {}
                 if method == "session.resume":
-                    # A live chat reports whether a turn runs in it, ours or one Kevin typed (session_registry.py).
+                    # A live chat reports whether a turn runs in it, ours or one the owner typed (session_registry.py).
                     await ws.send_json({"id": rid, "result": {"session_id": params["session_id"],
                                                               "running": self.busy()}})
                 elif method == "prompt.submit":
@@ -232,7 +232,7 @@ class Replay:
         self.waiting: list[tuple[float, asyncio.Future, object]] = []
         self.backgrounded: list[str] = []  # delegations Hermes ran as background agents beside the chat's turn
         self.chat_submits: list[str] = []  # delegations submitted into the chat itself (prompt.submit)
-        # A turn Kevin started in the chat outside the call runs until this time (114034); fold_submits: every
+        # A turn the owner started in the chat outside the call runs until this time (114034); fold_submits: every
         # submit joins a turn that began after the resume said idle (the race).
         self.chat_busy_until = max((r["chat_busy_until"] for r in self.rows if "chat_busy_until" in r), default=0.0)
         self.fold_submits = any(r.get("chat_fold_submits") for r in self.rows)

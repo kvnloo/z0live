@@ -1,5 +1,5 @@
 """TV conductor lane cards spoken on the call they were asked on: one short line per batch, only when nobody is
-talking, never for a request Kevin moved on from, never what was already said. Fake state.json, fake call; no network.
+talking, never for a request the owner moved on from, never what was already said. Fake state.json, fake call; no network.
 Card words are made up."""
 import asyncio
 import json
@@ -119,7 +119,7 @@ class Watcher(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.spoken(), ['"Agent Final Message":\n\n2 lanes back. Sol: 9 boat sandboxes live. '
                                          'Haiku: All of them idle since noon.'])
 
-    async def test_held_while_kevin_speaks_or_the_voice_answers(self):
+    async def test_held_while_owner_speaks_or_the_voice_answers(self):
         self.call.protocol.user_open = True
         self.write(ask(self.key, REQUEST, lane("a1-1", "sol 6.2", "9 boat sandboxes live.")))
         await asyncio.sleep(0.3)
@@ -152,7 +152,7 @@ class Watcher(unittest.IsolatedAsyncioTestCase):
         p.from_provider({"type": "turn.created", "turn": {"role": "user", "id": "u2"}})
         self.assertFalse(p.assistant_open)
 
-    async def test_quiet_for_a_request_kevin_moved_on_from(self):
+    async def test_quiet_for_a_request_owner_moved_on_from(self):
         self.ask_for("d2", "And what's the weather?")
         self.write(ask(self.key, REQUEST, lane("a1-1", "sol 6.2", "9 boat sandboxes live.")))
         await self.until(lambda: self.traced("lanes.card_skipped"))

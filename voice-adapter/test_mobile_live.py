@@ -210,7 +210,7 @@ class SpeakFirstGateTests(unittest.IsolatedAsyncioTestCase):
             await live.AudioBridge(Source(0), call, "input").recv()
             self.assertEqual(peak(await voice.recv()), 0)  # phone silence does not open it
             await live.AudioBridge(Source(5000), call, "input").recv()
-            self.assertGreater(peak(await voice.recv()), 0)  # Kevin spoke: the voice is heard from now on
+            self.assertGreater(peak(await voice.recv()), 0)  # the owner spoke: the voice is heard from now on
             call.message(said, True)
             self.assertTrue(any("output_transcript" in str(m.get("type")) for m in call.to_mobile))
         finally:
@@ -260,7 +260,7 @@ class VoiceSessionContinuityTests(unittest.TestCase):
 
 
 class ConcurrentHostTurnTests(unittest.IsolatedAsyncioTestCase):
-    """Take 7 of the 11-22 film call: Kevin's long-run ask never reached Hermes during the call. It waited behind the
+    """Take 7 of the 11-22 film call: The owner's long-run ask never reached Hermes during the call. It waited behind the
     call's running request (one turn at a time per call), while the voice said "Got it, I'll handle that"."""
 
     def setUp(self):
@@ -413,7 +413,7 @@ class NoLinkedChatTests(unittest.IsolatedAsyncioTestCase):
 
 
 class CrossBriefTests(unittest.IsolatedAsyncioTestCase):
-    """11-28 F4: the call opens with a short brief of Kevin's other threads (call_brief.cross_thread); background
+    """The call opens with a short brief of the owner's other threads (call_brief.cross_thread); background
     agents get it too. A slow store never holds the call up."""
 
     async def test_the_brief_reaches_background_agents_and_a_slow_store_is_skipped(self):
@@ -431,7 +431,7 @@ class CrossBriefTests(unittest.IsolatedAsyncioTestCase):
         call.trace = Recorder()
         loop = asyncio.get_running_loop()
         call.cross_lookup = loop.create_future()
-        call.cross_lookup.set_result("Across Kevin's threads (read-only snapshot taken at call start):\nCards running: x")
+        call.cross_lookup.set_result("Across the owner's threads (read-only snapshot taken at call start):\nCards running: x")
         call.cross_brief = await call.read_cross_brief()
         self.assertIn("Cards running: x", call.host_context(None, ledger=False))
         self.assertIn(("call.cross_brief", {"chars": len(call.cross_brief)}), traced)

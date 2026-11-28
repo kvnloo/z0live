@@ -78,7 +78,7 @@ class ValidateTests(Tmp):
         self.assertIn("haiku, sonnet, opus, sol", str(e.exception))
 
     def test_every_family_runs_its_newest_version(self):
-        # Kevin, 11-27: "just use the latest version for every role". Versioned names mean the family.
+        # The owner, 11-27: "just use the latest version for every role". Versioned names mean the family.
         for word, fam in (("terra", "terra"), ("gpt-6.1-terra", "terra"), ("6.1 sol", "sol"), ("astra", "astra"),
                           ("luna", "luna")):
             with self.subTest(word=word):

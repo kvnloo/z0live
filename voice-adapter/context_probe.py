@@ -1,8 +1,8 @@
 """Real-call context probe: does the live voice know the chat's context when a call opens?
 
 Drives the real subscription voice through mobile_live.Call with synthetic speech (edge-tts),
-the same way live_speech_smoke.py does, and checks the three failures Kevin hit on 11-16:
-  1. catch-up: the voice speaks before Kevin does (answering old chat messages);
+the same way live_speech_smoke.py does, and checks the three failures the owner hit on 11-16:
+  1. catch-up: the voice speaks before the owner does (answering old chat messages);
   2. refusal: "can you see my screen" gets "I can't" instead of a delegation;
   3. amnesia: the delegated request lacks what the chat already settled.
 Usage: env -u PYTHONPATH .venv/bin/python context_probe.py [history.json]  -> receipt JSON on stdout.
