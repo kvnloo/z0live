@@ -61,7 +61,8 @@ def main():
     ap.add_argument('--voice', type=Path, required=True)
     ap.add_argument('--voice-text', required=True)
     ap.add_argument('--seed', type=int, default=1234)
-    ap.add_argument('--first-chunk-frames', type=int, default=4)
+    ap.add_argument('--first-chunk-frames', type=int, default=1,
+                    help='codec frames in the first Lure chunk (default: %(default)s)')
     ap.add_argument('--no-snapshot', dest='snapshot', action='store_false')
     a = ap.parse_args()
     out = sys.stdout.buffer
