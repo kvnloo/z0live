@@ -27,6 +27,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import topic_sessions  # noqa: E402 - sibling module (one session per project group, not per call)
+
 HERE = Path(__file__).resolve().parent
 HOME = Path.home()
 DEFAULT_HOSTS = {"pc": 18645}  # launchd com.kvn.hermes-pc: hermes_host.py --profile pc --port 18645
@@ -34,6 +37,7 @@ DENIED = {"guest"}  # a guest never reaches another bot, and no bot reaches the 
 TIMEOUT_S = 900
 MAX_MESSAGE = 4000
 BY = "ask"
+SESSION_WAIT_S = float(os.environ.get("Z0LIVE_ASK_SESSION_WAIT", "240"))
 SYSTEM = ("This message comes from Kevin's {caller} bot, relaying what Kevin asked on his {via}. Do what he asks with "
           "your own tools, then answer in a few short plain sentences: your reply is read aloud to him. Never include "
           "secrets, keys or passwords in the reply.")
@@ -41,6 +45,11 @@ SECRET = re.compile(
     r"(sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|xox[abprs]-[A-Za-z0-9-]{10,}"
     r"|AIza[0-9A-Za-z_-]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:password|passwd|api[_ ]?key|secret|token)\s*[:=]\s*\S+"
     r"|\b(?=[A-Za-z0-9_-]*\d)(?=[A-Za-z0-9_-]*[g-zG-Z])[A-Za-z0-9_-]{40,}\b)", re.I)  # a 40-hex sha is not a secret
+
+
+def state_dir() -> Path:
+    """Sticky topic per caller and the session locks: Z0LIVE_ASK_STATE, else ~/.local/state/z0live."""
+    return Path(os.environ.get("Z0LIVE_ASK_STATE") or HOME / ".local/state/z0live")
 
 
 def hosts() -> dict[str, int]:
@@ -217,15 +226,40 @@ def ask(profile: str, message: str, call: str = "", item: str = "", by: str = BY
     led_ok = bool(item) and not led_err
     if led_ok:
         _led("claim", item, by, f"asking {profile}")
-    session = f"z0live-ask-{caller}-{call or time.strftime('%Y%m%d')}"[:120]
+    # One session per project and day on the asked bot (topic_sessions), not one per call: asks about the same repo
+    # land where the bot already answered them; a card, device or other repo gets its own; a follow-up naming none
+    # ("send me the link") stays with this caller's last one for STICKY_SECONDS. Concurrent asks for one session take
+    # turns under an flock; one that waits past SESSION_WAIT_S (or meets a 409 from another process) runs in this
+    # call's own session instead of being dropped.
+    groups = topic_sessions.load_groups()
+    who = f"{caller}>{profile}"
+    state = state_dir()
+    prior, age = topic_sessions.sticky_load(state / "ask-topics.json", who, groups)
+    group, _ = topic_sessions.classify(message, groups, prior or "", age, repos=None)
+    topic_sessions.sticky_save(state / "ask-topics.json", who, group)
+    session = topic_sessions.day_session(f"z0live-ask-{caller}", group)
+    fallback = f"z0live-ask-{caller}-{call or time.strftime('%Y%m%d')}"[:120]
     messages = [{"role": "system", "content": SYSTEM.format(caller=caller, via="voice call" if via == "voice" else via)},
                 {"role": "user", "content": message}]
     began = time.monotonic()
-    try:
+
+    def send(sid):
         if on_approval is not None:
-            answer, cid, echoed = _run(profile, table[profile], session, messages, timeout, on_approval)
-        else:
-            answer, cid, echoed = _post(profile, table[profile], session, messages, timeout)
+            return _run(profile, table[profile], sid, messages, timeout, on_approval)
+        return _post(profile, table[profile], sid, messages, timeout)
+
+    try:
+        answer = None
+        with topic_sessions.session_flock(state / "ask-locks", f"{profile}-{session}", SESSION_WAIT_S) as held:
+            if held:
+                try:
+                    answer, cid, echoed = send(session)
+                except RuntimeError as exc:
+                    if not topic_sessions.busy_error(str(exc)) or fallback == session:
+                        raise
+        if answer is None:  # the session stayed busy past the wait, or another process's turn holds it (409)
+            session = fallback
+            answer, cid, echoed = send(session)
     except RuntimeError as exc:
         if led_ok:
             _led("result", item, by, f"ask @{profile} failed: {exc}", False)
@@ -237,7 +271,7 @@ def ask(profile: str, message: str, call: str = "", item: str = "", by: str = BY
         _, e2 = _led("result", item, by, f"{profile}: {answer}", True, [ref])
         led_err = e or e2
     out = {"ok": True, "profile": profile, "answer": answer, "delivery": {"id": cid, "session": echoed or session},
-           "item": item, "ledger": led_ok and not led_err, "s": round(time.monotonic() - began, 1),
+           "item": item, "topic": group.key, "ledger": led_ok and not led_err, "s": round(time.monotonic() - began, 1),
            "say": f"{profile} says: {answer}"}
     if led_err:
         out["ledger_error"] = led_err

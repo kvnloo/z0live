@@ -160,7 +160,7 @@ class Replay(unittest.IsolatedAsyncioTestCase):
             said, status = await self.run_path(path, at, lanes, claim, request)
             with self.subTest(row=row, path=path):
                 self.assertNotIn(claim, said, "the false words were spoken as they were")
-                corrected = path == "V" and "from the records" in said
+                corrected = path == "V" and "correction:" in said
                 refused = ls.CANT_CONFIRM in said or (path in ("T", "C") and not said.strip())
                 self.assertTrue(corrected or refused, (row, said))
                 if status:  # the status question itself, answered from the records of that minute
@@ -209,7 +209,7 @@ class Replay(unittest.IsolatedAsyncioTestCase):
             voice = {"type": "turn.done", "turn": {"id": "a1", "role": "assistant", "start_ms": 2000, "end_ms": 5000,
                                                    "transcript": " Three lanes are active right now."}}
             call.message(json.dumps(voice), True)
-            self.assertIn("Correction, from the records: As of 23:49:19: 2 TV lanes running", self.spoken(sent))
+            self.assertIn("correction: As of 23:49:19: 2 TV lanes running", self.spoken(sent))
         finally:
             await call.close("test")
 
@@ -230,19 +230,19 @@ class Replay(unittest.IsolatedAsyncioTestCase):
                 "d2": ["Correction: the museum cafe closes at noon."],
             }
             call.earlier_cards = [("d1", {"id": "sample-1", "card": {
-                "summary": "The museum cafe closes at six."}})]
+                "verified": True, "summary": "The museum cafe closes at six."}})]
             await call.say_earlier_cards(time.monotonic(), "d2")
             self.assertFalse(self.spoken(sent))
             self.assertEqual(call.counts["lane_cards_skipped"], 1)
 
             call.earlier_cards = [("d1", {"id": "sample-2", "card": {
-                "summary": "The archive migration is running now."}})]
+                "verified": True, "summary": "The archive migration is running now."}})]
             await call.say_earlier_cards(time.monotonic(), "d2")
             self.assertFalse(self.spoken(sent))
             self.assertEqual(call.counts["status_claims_dropped"], 1)
 
             call.earlier_cards = [("d1", {"id": "sample-3", "card": {
-                "summary": "The north entrance stays open."}})]
+                "verified": True, "summary": "The north entrance stays open."}})]
             await call.say_earlier_cards(time.monotonic(), "d2")
             self.assertIn("The north entrance stays open.", self.spoken(sent))
         finally:

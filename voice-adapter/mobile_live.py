@@ -61,6 +61,8 @@ import needs_voice  # noqa: E402 - sibling module (blockers spoken when the TV i
 import handoff  # noqa: E402 - sibling module (call continues on z0live when Kevin leaves the screen)
 import passthru  # noqa: E402 - sibling module (z0 joins Kevin's other video call)
 import turn_slots  # noqa: E402 - sibling module (a call's bounded line of Hermes runs)
+import voice_fragments  # noqa: E402 - sibling module (F5/F7: fragments never start a run; segments coalesce)
+import topic_sessions  # noqa: E402 - sibling module (one warm Hermes chat per project group, not one per request)
 CHAT_CONTINUITY = os.environ.get("HERMES_MOBILE_VOICE_CHAT", "1") != "0"
 TTFT_MODEL = os.environ.get("VOICE_TTFT_MODEL", "qwen/qwen3.8-27b")  # Groq: ~0.2 s whole answer (11-15 probe)
 # Children (claude, hermes, lanes) get their own transient scope. Inside this unit's 768M cap they pushed it
@@ -252,10 +254,11 @@ def opens_promise(text: str) -> bool:
 
 PERSONA = """You are Hermes, speaking with the user in the official Hermes mobile app.
 Be natural, brief and direct. Do not speak until the user speaks. While the user tells a longer
-story, acknowledge often with a quick "mm-hm", "yeah" or "right" and let them keep going. Start
-answering as soon as the user is clearly done; do not wait for a long silence. Listen while speaking
+story or thinks out loud, stay quiet and let them keep going: do not fill their pauses with "mm-hm",
+"yeah" or "right". Start answering as soon as the user is clearly done; do not wait for a long silence. Listen while speaking
 and stop immediately when interrupted. Handle greetings and ordinary small talk yourself.
 You have no tools. For facts, lookups or actions, delegate the complete request to the client.
+While that request is outstanding, wait silently for its answer; never infer system facts from earlier turns or fill the wait with status chatter.
 Kevin's Hermes chat runs on his PC with adb to his phone: it can screenshot and read his screen, watch logs and run commands. Never say you can't see his screen or aren't connected to the call. "Look at my screen" is a delegation, not a refusal.
 The client is the user's existing Hermes chat with its chosen model, tools and approvals.
 When you delegate, say at most a short neutral line such as "Let me check." The request may
@@ -311,7 +314,8 @@ PROGRESS = "Still on that in Hermes, {seconds} seconds so far."
 PROGRESS_MANY = "Still on {count} requests in Hermes, the oldest {seconds} seconds so far."
 CAP = ("No answer on that after {seconds} seconds. It keeps running in Hermes; if it finishes while we're still on, "
        "you'll hear it here, and it lands {where} and on the TV.")
-WHERE = {"chat": "in your chat", "background": "in Hermes as a background result", "host": "in Hermes"}
+WHERE = {"chat": "in your chat", "background": "in Hermes as a background result", "host": "in Hermes",
+         "topic": "in its project chat in Hermes"}
 # Task K (11-27 15:14 call): Kevin said three times that after a kickoff the voice need not say anything. A request
 # hears the one receipt, then nothing until its state changes (the answer, a failure, a result); the repeating progress,
 # cap and merged lines are gone. The one other line: an action with a promise and no proof after UNPROVEN_SECONDS.
@@ -653,6 +657,10 @@ class Protocol:
         self.exchanges = deque(maxlen=8)  # finished (role, text) turns, for the z0live handoff
         self.seen = deque(maxlen=256)
         self.started_at = time.monotonic()
+        # F5/F7 input boundary: <=3-word fragments never run alone (held in `asked` for the next segment) unless they
+        # answer the voice's open question; words older than the coalesce window never join a new request.
+        self.fragments = voice_fragments.Gate()
+        self.held: dict[str, str] = {}  # did -> the fragment its delegation carried (no run; traced by the caller)
 
     def transcript(self, role: str, text: str) -> dict:
         return {"type": f"session.{ 'input' if role == 'user' else 'output' }_transcript.delta",
@@ -709,9 +717,13 @@ class Protocol:
                 self.last_user = text
                 self.user_open = False
                 if said and (mine := self.own(said)):
+                    if self.fragments.user(mine):  # quiet past the coalesce window: the old words are stale
+                        self.asked.clear()
                     self.asked.append(mine)
                 while self.deferred:
                     self.release(*self.deferred.pop(0))
+            elif self.fragments.assistant(said):
+                said = ""  # a backchannel inside Kevin's open thought: not an exchange, never ends his words
             elif substantive(said) and not self.deferred:
                 self.asked.clear()  # the voice answered these words itself; a backchannel ("Mm-hm.") keeps them
             if said:
@@ -756,11 +768,18 @@ class Protocol:
             return
         if segment and not vocab(segment) <= vocab(words):
             words = f"{words} {segment}".strip()
-        self.asked.clear()
         request = words or self.own(self.last_user)
         if not request and self.last_user.strip():  # every word was to the other voice: nothing for this one to run
+            self.asked.clear()
             self.pending_host.append((did, None))
             return
+        verdict = self.fragments.check(request)
+        if not verdict.run:  # "NPC", "Yeah": no run; the words stay in `asked` for the next segment in the window
+            self.held[did] = request
+            self.pending_host.append((did, None))
+            return
+        self.asked.clear()
+        request = verdict.request
         self.last_request = request
         self.pending_host.append((did, request))
 
@@ -885,7 +904,9 @@ class AudioBridge(MediaStreamTrack):
             call.trace("output.gate_open", gated_frames=call.counts["output_gated"])
         # The voice must not speak before Kevin does: GPT-Live sometimes starts a turn (a lone "Mm-h", a sniff,
         # "He Hey") ~0.4 s into the session while the persona context lands. Silence its audio until he speaks.
-        if (self.direction == "input" and call.muted) or (self.direction == "output" and not call.heard_user):
+        overlap = (self.direction == "output" and call.protocol.user_open
+                   and time.monotonic() - call.input_loud_at < 0.25)
+        if (self.direction == "input" and call.muted) or (self.direction == "output" and not call.heard_user) or overlap:
             if self.direction == "output":
                 call.counts["output_gated"] += 1
             for plane in frame.planes:
@@ -1005,7 +1026,8 @@ class GPTGuest:
         self.protocol = Protocol(host_delegation=True)
         self.closed = False
         self.audio = bytearray()
-        self.session = "z0live-guest-" + call.id
+        self.session = "z0live-guest-" + call.id  # this call's own guest session: the fallback when the group's is busy
+        self.topics = topic_sessions.Router()
 
     def new_subscription(self, *, active=False):
         return SubscriptionLeg(self.trace, self.message, self.failed, self.on_track, active=active)
@@ -1179,12 +1201,24 @@ class GPTGuest:
         # Only the name ("Hey, Tek."): the floor is that bot's, and the request that follows is its follow-up.
         if not routed or not substantive(self.addressing.vocative.sub(" ", mine)):
             return
+        # F5: the adapter's own hand-off is a delegation route too: a fragment ("NPC", "Yes please") never runs alone.
+        verdict = (self.protocol if leg == "guest" else self.call.protocol).fragments.check(mine)
+        if not verdict.run:
+            self.call.trace("floor.fragment_held", speaker=leg, request=mine[:200])
+            return
+        mine = verdict.request
+        last = self.__dict__.setdefault("floor_asks", {})
+        if follow:
+            self.supersede(leg)  # a cut answer's rest is not coming back
+            previous = last.get(leg)
+            if previous and previous not in self.superseded:
+                self.superseded.add(previous)
+                self.call.trace("floor.answer_dropped", speaker=leg, did=previous, reason="new_request")
         self.unanswered.add(leg)  # until its answer comes, the voice's own line may not promise (observe, unmute)
         self.unmute(leg, now)  # the voice began answering before the utterance ended: that reply is for it
-        if follow:
-            self.supersede(leg)  # the next request to this voice: a cut answer's rest is not coming back
         held = [did for did, at in self.offered.pop(leg, []) if at >= began - 1.0]  # the provider's own delegation
         did = held[-1] if held else f"z0live-{leg}-{uuid.uuid4().hex[:12]}"
+        last[leg] = did
         self.call.trace("floor.handoff", speaker=leg, did=did, provider=bool(held), request=mine[:300])
         if leg == "guest":
             self.floor.guest_jobs += 1
@@ -1489,7 +1523,9 @@ class GPTGuest:
 
     def run_pending(self):
         for did, request in self.protocol.pending_host:
-            if request is not None and self.may_delegate("guest", did):
+            if (fragment := self.protocol.held.pop(did, None)) is not None:
+                self.call.trace("guest.delegation.fragment", did=did, request=fragment[:200])
+            elif request is not None and self.may_delegate("guest", did):
                 self.floor.guest_jobs += 1
                 self.call.spawn(self.delegate(did, request))
         self.protocol.pending_host.clear()
@@ -1498,11 +1534,30 @@ class GPTGuest:
 
     async def delegate(self, did, request):
         profile = self.config.profile
-        self.call.trace("guest.delegation.start", profile=profile, did=did, session=self.session)
+        # One guest session per project group and day (topic_sessions), not one per call: on 11-28 six calls each
+        # asked "Tek, what did you work on today" in six fresh sessions. A busy one (another call's turn) falls back
+        # to this call's own session.
+        group, _ = self.topics.route(request)
+        session = topic_sessions.day_session("z0live-guest", group) if topic_sessions.ENABLED else self.session
+        self.call.trace("guest.delegation.start", profile=profile, did=did, session=session, group=group.key)
         try:
-            answer = await ask_guest_host(self.call.manager.http, profile, self.session, request,
-                                          self.call.host_context())
-            self.call.trace("guest.delegation.done", profile=profile, did=did, session=self.session, answer=answer)
+            answer = None
+            # Asks for the day session take turns (another call's guest may be in it); past the wait, or on a 409
+            # from another process, this call's own session runs it: never dropped.
+            async with topic_sessions.hold(session, topic_sessions.HOLD_WAIT) as held:
+                if held:
+                    try:
+                        answer = await ask_guest_host(self.call.manager.http, profile, session, request,
+                                                      self.call.host_context())
+                    except RuntimeError as exc:
+                        if not topic_sessions.busy_error(str(exc)) or session == self.session:
+                            raise
+            if answer is None:
+                self.call.trace("guest.delegation.busy", profile=profile, did=did, session=session)
+                session = self.session
+                answer = await ask_guest_host(self.call.manager.http, profile, session, request,
+                                              self.call.host_context())
+            self.call.trace("guest.delegation.done", profile=profile, did=did, session=session, answer=answer)
         except Exception as exc:  # noqa: BLE001 - explain failure on the guest, never fall back to the primary
             self.call.trace("guest.delegation.failed", profile=profile, did=did, detail=str(exc)[:300])
             answer = f"I couldn't reach the {profile} Hermes profile for that answer."
@@ -1610,6 +1665,11 @@ class Call:
         self.status_running: dict[str, float] = {}  # did -> start, for requests whose status loop still runs
         self.ack_due = False  # a request started and the voice has not finished its reply (the ack) since
         self.hermes_path: dict[str, str] = {}  # did -> where its Hermes run went: background, chat or host (WHERE)
+        # One warm Hermes chat per project group for this call's requests, not a bg_* session per request.
+        self.topics = topic_sessions.Router()
+        self.topic_primed: set[str] = set()  # group chats that already got this call's brief
+        self.background_asks: dict[str, str] = {}
+        self.findings: dict[str, str] = {}
         self.protocol = Protocol(host_delegation=HOST_DELEGATION)
         self.counts = Counter()
         self.created = time.monotonic()
@@ -1845,10 +1905,16 @@ class Call:
             if kind == "input_transcript.added" and self.protocol.turn_text["user"]:
                 self.spawn(self.relay.transcript(self.protocol.turn_text["user"], False))
             elif kind == "turn.done" and (event.get("turn") or {}).get("role") == "user" and self.protocol.last_user:
-                self.spawn(self.lane_final(self.protocol.last_user, self.trace.turn_id))
+                if self.protocol.fragments.holds(self.protocol.last_user):  # F5: a fragment never reaches the lanes
+                    self.counts["lane_final_fragment"] += 1
+                else:
+                    self.spawn(self.lane_final(self.protocol.last_user, self.trace.turn_id))
         while self.protocol.pending_host:
             did, request = self.protocol.pending_host.pop(0)
-            if request is None:  # a second delegation for an utterance already handed off: no run of its own
+            if (fragment := self.protocol.held.pop(did, None)) is not None:  # F5: before delegation.start (conductor)
+                self.counts["host_delegation_fragment"] += 1
+                self.trace("delegation.fragment", did=did, request=fragment[:200])
+            elif request is None:  # a second delegation for an utterance already handed off: no run of its own
                 self.counts["host_delegation_joined"] += 1
                 self.trace("delegation.joined", did=did, request=self.protocol.last_request[:300])
             elif not duplex or duplex.may_delegate("primary", did):
@@ -1982,6 +2048,8 @@ class Call:
         self.__dict__.setdefault("spoken_for", {}).setdefault(did, []).append(text)
         self.handed_at = time.monotonic()  # the voice opens its reply to this a moment later: cards wait (HANDED)
         if self.duplex:
+            if did in self.duplex.superseded:
+                return
             config = self.duplex.config
             self.duplex.floor.enqueue(Answer("primary", did, text, lane), config.name if config else "")
             self.duplex.flush_answers()
@@ -2078,6 +2146,7 @@ class Call:
         try:
             if not request:
                 raise RuntimeError("The delegated request was empty")
+            self.background_asks[lane_cards.request_key(request)] = "active"
             # FAST_LANE_OFF: the lanes are this turn's fast lane; the profile plugin must not start another.
             job = self.spawn(self.ask_hermes(did, request))
             self.pending_delegations.add(job)
@@ -2117,24 +2186,19 @@ class Call:
                 if lane and gathered and UNHELPFUL.match(lane):
                     self.counts["lane_unhelpful"] += 1  # "I couldn't find it" adds nothing before the driver
                     lane = None
-                if lane and self.say_first(did, lane):
-                    self.counts["lane_answer_spoken"] += 1
-                    self.lane_said[did] = (lane, ((turn or {}).get("receipt") or {}).get("entry"))
             answer = await job
             if answer is None:  # joined the chat's running turn: that turn's one final answers this request too
                 self.counts["host_delegation_folded"] += 1
                 self.trace("delegation.folded", did=did, s=round(time.monotonic() - began, 3))
                 return
             # Tier lanes go quiet: Hermes has answered this request and every request that joined its turn.
-            self.__dict__.setdefault("hermes_done", set()).update(self.protocol.seen)
-            if TIERS_ON:
-                lane = " ".join(self.__dict__.get("tier_said", {}).get(did, [])) or None
+            self.__dict__.setdefault("hermes_done", set()).add(did)
             self.counts["host_delegation_ok"] += 1
             self.trace("delegation.done", did=did, s=round(time.monotonic() - began, 3), answer=answer[:4000],
                        closed=self.closed)
             answer = await self.ledger_answer(did, answer)
-            # Tier lanes: Hermes is skipped when everything it says was already spoken (answer within said).
-            if lane and covered and (covered(answer, lane, request) if TIERS_ON else covered(lane, answer, request)):
+            answer = self.finish_finding(did, answer)
+            if not answer:
                 self.counts["host_delegation_covered"] += 1  # the lane already said it
                 return
         except turn_slots.QueueFull as full:  # refused at once: it never started, so nothing "may still be running"
@@ -2150,6 +2214,9 @@ class Call:
             answer = "I couldn't finish that in Hermes. It may still be running; check the chat before trying again."
             self.ledger_do(request_ledger.result, self.item_of.get(did), "background", f"failed: {type(exc).__name__}",
                            False)
+        finally:
+            if lane_cards.request_key(request) in self.background_asks:
+                self.background_asks[lane_cards.request_key(request)] = "completed"
         if self.closed:
             self.trace("delegation.dropped_after_close", did=did)
             return
@@ -2162,6 +2229,33 @@ class Call:
             return
         spoken.add(key)
         self.speak_for(did, answer)
+
+    async def offer_finding(self, did, text, *, action):
+        """Only a grounded agent's explicitly marked finding can go out before its final. Action proofs wait."""
+        if action or did in self.findings or self.closed or self.latest_did != did or self.floor_busy():
+            return
+        match = re.match(r"^\s*FINDING:\s+([^\n]{8,260}?[.!?])(?=\s)", text, re.I)
+        if not match:
+            return
+        sentence = match[1]
+        if await self.gate_claims(did, sentence, "background_partial") != sentence:
+            return
+        if self.closed or self.latest_did != did or self.floor_busy() or did in self.findings:
+            return
+        self.findings[did] = sentence
+        self.trace("delegation.finding", did=did, text=sentence)
+        self.speak_for(did, sentence)
+
+    def finish_finding(self, did, answer):
+        prior = self.findings.pop(did, "")
+        text = re.sub(r"^\s*FINDING:\s*", "", answer, flags=re.I).strip()
+        if prior and text.startswith(prior):
+            return text[len(prior):].strip()
+        marked = re.match(r"^(?:(?:sorry|my mistake)[.!,:]?\s+)*correction\s*[:.,]\s*", text, re.I)
+        if marked or (prior and text):
+            self.trace("delegation.correction", did=did)
+            return "correction: " + (text[marked.end():] if marked else text)
+        return text
 
     def ledger_do(self, fn, item, *args, **kw):
         """A ledger write never breaks the call: a failure is logged and the call goes on."""
@@ -2466,8 +2560,11 @@ class Call:
         live records read now, with the read time, never by a model or a cached snapshot. Before delegation.start, so
         asking "how many lanes" never starts lanes. The answer is the request's ledger result; the voice is told to say
         it verbatim and its reading is checked once (check_verbatim). True when the request was a status question."""
-        topics = live_status.topics(request)
+        topics = live_status.exact_topics(request)
         if not topics or self.profile == "guest" or not self.live_records:
+            return False
+        if self.background_owns(did, request):  # F2: one voice per ask; the delegation's answer is the answer
+            self.trace("status.yield", did=did, topics=topics, why="background_owns")
             return False
         # One utterance is one answer: Kevin's turn.done answers it at once, and the voice's delegation of the same
         # question (if it sends one) within 20 s is swallowed. Probe 11-28 03:16: the voice said "Let me check.", sent
@@ -2498,6 +2595,24 @@ class Call:
         self.speak_for(did, text)
         return True
 
+    def background_owns(self, did, request) -> bool:
+        """F2: the ask already has a delegation (active or completed) other than this utterance's own: background
+        speaks its one answer and no status read or TV summary races it. Sources: background_asks
+        (lane_cards.request_key(ask) -> "active"|"completed", set by the background owner), hermes_done, and a lane
+        delegation (ask_dids, the one card_watch maps cards by) recorded for the same request under another did."""
+        key = lane_cards.request_key(request)
+        if (getattr(self, "background_asks", None) or {}).get(key) in ("active", "completed"):
+            return True
+        if did in self.__dict__.get("hermes_done", set()):
+            return True
+        prior = self.ask_dids.get(key)
+        return bool(prior and prior != did)
+
+    @staticmethod
+    def card_verified(ln) -> bool:
+        """F2: only a card whose own metadata says it was verified may state a fact (card.verified true)."""
+        return (ln.get("card") or {}).get("verified") is True
+
     def check_verbatim(self, spoken: str):
         """The voice's reading of the last status answer keeps every count and clock time (live_status.reworded); if it
         changed one, the records' own words follow once as a correction. Turns that do not read it (an ack) are skipped."""
@@ -2517,7 +2632,7 @@ class Call:
             return
         self.counts["status_reworded"] += 1
         if not self.closed:
-            self.speak_for(did, "Correction, from the records: " + source)
+            self.speak_for(did, "correction: " + source)
 
     async def gate_claims(self, did, text: str, source: str, extra_ids=()) -> str:
         """N216 proof gate for model words (a background answer, a tier lane, a lane card): a sentence that says work is
@@ -2537,18 +2652,20 @@ class Call:
 
     async def card_text(self, lanes) -> str:
         """The one line for finished lane cards, through the proof gate; '' when nothing in it can be confirmed."""
+        if getattr(self, "require_verified_cards", True):  # F2: unverified cards stay on TV and in the ledger
+            held = [ln for ln in lanes if not self.card_verified(ln)]
+            if held:
+                self.trace("lanes.card_unverified", lanes=[ln.get("id") for ln in held])
+            lanes = [ln for ln in lanes if self.card_verified(ln)]
         text = await self.gate_claims(None, lane_cards.line(lanes), "card")
         return "" if text.strip() in ("", live_status.CANT_CONFIRM) else text
 
     async def tier_lanes(self, did, request):
-        """Fast, medium and slow lanes race within each tier; tiers run at once. The first answer from any tier
-        is the one lane answer spoken for this request; Hermes's answer follows only if it adds to it. Later
-        tiers are traced, not spoken: on 11-20 three tier answers and Hermes landed within 4.4 s and the voice
-        spoke a garbled merge. Lanes go quiet once a newer request starts or Hermes answers."""
+        """Tier races are trace-only: an unchecked count or diagnosis must never reach the speaker."""
         began, cfg = time.monotonic(), tiers.load()
         context = tiers.snapshot(self.context_text, list(self.protocol.exchanges), live=live_picture(),
                                  ledger=self.ledger_brief(did, 2500, proof_rule=False))
-        said = self.__dict__.setdefault("tier_said", {}).setdefault(did, [])
+
 
         async def one(name):
             return name, await tiers.race(self.manager.http, name, cfg[name], context, request)
@@ -2559,16 +2676,8 @@ class Call:
                        s=round(time.monotonic() - began, 3))
             quiet = (self.closed or getattr(self, "latest_did", did) != did
                      or did in self.__dict__.get("hermes_done", set()))
-            if text and self.tier_claims_work(did, text):
-                self.trace("lanes.tier_claim_held", did=did, tier=name)  # no tools: it cannot have started anything
-                text = ""
-            if text and live_status.has_claim(text):  # N216: no tools, so a state claim needs an id the records hold
-                text = await self.gate_claims(did, text, f"tier:{name}")
-                text = re.sub(rf"\s*{re.escape(live_status.CANT_CONFIRM)}\s*", " ", text).strip()
-            if text and not quiet and not said and self.say_first(did, text):
-                said.append(text)
-                self.counts["tier_first_spoken"] += 1
-                self.trace("lanes.spoken", did=did, tier=name, model=model, first=True)
+            if text and not quiet:
+                self.trace("lanes.tier_claim_held", did=did, tier=name)
 
     def watch_lane_cards(self, did, request):
         """The TV conductor runs lanes for this request (it reads our delegation.start): watch for their cards."""
@@ -2596,7 +2705,8 @@ class Call:
             return
         ok = ln.get("state") == "done" and bool((ln.get("card") or {}).get("summary"))
         text = (ln.get("card") or {}).get("summary") or f"lane {ln.get('id')} ended {ln.get('state')} with no card"
-        final = ok and (self.ledger_item(did) or {}).get("kind") != "action"
+        final = (ok and self.card_verified(ln) and did not in self.__dict__.get("hermes_done", set())
+                 and (self.ledger_item(did) or {}).get("kind") != "action")
         self.ledger_do(request_ledger.receipt, item, "conductor", "lane", str(ln.get("id")), str(ln.get("model") or ""))
         self.ledger_do(request_ledger.result, item, f"lane:{lane_cards.who(ln)}", text, ok, [str(ln.get("id"))], final)
 
@@ -2610,6 +2720,8 @@ class Call:
         fresh = []
         batch, self.earlier_cards = self.earlier_cards, []
         for did, ln in batch:
+            if did in self.__dict__.get("hermes_done", set()) or not self.card_verified(ln):
+                continue
             summary = ln["card"]["summary"]
             if lane_cards.superseded(summary, did, self.spoken_for):
                 self.card_skipped("superseded", did, [ln])
@@ -2670,6 +2782,10 @@ class Call:
                         self.card_skipped("failed", did, [ln], ask=ask.get("id"))
                     elif not did:
                         self.card_skipped("unmapped", None, [ln], ask=ask.get("id"))
+                    elif self.background_owns(did, ask.get("text")):
+                        self.card_skipped("background_owns", did, [ln], ask=ask.get("id"))
+                    elif not self.card_verified(ln):
+                        self.card_skipped("unverified", did, [ln], ask=ask.get("id"))
                     else:
                         pending.append((did, ln, now))
                         last_new = now
@@ -2758,13 +2874,13 @@ class Call:
 
     def say_first(self, did, text, lane=True):
         """Speak one instant answer per question; a second instant lane (relay vs Haiku/Groq) stays silent."""
-        if not text or NOISE.match(text) or self.closed or getattr(self, "latest_did", did) != did:
+        if lane or not text or NOISE.match(text) or self.closed or getattr(self, "latest_did", did) != did:
             return False
         said = self.__dict__.setdefault("first_said", {})
         if did in said:
             return False
         said[did] = text
-        self.speak_for(did, text, lane=lane)
+        self.speak_for(did, text)
         return True
 
     async def ttft_lane(self, did, request):
@@ -2913,6 +3029,10 @@ class Call:
         (CHAT_TURNS, or the background run was refused before it began). Never folded into a running turn: 114034's
         request joined a turn Kevin had going, got no line of its own and was silent for 184 s."""
         sid = sid or self.chat
+        if topic_sessions.ENABLED and not CHAT_TURNS:
+            answer = await self.ask_topic(did, request, sid)
+            if answer is not None:
+                return answer
         if not CHAT_TURNS:
             try:
                 return await self.ask_background(did, request, sid)
@@ -2942,6 +3062,70 @@ class Call:
                 self.counts["chat_fold_rerun"] += 1
                 self.trace("delegation.fold_rerun", did=did, chat=sid)
         return await self.ask_background(did, request, sid)
+
+    async def ask_topic(self, did, request, sid):
+        """The request as a turn of its project group's chat (topic_sessions): the chat holds the group's earlier
+        requests and answers, so a follow-up starts warm and the call leaves one chat per project, not one session
+        per request. None when it did not start there (the group's chat is DEPTH deep, or the dashboard refused before
+        the submit): the caller runs the request beside the chat as before. Never a second run once submitted."""
+        group, why = self.topics.route(request)
+        if not self.topics.admit(group.key):
+            self.counts["topic_overflow"] += 1
+            self.trace("delegation.topic_overflow", did=did, group=group.key, depth=topic_sessions.DEPTH)
+            return None
+        self.hermes_path[did] = "topic"
+        primed = group.key in self.topic_primed
+        self.topic_primed.add(group.key)
+
+        def compose(created: bool) -> str:
+            if created:  # a new chat starts empty: the anchored chat's memory and the call's brief, once
+                memory = chat_continuity.chat_memory(self.profile, sid)
+                self.trace("delegation.memory", did=did, chat=sid, chars=len(memory))
+                return stream_rule + self.side_request(request, memory, sid, did)
+            if not primed:  # first request of this call in a chat that already knows the project
+                context = self.host_context(did)
+                return stream_rule + ((context + "\n\nRequest: " + request) if context else request)
+            said = "\n".join(f"{'Kevin' if role == 'user' else 'Voice'}: {' '.join(text.split())[:400]}"
+                             for role, text in list(self.protocol.exchanges)[-4:])
+            led = self.ledger_brief(did)
+            return (stream_rule + f"Kevin asked this on the same live voice call; answer in a few short spoken sentences."
+                    + (f"\n\nSaid on the call since:\n{said}" if said else "") + (f"\n\n{led}" if led else "")
+                    + f"\n\nRequest: {request}")
+
+        action = request_kind(request) == "action"
+        stream_rule = ("For the voice call, do not announce that you are checking. Only after checking the evidence, "
+                       "start the final answer with FINDING: followed by one complete verified sentence, then a space. "
+                       "If you revise an earlier spoken fact, start with correction: and state the verified fact once. "
+                       "Do not stack apologies.\n\n")
+        partial = ""
+
+        async def delta(text):
+            nonlocal partial
+            if not isinstance(text, str):
+                partial = ""
+            elif len(partial) < 512 and did not in self.findings:
+                partial += text[:512]
+                await self.offer_finding(did, partial, action=action)
+
+        try:
+            answer, chat, created = await asyncio.wait_for(topic_sessions.ask_topic(
+                self.manager.http, chat_continuity.WS, self.token, self.profile, group, compose,
+                known=self.topics.chats.get(group.key, ""),
+                on_submit=lambda chat, created, status: self.trace(
+                    "delegation.topic", did=did, group=group.key, why=why, chat=chat, created=created,
+                    status=status), on_delta=delta), DELEGATION_TIMEOUT_SECONDS)
+        except topic_sessions.NotStarted as exc:
+            self.counts["topic_refused"] += 1
+            self.trace("delegation.topic_refused", did=did, group=group.key, detail=str(exc)[:200])
+            if not primed:
+                self.topic_primed.discard(group.key)
+            return None
+        finally:
+            self.topics.release(group.key)
+        self.topics.chats[group.key] = chat
+        self.counts["topic_turns"] += 1
+        self.counts["topic_chats_created"] += int(created)
+        return answer
 
     async def ask_background(self, did, request, sid):
         self.hermes_path[did] = "background"
@@ -3071,7 +3255,7 @@ class Call:
         return began + DELEGATION_TIMEOUT_SECONDS
 
     async def status_marks(self, did, job, began):
-        marks = [(RECEIPT_SECONDS, "receipt"), (UNPROVEN_SECONDS, "unproven")]
+        marks = [(UNPROVEN_SECONDS, "unproven")]
         for mark, kind in marks:
             if not await self.until(job, began + mark):
                 return

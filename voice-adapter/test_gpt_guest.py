@@ -277,7 +277,8 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
             g.observe("primary", turn("done", "Hermes, your turn", 3000, 4000, tid="redirect"))
             result.set_result("A release.")
             await asyncio.gather(*self.call.tasks)
-            self.assertEqual(host.await_args.args[1:], ("tek", "z0live-guest-test-call", "What shipped?", ""))
+            # The day session of the request's project group (topic_sessions), not one per call.
+            self.assertEqual(host.await_args.args[1:], ("tek", live.topic_sessions.day_session("z0live-guest", live.topic_sessions.GENERAL_GROUP), "What shipped?", ""))
         self.assertTrue(any("Primary answer" in str(msg) for msg in self.call.sent))
         self.assertFalse(any("A release" in str(msg) for msg in self.call.sent))
         g.observe("primary", output("Primary answer."))
@@ -411,7 +412,7 @@ class GPTGuestTest(unittest.IsolatedAsyncioTestCase):
                         self.guest.message(json.dumps({"type": "delegation.created", "item": {
                             "id": did, "target": "client", "content": [{"text": text}]}}))
                         await asyncio.gather(*self.call.tasks)
-        self.assertEqual(received, [("Bearer tek-key", "z0live-guest-test-call", "Tek, what shipped?")])
+        self.assertEqual(received, [("Bearer tek-key", live.topic_sessions.day_session("z0live-guest", live.topic_sessions.GENERAL_GROUP), "Tek, what shipped?")])
         [answer] = [msg for msg in self.call.sent if isinstance(msg, dict) and msg.get("delegation_item_id")]
         self.assertEqual(answer["delegation_item_id"], "addressed")
         self.assertIn("A release.", answer["content"][0]["text"])
@@ -1127,7 +1128,8 @@ class GuestCallBriefTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn(PR_28, asked.context)
         self.assertIn(PR_28_TITLE, asked.context)
         self.assertIn("is the glass fix on my phone yet?", asked.context)  # the chat's lines still go with it
-        self.assertEqual((asked.profile, asked.session), ("tek", "z0live-guest-" + call.id))  # still Tek's own Hermes
+        self.assertEqual(asked.profile, "tek")  # still Tek's own Hermes
+        self.assertRegex(asked.session, r"^z0live-guest-[a-z0-9_-]+-\d{8}$")  # its project's day session
 
     async def test_a_call_opened_with_only_a_written_brief_still_gives_tek_hermes_context(self):
         call = await self.call([], FILM_BRIEF)
@@ -1192,7 +1194,7 @@ class GuestCallBriefTest(unittest.IsolatedAsyncioTestCase):
                     await asyncio.gather(*call.tasks)
         [(headers, messages)] = received
         self.assertEqual(headers["Authorization"], "Bearer tek-key")
-        self.assertEqual(headers["X-Hermes-Session-Id"], "z0live-guest-" + call.id)
+        self.assertRegex(headers["X-Hermes-Session-Id"], r"^z0live-guest-[a-z0-9_-]+-\d{8}$")  # its project's day session
         self.assertEqual(messages[0]["role"], "system")
         self.assertIn("answering as a guest", messages[0]["content"])
         self.assertEqual(messages[-1]["role"], "user")

@@ -98,7 +98,9 @@ class AskBotTest(unittest.TestCase):
         self.assertTrue(out["say"].startswith("pc says: Drive has 3 folders."))
         req = FakeHost.seen[0]
         self.assertEqual(req["auth"], "Bearer k-pc")
-        self.assertEqual(req["session"], "z0live-ask-tek-c0ffee")
+        # One session per project and day on the asked bot, not per call ("list the drive" names none: general).
+        self.assertEqual(req["session"], ask_bot.topic_sessions.day_session("z0live-ask-tek",
+                                                                            ask_bot.topic_sessions.GENERAL_GROUP))
         self.assertEqual(req["body"]["messages"][-1], {"role": "user", "content": "list the drive"})
         led = ask_bot.ledger()
         it = led.get(out["item"])
@@ -123,6 +125,110 @@ class AskBotTest(unittest.TestCase):
         self.assertIn("pc", out["error"])
 
 
+class SlowHost(http.server.BaseHTTPRequestHandler):
+    """A threaded host that answers after a beat and records how many turns ran at once in each session."""
+    seen: list = []
+    active: dict = {}
+    peak: dict = {}
+    lock = threading.Lock()
+
+    def do_POST(self):  # noqa: N802
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        sid = self.headers.get("X-Hermes-Session-Id")
+        with SlowHost.lock:
+            SlowHost.active[sid] = SlowHost.active.get(sid, 0) + 1
+            SlowHost.peak[sid] = max(SlowHost.peak.get(sid, 0), SlowHost.active[sid])
+            SlowHost.seen.append((sid, body["messages"][-1]["content"]))
+        threading.Event().wait(0.15)
+        with SlowHost.lock:
+            SlowHost.active[sid] -= 1
+        out = json.dumps({"id": f"chatcmpl-{len(SlowHost.seen)}", "choices": [{"message": {"content": "done"}}]})
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("X-Hermes-Session-Id", sid)
+        self.end_headers()
+        self.wfile.write(out.encode())
+
+    def log_message(self, *_):
+        pass
+
+
+class AskTopicSessionTests(unittest.TestCase):
+    """ask @bot: asks about one repo share one warm session on the bot, a card/device/other repo gets its own, a
+    generic follow-up stays with the last, and concurrent asks for one session take turns without dropping any."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        for name in ("z0live", "hermes-lanes", "atlas-engine-tv"):
+            (root / "repos" / name).mkdir(parents=True)
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), SlowHost)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        (root / ".config/z0live/guest-hosts").mkdir(parents=True)
+        (root / ".config/z0live/guest-hosts/pc.key").write_text("k-pc\n")
+        self.patches = [
+            mock.patch.dict(os.environ, {"Z0LIVE_ASK_HOSTS": json.dumps({"pc": self.server.server_address[1]}),
+                                         "Z0LIVE_LEDGER": str(root / "ledger"), "Z0LIVE_ASK_STATE": str(root / "state"),
+                                         "HERMES_HOME": str(root / ".hermes/profiles/tek")}),
+            mock.patch.object(ask_bot, "HOME", root),
+            mock.patch.object(ask_bot.topic_sessions, "REPO_ROOT", root / "repos"),
+        ]
+        for p in self.patches:
+            p.start()
+        SlowHost.seen, SlowHost.active, SlowHost.peak = [], {}, {}
+
+    def tearDown(self):
+        for p in reversed(self.patches):
+            p.stop()
+        self.server.shutdown()
+        self.server.server_close()
+        self.tmp.cleanup()
+
+    def session(self, message):
+        out = ask_bot.ask("pc", message, call="c1")
+        self.assertTrue(out["ok"], out)
+        return out["delivery"]["session"]
+
+    def test_three_asks_about_one_repo_are_one_session_and_others_get_their_own(self):
+        same = {self.session(m) for m in ("what changed in hermes-lanes today", "run the hermes-lanes tests",
+                                          "is hermes-lanes on main")}
+        self.assertEqual(len(same), 1, same)
+        lanes = same.pop()
+        followup = self.session("and send me the link")  # names nothing: stays with the last project
+        card_a = self.session("what's blocking t_1a2b3c4d")
+        card_b = self.session("close t_9f8e7d6c")
+        s22 = self.session("is the s22 camera on")
+        lenovo = self.session("restart the lenovo")
+        tv = self.session("deploy atlas-engine-tv")  # a repo a group points at is that group
+        self.assertEqual(followup, lanes)
+        self.assertEqual(len({lanes, card_a, card_b, s22, lenovo, tv}), 6)
+        self.assertTrue(tv.startswith("z0live-ask-tek-tv-"), tv)
+        self.assertEqual(self.session("what's blocking t_1a2b3c4d now"), card_a)
+
+    def test_concurrent_asks_for_one_session_take_turns_and_none_is_dropped(self):
+        outs = []
+        threads = [threading.Thread(target=lambda i=i: outs.append(ask_bot.ask("pc", f"hermes-lanes check {i}",
+                                                                               call=f"c{i}")))
+                   for i in range(3)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(10)
+        self.assertEqual(len(outs), 3)
+        self.assertTrue(all(o["ok"] for o in outs), outs)
+        self.assertEqual(sorted(m for _, m in SlowHost.seen), [f"hermes-lanes check {i}" for i in range(3)])
+        self.assertEqual({s for s, _ in SlowHost.seen}, {outs[0]["delivery"]["session"]}, "one warm session")
+        self.assertEqual(max(SlowHost.peak.values()), 1, "never two turns at once in one session")
+
+    def test_a_session_held_past_the_wait_runs_in_the_calls_own_session(self):
+        group = ask_bot.topic_sessions.classify("hermes-lanes", ask_bot.topic_sessions.load_groups(), repos=None)[0]
+        warm = ask_bot.topic_sessions.day_session("z0live-ask-tek", group)
+        with mock.patch.object(ask_bot, "SESSION_WAIT_S", 0.2), \
+                ask_bot.topic_sessions.session_flock(ask_bot.state_dir() / "ask-locks", "pc-" + warm, 1) as held:
+            self.assertTrue(held)
+            self.assertEqual(self.session("hermes-lanes status"), "z0live-ask-tek-c1")
+
+
 class VoiceAskTests(unittest.IsolatedAsyncioTestCase):
     """The voice adapter turns a spoken "ask @pc ..." into ask_bot.ask, never a tek Hermes run."""
 
@@ -131,7 +237,8 @@ class VoiceAskTests(unittest.IsolatedAsyncioTestCase):
         self.live = live
         self.tmp = tempfile.TemporaryDirectory()
         self.env = mock.patch.dict(os.environ, {"Z0LIVE_ASK_HOSTS": json.dumps({"pc": 1}),
-                                                "Z0LIVE_LEDGER": str(Path(self.tmp.name) / "ledger")})
+                                                "Z0LIVE_LEDGER": str(Path(self.tmp.name) / "ledger"),
+                                                "Z0LIVE_ASK_STATE": str(Path(self.tmp.name) / "state")})
         self.env.start()
         self.call = live.Call(live.Manager(None), profile="tek")
         self.call.protocol.seen.extend(["d1", "d2", "d3"])
