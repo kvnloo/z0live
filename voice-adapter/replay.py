@@ -367,6 +367,7 @@ class Replay:
             http = ClientSession()
             call = self.call = live.Call(live.Manager(http), profile="")
             call.relay, call.chat, call.heard_user = None, "chat-1", True
+            call.live_records = False  # N216: no records of the recorded call's minute (status answers, proof gate)
             call.subscription.ready.set()
             if self.history is not None:
                 call.read_history(self.history)
