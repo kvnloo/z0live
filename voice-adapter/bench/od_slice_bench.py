@@ -191,9 +191,37 @@ def schedule(runs, n_utts, seed):
     return plan
 
 
+def window_arms(spec):
+    """'500,300,200,500' -> [('W500', 500), ('W300', 300), ('W200', 200), ('W500b', 500)] (repeats get b, c, ...)."""
+    arms, seen = [], {}
+    for tok in (t.strip() for t in spec.split(',') if t.strip()):
+        ms = int(tok)
+        k = seen.get(ms, 0)
+        seen[ms] = k + 1
+        arms.append((f'W{ms}' + ('' if not k else chr(ord('a') + k)), ms))
+    return arms
+
+
+def schedule_windows(runs, n_utts, seed, arms):
+    """Window sweep plan: per run one seeded utterance order; every utterance is played once per arm back to back,
+    the arm order rotated by one each utterance so no arm always goes first. Returns one pass per run whose 'turns'
+    are (utterance index, arm label, window ms)."""
+    rng, plan, slot = random.Random(seed), [], 0
+    for run in range(1, runs + 1):
+        order = list(range(n_utts))
+        rng.shuffle(order)
+        turns = []
+        for idx in order:
+            turns += [(idx, *arms[(slot + j) % len(arms)]) for j in range(len(arms))]
+            slot += 1
+        plan.append({'run': run, 'arm': 'sweep', 'turns': turns})
+    return plan
+
+
 def _stats(rows):
     ok = [r for r in rows if r.get('ok')]
-    out = {'n': len(ok), 'errors': len(rows) - len(ok)}
+    out = {'n': len(ok), 'errors': len(rows) - len(ok),
+           'premature_endpoints': sum(r.get('error') == 'split before speech end' for r in rows)}
     for k in METRICS:
         xs = [r[k] for r in ok if r.get(k) is not None]
         out[k] = {'p50': pct(xs, .5), 'p95': pct(xs, .95), 'min': min(xs, default=None), 'max': max(xs, default=None)}
@@ -208,8 +236,9 @@ def summarize(rows):
     primary = ('speech_end_to_first_audio_ms' if pooled['speech_end_to_first_audio_ms']['p50'] is not None
                else 'eos_to_first_audio_ms')
     band = None
-    if {'A', 'A2'} <= arms.keys() and arms['A']['n'] and arms['A2']['n']:
-        a, b = arms['A'][primary], arms['A2'][primary]
+    pair = next((p for p in (('A', 'A2'), ('W500', 'W500b')) if set(p) <= arms.keys()), None)
+    if pair and arms[pair[0]]['n'] and arms[pair[1]]['n']:
+        a, b = arms[pair[0]][primary], arms[pair[1]][primary]
         band = {'p50': abs(a['p50'] - b['p50']), 'p95': abs(a['p95'] - b['p95'])}
     p50s = {k: pooled[k]['p50'] for k in ('endpointer_ms',) + STAGES if pooled[k]['p50'] is not None}
     e2a = pooled[primary]
@@ -302,7 +331,8 @@ async def bench(a):
     from aiohttp import ClientSession, ClientTimeout
     manifest = json.loads((a.utterances / 'manifest.json').read_text())
     utts = [(m, read_wav(a.utterances / m['file'])) for m in manifest]
-    plan = schedule(a.runs, len(utts), a.seed)
+    arms = window_arms(a.arm_windows) if a.arm_windows else None
+    plan = schedule_windows(a.runs, len(utts), a.seed, arms) if arms else schedule(a.runs, len(utts), a.seed)
     rows, aborted, t_start = [], None, time.monotonic()
     async with ClientSession(timeout=ClientTimeout(total=60), trust_env=False) as http, AsyncExitStack() as stack:
         stt = await stack.enter_async_context(HelperSTT(
@@ -323,7 +353,7 @@ async def bench(a):
         stages = (stt.stt, model, as_bytes(lure.tts))
         for i in range(a.warmup):
             row = await run_live_turn(stages, utts[i % len(utts)][1], turn_id=-1 - i, db=a.vad_db,
-                                      silence_ms=a.endpointer_silence_ms)
+                                      silence_ms=arms[i % len(arms)][1] if arms else a.endpointer_silence_ms)
             print(json.dumps({'warmup': i, 'ok': row['ok'], 'e2a': row['eos_to_first_audio_ms'],
                               'se2a': row['speech_end_to_first_audio_ms']}), file=sys.stderr)
         turn = 0
@@ -331,20 +361,26 @@ async def bench(a):
             if not gate_ok(a.gate):
                 aborted = f'gate before run {p["run"]} {p["arm"]}'
                 break
-            for idx in p['order']:
+            turns = p.get('turns') or [(idx, p['arm'], a.endpointer_silence_ms) for idx in p['order']]
+            for idx, arm, window in turns:
+                if arms and not gate_ok(a.gate):  # sweep: gate before every arm turn
+                    aborted = f'gate before run {p["run"]} {arm} turn {turn}'
+                    break
                 m, pcm = utts[idx]
-                row = await run_live_turn(stages, pcm, turn_id=turn, db=a.vad_db, silence_ms=a.endpointer_silence_ms)
+                row = await run_live_turn(stages, pcm, turn_id=turn, db=a.vad_db, silence_ms=window)
                 turn += 1
-                row.update(run=p['run'], arm=p['arm'], utt=m['file'], expected=m['text'],
+                row.update(run=p['run'], arm=arm, window_ms=window, utt=m['file'], expected=m['text'],
                            stt_exact=norm_words(row['transcript']) == norm_words(m['text']),
                            load1=os.getloadavg()[0])
                 rows.append(row)
                 print(json.dumps({k: row[k] for k in ('run', 'arm', 'utt', 'ok', 'endpointer_ms',
                                                       'eos_to_first_audio_ms', 'speech_end_to_first_audio_ms')}),
                       file=sys.stderr, flush=True)
+            if aborted:
+                break
     return {'bench': 'od_slice_bench', 'aborted': aborted, 'wall_s': round(time.monotonic() - t_start, 2),
             'runs': a.runs, 'warmup': a.warmup, 'seed': a.seed, 'lure_first_chunk_frames': a.lure_first_chunk_frames,
-            'vad_db': a.vad_db, 'endpointer_silence_ms': a.endpointer_silence_ms,
+            'vad_db': a.vad_db, 'endpointer_silence_ms': a.endpointer_silence_ms, 'arm_windows': arms,
             'n_utterances': len(utts), 'utterances_sha256': hashlib.sha256(
                 b''.join(pcm for _, pcm in utts)).hexdigest(), 'summary': summarize(rows), 'rows': rows}
 
@@ -370,12 +406,21 @@ def parse_args(argv=None):
     ap.add_argument('--vad-db', type=float, default=VAD_DB, help='Endpointer energy threshold (dBFS)')
     ap.add_argument('--endpointer-silence-ms', type=int, default=ENDPOINT_SILENCE_MS,
                     help='trailing-silence window before EOS (multiple of 20 in 80..2000; 0 = offline EOS)')
+    ap.add_argument('--arm-windows', default='',
+                    help='window sweep, e.g. 500,300,200,500: one arm per window (repeats = A/A, labeled W500b), '
+                         'interleaved per utterance; overrides --endpointer-silence-ms; default off')
     ap.add_argument('--gate', help='command run before every pass; nonzero exit aborts the bench')
     a = ap.parse_args(argv)
     if a.make_utterances is None and not (a.out and a.utterances and a.whisper_model and a.gguf):
         ap.error('bench needs --out, --utterances, --whisper-model and --gguf (or use --make-utterances)')
     if a.endpointer_silence_ms % 20 or not (a.endpointer_silence_ms == 0 or 80 <= a.endpointer_silence_ms <= 2000):
         ap.error('--endpointer-silence-ms must be 0 or a multiple of 20 in 80..2000')
+    try:
+        bad = [ms for _, ms in window_arms(a.arm_windows) if ms % 20 or not 80 <= ms <= 2000]
+    except ValueError:
+        bad = [a.arm_windows]
+    if bad:
+        ap.error('--arm-windows entries must be multiples of 20 in 80..2000')
     for name in ('out', 'make_utterances'):
         p = getattr(a, name)
         if p is not None:
