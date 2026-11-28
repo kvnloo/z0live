@@ -17,7 +17,7 @@ class ParseTest(unittest.TestCase):
     def setUp(self):
         self.enterContext(patch.dict(os.environ, {"Z0LIVE_JOIN_HOSTS": json.dumps({"tek": 18644, "pc": 18645})}))
 
-    def test_join_commands_kevin_would_say(self):
+    def test_join_commands_owner_would_say(self):
         for text, expected in [
             ("Add Tek to the call", ("add", "tek")),
             ("add tech to this call please", ("add", "tek")),  # the transcriber's "tech"
@@ -141,13 +141,13 @@ class JoinTest(unittest.IsolatedAsyncioTestCase):
         await asyncio.gather(*self.call.tasks)
         self.assertEqual(self.spoken(), [])
         self.assertEqual(len(self.spoken("guest")), 1)
-        self.assertIn("Hi Kevin, Tek here.", self.spoken("guest")[0])
+        self.assertIn("Hi, Tek here.", self.spoken("guest")[0])
         self.assertEqual((g.floor.owner, g.floor.reason), ("guest", "guest_joined"))
         self.assertIn(g.config.primary_note, self.call.sent)  # Hermes is told a second voice is on
         # Never written: the next call starts with one voice again.
         self.assertEqual(self.voices.read_text(), "{}")
         self.assertIsNone(guest_voice.configured())
-        # Kevin's next words to Tek go to Tek; "Hermes, ..." comes back to Hermes.
+        # the owner's next words to Tek go to Tek; "Hermes, ..." comes back to Hermes.
         self.assertIs(g.addressing("Tek, what shipped?", final=True), live.Address.GUEST)
         self.assertIs(g.addressing("Hermes, back to you.", final=True), live.Address.OTHER)
 
@@ -165,10 +165,10 @@ class JoinTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Tek is off the call now.", self.spoken())
         self.assertFalse(any("disconnected" in text for text in self.spoken()))
         # Tek's hello, unsaid when it left, is not handed to Hermes as "Tek's Hermes returned this answer".
-        self.assertFalse(any("joined Kevin's call" in text for text in self.spoken()))
+        self.assertFalse(any("joined the owner's call" in text for text in self.spoken()))
 
     async def test_what_tek_left_unsaid_leaves_with_it(self):
-        # Join probe 13:29: Kevin cut Tek's resumed rest ("Thanks Tek. Hermes, back to you"), then removed Tek, and
+        # Join probe 13:29: the owner cut Tek's resumed rest ("Thanks Tek. Hermes, back to you"), then removed Tek, and
         # Hermes read that rest as "Tek's Hermes returned this answer".
         self.call.join(("add", "tek"), None)
         await self.settle(lambda: self.call.duplex is not None and self.call.duplex.floor.available)
@@ -197,7 +197,7 @@ class JoinTest(unittest.IsolatedAsyncioTestCase):
         self.call.protocol.turn_text["user"] = "Hey, add Tek to the call."
         self.call.join(self.call.join_words("Hey, add Tek to the call."), None, "Hey, add Tek to the call.")
         # The voice then delegates its paraphrase of the same words.
-        self.assertTrue(self.call.join_command("d1", "Kevin wants Tek added to this call"))
+        self.assertTrue(self.call.join_command("d1", "the owner wants Tek added to this call"))
         await self.settle(lambda: self.call.duplex is not None and self.call.duplex.floor.available)
         self.primary_says("One sec.", "r1")
         await asyncio.gather(*self.call.tasks)
@@ -232,12 +232,12 @@ class JoinTest(unittest.IsolatedAsyncioTestCase):
         self.call.join(("add", "pc"), None)
         await asyncio.gather(*self.call.tasks)
         self.assertEqual(self.call.guest.config.profile, "tek")
-        # Tek holds the floor after its hello, so Hermes's line waits for it (Kevin's next words move it back).
+        # Tek holds the floor after its hello, so Hermes's line waits for it (the owner's next words move it back).
         waiting = [a.text for a in self.call.duplex.floor.answers["primary"]]
         self.assertTrue(any("say remove Tek first" in text for text in self.spoken() + waiting))
 
     async def test_people_on_the_call_keep_their_floor_when_tek_joins(self):
-        floor_only = live.GPTGuest(self.call, None)  # Kevin and a friend at the phone, Hermes the only bot
+        floor_only = live.GPTGuest(self.call, None)  # the owner and a friend at the phone, Hermes the only bot
         self.call.duplex, self.call.people = floor_only, 2
         floor_only.set_people(2)
         self.call.join(("add", "tek"), None)

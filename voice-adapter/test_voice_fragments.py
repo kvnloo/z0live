@@ -153,7 +153,7 @@ class ProtocolBoundaryTest(unittest.TestCase):
         self.assertIn("Want me to check the studio's disk?", request)
 
     def test_voice_backchannels_inside_a_long_thought_are_not_exchanges(self):
-        # 151433: "Mm-hm" after nearly every segment of Kevin's 10-20 s thoughts.
+        # 151433: "Mm-hm" after nearly every segment of the owner's 10-20 s thoughts.
         self.feed(user_done("So I was thinking about the lanes", "u1"), voice_done("Mm-hm.", "a1"))
         self.clock.t += 8
         self.feed(user_done("and the conductor keeps spawning three of them", "u2"), voice_done("Mm-hm.", "a2"))
@@ -207,7 +207,7 @@ class FloorHandoffTest(unittest.IsolatedAsyncioTestCase):
         g.observe("primary", turn("done", "Hermes, NPC", 1000, 1600, tid="p1"))
         utterance_ends(g)
         await asyncio.sleep(0)
-        self.assertEqual(call.delegated, [], "a fragment never reaches Kevin's Hermes")
+        self.assertEqual(call.delegated, [], "a fragment never reaches the owner's Hermes")
         self.assertIn("floor.fragment_held", str(call.traces))
         g.observe("primary", turn("done", "Hermes, how much disk space is free on the studio?", 9000, 11000,
                                   tid="p2"))

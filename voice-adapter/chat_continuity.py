@@ -11,6 +11,7 @@ from __future__ import annotations
 import itertools
 import json
 import sqlite3
+from contextlib import closing
 import time
 from pathlib import Path
 
@@ -51,7 +52,7 @@ def find_chat(history, profile: str, db_path: Path | None = None) -> str:
     if not keys:
         return ""
     try:
-        with sqlite3.connect(f"file:{db_path or _db(profile)}?mode=ro", uri=True, timeout=2) as db:
+        with closing(sqlite3.connect(f"file:{db_path or _db(profile)}?mode=ro", uri=True, timeout=2)) as db:
             rows = db.execute(
                 "SELECT m.session_id, substr(m.content,1,400) FROM messages m JOIN sessions s ON s.id=m.session_id "
                 "WHERE m.id > (SELECT max(id) FROM messages) - ? AND m.role='user' "
@@ -80,7 +81,7 @@ def newest_chat(profile: str, db_path: Path | None = None) -> str:
     to run beside, so a call whose history matched no chat still gets the fast path instead of a cold CLI run
     (11-27 11:20: three CLI runs, none answered before hang-up). Never a side run (bg_*) or a local session."""
     try:
-        with sqlite3.connect(f"file:{db_path or _db(profile)}?mode=ro", uri=True, timeout=2) as db:
+        with closing(sqlite3.connect(f"file:{db_path or _db(profile)}?mode=ro", uri=True, timeout=2)) as db:
             row = db.execute(f"SELECT id FROM sessions WHERE source NOT IN {NOT_A_CHAT} AND {NOT_OWNER_CHATS} "
                              "ORDER BY started_at DESC LIMIT 1").fetchone()
             return row[0] if row else ""
@@ -165,7 +166,7 @@ def anchor_chat(profile: str, db_path: Path | None = None, now: float | None = N
     import time
     now = time.time() if now is None else now
     try:
-        with sqlite3.connect(f"file:{db_path or _db(profile)}?mode=ro", uri=True, timeout=2) as db:
+        with closing(sqlite3.connect(f"file:{db_path or _db(profile)}?mode=ro", uri=True, timeout=2)) as db:
             sid = _pinned(db, PIN if pin is None else pin)
             if sid:
                 return _continuation(db, sid), "pin"
@@ -191,7 +192,7 @@ def chat_memory(profile: str, sid: str, db_path: Path | None = None, summary_cap
     if not sid:
         return ""
     try:
-        with sqlite3.connect(f"file:{db_path or _db(profile)}?mode=ro", uri=True, timeout=2) as db:
+        with closing(sqlite3.connect(f"file:{db_path or _db(profile)}?mode=ro", uri=True, timeout=2)) as db:
             # Only a real compaction row: it STARTS with the marker (or the [PRIOR CONTEXT wrapper around it) and is
             # a user/assistant/system row. A tool row or a reply that merely quotes the marker is not one (11-27: a
             # patch diff holding test text was picked as "the summary").
@@ -241,7 +242,7 @@ def chat_memory(profile: str, sid: str, db_path: Path | None = None, summary_cap
     return "\n\n".join(parts)
 
 
-# The chat is history, not the state of the machines (11-28 13:55, Kevin: "WHY WOULD I WANT A LIVE CALL TO READ ME
+# The chat is history, not the state of the machines (11-28 13:55, the owner: "WHY WOULD I WANT A LIVE CALL TO READ ME
 # STALE FUCKING INFORMATION"). Facts about devices, installs, addresses, services, jobs and builds change within the
 # hour; the reader must check them live before saying them.
 HISTORY_NOTE = ("This is past conversation, not live state. Anything below about a device, install, IP address, "

@@ -157,7 +157,7 @@ class FakeChat:
                     if len(turns) == 1:
                         await self.topic_event(sid, "message.start", "")
                 elif method == "session.resume":
-                    # A live chat reports whether a turn runs in it, ours or one Kevin typed (session_registry.py).
+                    # A live chat reports whether a turn runs in it, ours or one the owner typed (session_registry.py).
                     await ws.send_json({"id": rid, "result": {"session_id": params["session_id"],
                                                               "running": self.busy()}})
                 elif method == "prompt.submit":
@@ -167,7 +167,7 @@ class FakeChat:
                     self.replay.chat_submits.append(did)
                     work, answer = self.replay.hermes.get(did, (5.0, f"answer for {did}"))
                     if self.replay.fold_submits or self.replay.now < self.replay.chat_busy_until:
-                        await ws.send_json({"id": rid, "result": {"status": "steered"}})  # joined a turn begun since
+                        status = "steered"  # joined a turn begun since
                     elif self.turn is None:
                         self.turn = Turn(self.replay.now + work, answer)
                         status = "streaming"

@@ -13,6 +13,7 @@ import json
 import os
 import re
 import sqlite3
+from contextlib import closing
 import time
 from pathlib import Path
 
@@ -132,7 +133,7 @@ def _complaint(db, now: float, chats: dict, window: float):
 
 def _cards(path: Path, now: float) -> list[str]:
     """Running cards, then blocked ones (waiting on the owner first), from the kanban board, newest first."""
-    with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=1) as kb:
+    with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=1)) as kb:
         running = kb.execute("SELECT title, assignee FROM tasks WHERE status='running' "
                              "ORDER BY coalesce(last_heartbeat_at, started_at, created_at) DESC LIMIT 4").fetchall()
         blocked = kb.execute("SELECT title, assignee, coalesce(block_kind,'') FROM tasks WHERE status='blocked' "
@@ -159,7 +160,7 @@ def cross_thread(profile: str = "", now: float | None = None, db_path: Path | No
     now = time.time() if now is None else now
     asks, complaint, cards = [], None, []
     try:
-        with sqlite3.connect(f"file:{db_path or cc._db(profile)}?mode=ro", uri=True, timeout=1) as db:
+        with closing(sqlite3.connect(f"file:{db_path or cc._db(profile)}?mode=ro", uri=True, timeout=1)) as db:
             threads = _threads(db, now, window)
             asks = threads[:4]
             try:

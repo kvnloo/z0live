@@ -1,4 +1,4 @@
-"""F5/F7 input boundaries: which of Kevin's speech segments may start a Hermes run.
+"""F5/F7 input boundaries: which of the owner's speech segments may start a Hermes run.
 
 The provider's VAD cuts a 10-20 s thought into segments, and GPT-Live delegates some of them alone: 41 of 265
 delegations (15%) in the cos-1128 L1 audit were <=5 words ("NPC" spawned 3 conductor lanes, "Yeah" in 112025 started
@@ -12,7 +12,7 @@ a run of its own). This module is pure (no I/O, injectable clock) and decides at
   the window carries it), unless it answers the voice's pending question ("Want me to check the studio?" / "Yes
   please"): then it runs with the question attached, so Hermes knows what "yes" means. A short imperative or
   question ("check disk space", "restart the lanes") is a complete ask and runs at once.
-- A pure backchannel from the voice ("Mm-hm.") inside Kevin's open thought is not an exchange: it neither ends his
+- A pure backchannel from the voice ("Mm-hm.") inside the owner's open thought is not an exchange: it neither ends his
   thought nor enters the call's exchange history (handoff, topic chats).
 """
 from __future__ import annotations
@@ -84,22 +84,22 @@ class Verdict:
 
 
 class Gate:
-    """One leg's input boundary state: when Kevin last spoke, and the voice's open question."""
+    """One leg's input boundary state: when the owner last spoke, and the voice's open question."""
 
     def __init__(self, clock: Callable[[], float] = time.monotonic):
         self.clock = clock
-        self.user_at: float | None = None  # last finished segment of Kevin's on this leg
+        self.user_at: float | None = None  # last finished segment of the owner's on this leg
         self.question: tuple[float, str] | None = None  # (when, the voice's question) still open
         self.answered: tuple[float, str, str] | None = None  # (when, short answer, its question): idempotent re-check
         self.held = 0  # fragments that did not run
-        self.backchannels = 0  # voice backchannels inside Kevin's thought, kept out of the exchanges
+        self.backchannels = 0  # voice backchannels inside the owner's thought, kept out of the exchanges
 
     def thought_open(self) -> bool:
-        """Kevin's thought is still going: his last segment is within the coalesce window."""
+        """the owner's thought is still going: his last segment is within the coalesce window."""
         return self.user_at is not None and self.clock() - self.user_at < COALESCE_SECONDS
 
     def user(self, said: str) -> bool:
-        """A finished segment of Kevin's. True when the stitched words before it are stale (quiet past the window),
+        """A finished segment of the owner's. True when the stitched words before it are stale (quiet past the window),
         so the caller drops them before adding this one."""
         now = self.clock()
         stale = self.user_at is not None and now - self.user_at >= COALESCE_SECONDS
@@ -109,7 +109,7 @@ class Gate:
         return stale
 
     def assistant(self, said: str) -> bool:
-        """A finished turn of the voice's. True when it is a backchannel inside Kevin's open thought (not an
+        """A finished turn of the voice's. True when it is a backchannel inside the owner's open thought (not an
         exchange: it neither answers nor ends his words)."""
         if backchannel(said):
             if self.thought_open():
@@ -141,7 +141,7 @@ class Gate:
         if question and words(request):
             self.question = None  # answered: the next short words need a new question
             self.answered = (self.clock(), request, question)
-            return Verdict(True, f'{request} (Kevin\'s answer to the voice\'s question: "{question}")', "answer")
+            return Verdict(True, f'{request} (the owner\'s answer to the voice\'s question: "{question}")', "answer")
         if not fragment(request):
             return Verdict(True, request, "short_ask" if short else "ask")
         self.held += 1

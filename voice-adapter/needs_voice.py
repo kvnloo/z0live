@@ -1,13 +1,13 @@
-"""Blockers out loud when Kevin can't see the TV (Kevin 11-28: "keep surfacing blockers for me").
+"""Blockers out loud when the owner can't see the TV (the owner 11-28: "keep surfacing blockers for me").
 
 The TV server (atlas-engine apps/z0live-tv serve.py, loopback GET /api/needs) owns the list: every blocked kanban card
-waiting on Kevin, each with a ready-to-say clause, plus tv.present (TV power on, TV app polling, not marked away).
+waiting on the owner, each with a ready-to-say clause, plus tv.present (TV power on, TV app polling, not marked away).
 While the TV shows them (the NEEDS YOU band on every page), nothing is spoken and the cards count as seen. When the TV
 is away, cards he has not seen or heard within REMEMBER_S (across calls, MEMORY file) are spoken:
   * the first time in a call: one summary line (how many wait, the top two unheard, how to open the page);
   * after that: one line when a card newly appears.
 Nothing is said before the call's first exchange (the voice never speaks first), and every line goes through the
-call's one status budget (Call.take_status): never over Kevin or a reply, never inside STATUS_GAP of another status
+call's one status budget (Call.take_status): never over the owner or a reply, never inside STATUS_GAP of another status
 line. A line that cannot be said now waits for the next poll.
 """
 import asyncio
@@ -54,7 +54,7 @@ def _ids(rows):
 
 class Watch:
     """Pure state: feed it each /api/needs payload, get back (text, ids) to say now, or None.
-    memory = {card id: when Kevin last saw it on the TV or heard it}, shared across calls."""
+    memory = {card id: when the owner last saw it on the TV or heard it}, shared across calls."""
 
     def __init__(self, memory=None):
         self.memory = memory if memory is not None else {}
@@ -123,7 +123,7 @@ async def speak(call, text):
     if call.leg:
         if not call.leg.ready or call.leg.ws is None or call.leg.ws.closed:
             return False
-        await call.leg.note("Brief update from Hermes about blockers waiting on Kevin. Say this aloud: " + text,
+        await call.leg.note("Brief update from Hermes about blockers waiting on the owner. Say this aloud: " + text,
                             call.trace.turn_id)
         await call.leg.raw({"type": "response.create"})
         return True

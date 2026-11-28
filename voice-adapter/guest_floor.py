@@ -163,7 +163,7 @@ class Floor:
         return bool(legs)
 
     def failed(self, name: str, now: float, *, line: str | None = None, reason: str = "guest_failed") -> None:
-        """The guest is gone (it failed, or Kevin sent it off: reason "guest_left"). Hermes says `line`."""
+        """The guest is gone (it failed, or the owner sent it off: reason "guest_left"). Hermes says `line`."""
         self.available = False
         self.change("primary", reason, now)
         line = f"{name} disconnected. I can keep going with you." if line is None else line

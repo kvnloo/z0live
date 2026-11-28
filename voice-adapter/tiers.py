@@ -71,11 +71,11 @@ def load() -> dict:
 
 CONDUCTOR_STATE = Path(os.environ.get("Z0LIVE_CONDUCTOR", str(Path.home() / ".local/share/z0live/conductor"))) / "state.json"
 
-# Semantic-router fast lane (Kevin, call 11-28: "we have hundreds of models via Semantic Router ... you're not using
+# Semantic-router fast lane (the owner, call 11-28: "we have hundreds of models via Semantic Router ... you're not using
 # any of them"). Measured 11-28 on 12 neutral asks with this tier prompt: vllm-sr/turbo (Groq gpt-oss) 0.4 s p50
 # vs luna 1.3 s / terra 1.4 s, same answers and the same SKIPs. Its hosts are third-party free tiers, so policy/RULES.md
-# decides when it may run: "anything that sees Kevin's message text ... runs on Claude or local models only", except
-# "Turbo mode stacks ... sr:free" when Kevin turns turbo on. So the router lane races only while the TV conductor is
+# decides when it may run: "anything that sees the owner's message text ... runs on Claude or local models only", except
+# "Turbo mode stacks ... sr:free" when the owner turns turbo on. So the router lane races only while the TV conductor is
 # in turbo/ultra (his spoken switch), and gets the bare request (race() never sends it the brief, TV or call). In
 # normal mode any router binding, even one written into the layout, is dropped. Z0LIVE_SR_FAST=off disables it.
 SR_FAST = {"provider": "custom", "model": os.environ.get("Z0LIVE_SR_FAST_MODEL", "vllm-sr/turbo"),

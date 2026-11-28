@@ -1,7 +1,7 @@
 """A second agent joins a real call by voice, then both voices answer: HARNESS proof for guest_join.
 
 Offline `say` speech -> adapter (mobile_live.Call, started with NO guest: voices.json is {}) -> real gpt-live
-sessions over the Codex subscription. Kevin says "Add Tek to the call."; Tek's session starts mid-call and says hello
+sessions over the Codex subscription. The owner says "Add Tek to the call."; Tek's session starts mid-call and says hello
 in its own voice; a question to Hermes gets a scripted answer that lands while the voice is mid-reply (the 192702 /
 181920 shape); a question to Tek goes to Tek's real guest Hermes host; "Hermes, back to you"; "Remove Tek from the
 call." Does not touch the running service, its traces, the request ledger or ~/.config/z0live/voices.json.
@@ -157,7 +157,7 @@ async def main():
 
     def gsend(guest, event):
         probe.sent_guest.append((now(), event))
-        if event.get("channel") == "speakable" and "Hi Kevin" not in json.dumps(event) and probe.guest_said_at is None:
+        if event.get("channel") == "speakable" and "Say exactly this and nothing else" not in json.dumps(event) and probe.guest_said_at is None:
             probe.guest_said_at = now()  # the guest's Hermes answer (not its hello)
         return _gsend(guest, event)
 

@@ -785,7 +785,7 @@ class HermesPathNeverSilent(unittest.TestCase):
         self.assertIn("210 gigabytes", report["answers"].get("d1", ""))
 
     def test_a_long_request_hears_no_stock_receipt_and_still_gets_its_answer(self):
-        # 120608 at 84.9 s: one receipt at 8 s, then 224 s of silence before the chat turn answered. Kevin, 11-27: after
+        # 120608 at 84.9 s: one receipt at 8 s, then 224 s of silence before the chat turn answered. The owner, 11-27: after
         # the kickoff the voice does not have to say anything: one receipt line, no progress or cap lines after it.
         rows = (turn(80, 84.5, "user", "Sort every photo from the trip into albums by day", "u1")
                 + delegation(84.9, "d1", "sort the trip photos") + turn(85, 86, "assistant", "Let me check.", "a1")

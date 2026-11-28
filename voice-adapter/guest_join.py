@@ -1,6 +1,6 @@
 """Bring a second agent onto a live call by voice: "add Tek to the call", "bring PC in", "remove Tek from the call".
 
-Kevin, 11-28: "set up multi voice. Like if I want to add a second agent ... make sure that it's working." The
+the owner, 11-28: "set up multi voice. Like if I want to add a second agent ... make sure that it's working." The
 two-voice floor (guest_floor, GPTGuest) only ran when ~/.config/z0live/voices.json named a guest for every call, and
 that file is {} since the 11-20 night (the guest answered every turn unheard). This turns the guest on for one call,
 on request, and never writes voices.json, so the next call starts with one voice again.
@@ -85,7 +85,7 @@ def config(profile: str) -> guest_voice.GuestConfig | None:
 
 def greeting(config: guest_voice.GuestConfig) -> str:
     """What the guest says, in its own voice, when it has joined: the out-loud confirmation."""
-    return (f"You just joined Kevin's call. Say exactly this and nothing else: \"Hi Kevin, {config.name} here. "
+    return (f"You just joined the owner's call. Say exactly this and nothing else: \"Hi, {config.name} here. "
             f"Say {config.name} when you want me.\"")
 
 

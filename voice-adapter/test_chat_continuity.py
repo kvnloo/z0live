@@ -347,7 +347,7 @@ class LiveNotStaleTests(unittest.TestCase):
         self.assertTrue(text.startswith(cc.HISTORY_NOTE))
         self.assertIn("check it live with a tool now", text)
         self.assertIn("[09:05] Assistant: groot did the TV install with sdb", text)
-        self.assertIn("[13:50] Kevin: the TV now points at the Studio", text)
+        self.assertIn("[13:50] User: the TV now points at the Studio", text)
         self.assertLess(text.index("[09:05]"), text.index("[13:50]"))
 
 

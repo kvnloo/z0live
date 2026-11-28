@@ -135,7 +135,7 @@ class SharedContextTest(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         self.call = FakeCall()
-        self.context = "Brief: Kevin's codeword today is PELICAN."
+        self.context = "Brief: the owner's codeword today is PELICAN."
         self.call.guest_context = lambda: self.context
         self.guest = guest_voice.GuestVoice(self.call)
         self.guest.ready = True

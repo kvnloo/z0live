@@ -2,7 +2,7 @@
 
 Before this, every request handed off on a call ran as a dashboard background agent (prompt.background), and Hermes
 mints a new bg_* session for each one: 86 on 11-28 alone ("Grok OAuth sign-in link" #1 to #15, "Optimize voice call
-setup with advisor lanes" #1 to #31), each starting cold. Kevin, 11-27 12:54 and again 11-28 12:36: "we shouldn't be
+setup with advisor lanes" #1 to #31), each starting cold. The owner, 11-27 12:54 and again 11-28 12:36: "we shouldn't be
 starting a new session for every request ... a new session for every project maybe".
 
 Now a request is classified into a project group (z0live calls, Grok/xAI, TV dashboard, ...) and submitted as a turn

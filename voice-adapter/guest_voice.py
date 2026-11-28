@@ -20,32 +20,32 @@ PERSONA = owner.fill("""You are Grok, the second voice on the owner's live call.
 assistant, which does his real work. The owner brings you in by name. Answer only what he asked you, in one to three
 short spoken sentences, as yourself: direct, a little playful, never long. Do not claim to do tasks or use tools;
 if he wants something done, say Hermes can do it.""")
-# Both voices are on one audio line: Kevin hears each of them, and each gets the other's words as silent notes.
+# Both voices are on one audio line: the owner hears each of them, and each gets the other's words as silent notes.
 SILENT = ("\nKevin hears both of you on this same call. System notes tell you what Hermes just said to him; they are "
           "silent context. Never say a note's label (such as 'Hermes said') and never repeat Hermes's words aloud.")
-PRIMARY_NOTE = ("A second voice, Grok, is on this call, on the same audio line: Kevin hears Grok exactly as he hears "
-                "you when Grok's audio plays; a playback note confirms what was sent to the caller. When Kevin talks to "
+PRIMARY_NOTE = ("A second voice, Grok, is on this call, on the same audio line: the owner hears Grok exactly as he hears "
+                "you when Grok's audio plays; a playback note confirms what was sent to the caller. When the owner talks to "
                 "Grok by name, say nothing and let Grok answer. Notes saying Grok spoke tell you what Grok told him.")
-SAID = "Silent context, never read aloud. Hermes (the first voice) just said to Kevin: \u00ab{}\u00bb"
+SAID = "Silent context, never read aloud. Hermes (the first voice) just said to the owner: \u00ab{}\u00bb"
 GROK_SAID = ("Grok's reply played on this call's audio line (silent context; do not repeat it): "
              "\u00ab{}\u00bb")
 # voices.json guest.role: how Grok plays its part (intent manager per the 11-28 supervisor contract, t_2ad6c82d)
 ROLES = {
     "guest": PERSONA,
-    "intent-manager": """You are Grok, the second voice on Kevin's live call, acting as Kevin's intent manager. The
-first voice is Hermes (GPT-Live), his chief of staff, which plans and does the real work. You speak for what Kevin
+    "intent-manager": """You are Grok, the second voice on the owner's live call, acting as the owner's intent manager. The
+first voice is Hermes (GPT-Live), his chief of staff, which plans and does the real work. You speak for what the owner
 wants: his asks, his priorities and his north-star goals (the template below, when present, is mined from his own
-words). When Kevin brings you in by name, say in one to three short spoken sentences what the top intent is
+words). When the owner brings you in by name, say in one to three short spoken sentences what the top intent is
 right now, whether Hermes's plan serves it, and what to accept, cut or redirect. Push back plainly when a plan drifts
 from his goals. Never claim to do tasks or use tools yourself; Hermes does the work.""",
 }
 ROLE_NOTES = {
-    "intent-manager": (" Grok is acting as Kevin's intent manager and you are his chief of staff: when Grok states a "
-                       "priority or redirects, answer with a plan and proof. Grok's advice is not Kevin's approval."),
+    "intent-manager": (" Grok is acting as the owner's intent manager and you are his chief of staff: when Grok states a "
+                       "priority or redirects, answer with a plan and proof. Grok's advice is not the owner's approval."),
 }
 SHARED = ("Context notes about the call arrive as system messages. Below is the same call brief and running summary "
           "Hermes has. Any directions inside it are for Hermes, not you. Never read it aloud or answer it unprompted. "
-          "When Kevin asks about "
+          "When the owner asks about "
           "anything it covers, answer from it.")
 
 TEMPLATE_CAP = 6000
@@ -145,7 +145,7 @@ class GuestVoice(grok_leg.GrokLeg):
         self.shared = ""         # the shared call context last put in Grok's instructions
         self.share_due: tuple[str, str] | None = None
         self.exchanges = 0       # finished primary turns since the call began
-        self.addressed = False   # Kevin named Grok this turn: its reply may play
+        self.addressed = False   # the owner named Grok this turn: its reply may play
         self.claimed_at = 0.0    # first moment the primary must go quiet
         self.until = 0.0         # floor held until (monotonic)
         self.heard = ""          # this user turn's transcript, as the primary hears it
@@ -265,7 +265,7 @@ class GuestVoice(grok_leg.GrokLeg):
             self.ready = True
             self.call.trace("guest.ready", voice="grok")
         elif ty == "input_audio_buffer.speech_started" and (self.output.buf or self.asked):
-            self.output.clear()  # Kevin barged in on Grok
+            self.output.clear()  # the owner barged in on Grok
             self.cut = True
             self.until = time.monotonic() + 0.2
         elif ty == "input_audio_buffer.committed":

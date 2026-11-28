@@ -261,7 +261,7 @@ story or thinks out loud, stay quiet and let them keep going: do not fill their 
 and stop immediately when interrupted. Handle greetings and ordinary small talk yourself.
 You have no tools. For facts, lookups or actions, delegate the complete request to the client.
 While that request is outstanding, wait silently for its answer; never infer system facts from earlier turns or fill the wait with status chatter.
-Kevin's Hermes chat runs on his PC with adb to his phone: it can screenshot and read his screen, watch logs and run commands. Never say you can't see his screen or aren't connected to the call. "Look at my screen" is a delegation, not a refusal.
+the owner's Hermes chat runs on his PC with adb to his phone: it can screenshot and read his screen, watch logs and run commands. Never say you can't see his screen or aren't connected to the call. "Look at my screen" is a delegation, not a refusal.
 The client is the user's existing Hermes chat with its chosen model, tools and approvals.
 When you delegate, say at most a short neutral line such as "Let me check." The request may
 already be running, may wait in line or may be refused, so never promise new work, say you are
@@ -270,7 +270,7 @@ notice or refusal says what happened; say that.
 Do not claim work happened until the client returns its actual result. Progress arriving on
 the commentary channel is silent context, not something to read aloud. Present an Agent
 Final Message as your own concise answer. Never narrate routing or backend plumbing.
-If Kevin says he is away from the TV, the TV is off, or asks to hear the results, read
+If the owner says he is away from the TV, the TV is off, or asks to hear the results, read
 the returned results aloud, one sentence per card; never direct him to a display instead.
 Helper notes may arrive as silent context: a verified note or a correction about something
 already answered is true; mention a correction briefly ("Actually, ...").
@@ -322,7 +322,7 @@ CAP = ("No answer on that after {seconds} seconds. It keeps running in Hermes; i
        "you'll hear it here, and it lands {where} and on the TV.")
 WHERE = {"chat": "in your chat", "background": "in Hermes as a background result", "host": "in Hermes",
          "topic": "in its project chat in Hermes"}
-# Task K (11-27 15:14 call): Kevin said three times that after a kickoff the voice need not say anything. A request
+# Task K (11-27 15:14 call): the owner said three times that after a kickoff the voice need not say anything. A request
 # hears the one receipt, then nothing until its state changes (the answer, a failure, a result); the repeating progress,
 # cap and merged lines are gone. The one other line: an action with a promise and no proof after UNPROVEN_SECONDS.
 UNPROVEN_SECONDS = request_ledger.NOT_STARTED_SECONDS
@@ -732,7 +732,7 @@ class Protocol:
                 while self.deferred:
                     self.release(*self.deferred.pop(0))
             elif self.fragments.assistant(said):
-                said = ""  # a backchannel inside Kevin's open thought: not an exchange, never ends his words
+                said = ""  # a backchannel inside the owner's open thought: not an exchange, never ends his words
             elif substantive(said) and not self.deferred:
                 self.asked.clear()  # the voice answered these words itself; a backchannel ("Mm-hm.") keeps them
             if said:
@@ -1032,7 +1032,7 @@ class GPTGuest:
             self.adopt(config)
 
     def adopt(self, config):
-        """The second voice on this floor: named by voices.json at call start, or added mid-call by Kevin's words
+        """The second voice on this floor: named by voices.json at call start, or added mid-call by the owner's words
         (guest_join: "add Tek to the call"). A floor that had no voice (people on the call) keeps its state."""
         # The transcriber hears Tek as "Tech", "Teck", "Tec" or "Tech's" (takes 9 and 14); only a vocative names a voice.
         aliases = (("tek", "tech's", "tech’s", "tech", "teck", "tec", "teknium", "டெக்", "டெக்னியம்")
@@ -1598,7 +1598,7 @@ class GPTGuest:
         self.off(line, "guest_failed")
 
     def leave(self, line):
-        """Kevin sent the guest off the call ("remove Tek from the call"). The floor stays for Hermes."""
+        """the owner sent the guest off the call ("remove Tek from the call"). The floor stays for Hermes."""
         if self.closed or self.call.closed or self.config is None:
             return False
         self.closed = True
@@ -1612,8 +1612,8 @@ class GPTGuest:
         self.audio.clear()
         unsaid = self.ledger.retire("guest")
         if reason == "guest_left":
-            # Kevin sent Tek off: what Tek never said leaves with it. Join probe 13:29: the rest of Tek's answer, cut
-            # by Kevin's "Thanks Tek. Hermes, back to you", was read by Hermes right after "Tek is off the call".
+            # the owner sent Tek off: what Tek never said leaves with it. Join probe 13:29: the rest of Tek's answer, cut
+            # by the owner's "Thanks Tek. Hermes, back to you", was read by Hermes right after "Tek is off the call".
             for did in [entry.did for entry, _ in unsaid] + [a.delegation_id for a in self.floor.answers["guest"]]:
                 self.call.trace("floor.answer_dropped", speaker="guest", did=did, reason="guest_left")
             self.floor.answers["guest"].clear()
@@ -2065,7 +2065,7 @@ class Call:
                 self.spawn(self.renew_subscription())
             self.spawn(self.watchdog())
             self.spawn(self.audio_health())
-            self.spawn(needs_voice.run(self))  # blockers out loud while the TV is away (Kevin 11-28)
+            self.spawn(needs_voice.run(self))  # blockers out loud while the TV is away (the owner 11-28)
             if self.relay:
                 self.spawn(self.relay_start())
             self.trace("call.negotiated", setup_s=round(time.monotonic() - self.created, 3), context_items=len(context))
@@ -2567,13 +2567,13 @@ class Call:
 
     # ---- a second agent joins by voice (guest_join) ----
     def join_words(self, text):
-        """("add" | "remove", profile) when Kevin's words are a join command this call can act on, else None."""
+        """("add" | "remove", profile) when the owner's words are a join command this call can act on, else None."""
         if self.profile == "guest" or self.leg or self.engine != "gpt-live":
             return None
         return guest_join.parse(text)
 
     def join_command(self, did, request) -> bool:
-        """The voice delegated "add Tek to the call": act on it here, never in Hermes. Kevin's own words back up a
+        """The voice delegated "add Tek to the call": act on it here, never in Hermes. The owner's own words back up a
         paraphrased request only when the request still names a profile that can join."""
         user = str(self.protocol.turn_text.get("user") or "") if hasattr(self.protocol, "turn_text") else ""
         named = any(re.search(rf"\b{re.escape(spoken)}\b", request or "", re.I)
@@ -2585,7 +2585,7 @@ class Call:
         return True
 
     def join(self, hit, did, said=""):
-        """One utterance is one join: Kevin's turn and the voice's delegation of it both arrive (20 s window)."""
+        """One utterance is one join: the owner's turn and the voice's delegation of it both arrive (20 s window)."""
         action, profile = hit
         now, key = time.monotonic(), f"{action}\0{profile}"
         recent = self.__dict__.setdefault("joins_done", {})
@@ -2609,7 +2609,7 @@ class Call:
             return False
 
     async def add_guest(self, did, profile):
-        """Kevin asked for a second agent: it joins this call only (voices.json is never written), in its own voice,
+        """the owner asked for a second agent: it joins this call only (voices.json is never written), in its own voice,
         and says so itself once its session is up. One guest at a time."""
         def say(text):
             if not self.closed:
@@ -2635,7 +2635,7 @@ class Call:
         duplex.adopt(config)
         # No line from Hermes on success: its own "One sec." is the ack and the guest's hello, in the guest's voice,
         # is the confirmation. A "Bringing PC in." line was paraphrased ("PC's here now"), resent and dropped, and
-        # the hello waited behind it until Kevin had moved on (join probe 13:26).
+        # the hello waited behind it until the owner had moved on (join probe 13:26).
         self.guest, self.guest_config = duplex, config
         self.protocol.own = lambda said: duplex.own_words("primary", said)
         duplex.protocol.own = lambda said: duplex.own_words("guest", said)
@@ -2824,7 +2824,7 @@ class Call:
         if self.background_owns(did, request):  # F2: one voice per ask; the delegation's answer is the answer
             self.trace("status.yield", did=did, topics=topics, why="background_owns")
             return False
-        # One utterance is one answer: Kevin's turn.done answers it at once, and the voice's delegation of the same
+        # One utterance is one answer: the owner's turn.done answers it at once, and the voice's delegation of the same
         # question (if it sends one) within 20 s is swallowed. Probe 11-28 03:16: the voice said "Let me check.", sent
         # no delegation, and 70 s later said "Three lanes are active right now." (0 TV lanes, 1 card were running).
         now, key = time.monotonic(), " ".join(sorted(topics)) + "\0" + " ".join(live_status.CARD_ID.findall(request))
@@ -3451,10 +3451,10 @@ class Call:
             if not primed:  # first request of this call in a chat that already knows the project
                 context = self.host_context(did)
                 return stream_rule + ((context + "\n\nRequest: " + request) if context else request)
-            said = "\n".join(f"{'Kevin' if role == 'user' else 'Voice'}: {' '.join(text.split())[:400]}"
+            said = "\n".join(f"{'Caller' if role == 'user' else 'Voice'}: {' '.join(text.split())[:400]}"
                              for role, text in list(self.protocol.exchanges)[-4:])
             led = self.ledger_brief(did)
-            return (stream_rule + f"Kevin asked this on the same live voice call; answer in a few short spoken sentences."
+            return (stream_rule + f"the owner asked this on the same live voice call; answer in a few short spoken sentences."
                     + (f"\n\nSaid on the call since:\n{said}" if said else "") + (f"\n\n{led}" if led else "")
                     + f"\n\nRequest: {request}")
 
@@ -3734,7 +3734,7 @@ class Call:
                 raise RuntimeError("Replacement voice transport disconnected")
             grok = self.guest if not guest and isinstance(self.guest, guest_voice.GuestVoice) else None
             recent = self.call_recap(protocol)
-            summary = (owner_identity.fill("Continuing the same call. This is a recap, not a new request. Stay silent until Kevin "
+            summary = (owner_identity.fill("Continuing the same call. This is a recap, not a new request. Stay silent until the owner "
                        "speaks again; do not repeat prior actions or answers.\n") + recent)
             if grok:
                 summary = self.guest_context()
