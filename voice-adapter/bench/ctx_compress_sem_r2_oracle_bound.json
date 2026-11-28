@@ -1,0 +1,434 @@
+{
+ "experiment": "C1-ctx-sem-r2",
+ "kind": "deterministic oracle bound, not scored",
+ "r15": {
+  "r15-vet": {
+   "chars": {
+    "A": 2598,
+    "B": 2585,
+    "B_nodisp": 2600
+   },
+   "replaced": 3,
+   "reserved": 6,
+   "probes": {
+    "u1": {
+     "cat": "UPD_SAME",
+     "current": {
+      "A": false,
+      "B": false,
+      "B_nodisp": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "B_nodisp": false
+     }
+    },
+    "u2": {
+     "cat": "UPD_RENAMED",
+     "current": {
+      "A": false,
+      "B": true,
+      "B_nodisp": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "B_nodisp": false
+     }
+    },
+    "u3": {
+     "cat": "UPD_RENAMED",
+     "current": {
+      "A": false,
+      "B": true,
+      "B_nodisp": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "B_nodisp": false
+     }
+    },
+    "p_old": {
+     "cat": "TWO_OLD",
+     "current": {
+      "A": true,
+      "B": true,
+      "B_nodisp": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "B_nodisp": false
+     }
+    },
+    "s1": {
+     "cat": "STATIC",
+     "current": {
+      "A": true,
+      "B": true,
+      "B_nodisp": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "B_nodisp": false
+     }
+    },
+    "s2": {
+     "cat": "STATIC",
+     "current": {
+      "A": true,
+      "B": true,
+      "B_nodisp": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "B_nodisp": false
+     }
+    },
+    "s3": {
+     "cat": "STATIC",
+     "current": {
+      "A": true,
+      "B": true,
+      "B_nodisp": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "B_nodisp": false
+     }
+    },
+    "p_new": {
+     "cat": "TWO_NEW",
+     "current": {
+      "A": false,
+      "B": false,
+      "B_nodisp": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "B_nodisp": false
+     }
+    }
+   }
+  },
+  "r15-car": {
+   "chars": {
+    "A": 2756,
+    "B": 2734,
+    "B_nodisp": 2761
+   },
+   "replaced": 3,
+   "reserved": 7,
+   "probes": {
+    "u1": {
+     "cat": "UPD_SAME",
+     "current": {
+      "A": false,
+      "B": true,
+      "B_nodisp": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "B_nodisp": false
+     }
+    },
+    "u2": {
+     "cat": "UPD_SAME",
+     "current": {
+      "A": false,
+      "B": false,
+      "B_nodisp": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "B_nodisp": false
+     }
+    },
+    "u3": {
+     "cat": "UPD_SAME",
+     "current": {
+      "A": false,
+      "B": true,
+      "B_nodisp": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "B_nodisp": false
+     }
+    },
+    "p_old": {
+     "cat": "TWO_OLD",
+     "current": {
+      "A": true,
+      "B": true,
+      "B_nodisp": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "B_nodisp": false
+     }
+    },
+    "s1": {
+     "cat": "STATIC",
+     "current": {
+      "A": true,
+      "B": true,
+      "B_nodisp": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "B_nodisp": false
+     }
+    },
+    "s2": {
+     "cat": "STATIC",
+     "current": {
+      "A": true,
+      "B": true,
+      "B_nodisp": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "B_nodisp": false
+     }
+    },
+    "s3": {
+     "cat": "STATIC",
+     "current": {
+      "A": true,
+      "B": true,
+      "B_nodisp": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "B_nodisp": false
+     }
+    },
+    "s4": {
+     "cat": "STATIC",
+     "current": {
+      "A": true,
+      "B": true,
+      "B_nodisp": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "B_nodisp": false
+     }
+    },
+    "s5": {
+     "cat": "STATIC",
+     "current": {
+      "A": true,
+      "B": true,
+      "B_nodisp": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "B_nodisp": false
+     }
+    }
+   }
+  },
+  "r15-pottery": {
+   "chars": {
+    "A": 2590,
+    "B": 2573,
+    "B_nodisp": 2597
+   },
+   "replaced": 3,
+   "reserved": 6,
+   "probes": {
+    "u1": {
+     "cat": "UPD_RENAMED",
+     "current": {
+      "A": false,
+      "B": true,
+      "B_nodisp": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "B_nodisp": false
+     }
+    },
+    "u2": {
+     "cat": "UPD_RENAMED",
+     "current": {
+      "A": false,
+      "B": true,
+      "B_nodisp": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "B_nodisp": false
+     }
+    },
+    "u3": {
+     "cat": "UPD_SAME",
+     "current": {
+      "A": false,
+      "B": false,
+      "B_nodisp": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "B_nodisp": false
+     }
+    },
+    "p_old": {
+     "cat": "TWO_OLD",
+     "current": {
+      "A": true,
+      "B": true,
+      "B_nodisp": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "B_nodisp": false
+     }
+    },
+    "s1": {
+     "cat": "STATIC",
+     "current": {
+      "A": true,
+      "B": true,
+      "B_nodisp": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "B_nodisp": false
+     }
+    },
+    "s2": {
+     "cat": "STATIC",
+     "current": {
+      "A": true,
+      "B": true,
+      "B_nodisp": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "B_nodisp": false
+     }
+    },
+    "s3": {
+     "cat": "STATIC",
+     "current": {
+      "A": true,
+      "B": true,
+      "B_nodisp": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "B_nodisp": false
+     }
+    },
+    "p_new": {
+     "cat": "TWO_NEW",
+     "current": {
+      "A": false,
+      "B": false,
+      "B_nodisp": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "B_nodisp": false
+     }
+    }
+   }
+  }
+ },
+ "totals": {
+  "UPD": {
+   "A": {
+    "n": 9,
+    "current": 0,
+    "superseded": 9
+   },
+   "B": {
+    "n": 9,
+    "current": 6,
+    "superseded": 0
+   },
+   "B_nodisp": {
+    "n": 9,
+    "current": 9,
+    "superseded": 0
+   }
+  },
+  "TWO_OLD": {
+   "A": {
+    "n": 3,
+    "current": 3,
+    "superseded": 0
+   },
+   "B": {
+    "n": 3,
+    "current": 3,
+    "superseded": 0
+   },
+   "B_nodisp": {
+    "n": 3,
+    "current": 3,
+    "superseded": 0
+   }
+  },
+  "STATIC": {
+   "A": {
+    "n": 11,
+    "current": 11,
+    "superseded": 0
+   },
+   "B": {
+    "n": 11,
+    "current": 11,
+    "superseded": 0
+   },
+   "B_nodisp": {
+    "n": 11,
+    "current": 11,
+    "superseded": 0
+   }
+  },
+  "TWO_NEW": {
+   "A": {
+    "n": 2,
+    "current": 0,
+    "superseded": 0
+   },
+   "B": {
+    "n": 2,
+    "current": 0,
+    "superseded": 0
+   },
+   "B_nodisp": {
+    "n": 2,
+    "current": 0,
+    "superseded": 0
+   }
+  }
+ }
+}

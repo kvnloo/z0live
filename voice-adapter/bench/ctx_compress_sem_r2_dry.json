@@ -1,0 +1,29 @@
+{
+ "experiment": "C1-ctx-sem-r2",
+ "kind": "DRY PREDICTION, written before the scored run (I = inferred); local inputs: ctx_compress_sem_r2_precheck_model.json (macOS Metal, same gguf, llama.cpp b12527) and ctx_compress_sem_r2_oracle_bound.json (deterministic, no model)",
+ "predicted_outcome": "REVERT",
+ "predicted_failed": ["G1_r15_two_true_loss"],
+ "confidence": "moderate (about 0.6); the most likely alternative is KEEP, if the model answers FLT-06 from the garbled car sentence that still names it",
+ "per_gate": {
+  "G1e_r15_update_fixed": {"predict": "pass", "B_stale": 1, "A_stale": 9, "B_correct": "4 (3-5)", "why": "precheck: 8 of 9 updates collide and are judged REPLACE (vet u2 'microchip number' vs 'chip id' do not collide); the displacement rule leaves 4 updates with NEITHER value in the brief (vet u1, car u2, car u3, pottery u3), so CORRECT is bounded by 4 (oracle bound with the rule: 6 of 9 current)"},
+  "G1_r15_two_true_loss": {"predict": "FAIL", "B_loss": 1, "A_loss": 0, "why": "car 'My flight number is FLT-06' is judged REPLACE by the garbled 'The flight number for my trip is FLT-06 is FLT-07' (same key), so only the garbled line holds FLT-06; sem-r1 measured OFF_FORMAT on exactly this brief shape. Vet TECH-9 vs TECH-12 collide and are judged ALSO (both kept) - the judge removes sem-r1's vet merge"},
+  "G1s_r15_static_recall": {"predict": "pass", "B": 11, "A": 11, "why": "every static fact r4 keeps is reserved; precheck 11/11 in brief (B-nodisp loses car s1, as sem-r1 did)"},
+  "G1b_r14_a3_loss": {"predict": "pass", "why": "precheck: 0 dev old facts dropped"},
+  "G1c_dev_fm_loss": {"predict": "pass", "why": "precheck: 0 dev old facts dropped"},
+  "G2_stale_no_worse": {"predict": "pass", "why": "precheck: superseded value left in 7 of 51 dev+main briefs-probes vs A 51 (main flight / room x3, same as A; r8-cycling b1, not gated); every gated dev stale probe clean"},
+  "G3_unique_kept": {"predict": "pass"},
+  "G4_main_recall": {"predict": "pass", "why": "main briefs: the only collisions are 'workshop note' fillers, judged ALSO, so B = r4 byte for byte on main (precheck replaced 0)"},
+  "G5_r5_gates": {"predict": "pass"},
+  "G6_no_new_invented_present": {"predict": "pass"},
+  "G7_latency": {"predict": "pass", "why": "B = A on main"},
+  "G8a_brief_latency": {"predict": "pass", "p50_s": "< 0.05 (cache lookups, no model call with a warm cache)"}
+ },
+ "report_only_predictions": {
+  "G8b_per_new_statement_p50_s": "1.5-3.5 (one ~110-token prefill at ~53 tok/s plus ~5 decoded tokens; a statement whose key collides adds one ~150-token judge, ~3 s)",
+  "G8b_cold_total_per_brief_p50_s": "40-70 (about 16 statements + about 6 judges)",
+  "judge_in_path_per_brief_p50_s": "12-20 (what G8a would cost if the judges were not cached on arrival)",
+  "r15_current_in_brief": {"B": "UPD 4 / TWO_OLD 3 / STATIC 11", "B_nojudge": "UPD 7 / TWO_OLD 2 / STATIC 11", "B_nodisp": "UPD 8 / TWO_OLD 3 / STATIC 10"},
+  "R1_sem_r1": "as measured in sem-r1: STALE 2, CORRECT 7, pair-old LOSS 2, static 10"
+ },
+ "hypothesis_reading": "The parent hypothesis 'keeps >= 7/9 blind updates fixed' is predicted to hold for STALE removed (8/9) but NOT for CORRECT (about 4/9): the displacement rule trades update recall for static recall on this budget (oracle bound: 6/9 CORRECT with the rule, 9/9 without, statics 11/11 either way under perfect keys)."
+}

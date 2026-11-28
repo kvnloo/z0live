@@ -1,0 +1,7314 @@
+{
+ "briefs": {
+  "main/workshop-1": {
+   "chars": {
+    "A": 2485,
+    "B": 2485
+   },
+   "B_eq_A": true,
+   "sem": {
+    "candidates": 14,
+    "key_misses": 0,
+    "judge_misses": 0,
+    "collisions": 11,
+    "judges": [
+     [
+      2,
+      3,
+      "also"
+     ],
+     [
+      3,
+      4,
+      "also"
+     ],
+     [
+      4,
+      7,
+      "also"
+     ],
+     [
+      7,
+      8,
+      "also"
+     ],
+     [
+      8,
+      9,
+      "also"
+     ],
+     [
+      9,
+      10,
+      "also"
+     ],
+     [
+      10,
+      11,
+      "also"
+     ],
+     [
+      11,
+      12,
+      "also"
+     ],
+     [
+      12,
+      13,
+      "also"
+     ],
+     [
+      13,
+      14,
+      "also"
+     ],
+     [
+      14,
+      15,
+      "also"
+     ]
+    ],
+    "replaced": 0,
+    "reserved": 0,
+    "fallback": null,
+    "wall_s": 0.0,
+    "brief_wall_s": 0.0,
+    "arrivals": [
+     {
+      "key_s": 0.057,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.043,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.041,
+      "judge_s": 0.034,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.034,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.034,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     }
+    ],
+    "arrival_walls": [
+     0.057,
+     0.043,
+     0.075,
+     0.074,
+     0.04,
+     0.074,
+     0.073,
+     0.073,
+     0.073,
+     0.072,
+     0.072,
+     0.073,
+     0.072,
+     0.073
+    ],
+    "cold_total_s": 0.944,
+    "judge_in_path_s": 0.366,
+    "cache_errors": [],
+    "keys": [
+     [
+      0,
+      "My workshop vendor code is Mint-57.",
+      "vendor code"
+     ],
+     [
+      2,
+      "Workshop note 0: the paper sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      3,
+      "Workshop note 2: the wood sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      4,
+      "Workshop note 4: the glass sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      5,
+      "They booked breakout room Birch-40 for me.",
+      "room code"
+     ],
+     [
+      7,
+      "Workshop note 6: the cork sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      8,
+      "Workshop note 8: the linen sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      9,
+      "Workshop note 10: the clay sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      10,
+      "Workshop note 12: the felt sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      11,
+      "Workshop note 14: the paper sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      12,
+      "Workshop note 16: the wood sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      13,
+      "Workshop note 18: the glass sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      14,
+      "Workshop note 20: the cork sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      15,
+      "Workshop note 22: the linen sample has a subtle texture.",
+      "workshop note"
+     ]
+    ]
+   },
+   "judge_replies": [
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO"
+   ],
+   "probes": {
+    "studio": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "locker": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "vendor": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "flight": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": true,
+      "B": true
+     }
+    },
+    "room": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": true,
+      "B": true
+     }
+    },
+    "parcel": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    }
+   }
+  },
+  "main/workshop-2": {
+   "chars": {
+    "A": 2485,
+    "B": 2485
+   },
+   "B_eq_A": true,
+   "sem": {
+    "candidates": 15,
+    "key_misses": 0,
+    "judge_misses": 0,
+    "collisions": 12,
+    "judges": [
+     [
+      2,
+      3,
+      "also"
+     ],
+     [
+      3,
+      4,
+      "also"
+     ],
+     [
+      4,
+      7,
+      "also"
+     ],
+     [
+      7,
+      8,
+      "also"
+     ],
+     [
+      8,
+      9,
+      "also"
+     ],
+     [
+      9,
+      10,
+      "also"
+     ],
+     [
+      10,
+      11,
+      "also"
+     ],
+     [
+      11,
+      12,
+      "also"
+     ],
+     [
+      12,
+      13,
+      "also"
+     ],
+     [
+      13,
+      14,
+      "also"
+     ],
+     [
+      14,
+      15,
+      "also"
+     ],
+     [
+      15,
+      16,
+      "also"
+     ]
+    ],
+    "replaced": 0,
+    "reserved": 0,
+    "fallback": null,
+    "wall_s": 0.0,
+    "brief_wall_s": 0.0,
+    "arrivals": [
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     }
+    ],
+    "arrival_walls": [
+     0.039,
+     0.039,
+     0.072,
+     0.072,
+     0.04,
+     0.072,
+     0.073,
+     0.072,
+     0.072,
+     0.072,
+     0.072,
+     0.072,
+     0.072,
+     0.072,
+     0.073
+    ],
+    "cold_total_s": 0.984,
+    "judge_in_path_s": 0.396,
+    "cache_errors": [],
+    "keys": [
+     [
+      0,
+      "My workshop vendor code is Mint-58.",
+      "vendor code"
+     ],
+     [
+      2,
+      "Workshop note 0: the paper sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      3,
+      "Workshop note 2: the wood sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      4,
+      "Workshop note 4: the glass sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      5,
+      "They booked breakout room Birch-41 for me.",
+      "room code"
+     ],
+     [
+      7,
+      "Workshop note 6: the cork sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      8,
+      "Workshop note 8: the linen sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      9,
+      "Workshop note 10: the clay sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      10,
+      "Workshop note 12: the felt sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      11,
+      "Workshop note 14: the paper sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      12,
+      "Workshop note 16: the wood sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      13,
+      "Workshop note 18: the glass sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      14,
+      "Workshop note 20: the cork sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      15,
+      "Workshop note 22: the linen sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      16,
+      "Workshop note 24: the clay sample has a subtle texture.",
+      "workshop note"
+     ]
+    ]
+   },
+   "judge_replies": [
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO"
+   ],
+   "probes": {
+    "studio": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "locker": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "vendor": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "flight": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": true,
+      "B": true
+     }
+    },
+    "room": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": true,
+      "B": true
+     }
+    },
+    "parcel": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    }
+   }
+  },
+  "main/workshop-3": {
+   "chars": {
+    "A": 2484,
+    "B": 2484
+   },
+   "B_eq_A": true,
+   "sem": {
+    "candidates": 16,
+    "key_misses": 0,
+    "judge_misses": 0,
+    "collisions": 13,
+    "judges": [
+     [
+      2,
+      3,
+      "also"
+     ],
+     [
+      3,
+      4,
+      "also"
+     ],
+     [
+      4,
+      7,
+      "also"
+     ],
+     [
+      7,
+      8,
+      "also"
+     ],
+     [
+      8,
+      9,
+      "also"
+     ],
+     [
+      9,
+      10,
+      "also"
+     ],
+     [
+      10,
+      11,
+      "also"
+     ],
+     [
+      11,
+      12,
+      "also"
+     ],
+     [
+      12,
+      13,
+      "also"
+     ],
+     [
+      13,
+      14,
+      "also"
+     ],
+     [
+      14,
+      15,
+      "also"
+     ],
+     [
+      15,
+      16,
+      "also"
+     ],
+     [
+      16,
+      17,
+      "also"
+     ]
+    ],
+    "replaced": 0,
+    "reserved": 0,
+    "fallback": null,
+    "wall_s": 0.0,
+    "brief_wall_s": 0.0,
+    "arrivals": [
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     }
+    ],
+    "arrival_walls": [
+     0.039,
+     0.039,
+     0.073,
+     0.072,
+     0.039,
+     0.072,
+     0.072,
+     0.072,
+     0.072,
+     0.072,
+     0.072,
+     0.073,
+     0.072,
+     0.073,
+     0.073,
+     0.073
+    ],
+    "cold_total_s": 1.058,
+    "judge_in_path_s": 0.429,
+    "cache_errors": [],
+    "keys": [
+     [
+      0,
+      "My workshop vendor code is Mint-59.",
+      "vendor code"
+     ],
+     [
+      2,
+      "Workshop note 0: the paper sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      3,
+      "Workshop note 2: the wood sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      4,
+      "Workshop note 4: the glass sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      5,
+      "They booked breakout room Birch-42 for me.",
+      "room code"
+     ],
+     [
+      7,
+      "Workshop note 6: the cork sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      8,
+      "Workshop note 8: the linen sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      9,
+      "Workshop note 10: the clay sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      10,
+      "Workshop note 12: the felt sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      11,
+      "Workshop note 14: the paper sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      12,
+      "Workshop note 16: the wood sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      13,
+      "Workshop note 18: the glass sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      14,
+      "Workshop note 20: the cork sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      15,
+      "Workshop note 22: the linen sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      16,
+      "Workshop note 24: the clay sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      17,
+      "Workshop note 26: the felt sample has a subtle texture.",
+      "workshop note"
+     ]
+    ]
+   },
+   "judge_replies": [
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO"
+   ],
+   "probes": {
+    "studio": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "locker": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "vendor": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "flight": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": true,
+      "B": true
+     }
+    },
+    "room": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": true,
+      "B": true
+     }
+    },
+    "parcel": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    }
+   }
+  },
+  "recency/recency-1": {
+   "chars": {
+    "A": 2458,
+    "B": 2516
+   },
+   "B_eq_A": false,
+   "sem": {
+    "candidates": 15,
+    "key_misses": 0,
+    "judge_misses": 0,
+    "collisions": 9,
+    "judges": [
+     [
+      5,
+      6,
+      "also"
+     ],
+     [
+      6,
+      7,
+      "also"
+     ],
+     [
+      7,
+      10,
+      "also"
+     ],
+     [
+      10,
+      11,
+      "also"
+     ],
+     [
+      11,
+      12,
+      "also"
+     ],
+     [
+      12,
+      13,
+      "also"
+     ],
+     [
+      13,
+      14,
+      "also"
+     ],
+     [
+      2,
+      15,
+      "replace"
+     ],
+     [
+      3,
+      16,
+      "replace"
+     ]
+    ],
+    "replaced": 2,
+    "reserved": 8,
+    "fallback": null,
+    "wall_s": 0.0,
+    "brief_wall_s": 0.0,
+    "arrivals": [
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.032,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.032,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.032,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": 0.039,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": 0.039,
+      "verdict": "replace"
+     }
+    ],
+    "arrival_walls": [
+     0.039,
+     0.046,
+     0.046,
+     0.046,
+     0.039,
+     0.071,
+     0.071,
+     0.039,
+     0.073,
+     0.072,
+     0.072,
+     0.072,
+     0.073,
+     0.085,
+     0.085
+    ],
+    "cold_total_s": 0.929,
+    "judge_in_path_s": 0.306,
+    "cache_errors": [],
+    "keys": [
+     [
+      0,
+      "My workshop vendor code is Mint-57.",
+      "vendor code"
+     ],
+     [
+      2,
+      "My workshop bench number is Fern-21.",
+      "workshop bench number"
+     ],
+     [
+      3,
+      "My badge colour code is Teal-13.",
+      "badge color code"
+     ],
+     [
+      4,
+      "My glaze batch code is Opal-82.",
+      "glaze code"
+     ],
+     [
+      5,
+      "Workshop note 0: the paper sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      6,
+      "Workshop note 2: the wood sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      7,
+      "Workshop note 4: the glass sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      8,
+      "They booked breakout room Birch-40 for me.",
+      "room code"
+     ],
+     [
+      10,
+      "Workshop note 6: the cork sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      11,
+      "Workshop note 8: the linen sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      12,
+      "Workshop note 10: the clay sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      13,
+      "Workshop note 12: the felt sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      14,
+      "Workshop note 14: the paper sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      15,
+      "Update: my workshop bench number is now Moss-48, not the old one.",
+      "workshop bench number"
+     ],
+     [
+      16,
+      "Update: my badge colour code is now Plum-64, not the old one.",
+      "badge color code"
+     ]
+    ]
+   },
+   "judge_replies": [
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "REPLACE",
+    "REPLACE"
+   ],
+   "probes": {
+    "bench": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "badge": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "glaze": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    }
+   }
+  },
+  "recency/recency-2": {
+   "chars": {
+    "A": 2458,
+    "B": 2516
+   },
+   "B_eq_A": false,
+   "sem": {
+    "candidates": 16,
+    "key_misses": 0,
+    "judge_misses": 0,
+    "collisions": 10,
+    "judges": [
+     [
+      5,
+      6,
+      "also"
+     ],
+     [
+      6,
+      7,
+      "also"
+     ],
+     [
+      7,
+      10,
+      "also"
+     ],
+     [
+      10,
+      11,
+      "also"
+     ],
+     [
+      11,
+      12,
+      "also"
+     ],
+     [
+      12,
+      13,
+      "also"
+     ],
+     [
+      13,
+      14,
+      "also"
+     ],
+     [
+      14,
+      15,
+      "also"
+     ],
+     [
+      2,
+      16,
+      "replace"
+     ],
+     [
+      3,
+      17,
+      "replace"
+     ]
+    ],
+    "replaced": 2,
+    "reserved": 8,
+    "fallback": null,
+    "wall_s": 0.0,
+    "brief_wall_s": 0.0,
+    "arrivals": [
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.032,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.032,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": 0.039,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     }
+    ],
+    "arrival_walls": [
+     0.039,
+     0.046,
+     0.046,
+     0.046,
+     0.039,
+     0.072,
+     0.072,
+     0.039,
+     0.071,
+     0.072,
+     0.072,
+     0.072,
+     0.071,
+     0.072,
+     0.085,
+     0.086
+    ],
+    "cold_total_s": 1.0,
+    "judge_in_path_s": 0.341,
+    "cache_errors": [],
+    "keys": [
+     [
+      0,
+      "My workshop vendor code is Mint-58.",
+      "vendor code"
+     ],
+     [
+      2,
+      "My workshop bench number is Fern-22.",
+      "workshop bench number"
+     ],
+     [
+      3,
+      "My badge colour code is Teal-14.",
+      "badge color code"
+     ],
+     [
+      4,
+      "My glaze batch code is Opal-83.",
+      "glaze code"
+     ],
+     [
+      5,
+      "Workshop note 0: the paper sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      6,
+      "Workshop note 2: the wood sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      7,
+      "Workshop note 4: the glass sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      8,
+      "They booked breakout room Birch-41 for me.",
+      "room code"
+     ],
+     [
+      10,
+      "Workshop note 6: the cork sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      11,
+      "Workshop note 8: the linen sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      12,
+      "Workshop note 10: the clay sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      13,
+      "Workshop note 12: the felt sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      14,
+      "Workshop note 14: the paper sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      15,
+      "Workshop note 16: the wood sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      16,
+      "Update: my workshop bench number is now Moss-49, not the old one.",
+      "workshop bench number"
+     ],
+     [
+      17,
+      "Update: my badge colour code is now Plum-65, not the old one.",
+      "badge color code"
+     ]
+    ]
+   },
+   "judge_replies": [
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "REPLACE",
+    "REPLACE"
+   ],
+   "probes": {
+    "bench": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "badge": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "glaze": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    }
+   }
+  },
+  "recency/recency-3": {
+   "chars": {
+    "A": 2457,
+    "B": 2515
+   },
+   "B_eq_A": false,
+   "sem": {
+    "candidates": 17,
+    "key_misses": 0,
+    "judge_misses": 0,
+    "collisions": 11,
+    "judges": [
+     [
+      5,
+      6,
+      "also"
+     ],
+     [
+      6,
+      7,
+      "also"
+     ],
+     [
+      7,
+      10,
+      "also"
+     ],
+     [
+      10,
+      11,
+      "also"
+     ],
+     [
+      11,
+      12,
+      "also"
+     ],
+     [
+      12,
+      13,
+      "also"
+     ],
+     [
+      13,
+      14,
+      "also"
+     ],
+     [
+      14,
+      15,
+      "also"
+     ],
+     [
+      15,
+      16,
+      "also"
+     ],
+     [
+      2,
+      17,
+      "replace"
+     ],
+     [
+      3,
+      18,
+      "replace"
+     ]
+    ],
+    "replaced": 2,
+    "reserved": 8,
+    "fallback": null,
+    "wall_s": 0.0,
+    "brief_wall_s": 0.0,
+    "arrivals": [
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.032,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     }
+    ],
+    "arrival_walls": [
+     0.04,
+     0.046,
+     0.046,
+     0.046,
+     0.04,
+     0.072,
+     0.071,
+     0.039,
+     0.073,
+     0.073,
+     0.073,
+     0.073,
+     0.072,
+     0.073,
+     0.072,
+     0.086,
+     0.086
+    ],
+    "cold_total_s": 1.081,
+    "judge_in_path_s": 0.376,
+    "cache_errors": [],
+    "keys": [
+     [
+      0,
+      "My workshop vendor code is Mint-59.",
+      "vendor code"
+     ],
+     [
+      2,
+      "My workshop bench number is Fern-23.",
+      "workshop bench number"
+     ],
+     [
+      3,
+      "My badge colour code is Teal-15.",
+      "badge color code"
+     ],
+     [
+      4,
+      "My glaze batch code is Opal-84.",
+      "glaze code"
+     ],
+     [
+      5,
+      "Workshop note 0: the paper sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      6,
+      "Workshop note 2: the wood sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      7,
+      "Workshop note 4: the glass sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      8,
+      "They booked breakout room Birch-42 for me.",
+      "room code"
+     ],
+     [
+      10,
+      "Workshop note 6: the cork sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      11,
+      "Workshop note 8: the linen sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      12,
+      "Workshop note 10: the clay sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      13,
+      "Workshop note 12: the felt sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      14,
+      "Workshop note 14: the paper sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      15,
+      "Workshop note 16: the wood sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      16,
+      "Workshop note 18: the glass sample has a subtle texture.",
+      "workshop note"
+     ],
+     [
+      17,
+      "Update: my workshop bench number is now Moss-50, not the old one.",
+      "workshop bench number"
+     ],
+     [
+      18,
+      "Update: my badge colour code is now Plum-66, not the old one.",
+      "badge color code"
+     ]
+    ]
+   },
+   "judge_replies": [
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "REPLACE",
+    "REPLACE"
+   ],
+   "probes": {
+    "bench": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "badge": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "glaze": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    }
+   }
+  },
+  "r8/r8-allotment": {
+   "chars": {
+    "A": 2528,
+    "B": 2655
+   },
+   "B_eq_A": false,
+   "sem": {
+    "candidates": 15,
+    "key_misses": 0,
+    "judge_misses": 0,
+    "collisions": 7,
+    "judges": [
+     [
+      6,
+      7,
+      "also"
+     ],
+     [
+      7,
+      8,
+      "also"
+     ],
+     [
+      8,
+      9,
+      "also"
+     ],
+     [
+      2,
+      11,
+      "replace"
+     ],
+     [
+      5,
+      12,
+      "replace"
+     ],
+     [
+      0,
+      13,
+      "replace"
+     ],
+     [
+      3,
+      14,
+      "replace"
+     ]
+    ],
+    "replaced": 4,
+    "reserved": 3,
+    "fallback": null,
+    "wall_s": 0.0,
+    "brief_wall_s": 0.0,
+    "arrivals": [
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.047,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.039,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     }
+    ],
+    "arrival_walls": [
+     0.04,
+     0.047,
+     0.046,
+     0.04,
+     0.04,
+     0.046,
+     0.039,
+     0.072,
+     0.072,
+     0.072,
+     0.039,
+     0.086,
+     0.079,
+     0.08,
+     0.086
+    ],
+    "cold_total_s": 0.884,
+    "judge_in_path_s": 0.258,
+    "cache_errors": [],
+    "keys": [
+     [
+      0,
+      "My allotment plot number is Wren-21.",
+      "plot number"
+     ],
+     [
+      1,
+      "My wheelbarrow is the green one tagged Owl-35.",
+      "wheelbarrow tag"
+     ],
+     [
+      2,
+      "My compost bin tag is Rook-31.",
+      "compost tag"
+     ],
+     [
+      3,
+      "My shed key tag is Kite-13.",
+      "shed key"
+     ],
+     [
+      4,
+      "My seed order reference is Gull-82.",
+      "order reference"
+     ],
+     [
+      5,
+      "My water tap token is Finch-44.",
+      "water tap token"
+     ],
+     [
+      6,
+      "Garden note 00: the beans sample has a subtle texture.",
+      "garden note"
+     ],
+     [
+      7,
+      "Garden note 02: the leeks sample has a subtle texture.",
+      "garden note"
+     ],
+     [
+      8,
+      "Garden note 04: the basil sample has a subtle texture.",
+      "garden note"
+     ],
+     [
+      9,
+      "Garden note 06: the thyme sample has a subtle texture.",
+      "garden note"
+     ],
+     [
+      10,
+      "My wheelbarrow is at the repair stand today, the ticket on it is Crane-62.",
+      "repair ticket"
+     ],
+     [
+      11,
+      "I moved the compost bin to the far corner, so the tag on it reads Heron-57 from today.",
+      "compost tag"
+     ],
+     [
+      12,
+      "About the water tap token: it changed to Swan-76 this week, the old one stopped working.",
+      "tap token"
+     ],
+     [
+      13,
+      "Heads up, my allotment plot number is now Lark-48, after the reshuffle.",
+      "plot number"
+     ],
+     [
+      14,
+      "Small change: my shed key tag is now Dove-64, they swapped the old one.",
+      "shed key tag"
+     ]
+    ]
+   },
+   "judge_replies": [
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "REPLACE",
+    "REPLACE",
+    "REPLACE",
+    "REPLACE"
+   ],
+   "probes": {
+    "a1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "a2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "d": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "b1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "b2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "c_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "c_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    }
+   }
+  },
+  "r8/r8-cycling": {
+   "chars": {
+    "A": 2532,
+    "B": 2617
+   },
+   "B_eq_A": false,
+   "sem": {
+    "candidates": 15,
+    "key_misses": 0,
+    "judge_misses": 0,
+    "collisions": 6,
+    "judges": [
+     [
+      6,
+      7,
+      "also"
+     ],
+     [
+      7,
+      8,
+      "also"
+     ],
+     [
+      8,
+      9,
+      "also"
+     ],
+     [
+      5,
+      12,
+      "replace"
+     ],
+     [
+      0,
+      13,
+      "replace"
+     ],
+     [
+      3,
+      14,
+      "replace"
+     ]
+    ],
+    "replaced": 3,
+    "reserved": 4,
+    "fallback": null,
+    "wall_s": 0.0,
+    "brief_wall_s": 0.0,
+    "arrivals": [
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.052,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.047,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.047,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     }
+    ],
+    "arrival_walls": [
+     0.04,
+     0.04,
+     0.052,
+     0.046,
+     0.046,
+     0.047,
+     0.04,
+     0.072,
+     0.072,
+     0.072,
+     0.039,
+     0.04,
+     0.08,
+     0.08,
+     0.087
+    ],
+    "cold_total_s": 0.853,
+    "judge_in_path_s": 0.219,
+    "cache_errors": [],
+    "keys": [
+     [
+      0,
+      "My club jersey number is Wren-22.",
+      "jersey number"
+     ],
+     [
+      1,
+      "My bike is the red tourer tagged Owl-36.",
+      "bike tag"
+     ],
+     [
+      2,
+      "My saddle bag tag is Rook-32.",
+      "saddle bag tag"
+     ],
+     [
+      3,
+      "My bike rack spot is Kite-14.",
+      "bike rack code"
+     ],
+     [
+      4,
+      "My helmet sticker code is Gull-83.",
+      "helmet sticker code"
+     ],
+     [
+      5,
+      "My pump locker code is Finch-45.",
+      "pump locker code"
+     ],
+     [
+      6,
+      "Ride note 00: the route sample has a subtle texture.",
+      "ride note"
+     ],
+     [
+      7,
+      "Ride note 02: the flats sample has a subtle texture.",
+      "ride note"
+     ],
+     [
+      8,
+      "Ride note 04: the ridge sample has a subtle texture.",
+      "ride note"
+     ],
+     [
+      9,
+      "Ride note 06: the loops sample has a subtle texture.",
+      "ride note"
+     ],
+     [
+      10,
+      "My bike is booked in at the workshop this week, the job card says Crane-63.",
+      "job card"
+     ],
+     [
+      11,
+      "We switched to new saddle bags, so the tag on the new one says Heron-58 now.",
+      "tag number"
+     ],
+     [
+      12,
+      "I moved the track pump to the back room, and its locker code reads Swan-77 now.",
+      "locker code"
+     ],
+     [
+      13,
+      "Quick update, my club jersey number is now Lark-49, after the new kit order.",
+      "jersey number"
+     ],
+     [
+      14,
+      "One change: my bike rack spot is now Dove-65, they moved the old racks.",
+      "bike rack code"
+     ]
+    ]
+   },
+   "judge_replies": [
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "REPLACE",
+    "REPLACE",
+    "REPLACE"
+   ],
+   "probes": {
+    "a1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "a2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "d": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "b1": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": true,
+      "B": true
+     }
+    },
+    "b2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "c_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "c_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    }
+   }
+  },
+  "r8/r8-choir": {
+   "chars": {
+    "A": 2539,
+    "B": 2643
+   },
+   "B_eq_A": false,
+   "sem": {
+    "candidates": 15,
+    "key_misses": 0,
+    "judge_misses": 0,
+    "collisions": 6,
+    "judges": [
+     [
+      7,
+      8,
+      "also"
+     ],
+     [
+      8,
+      9,
+      "also"
+     ],
+     [
+      2,
+      11,
+      "replace"
+     ],
+     [
+      5,
+      12,
+      "replace"
+     ],
+     [
+      0,
+      13,
+      "replace"
+     ],
+     [
+      3,
+      14,
+      "replace"
+     ]
+    ],
+    "replaced": 4,
+    "reserved": 3,
+    "fallback": null,
+    "wall_s": 0.0,
+    "brief_wall_s": 0.0,
+    "arrivals": [
+     {
+      "key_s": 0.053,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.06,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.053,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.047,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.039,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.059,
+      "judge_s": 0.039,
+      "verdict": "replace"
+     }
+    ],
+    "arrival_walls": [
+     0.053,
+     0.039,
+     0.039,
+     0.06,
+     0.046,
+     0.046,
+     0.053,
+     0.039,
+     0.072,
+     0.073,
+     0.046,
+     0.086,
+     0.087,
+     0.079,
+     0.098
+    ],
+    "cold_total_s": 0.916,
+    "judge_in_path_s": 0.224,
+    "cache_errors": [],
+    "keys": [
+     [
+      0,
+      "My choir folder number is Wren-23.",
+      "choir folder number"
+     ],
+     [
+      1,
+      "My robe is the long blue one tagged Owl-37.",
+      "robe tag"
+     ],
+     [
+      2,
+      "My practice room key is Rook-33.",
+      "room key"
+     ],
+     [
+      3,
+      "My rehearsal seat code is Kite-15.",
+      "rehearsal seat code"
+     ],
+     [
+      4,
+      "My music stand label is Gull-84.",
+      "music stand label"
+     ],
+     [
+      5,
+      "My car park pass is Finch-46.",
+      "car park pass"
+     ],
+     [
+      6,
+      "Choir note 00: the hymns sample has a subtle texture.",
+      "hymn sample"
+     ],
+     [
+      7,
+      "Choir note 02: the psalm sample has a subtle texture.",
+      "note code"
+     ],
+     [
+      8,
+      "Choir note 04: the round sample has a subtle texture.",
+      "note code"
+     ],
+     [
+      9,
+      "Choir note 06: the canon sample has a subtle texture.",
+      "note code"
+     ],
+     [
+      10,
+      "My robe is at the dry cleaner this week, the ticket for it is Crane-64.",
+      "dry cleaner ticket"
+     ],
+     [
+      11,
+      "For the practice room key, it changed to Heron-59 after the locks were replaced.",
+      "practice room key"
+     ],
+     [
+      12,
+      "We switched to the new car park passes, and the one I got shows Swan-78 on it.",
+      "car park pass"
+     ],
+     [
+      13,
+      "Note that my choir folder number is now Lark-50, since the folders were redone.",
+      "folder number"
+     ],
+     [
+      14,
+      "Small update: my rehearsal seat code is now Dove-66, they changed the rows.",
+      "rehearsal seat code"
+     ]
+    ]
+   },
+   "judge_replies": [
+    "ALSO",
+    "ALSO",
+    "REPLACE",
+    "REPLACE",
+    "REPLACE",
+    "REPLACE"
+   ],
+   "probes": {
+    "a1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "a2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "d": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "b1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "b2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "c_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "c_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    }
+   }
+  },
+  "r12/r12-campsite": {
+   "chars": {
+    "A": 2519,
+    "B": 2679
+   },
+   "B_eq_A": false,
+   "sem": {
+    "candidates": 17,
+    "key_misses": 0,
+    "judge_misses": 0,
+    "collisions": 5,
+    "judges": [
+     [
+      7,
+      8,
+      "also"
+     ],
+     [
+      8,
+      9,
+      "also"
+     ],
+     [
+      9,
+      10,
+      "also"
+     ],
+     [
+      2,
+      12,
+      "replace"
+     ],
+     [
+      6,
+      15,
+      "replace"
+     ]
+    ],
+    "replaced": 2,
+    "reserved": 6,
+    "fallback": null,
+    "wall_s": 0.0,
+    "brief_wall_s": 0.0,
+    "arrivals": [
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.059,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     }
+    ],
+    "arrival_walls": [
+     0.04,
+     0.039,
+     0.039,
+     0.046,
+     0.059,
+     0.04,
+     0.04,
+     0.04,
+     0.073,
+     0.073,
+     0.073,
+     0.04,
+     0.08,
+     0.04,
+     0.04,
+     0.08,
+     0.04
+    ],
+    "cold_total_s": 0.882,
+    "judge_in_path_s": 0.179,
+    "cache_errors": [],
+    "keys": [
+     [
+      0,
+      "My van is booked for the ferry on Friday, the booking ref is Jade-21.",
+      "booking reference"
+     ],
+     [
+      1,
+      "Our tent is the green one tagged Topaz-17.",
+      "tent tag"
+     ],
+     [
+      2,
+      "My pitch number is Quartz-14.",
+      "pitch number"
+     ],
+     [
+      3,
+      "My cool box is kept in the shower block fridge, the fridge tag is Coral-25.",
+      "fridge tag"
+     ],
+     [
+      4,
+      "My hook-up card number is Zircon-84.",
+      "hook up card number"
+     ],
+     [
+      5,
+      "My bike trailer is the orange one tagged Ruby-38.",
+      "trailer tag"
+     ],
+     [
+      6,
+      "My gate code is Beryl-29.",
+      "gate code"
+     ],
+     [
+      7,
+      "Camp note 00: the lantern sample has a subtle texture.",
+      "camp note"
+     ],
+     [
+      8,
+      "Camp note 02: the tarp sample has a subtle texture.",
+      "camp note"
+     ],
+     [
+      9,
+      "Camp note 04: the pegs sample has a subtle texture.",
+      "camp note"
+     ],
+     [
+      10,
+      "Camp note 06: the hammock sample has a subtle texture.",
+      "camp note"
+     ],
+     [
+      11,
+      "My van is now booked in at the new garage for its service, the job card is Onyx-52.",
+      "job card"
+     ],
+     [
+      12,
+      "My pitch number is Agate-45 now, the warden moved us after the storm.",
+      "pitch number"
+     ],
+     [
+      13,
+      "Our tent is now pitched on the new terrace, the pitch tag is Amber-63.",
+      "pitch tag"
+     ],
+     [
+      14,
+      "My cool box is due back at the new hire desk tomorrow, the hire slip is Pearl-56.",
+      "hire slip"
+     ],
+     [
+      15,
+      "My gate code is changed to Jasper-67 from today, the warden said.",
+      "gate code"
+     ],
+     [
+      16,
+      "My bike trailer is parked by the New Barn gate, the parking tag is Garnet-71.",
+      "parking tag"
+     ]
+    ]
+   },
+   "judge_replies": [
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "REPLACE",
+    "REPLACE"
+   ],
+   "probes": {
+    "a_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "b_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "c_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "d_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "e1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "e2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "f": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "a_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "b_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "c_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "d_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    }
+   }
+  },
+  "r12/r12-coworking": {
+   "chars": {
+    "A": 2531,
+    "B": 2694
+   },
+   "B_eq_A": false,
+   "sem": {
+    "candidates": 17,
+    "key_misses": 0,
+    "judge_misses": 0,
+    "collisions": 5,
+    "judges": [
+     [
+      7,
+      8,
+      "also"
+     ],
+     [
+      8,
+      9,
+      "also"
+     ],
+     [
+      9,
+      10,
+      "also"
+     ],
+     [
+      2,
+      12,
+      "replace"
+     ],
+     [
+      6,
+      15,
+      "replace"
+     ]
+    ],
+    "replaced": 2,
+    "reserved": 6,
+    "fallback": null,
+    "wall_s": 0.0,
+    "brief_wall_s": 0.0,
+    "arrivals": [
+     {
+      "key_s": 0.041,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.032,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.032,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.039,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.039,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     }
+    ],
+    "arrival_walls": [
+     0.041,
+     0.04,
+     0.039,
+     0.04,
+     0.046,
+     0.039,
+     0.039,
+     0.039,
+     0.073,
+     0.071,
+     0.071,
+     0.039,
+     0.079,
+     0.04,
+     0.04,
+     0.078,
+     0.04
+    ],
+    "cold_total_s": 0.854,
+    "judge_in_path_s": 0.175,
+    "cache_errors": [],
+    "keys": [
+     [
+      0,
+      "My locker is on the second floor by the lifts, the locker tag is Jade-22.",
+      "locker tag"
+     ],
+     [
+      1,
+      "My kids are both on the family pass, the pass code is Topaz-18.",
+      "pass code"
+     ],
+     [
+      2,
+      "My desk number is Quartz-15.",
+      "desk number"
+     ],
+     [
+      3,
+      "My standing desk is set to the tall preset, the preset tag is Coral-26.",
+      "preset tag"
+     ],
+     [
+      4,
+      "My printer PIN code is Zircon-85.",
+      "printer pin code"
+     ],
+     [
+      5,
+      "My laptop is the silver one tagged Ruby-39.",
+      "laptop tag"
+     ],
+     [
+      6,
+      "My mailbox number is Beryl-30.",
+      "mailbox number"
+     ],
+     [
+      7,
+      "Desk note 00: the monitor sample has a subtle texture.",
+      "desk note"
+     ],
+     [
+      8,
+      "Desk note 02: the chair sample has a subtle texture.",
+      "desk note"
+     ],
+     [
+      9,
+      "Desk note 04: the plant sample has a subtle texture.",
+      "desk note"
+     ],
+     [
+      10,
+      "Desk note 06: the printer sample has a subtle texture.",
+      "desk note"
+     ],
+     [
+      11,
+      "My locker is now on a new keypad system, the keypad code is Onyx-53.",
+      "locker code"
+     ],
+     [
+      12,
+      "My desk number is Agate-46 after the move, they replaced the floor plan.",
+      "desk number"
+     ],
+     [
+      13,
+      "My kids are now in the new holiday club downstairs, the pickup code is Amber-64.",
+      "pickup code"
+     ],
+     [
+      14,
+      "My standing desk is booked out for the new team on Thursdays, the booking ref is Pearl-57.",
+      "booking reference"
+     ],
+     [
+      15,
+      "My mailbox number is now Jasper-68 since the post room changed.",
+      "mailbox number"
+     ],
+     [
+      16,
+      "My laptop is registered on the Switched On guest network, the device ID is Garnet-72.",
+      "device id"
+     ]
+    ]
+   },
+   "judge_replies": [
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "REPLACE",
+    "REPLACE"
+   ],
+   "probes": {
+    "a_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "b_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "c_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "d_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "e1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "e2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "f": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "a_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "b_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "c_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "d_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    }
+   }
+  },
+  "r12/r12-leisure": {
+   "chars": {
+    "A": 2524,
+    "B": 2689
+   },
+   "B_eq_A": false,
+   "sem": {
+    "candidates": 17,
+    "key_misses": 0,
+    "judge_misses": 0,
+    "collisions": 5,
+    "judges": [
+     [
+      7,
+      8,
+      "also"
+     ],
+     [
+      8,
+      9,
+      "also"
+     ],
+     [
+      9,
+      10,
+      "also"
+     ],
+     [
+      2,
+      12,
+      "replace"
+     ],
+     [
+      6,
+      15,
+      "replace"
+     ]
+    ],
+    "replaced": 2,
+    "reserved": 6,
+    "fallback": null,
+    "wall_s": 0.0,
+    "brief_wall_s": 0.0,
+    "arrivals": [
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.052,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": 0.039,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": 0.039,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     }
+    ],
+    "arrival_walls": [
+     0.04,
+     0.04,
+     0.046,
+     0.04,
+     0.052,
+     0.046,
+     0.046,
+     0.039,
+     0.073,
+     0.072,
+     0.072,
+     0.039,
+     0.085,
+     0.039,
+     0.04,
+     0.085,
+     0.046
+    ],
+    "cold_total_s": 0.9,
+    "judge_in_path_s": 0.177,
+    "cache_errors": [],
+    "keys": [
+     [
+      0,
+      "My car is registered for the staff car park, the permit is Jade-23.",
+      "permit number"
+     ],
+     [
+      1,
+      "My parents are members on the senior plan, the membership code is Topaz-19.",
+      "membership code"
+     ],
+     [
+      2,
+      "My lane booking code is Quartz-16.",
+      "lane booking code"
+     ],
+     [
+      3,
+      "My gym bag is hanging on the peg rail, the peg tag is Coral-27.",
+      "peg tag"
+     ],
+     [
+      4,
+      "My sauna token code is Zircon-86.",
+      "sauna token code"
+     ],
+     [
+      5,
+      "My towel is the red one tagged Ruby-40.",
+      "towel tag"
+     ],
+     [
+      6,
+      "My class pass number is Beryl-31.",
+      "class pass number"
+     ],
+     [
+      7,
+      "Pool note 00: the lanes sample has a subtle texture.",
+      "pool note"
+     ],
+     [
+      8,
+      "Pool note 02: the towel sample has a subtle texture.",
+      "pool note"
+     ],
+     [
+      9,
+      "Pool note 04: the sauna sample has a subtle texture.",
+      "pool note"
+     ],
+     [
+      10,
+      "Pool note 06: the jacuzzi sample has a subtle texture.",
+      "pool note"
+     ],
+     [
+      11,
+      "My car is now registered with the new charging bay app, the charger ID is Onyx-54.",
+      "charger id"
+     ],
+     [
+      12,
+      "Small change, my lane booking code is Agate-47 now, the system was updated.",
+      "lane booking code"
+     ],
+     [
+      13,
+      "My parents are now booked into the new aqua class, the class card is Amber-65.",
+      "class card"
+     ],
+     [
+      14,
+      "My gym bag is waiting at the new lost property desk, the claim slip is Pearl-58.",
+      "claim slip"
+     ],
+     [
+      15,
+      "My class pass number is changed to Jasper-69, reception swapped the cards.",
+      "class pass number"
+     ],
+     [
+      16,
+      "My towel is in the Now Dry laundry bin, the laundry ticket is Garnet-73.",
+      "laundry ticket"
+     ]
+    ]
+   },
+   "judge_replies": [
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "REPLACE",
+    "REPLACE"
+   ],
+   "probes": {
+    "a_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "b_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "c_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "d_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "e1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "e2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "f": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "a_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "b_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "c_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "d_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    }
+   }
+  },
+  "r13/r13-marina": {
+   "chars": {
+    "A": 2531,
+    "B": 2769
+   },
+   "B_eq_A": false,
+   "sem": {
+    "candidates": 17,
+    "key_misses": 0,
+    "judge_misses": 0,
+    "collisions": 6,
+    "judges": [
+     [
+      7,
+      8,
+      "also"
+     ],
+     [
+      8,
+      9,
+      "also"
+     ],
+     [
+      9,
+      10,
+      "also"
+     ],
+     [
+      1,
+      12,
+      "replace"
+     ],
+     [
+      3,
+      14,
+      "replace"
+     ],
+     [
+      6,
+      16,
+      "replace"
+     ]
+    ],
+    "replaced": 3,
+    "reserved": 5,
+    "fallback": null,
+    "wall_s": 0.0,
+    "brief_wall_s": 0.0,
+    "arrivals": [
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.052,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.047,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.032,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.052,
+      "judge_s": 0.039,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.047,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     }
+    ],
+    "arrival_walls": [
+     0.046,
+     0.052,
+     0.04,
+     0.039,
+     0.047,
+     0.04,
+     0.046,
+     0.039,
+     0.072,
+     0.071,
+     0.072,
+     0.039,
+     0.091,
+     0.039,
+     0.079,
+     0.04,
+     0.087
+    ],
+    "cold_total_s": 0.939,
+    "judge_in_path_s": 0.217,
+    "cache_errors": [],
+    "keys": [
+     [
+      0,
+      "My boat is moored at the east pontoon, the berth tag is Vega-22.",
+      "berth tag"
+     ],
+     [
+      1,
+      "My mooring fee ref is Lyra-13.",
+      "mooring fee ref"
+     ],
+     [
+      2,
+      "My paddleboard is booked for the harbour tour, the tour ref is Sirius-27.",
+      "tour reference"
+     ],
+     [
+      3,
+      "My tender is on the north jetty, the jetty tag is Pollux-24.",
+      "jetty tag"
+     ],
+     [
+      4,
+      "My harbour gate fob code is Polaris-87.",
+      "fob code"
+     ],
+     [
+      5,
+      "My dinghy is stored in the boat shed, the rack tag is Deneb-16.",
+      "rack tag"
+     ],
+     [
+      6,
+      "My fuel card is number Spica-31.",
+      "fuel card number"
+     ],
+     [
+      7,
+      "Dock note 00: the buoys sample has a subtle texture.",
+      "dock note"
+     ],
+     [
+      8,
+      "Dock note 02: the fender sample has a subtle texture.",
+      "dock note"
+     ],
+     [
+      9,
+      "Dock note 04: the rudder sample has a subtle texture.",
+      "dock note"
+     ],
+     [
+      10,
+      "Dock note 06: the anchor sample has a subtle texture.",
+      "dock note"
+     ],
+     [
+      11,
+      "My boat is now moored for the new winter season, the storage ref is Rigel-53.",
+      "storage ref"
+     ],
+     [
+      12,
+      "My mooring fee ref is changed to Orion-46 from this month, the office said.",
+      "mooring fee ref"
+     ],
+     [
+      13,
+      "My paddleboard is now booked for the new repair slot, the repair ticket is Castor-58.",
+      "repair ticket"
+     ],
+     [
+      14,
+      "My tender is now on the south jetty, the jetty tag is Mira-75.",
+      "jetty tag"
+     ],
+     [
+      15,
+      "My dinghy is now stored on the new trailer park, the trailer plate is Altair-64.",
+      "trailer plate"
+     ],
+     [
+      16,
+      "My fuel card is now number Antares-68, the last one expired.",
+      "fuel card number"
+     ]
+    ]
+   },
+   "judge_replies": [
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "REPLACE",
+    "REPLACE",
+    "REPLACE"
+   ],
+   "probes": {
+    "a2x_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "a2y_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "e1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "e2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "f": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "a3_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "e3": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "a2x_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "a2y_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "a3_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    }
+   }
+  },
+  "r13/r13-hotel": {
+   "chars": {
+    "A": 2530,
+    "B": 2778
+   },
+   "B_eq_A": false,
+   "sem": {
+    "candidates": 17,
+    "key_misses": 0,
+    "judge_misses": 0,
+    "collisions": 6,
+    "judges": [
+     [
+      7,
+      8,
+      "also"
+     ],
+     [
+      8,
+      9,
+      "also"
+     ],
+     [
+      9,
+      10,
+      "also"
+     ],
+     [
+      1,
+      12,
+      "replace"
+     ],
+     [
+      3,
+      14,
+      "replace"
+     ],
+     [
+      6,
+      16,
+      "replace"
+     ]
+    ],
+    "replaced": 3,
+    "reserved": 5,
+    "fallback": null,
+    "wall_s": 0.0,
+    "brief_wall_s": 0.0,
+    "arrivals": [
+     {
+      "key_s": 0.041,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.053,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.032,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.039,
+      "verdict": "replace"
+     }
+    ],
+    "arrival_walls": [
+     0.041,
+     0.04,
+     0.04,
+     0.04,
+     0.053,
+     0.04,
+     0.039,
+     0.04,
+     0.072,
+     0.073,
+     0.071,
+     0.046,
+     0.08,
+     0.04,
+     0.079,
+     0.046,
+     0.078
+    ],
+    "cold_total_s": 0.918,
+    "judge_in_path_s": 0.217,
+    "cache_errors": [],
+    "keys": [
+     [
+      0,
+      "My suitcase is left at the luggage room, the claim tag is Vega-23.",
+      "claim tag"
+     ],
+     [
+      1,
+      "My wifi code is Lyra-14.",
+      "wifi code"
+     ],
+     [
+      2,
+      "My room key is linked with the spa booking, the spa ref is Sirius-28.",
+      "spa ref"
+     ],
+     [
+      3,
+      "My bike is in the front rack, the rack tag is Pollux-25.",
+      "rack tag"
+     ],
+     [
+      4,
+      "My minibar card code is Polaris-88.",
+      "minibar card code"
+     ],
+     [
+      5,
+      "My rental car is parked in the basement garage, the bay ticket is Deneb-17.",
+      "bay ticket"
+     ],
+     [
+      6,
+      "My room is number Spica-32.",
+      "room number"
+     ],
+     [
+      7,
+      "Room note 00: the pillow sample has a subtle texture.",
+      "room note"
+     ],
+     [
+      8,
+      "Room note 02: the minibar sample has a subtle texture.",
+      "room note"
+     ],
+     [
+      9,
+      "Room note 04: the slipper sample has a subtle texture.",
+      "room note"
+     ],
+     [
+      10,
+      "Room note 06: the blind sample has a subtle texture.",
+      "room note"
+     ],
+     [
+      11,
+      "My suitcase is now left with the new porter for the airport shuttle, the shuttle ticket is Rigel-54.",
+      "shuttle ticket"
+     ],
+     [
+      12,
+      "My wifi code is Orion-47 now, reception reset the router.",
+      "wifi code"
+     ],
+     [
+      13,
+      "My room key is now linked with the new breakfast plan, the plan code is Castor-59.",
+      "plan code"
+     ],
+     [
+      14,
+      "My bike is now in the back rack, the rack tag is Mira-76.",
+      "rack tag"
+     ],
+     [
+      15,
+      "My rental car is now parked for the new valet service, the valet tag is Altair-65.",
+      "valet tag"
+     ],
+     [
+      16,
+      "My room is changed to number Antares-69 after the leak, the manager said.",
+      "room number"
+     ]
+    ]
+   },
+   "judge_replies": [
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "REPLACE",
+    "REPLACE",
+    "REPLACE"
+   ],
+   "probes": {
+    "a2x_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "a2y_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "e1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "e2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "f": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "a3_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "e3": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "a2x_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "a2y_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "a3_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    }
+   }
+  },
+  "r13/r13-festival": {
+   "chars": {
+    "A": 2549,
+    "B": 2793
+   },
+   "B_eq_A": false,
+   "sem": {
+    "candidates": 17,
+    "key_misses": 0,
+    "judge_misses": 0,
+    "collisions": 6,
+    "judges": [
+     [
+      7,
+      8,
+      "also"
+     ],
+     [
+      8,
+      9,
+      "also"
+     ],
+     [
+      9,
+      10,
+      "also"
+     ],
+     [
+      1,
+      12,
+      "replace"
+     ],
+     [
+      3,
+      14,
+      "replace"
+     ],
+     [
+      6,
+      16,
+      "replace"
+     ]
+    ],
+    "replaced": 3,
+    "reserved": 5,
+    "fallback": null,
+    "wall_s": 0.0,
+    "brief_wall_s": 0.0,
+    "arrivals": [
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.047,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     }
+    ],
+    "arrival_walls": [
+     0.04,
+     0.039,
+     0.039,
+     0.04,
+     0.046,
+     0.04,
+     0.039,
+     0.04,
+     0.072,
+     0.072,
+     0.072,
+     0.04,
+     0.08,
+     0.04,
+     0.08,
+     0.04,
+     0.087
+    ],
+    "cold_total_s": 0.906,
+    "judge_in_path_s": 0.219,
+    "cache_errors": [],
+    "keys": [
+     [
+      0,
+      "My camper van is parked by the north gate, the parking pass is Vega-24.",
+      "parking pass"
+     ],
+     [
+      1,
+      "My locker code is Lyra-15.",
+      "locker code"
+     ],
+     [
+      2,
+      "My friend group is registered for the main stage area, the group ref is Sirius-29.",
+      "group ref"
+     ],
+     [
+      3,
+      "My flag is on the left pole, the pole tag is Pollux-26.",
+      "pole tag"
+     ],
+     [
+      4,
+      "My first aid badge code is Polaris-89.",
+      "first aid code"
+     ],
+     [
+      5,
+      "My wristband is linked to the weekend ticket, the ticket ref is Deneb-18.",
+      "weekend ticket"
+     ],
+     [
+      6,
+      "My shuttle seat is number Spica-33.",
+      "seat number"
+     ],
+     [
+      7,
+      "Stage note 00: the flags sample has a subtle texture.",
+      "stage note"
+     ],
+     [
+      8,
+      "Stage note 02: the banner sample has a subtle texture.",
+      "stage note"
+     ],
+     [
+      9,
+      "Stage note 04: the drums sample has a subtle texture.",
+      "stage note"
+     ],
+     [
+      10,
+      "Stage note 06: the tent sample has a subtle texture.",
+      "stage note"
+     ],
+     [
+      11,
+      "My camper van is now parked for the new early exit, the exit pass is Rigel-55.",
+      "exit pass"
+     ],
+     [
+      12,
+      "My locker code is Orion-48 now, the stewards reset them.",
+      "locker code"
+     ],
+     [
+      13,
+      "My friend group is now registered for the new pottery workshop, the workshop code is Castor-60.",
+      "workshop code"
+     ],
+     [
+      14,
+      "My flag is now on the right pole, the pole tag is Mira-77.",
+      "pole tag"
+     ],
+     [
+      15,
+      "My wristband is now linked with the new bar tab, the tab code is Altair-66.",
+      "tab code"
+     ],
+     [
+      16,
+      "My shuttle seat is switched to number Antares-70 for the late bus.",
+      "bus seat number"
+     ]
+    ]
+   },
+   "judge_replies": [
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "REPLACE",
+    "REPLACE",
+    "REPLACE"
+   ],
+   "probes": {
+    "a2x_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "a2y_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "e1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "e2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "f": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "a3_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "e3": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "a2x_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "a2y_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "a3_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    }
+   }
+  },
+  "r14/r14-airport": {
+   "chars": {
+    "A": 2519,
+    "B": 2462
+   },
+   "B_eq_A": false,
+   "sem": {
+    "candidates": 17,
+    "key_misses": 0,
+    "judge_misses": 0,
+    "collisions": 7,
+    "judges": [
+     [
+      7,
+      8,
+      "also"
+     ],
+     [
+      8,
+      9,
+      "also"
+     ],
+     [
+      9,
+      10,
+      "also"
+     ],
+     [
+      1,
+      12,
+      "replace"
+     ],
+     [
+      2,
+      13,
+      "replace"
+     ],
+     [
+      5,
+      15,
+      "replace"
+     ],
+     [
+      6,
+      16,
+      "replace"
+     ]
+    ],
+    "replaced": 4,
+    "reserved": 4,
+    "fallback": null,
+    "wall_s": 0.0,
+    "brief_wall_s": 0.0,
+    "arrivals": [
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.053,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.039,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.039,
+      "verdict": "replace"
+     }
+    ],
+    "arrival_walls": [
+     0.04,
+     0.04,
+     0.04,
+     0.053,
+     0.04,
+     0.046,
+     0.04,
+     0.04,
+     0.073,
+     0.072,
+     0.073,
+     0.04,
+     0.078,
+     0.08,
+     0.046,
+     0.086,
+     0.078
+    ],
+    "cold_total_s": 0.965,
+    "judge_in_path_s": 0.257,
+    "cache_errors": [],
+    "keys": [
+     [
+      0,
+      "My bag is checked through to the hub, the bag tag is Cobalt-23.",
+      "bag tag"
+     ],
+     [
+      1,
+      "My parking code is Helium-32.",
+      "parking code"
+     ],
+     [
+      2,
+      "My coat is at the west cloakroom, the hook tag is Neon-28.",
+      "hook tag"
+     ],
+     [
+      3,
+      "My lounge voucher code is Osmium-88.",
+      "lounge voucher code"
+     ],
+     [
+      4,
+      "My ticket is linked with the boarding pass, the boarding pass is Zinc-17.",
+      "boarding pass"
+     ],
+     [
+      5,
+      "My pram is with the gate desk, the pram tag is Boron-14.",
+      "pram tag"
+     ],
+     [
+      6,
+      "My seat is number Iodine-25.",
+      "seat number"
+     ],
+     [
+      7,
+      "Gate note 00: the trolley sample has a subtle texture.",
+      "gate note"
+     ],
+     [
+      8,
+      "Gate note 02: the carousel sample has a subtle texture.",
+      "gate note"
+     ],
+     [
+      9,
+      "Gate note 04: the lounge sample has a subtle texture.",
+      "gate note"
+     ],
+     [
+      10,
+      "Gate note 06: the turnstile sample has a subtle texture.",
+      "gate note"
+     ],
+     [
+      11,
+      "My bag is now checked through to the new lost desk, the claim ref is Nickel-54.",
+      "claim reference"
+     ],
+     [
+      12,
+      "My parking code is changed to Carbon-69 for the long stay.",
+      "parking code"
+     ],
+     [
+      13,
+      "My coat is now at the east cloakroom, the hook tag is Xenon-59.",
+      "hook tag"
+     ],
+     [
+      14,
+      "My ticket is now linked with the new lounge pass, the lounge pass is Argon-65.",
+      "lounge pass"
+     ],
+     [
+      15,
+      "My pram is now with the cabin crew, the pram tag is Radon-47.",
+      "pram tag"
+     ],
+     [
+      16,
+      "My seat is now number Sodium-76, the crew swapped it.",
+      "seat number"
+     ]
+    ]
+   },
+   "judge_replies": [
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "REPLACE",
+    "REPLACE",
+    "REPLACE",
+    "REPLACE"
+   ],
+   "probes": {
+    "a3x_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "a3y_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "e3x": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "e3y": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "e1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "e2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "f": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "a3x_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "a3y_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    }
+   }
+  },
+  "r14/r14-ski": {
+   "chars": {
+    "A": 2510,
+    "B": 2465
+   },
+   "B_eq_A": false,
+   "sem": {
+    "candidates": 17,
+    "key_misses": 0,
+    "judge_misses": 0,
+    "collisions": 6,
+    "judges": [
+     [
+      8,
+      9,
+      "also"
+     ],
+     [
+      9,
+      10,
+      "also"
+     ],
+     [
+      1,
+      12,
+      "replace"
+     ],
+     [
+      2,
+      13,
+      "replace"
+     ],
+     [
+      5,
+      15,
+      "replace"
+     ],
+     [
+      6,
+      16,
+      "replace"
+     ]
+    ],
+    "replaced": 4,
+    "reserved": 4,
+    "fallback": null,
+    "wall_s": 0.0,
+    "brief_wall_s": 0.0,
+    "arrivals": [
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.066,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     }
+    ],
+    "arrival_walls": [
+     0.039,
+     0.046,
+     0.066,
+     0.046,
+     0.04,
+     0.046,
+     0.039,
+     0.046,
+     0.039,
+     0.073,
+     0.072,
+     0.04,
+     0.086,
+     0.08,
+     0.04,
+     0.086,
+     0.08
+    ],
+    "cold_total_s": 0.964,
+    "judge_in_path_s": 0.226,
+    "cache_errors": [],
+    "keys": [
+     [
+      0,
+      "My skis are booked for the race day, the race bib is Cobalt-24.",
+      "race bib"
+     ],
+     [
+      1,
+      "My chalet code is Helium-33.",
+      "chalet code"
+     ],
+     [
+      2,
+      "My boots are in the upper hall, the locker tag is Neon-29.",
+      "locker tag neon 29"
+     ],
+     [
+      3,
+      "My first aid card code is Osmium-89.",
+      "first aid code"
+     ],
+     [
+      4,
+      "My lift pass is loaded with the day ride, the ride ref is Zinc-18.",
+      "ride ref"
+     ],
+     [
+      5,
+      "My sledge is by the top station, the sledge tag is Boron-15.",
+      "sledge tag"
+     ],
+     [
+      6,
+      "My class is number Iodine-26.",
+      "class number"
+     ],
+     [
+      7,
+      "Slope note 00: the goggles sample has a subtle texture.",
+      "goggles sample"
+     ],
+     [
+      8,
+      "Slope note 02: the helmet sample has a subtle texture.",
+      "slope note"
+     ],
+     [
+      9,
+      "Slope note 04: the poles sample has a subtle texture.",
+      "slope note"
+     ],
+     [
+      10,
+      "Slope note 06: the wax sample has a subtle texture.",
+      "slope note"
+     ],
+     [
+      11,
+      "My skis are now booked for the new wax service, the wax ticket is Nickel-55.",
+      "wax ticket"
+     ],
+     [
+      12,
+      "My chalet code is Carbon-70 now, the host reset the door.",
+      "chalet code"
+     ],
+     [
+      13,
+      "My boots are now in the lower hall, the locker tag is Xenon-60.",
+      "locker tag"
+     ],
+     [
+      14,
+      "My lift pass is now loaded with the new meal plan, the meal code is Argon-66.",
+      "meal code"
+     ],
+     [
+      15,
+      "My sledge is now by the base station, the sledge tag is Radon-48.",
+      "sledge tag"
+     ],
+     [
+      16,
+      "My class is switched to number Sodium-77 for the week.",
+      "class number"
+     ]
+    ]
+   },
+   "judge_replies": [
+    "ALSO",
+    "ALSO",
+    "REPLACE",
+    "REPLACE",
+    "REPLACE",
+    "REPLACE"
+   ],
+   "probes": {
+    "a3x_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "a3y_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "e3x": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "e3y": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "e1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "e2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "f": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "a3x_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "a3y_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    }
+   }
+  },
+  "r14/r14-theatre": {
+   "chars": {
+    "A": 2518,
+    "B": 2470
+   },
+   "B_eq_A": false,
+   "sem": {
+    "candidates": 17,
+    "key_misses": 0,
+    "judge_misses": 0,
+    "collisions": 7,
+    "judges": [
+     [
+      7,
+      8,
+      "also"
+     ],
+     [
+      8,
+      9,
+      "also"
+     ],
+     [
+      9,
+      10,
+      "also"
+     ],
+     [
+      1,
+      12,
+      "replace"
+     ],
+     [
+      2,
+      13,
+      "replace"
+     ],
+     [
+      5,
+      15,
+      "replace"
+     ],
+     [
+      6,
+      16,
+      "replace"
+     ]
+    ],
+    "replaced": 4,
+    "reserved": 4,
+    "fallback": null,
+    "wall_s": 0.0,
+    "brief_wall_s": 0.0,
+    "arrivals": [
+     {
+      "key_s": 0.041,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.047,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.039,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.039,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.039,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.039,
+      "verdict": "replace"
+     }
+    ],
+    "arrival_walls": [
+     0.041,
+     0.047,
+     0.04,
+     0.04,
+     0.04,
+     0.04,
+     0.04,
+     0.04,
+     0.073,
+     0.072,
+     0.072,
+     0.04,
+     0.079,
+     0.078,
+     0.04,
+     0.079,
+     0.079
+    ],
+    "cold_total_s": 0.94,
+    "judge_in_path_s": 0.255,
+    "cache_errors": [],
+    "keys": [
+     [
+      0,
+      "My umbrella is left at the box office, the box slip is Cobalt-25.",
+      "box slip"
+     ],
+     [
+      1,
+      "My interval drinks code is Helium-34.",
+      "interval drinks code"
+     ],
+     [
+      2,
+      "My scarf is in the stalls cloakroom, the peg tag is Neon-30.",
+      "peg tag"
+     ],
+     [
+      3,
+      "My cast meet pass code is Osmium-90.",
+      "pass code"
+     ],
+     [
+      4,
+      "My booking is paired with the dinner deal, the dinner ref is Zinc-19.",
+      "dinner reference"
+     ],
+     [
+      5,
+      "My bike is on the side rail, the rail tag is Boron-16.",
+      "rail tag"
+     ],
+     [
+      6,
+      "My row is number Iodine-27.",
+      "row number"
+     ],
+     [
+      7,
+      "Scene note 00: the curtain sample has a subtle texture.",
+      "scene note"
+     ],
+     [
+      8,
+      "Scene note 02: the prop sample has a subtle texture.",
+      "scene note"
+     ],
+     [
+      9,
+      "Scene note 04: the script sample has a subtle texture.",
+      "scene note"
+     ],
+     [
+      10,
+      "Scene note 06: the backdrop sample has a subtle texture.",
+      "scene note"
+     ],
+     [
+      11,
+      "My umbrella is now left at the new bar, the bar token is Nickel-56.",
+      "bar token"
+     ],
+     [
+      12,
+      "My interval drinks code is Carbon-71 now, the bar reset it.",
+      "drink code"
+     ],
+     [
+      13,
+      "My scarf is now in the circle cloakroom, the peg tag is Xenon-61.",
+      "peg tag"
+     ],
+     [
+      14,
+      "My booking is now paired with the new tour, the tour code is Argon-67.",
+      "tour code"
+     ],
+     [
+      15,
+      "My bike is now on the rear rail, the rail tag is Radon-49.",
+      "rail tag"
+     ],
+     [
+      16,
+      "My row is changed to number Sodium-78 after the swap.",
+      "row number"
+     ]
+    ]
+   },
+   "judge_replies": [
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "REPLACE",
+    "REPLACE",
+    "REPLACE",
+    "REPLACE"
+   ],
+   "probes": {
+    "a3x_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "a3y_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "e3x": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "e3y": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "e1": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "e2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "f": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "a3x_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "a3y_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    }
+   }
+  },
+  "r15/r15-vet": {
+   "chars": {
+    "A": 2598,
+    "B": 2462
+   },
+   "B_eq_A": false,
+   "sem": {
+    "candidates": 15,
+    "key_misses": 0,
+    "judge_misses": 0,
+    "collisions": 6,
+    "judges": [
+     [
+      7,
+      8,
+      "also"
+     ],
+     [
+      8,
+      9,
+      "also"
+     ],
+     [
+      9,
+      10,
+      "also"
+     ],
+     [
+      6,
+      11,
+      "also"
+     ],
+     [
+      0,
+      12,
+      "replace"
+     ],
+     [
+      2,
+      14,
+      "replace"
+     ]
+    ],
+    "replaced": 2,
+    "reserved": 7,
+    "fallback": null,
+    "wall_s": 0.0,
+    "brief_wall_s": 0.0,
+    "arrivals": [
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.039,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.039,
+      "verdict": "replace"
+     }
+    ],
+    "arrival_walls": [
+     0.04,
+     0.046,
+     0.039,
+     0.039,
+     0.039,
+     0.046,
+     0.046,
+     0.039,
+     0.073,
+     0.072,
+     0.073,
+     0.079,
+     0.078,
+     0.039,
+     0.078
+    ],
+    "cold_total_s": 0.826,
+    "judge_in_path_s": 0.21,
+    "cache_errors": [],
+    "keys": [
+     [
+      0,
+      "My booking reference is PUP-102.",
+      "booking reference"
+     ],
+     [
+      1,
+      "My cat's microchip number is CHIP-77.",
+      "microchip number"
+     ],
+     [
+      2,
+      "My clinic door code is DOOR-44.",
+      "door code"
+     ],
+     [
+      3,
+      "Bella loves chasing laser pointers, code LASER-23.",
+      "laser code"
+     ],
+     [
+      4,
+      "The clinic offers weekend appointments, tag WEEK-7.",
+      "appointment code"
+     ],
+     [
+      5,
+      "I keep a spare key for the kennel, code KEY-88.",
+      "kennel code"
+     ],
+     [
+      6,
+      "My favorite vet tech is TECH-9.",
+      "vet tech code"
+     ],
+     [
+      7,
+      "Clinic note 00: the leash sample has a subtle texture.",
+      "clinic note"
+     ],
+     [
+      8,
+      "Clinic note 02: the kennel sample has a subtle texture.",
+      "clinic note"
+     ],
+     [
+      9,
+      "Clinic note 04: the blanket sample has a subtle texture.",
+      "clinic note"
+     ],
+     [
+      10,
+      "Clinic note 06: the carrier sample has a subtle texture.",
+      "clinic note"
+     ],
+     [
+      11,
+      "My go-to vet tech is TECH-12.",
+      "vet tech code"
+     ],
+     [
+      12,
+      "I need to change my booking reference to PUP-205.",
+      "booking reference"
+     ],
+     [
+      13,
+      "The microchip ID has been updated to CHIP-88.",
+      "chip id"
+     ],
+     [
+      14,
+      "The access code is now DOOR-55.",
+      "door code"
+     ]
+    ]
+   },
+   "judge_replies": [
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "REPLACE",
+    "REPLACE"
+   ],
+   "probes": {
+    "u1": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "u2": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": true,
+      "B": true
+     }
+    },
+    "u3": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "p_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": false,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "s1": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "s2": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "s3": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "p_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": true,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    }
+   }
+  },
+  "r15/r15-car": {
+   "chars": {
+    "A": 2756,
+    "B": 2472
+   },
+   "B_eq_A": false,
+   "sem": {
+    "candidates": 17,
+    "key_misses": 0,
+    "judge_misses": 0,
+    "collisions": 7,
+    "judges": [
+     [
+      9,
+      10,
+      "also"
+     ],
+     [
+      10,
+      11,
+      "also"
+     ],
+     [
+      11,
+      12,
+      "also"
+     ],
+     [
+      3,
+      13,
+      "replace"
+     ],
+     [
+      2,
+      14,
+      "replace"
+     ],
+     [
+      0,
+      15,
+      "replace"
+     ],
+     [
+      8,
+      16,
+      "replace"
+     ]
+    ],
+    "replaced": 4,
+    "reserved": 6,
+    "fallback": null,
+    "wall_s": 0.0,
+    "brief_wall_s": 0.0,
+    "arrivals": [
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.06,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.034,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.039,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.039,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": 0.039,
+      "verdict": "replace"
+     }
+    ],
+    "arrival_walls": [
+     0.04,
+     0.06,
+     0.039,
+     0.039,
+     0.04,
+     0.04,
+     0.04,
+     0.04,
+     0.046,
+     0.04,
+     0.074,
+     0.073,
+     0.073,
+     0.079,
+     0.079,
+     0.079,
+     0.085
+    ],
+    "cold_total_s": 0.966,
+    "judge_in_path_s": 0.257,
+    "cache_errors": [],
+    "keys": [
+     [
+      0,
+      "My car rental booking reference is BOOK-01.",
+      "booking reference"
+     ],
+     [
+      1,
+      "My driver's license ID is ID-02.",
+      "driver's license id"
+     ],
+     [
+      2,
+      "My apartment door code is DOOR-03.",
+      "door code"
+     ],
+     [
+      3,
+      "My flight number is FLT-06.",
+      "flight number"
+     ],
+     [
+      4,
+      "Seat preference: window is SEAT-08.",
+      "seat code"
+     ],
+     [
+      5,
+      "I will be traveling with my dog is DOG-09.",
+      "dog code"
+     ],
+     [
+      6,
+      "The weather looks sunny for our trip is WEATHER-10.",
+      "weather code"
+     ],
+     [
+      7,
+      "My favorite pizza place is Luigi's is PIZZA-11.",
+      "pizza code"
+     ],
+     [
+      8,
+      "My credit card number is CC-11.",
+      "credit card number"
+     ],
+     [
+      9,
+      "Trip note 00: the map sample has a subtle texture.",
+      "trip note"
+     ],
+     [
+      10,
+      "Trip note 02: the roof box sample has a subtle texture.",
+      "trip note"
+     ],
+     [
+      11,
+      "Trip note 04: the snack sample has a subtle texture.",
+      "trip note"
+     ],
+     [
+      12,
+      "Trip note 06: the mirror sample has a subtle texture.",
+      "trip note"
+     ],
+     [
+      13,
+      "The flight number for my trip is FLT-06 is FLT-07.",
+      "flight number"
+     ],
+     [
+      14,
+      "My new apartment door code is DOOR-04.",
+      "door code"
+     ],
+     [
+      15,
+      "My updated car rental booking reference is BOOK-05.",
+      "booking reference"
+     ],
+     [
+      16,
+      "My updated credit card number is CC-12.",
+      "credit card number"
+     ]
+    ]
+   },
+   "judge_replies": [
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "REPLACE",
+    "REPLACE",
+    "REPLACE",
+    "REPLACE"
+   ],
+   "probes": {
+    "u1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "u2": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "u3": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "p_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "s1": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "s2": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "s3": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "s4": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "s5": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    }
+   }
+  },
+  "r15/r15-pottery": {
+   "chars": {
+    "A": 2590,
+    "B": 2573
+   },
+   "B_eq_A": false,
+   "sem": {
+    "candidates": 15,
+    "key_misses": 0,
+    "judge_misses": 0,
+    "collisions": 6,
+    "judges": [
+     [
+      7,
+      8,
+      "also"
+     ],
+     [
+      8,
+      9,
+      "also"
+     ],
+     [
+      9,
+      10,
+      "also"
+     ],
+     [
+      0,
+      12,
+      "replace"
+     ],
+     [
+      1,
+      13,
+      "replace"
+     ],
+     [
+      6,
+      14,
+      "replace"
+     ]
+    ],
+    "replaced": 3,
+    "reserved": 6,
+    "fallback": null,
+    "wall_s": 0.0,
+    "brief_wall_s": 0.0,
+    "arrivals": [
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.033,
+      "verdict": "also"
+     },
+     {
+      "key_s": 0.046,
+      "judge_s": null,
+      "verdict": null
+     },
+     {
+      "key_s": 0.039,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     },
+     {
+      "key_s": 0.04,
+      "judge_s": 0.04,
+      "verdict": "replace"
+     }
+    ],
+    "arrival_walls": [
+     0.039,
+     0.039,
+     0.046,
+     0.039,
+     0.046,
+     0.04,
+     0.04,
+     0.039,
+     0.073,
+     0.073,
+     0.072,
+     0.046,
+     0.079,
+     0.08,
+     0.08
+    ],
+    "cold_total_s": 0.831,
+    "judge_in_path_s": 0.219,
+    "cache_errors": [],
+    "keys": [
+     [
+      0,
+      "I found a booking reference for the first class, it's ClayRef-01.",
+      "booking reference"
+     ],
+     [
+      1,
+      "My membership ID is MemberID-45.",
+      "membership id"
+     ],
+     [
+      2,
+      "I love the smell of fresh clay, code Aroma-12.",
+      "aroma code"
+     ],
+     [
+      3,
+      "I need a parking spot near the studio, code Park-21.",
+      "parking code"
+     ],
+     [
+      4,
+      "Teal is my favorite glaze color, code Glaze-33.",
+      "glaze code"
+     ],
+     [
+      5,
+      "I have a cat named Luna, code Cat-05.",
+      "cat code"
+     ],
+     [
+      6,
+      "I prefer wheel-throwing for pottery, code Style-09.",
+      "style code"
+     ],
+     [
+      7,
+      "Studio note 00: the kiln sample has a subtle texture.",
+      "studio note"
+     ],
+     [
+      8,
+      "Studio note 02: the apron sample has a subtle texture.",
+      "studio note"
+     ],
+     [
+      9,
+      "Studio note 04: the trimming tool sample has a subtle texture.",
+      "studio note"
+     ],
+     [
+      10,
+      "Studio note 06: the bucket sample has a subtle texture.",
+      "studio note"
+     ],
+     [
+      11,
+      "I need a bike rack near the studio, code Rack-22.",
+      "bike rack code"
+     ],
+     [
+      12,
+      "I changed my booking, new reference is ClayRef-02.",
+      "booking reference"
+     ],
+     [
+      13,
+      "I got a new membership card, it's MemberID-78.",
+      "membership id"
+     ],
+     [
+      14,
+      "I switched to hand-building, code Style-10.",
+      "style code"
+     ]
+    ]
+   },
+   "judge_replies": [
+    "ALSO",
+    "ALSO",
+    "ALSO",
+    "REPLACE",
+    "REPLACE",
+    "REPLACE"
+   ],
+   "probes": {
+    "u1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "u2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "u3": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": true,
+      "B": false
+     }
+    },
+    "p_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "s1": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "s2": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "s3": {
+     "current": {
+      "A": true,
+      "B": true,
+      "nojudge": true,
+      "nodisp": true
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    },
+    "p_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "nojudge": false,
+      "nodisp": false
+     },
+     "superseded_in": {
+      "A": false,
+      "B": false
+     }
+    }
+   }
+  }
+ },
+ "stop": []
+}
