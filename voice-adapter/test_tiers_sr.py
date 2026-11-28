@@ -91,10 +91,11 @@ class CallPathTests(unittest.IsolatedAsyncioTestCase):
             await call.tier_lanes("d1", "capital of Canada?")
         return call, asked
 
-    async def test_turbo_call_speaks_the_router_answer_and_traces_the_mode(self):
+    async def test_turbo_call_traces_the_router_result_without_giving_it_the_floor(self):
         call, asked = await self.run_call("turbo")
         self.assertIn("vllm-sr/turbo", asked)
-        self.assertEqual(call.spoke, ["Ottawa."])
+        self.assertEqual(call.spoke, [])
+        self.assertIn("lanes.tier_claim_held", call.events)
         self.assertIn("lanes.mode", call.events)
 
     async def test_normal_call_never_asks_the_router(self):

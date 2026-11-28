@@ -9,7 +9,8 @@ class AnswerAuthority(unittest.IsolatedAsyncioTestCase):
         call = live.Call(live.Manager(None))
         try:
             call.latest_did = 'd1'
-            with patch.object(live.tiers, 'load', return_value={'fast': ['fixture']}), \
+            with patch.object(live.tiers, 'conductor_mode', return_value='normal'), \
+                    patch.object(live.tiers, 'load', return_value={'fast': [{'provider': 'p', 'model': 'fixture'}]}), \
                     patch.object(live.tiers, 'race', AsyncMock(return_value=('A symlink blocked both.', 'fixture', 1, []))):
                 await call.tier_lanes('d1', 'Status on the hill climbs?')
             self.assertFalse(call.spoken_for.get('d1'))
