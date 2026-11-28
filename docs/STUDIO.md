@@ -208,6 +208,19 @@ the rolling-restart slots are installed (it runs `install.sh` only if they are n
 and checks one local answer through the lane server. If that check fails, it restores the old tiers file.
 `deploy/macos/apply-when-idle.sh --check` only reports open calls: exit 0 when idle, 3 when a call is open.
 
+## Hearing lane results away from the TV
+
+The voice adapter uses the TV server's `/api/needs` presence verdict, which includes
+TV app heartbeat age. Missing or stale presence defaults to spoken results. Saying
+you're away from the TV, that it's off, or asking to hear results keeps that mode on
+for the rest of the call, even if a fresh heartbeat arrives.
+
+“Just tell me the results” reads the existing results for the current call, without
+starting another lane or chat run. Results from older requests start with “On your
+earlier request”; the adapter reads up to two of those per caller turn and keeps the
+rest for later. The `lanes.readback` and `lanes.card_earlier_spoken` trace events list
+the card IDs handed to the voice.
+
 ## Two voices on one call
 
 When the primary is GPT-Live, choose a guest in `~/.config/z0live/voices.json`. The adapter reads it at the start

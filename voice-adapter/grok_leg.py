@@ -200,9 +200,7 @@ class GrokLeg:
         text = "".join(c.get("text", "") for c in event.get("content") or [] if isinstance(c, dict))
         if ty == "session.close":
             self.tasks.append(asyncio.create_task(self.close()))
-        elif ty == "session.context.append" and text:
-            self.tasks.append(asyncio.create_task(self.note(text, turn_id)))
-        elif ty == "delegation.context.append" and text:
+        elif ty in ("session.context.append", "delegation.context.append") and text:
             did = event.get("delegation_item_id") or ""
             if event.get("channel") == "speakable":
                 if did not in self.pending:  # chunks of one answer arrive in the same tick
@@ -225,7 +223,7 @@ class GrokLeg:
             await self.raw({"type": "conversation.item.create", "item": {
                 "type": "function_call_output", "call_id": did, "output": text}}, turn_id=turn_id)
         else:  # a second answer for the same request (lane first, Hermes later): speak it as an update
-            await self.note(owner.fill("Update from Hermes on the owner's earlier request; say it briefly: ") + text, turn_id, did)
+            await self.note("Update from Hermes; say this aloud: " + text, turn_id, did)
         await self.raw({"type": "response.create"})
 
     async def close(self):

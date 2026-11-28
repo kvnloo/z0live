@@ -68,6 +68,15 @@ class GrokLegTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(leg.sent, [{"type": "conversation.item.create", "item": {
             "type": "message", "role": "system", "content": [{"type": "input_text", "text": "Call brief: The owner approved adb."}]}}])
 
+    async def test_readback_without_a_tool_call_still_requests_audio(self):
+        leg = Leg()
+        for chunk in ('"Agent Final Message":\n\nOn your earlier build: ', "No warnings."):
+            leg.outbound({"type": "session.context.append", "channel": "speakable",
+                          "content": [{"type": "input_text", "text": chunk}]})
+        await asyncio.sleep(0.01)
+        self.assertEqual([event["type"] for event in leg.sent], ["conversation.item.create", "response.create"])
+        self.assertIn("On your earlier build: No warnings.", leg.sent[0]["item"]["content"][0]["text"])
+
     def test_barge_in_drops_queued_speech(self):
         leg = Leg()
         leg.output.feed(bytes(4800))

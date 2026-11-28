@@ -28,6 +28,11 @@ def ask(call, text, *lanes, aid="a1"):
 
 
 class Pure(unittest.TestCase):
+    def test_readback_does_not_swallow_new_work(self):
+        self.assertFalse(lane_cards.readback_requested("Run the tests and tell me the results."))
+        self.assertFalse(lane_cards.readback_requested("Don't tell me the results."))
+        self.assertFalse(lane_cards.readback_requested("Just tell me the results of a new search for rice cookers."))
+
     def test_call_key_is_the_conductors(self):
         self.assertEqual(lane_cards.call_key("hermes-subscription-b791819ddd3f4dea968b9dd3822fc4cb"), "b791819ddd3f")
 
@@ -62,12 +67,16 @@ class Watcher(unittest.IsolatedAsyncioTestCase):
         for p in self.patches:
             p.start()
         self.call = call = live.Call(live.Manager(None), profile="")
+        call.tv_present = True
         self.key = lane_cards.call_key(call.id)
         self.sent, self.events = [], []
         call.send = lambda event, to_provider=False, **_: self.sent.append(event)
         real = call.trace
 
         class Trace:
+            def __getattr__(_, name):
+                return getattr(real, name)
+
             def __call__(_, ev, **kw):
                 self.events.append((ev, kw))
 
@@ -91,7 +100,7 @@ class Watcher(unittest.IsolatedAsyncioTestCase):
         self.path.write_text(json.dumps({"asks": list(asks)}))
 
     def spoken(self):
-        return ["".join(c["text"] for c in e["content"]) for e in self.sent]
+        return ["".join(c["text"] for c in e["content"]) for e in self.sent if e.get("channel") == "speakable"]
 
     def traced(self, name):
         return [kw for ev, kw in self.events if ev == name]
@@ -153,15 +162,20 @@ class Watcher(unittest.IsolatedAsyncioTestCase):
         p.from_provider({"type": "turn.created", "turn": {"role": "user", "id": "u2"}})
         self.assertFalse(p.assistant_open)
 
-    async def test_quiet_for_a_request_owner_moved_on_from(self):
+    async def test_stale_cards_are_deltas_and_overflow_waits_for_a_new_turn_gap(self):
         self.ask_for("d2", "And what's the weather?")
-        self.write(ask(self.key, REQUEST, lane("a1-1", "sol 6.2", "9 boat sandboxes live.")))
-        await self.until(lambda: self.traced("lanes.card_skipped"))
-        self.assertEqual(self.traced("lanes.card_skipped")[0]["reason"], "earlier")
-        # Not dropped: one short line says an earlier lane finished (its card is a ledger result either way).
-        await self.until(lambda: self.sent)
-        self.assertIn("An earlier lane finished", json.dumps(self.sent))
-        self.assertEqual(len(self.sent), 1)
+        self.write(ask(self.key, REQUEST, lane("a1-1", "sol 6.2", "9 boat sandboxes live."),
+                       lane("a1-2", "opus", "All workers are idle."), lane("a1-3", "haiku", "Owners match.")))
+        with mock.patch.object(live, "STATUS_GAP", 0):
+            await self.until(lambda: self.sent)
+            await asyncio.sleep(0.2)
+            self.assertEqual([x["lanes"] for x in self.traced("lanes.card_earlier_spoken")], [["a1-1", "a1-2"]])
+            self.final("Okay, what else?", "u1")
+            await self.until(lambda: len(self.traced("lanes.card_earlier_spoken")) == 2)
+        self.assertEqual(self.traced("lanes.card_earlier_spoken")[1]["lanes"], ["a1-3"])
+        self.assertFalse(self.traced("lanes.card_skipped"))
+        self.assertIn("On your earlier request", json.dumps(self.sent))
+        self.assertIn("9 boat sandboxes live", json.dumps(self.sent))
 
     async def test_never_repeats_what_a_tier_lane_said(self):
         self.call.speak_for("d1", "There are 9 boat sandboxes live, all idle.", lane=True)
@@ -187,6 +201,50 @@ class Watcher(unittest.IsolatedAsyncioTestCase):
             await self.until(lambda: self.call.card_watch is None)
             self.ask_for("d2", "Next one")
             self.assertIsNotNone(self.call.card_watch)
+
+    def final(self, text, tid):
+        self.call.message(json.dumps({"type": "turn.done", "turn": {
+            "id": tid, "role": "user", "transcript": text}}), True)
+
+    async def test_nov27_reads_back_two_stale_deltas_per_turn_not_a_new_delegation(self):
+        self.ask_for("d2", "And what's the weather?")
+        self.call.protocol.user_open = True
+        self.write(ask(self.key, REQUEST, lane("l1", "sol", "The workers are idle."),
+                       lane("l2", "opus", "The build has no warnings."),
+                       lane("l3", "haiku", "The invoice matched the receipt.")),
+                   ask("another-call", REQUEST, lane("x", "sol", "Unrelated result.")))
+        with mock.patch.object(self.call, "ask_hermes", new_callable=mock.AsyncMock) as driver:
+            self.call.message(json.dumps({"type": "delegation.created", "item": {"id": "late1", "target": "client",
+                "content": [{"type": "text", "text": "Summarize the completed lane findings"}]}}), True)
+            self.final("Oh, bro, I'm not at my TV and the TV is off. Can you just tell me the results", "u1")
+            await self.until(lambda: len(self.traced("lanes.readback")) == 1)
+            self.assertEqual(self.traced("lanes.readback")[0]["did"], "late1")
+            self.call.observe_tv_presence({"present": True, "app_age_s": 0.1})
+            self.assertTrue(self.call.speak_mode)
+            await asyncio.sleep(0.2)
+            self.assertEqual(self.traced("lanes.readback")[0]["lanes"], ["l1", "l2"])
+            self.assertIn("On your earlier", " ".join(self.spoken()))
+            self.assertNotIn("invoice", " ".join(self.spoken()))
+            self.assertNotIn("on the TV", " ".join(self.spoken()))
+            self.final("Bro, I'm not at the TV. Just tell me the results", "u2")
+            await self.until(lambda: len(self.traced("lanes.readback")) == 2)
+            self.assertEqual(self.traced("lanes.readback")[1]["lanes"], ["l3"])
+            self.assertIn("invoice matched", " ".join(self.spoken()))
+            self.assertNotIn("Unrelated", " ".join(self.spoken()))
+            self.assertEqual(self.call.protocol.asked, [])
+            driver.assert_not_called()
+        self.assertFalse(self.traced("delegation.start"))
+
+    async def test_stale_heartbeat_reads_all_fresh_cards_as_sentences(self):
+        self.call.observe_tv_presence({"present": False, "app_age_s": 60, "why": "tv app silent"})
+        self.write(ask(self.key, REQUEST, lane("l1", "sol", "Amber was selected; details are on the TV."),
+                       lane("l2", "opus", "Bronze was rejected."), lane("l3", "haiku", "Copper is optional."),
+                       lane("l4", "sol", "Delta is next.")))
+        await self.until(lambda: self.traced("lanes.card_spoken"))
+        self.assertEqual(self.traced("lanes.card_spoken")[0]["lanes"], ["l1", "l2", "l3", "l4"])
+        spoken = " ".join(self.spoken())
+        self.assertIn("Delta is next.", spoken)
+        self.assertNotIn("on the TV", spoken)
 
 
 if __name__ == "__main__":

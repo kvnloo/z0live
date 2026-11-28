@@ -83,6 +83,10 @@ class FakeCall:
         self.closed, self.sent, self.traces, self.budget = False, [], [], list(budget)
         self.protocol = FakeProtocol()
         self.manager = types.SimpleNamespace(http=None)
+        self.tv = None
+
+    def observe_tv_presence(self, tv):
+        self.tv = tv
 
     def take_status(self, source):
         return self.budget.pop(0) if self.budget else False
@@ -139,7 +143,9 @@ class RunTest(unittest.TestCase):
             asyncio.run(go())
         finally:
             nv.fetch, nv.POLL_S = saved
-        self.assertEqual((polls, call.sent), ([], []))
+        self.assertTrue(polls)  # presence is available before a result returns
+        self.assertEqual(call.sent, [])  # blockers still never speak first
+        self.assertEqual(call.tv, payload(False)["tv"])
 
 
 if __name__ == "__main__":
