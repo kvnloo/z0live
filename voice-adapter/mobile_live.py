@@ -2545,7 +2545,10 @@ class Call:
         is the one lane answer spoken for this request; Hermes's answer follows only if it adds to it. Later
         tiers are traced, not spoken: on 11-20 three tier answers and Hermes landed within 4.4 s and the voice
         spoke a garbled merge. Lanes go quiet once a newer request starts or Hermes answers."""
-        began, cfg = time.monotonic(), tiers.load()
+        began, mode = time.monotonic(), tiers.conductor_mode()
+        cfg = tiers.for_request(tiers.load(), mode)  # turbo adds the semantic-router fast lane; normal drops it
+        if mode != "normal":
+            self.trace("lanes.mode", did=did, mode=mode, fast=[b["model"] for b in cfg.get("fast", [])])
         context = tiers.snapshot(self.context_text, list(self.protocol.exchanges), live=live_picture(),
                                  ledger=self.ledger_brief(did, 2500, proof_rule=False))
         said = self.__dict__.setdefault("tier_said", {}).setdefault(did, [])
