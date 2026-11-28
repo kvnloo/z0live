@@ -2,7 +2,7 @@
 
 Both sides are agent-owned; no owner screen, phone or other people are involved.
   HOST = a signed-in Chrome on a private display, reachable over CDP (Z0_MEET_HOST_CDP, default
-         http://127.0.0.1:19377, e.g. `ssh -N -L 19377:127.0.0.1:9377 groot`). Its fake mic plays a
+         http://127.0.0.1:19377, e.g. `ssh -N -L 19377:127.0.0.1:9377 <host>`). Its fake mic plays a
          known phrase on loop (Chrome --use-file-for-fake-audio-capture). testroom/meet_host.mjs drives it.
   z0   = the production meeting leg (Passthru + meeting_leg.mjs + recipes/google-meet.mjs), headless.
 
