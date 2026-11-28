@@ -73,6 +73,17 @@ D["lanes"]["council"].update(enabled=False, invoke={"when": ["owner_asks"], "max
 D["blackboard"] = {"delivery": "pull", "reinject_every_turns": 0, "spec_entries": True,
                    "corrected_by": ["driver", "council"]}
 D["splice"].update(gate="pre_speak", gate_kinds=["math", "hard", "gather"], gate_ms=800)
+# L2.1 (11-11 blind judge on 48 real call turns, evals/replay_real.py): the smol lane labels its own kind and
+# confidence (no router call), only `chat` speaks unchecked (simple facts were stale), and the tool-using gather
+# lane writes the board for the driver but speaks only for engines listed in `speak` (none passed yet).
+L = copy.deepcopy(D)
+L["revision"] = "preset-L-l21-chat-gather-board"
+L["lanes"]["smol"].update(self_label=True, gather={
+    "enabled": True, "profile": "clean", "toolsets": "web,session_search,z0_file_search", "max_turns": 6,
+    "deadline_ms": 45000, "speak": [], "models": [
+        {"provider": "anthropic", "model": "claude-haiku-4-5", "route": "hermes"},
+        {"provider": "local", "model": "qwen3.5-4b", "route": "local", "hermes_provider": "custom:local-qwen4b"}]})
+L["splice"].update(gate_below=0.7, speak_kinds=["chat"])
 
 # A: today's attached path, voice + one smol, nothing verifies.
 A = copy.deepcopy(B)
@@ -81,9 +92,9 @@ A["lanes"]["smol"]["models"] = [B["lanes"]["smol"]["models"][2]]
 A["lanes"]["driver"].update(verifiers=[], verify_smol=False)
 A["lanes"]["council"].update(enabled=False, invoke={"when": ["owner_asks"], "max_per_call": 0})
 
-PRESETS = {"D": D, "B": B, "A": A}
-DEFAULT = D
-PRESET_WORDS = {"d": "D", "default": "D", "winner": "D", "best": "D", "recommended": "D",
+PRESETS = {"L": L, "D": D, "B": B, "A": A}
+DEFAULT = L
+PRESET_WORDS = {"l": "L", "l2": "L", "default": "L", "winner": "L", "best": "L", "recommended": "L", "d": "D",
                 "b": "B", "example": "B", "full": "B", "everything": "B", "all": "B",
                 "a": "A", "today": "A", "minimal": "A", "basic": "A", "simple": "A"}
 
