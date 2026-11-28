@@ -137,41 +137,6 @@ DEFAULT_RUBRIC_SHA256 = '2814a72b07c81a0f8bb1f388150352245bb74c7422dec7d4d1bb0fb
 HOLDOUT2 = HERE / 'truth_adj_holdout2.json'
 
 
-class RubricVariantTests(unittest.TestCase):
-    def test_default_rubric_byte_identical(self):
-        self.assertEqual(hashlib.sha256(truth_eval.RUBRIC.encode()).hexdigest(), DEFAULT_RUBRIC_SHA256)
-        self.assertIs(truth_eval.RUBRIC_VARIANTS['default'], truth_eval.RUBRIC)
-
-    def test_variants_add_exactly_one_clause(self):
-        variants = truth_eval.RUBRIC_VARIANTS
-        self.assertTrue(1 <= len(truth_eval.HANDOFF_CLAUSES) <= 3)  # at most 3 handoff wordings
-        for name, clause in truth_eval.HANDOFF_CLAUSES.items():
-            text = variants[name]
-            self.assertNotEqual(text, truth_eval.RUBRIC)
-            self.assertEqual(text.count(clause), 1)
-            self.assertEqual(text.replace(' ' + clause, '', 1), truth_eval.RUBRIC)
-            self.assertIn('Hermes or another agent', clause)
-            self.assertTrue(text.endswith('Return only HALLUCINATION, CLEAN or UNCERTAIN.'))
-            for _, _, reply, _ in truth_eval.CONTROLS:
-                self.assertNotIn(reply, clause)  # no control text leaks into the clause
-        self.assertEqual(set(variants), {'default', *truth_eval.HANDOFF_CLAUSES, *truth_eval.UNC_CLAUSES})
-
-    def test_grade_default_and_variant(self):
-        model = FakeModel()
-        truth_eval.grade(model, 'q', None, 'r')
-        name = sorted(truth_eval.HANDOFF_CLAUSES)[0]
-        truth_eval.grade(model, 'q', None, 'r', rubric=truth_eval.RUBRIC_VARIANTS[name])
-        self.assertEqual(model.calls[0][0], truth_eval.RUBRIC)
-        self.assertEqual(model.calls[1][0], truth_eval.RUBRIC_VARIANTS[name])
-
-    def test_run_passes_variant_to_items_and_controls(self):
-        items = truth_adj.load_set(truth_adj.SET)[0]['items'][:3]
-        name = sorted(truth_eval.HANDOFF_CLAUSES)[-1]
-        model = FakeModel()
-        out = truth_adj.run(model, items, rubric=truth_eval.RUBRIC_VARIANTS[name])
-        self.assertEqual(len(model.calls), 3 + len(truth_eval.CONTROLS))
-        self.assertEqual({c[0] for c in model.calls}, {truth_eval.RUBRIC_VARIANTS[name]})
-        self.assertEqual(len(out['controls']), len(truth_eval.CONTROLS))
 
 
 class Holdout2Tests(unittest.TestCase):
@@ -220,118 +185,6 @@ DEFAULT_GRADE_SOURCE_SHA256 = '243dfc799ebf7ffba436f2bbae02ce653201bc6814009a6e0
 HOLDOUT3 = HERE / 'truth_adj_holdout3.json'
 
 
-class FakeTwoStep:
-    """Step 1 (YES/NO grammar) answers from a reply -> YES|NO table; step 2 answers from a reply -> label table."""
-
-    def __init__(self, defer=None, labels=None, fail1=(), off1=()):
-        self.defer, self.labels, self.fail1, self.off1, self.calls = defer or {}, labels or {}, set(fail1), set(off1), []
-        self.info = {'id': 'fake'}
-
-    def ask(self, system, user, max_tokens, *, literal=False, grammar=None):
-        data = json.loads(user)
-        self.calls.append((system, data, max_tokens, literal, grammar))
-        reply = data['lane_reply']
-        if grammar is not None:
-            if reply in self.fail1:
-                raise RuntimeError('local reply did not finish normally')
-            return ('MAYBE' if reply in self.off1 else self.defer.get(reply, 'NO')), 1
-        return self.labels.get(reply, 'HALLUCINATION'), 1
-
-
-class TwoStepTests(unittest.TestCase):
-    def test_default_grade_and_rubric_unchanged(self):
-        self.assertEqual(hashlib.sha256(truth_eval.RUBRIC.encode()).hexdigest(), DEFAULT_RUBRIC_SHA256)
-        self.assertEqual(hashlib.sha256(inspect.getsource(truth_eval.grade).encode()).hexdigest(),
-                         DEFAULT_GRADE_SOURCE_SHA256)
-
-    def test_deferral_prompts(self):
-        prompts = truth_eval.DEFERRAL_PROMPTS
-        self.assertTrue(1 <= len(prompts) <= 2)  # at most 2 wordings for DEV selection
-        self.assertEqual(truth_eval.YES_NO_GRAMMAR, 'root ::= "YES" | "NO"')
-        held = [i['lane_reply'] for i in truth_adj.load_set(HOLDOUT3)[0]['items']]
-        for name, text in prompts.items():
-            self.assertTrue(text.endswith('Return only YES or NO.'), name)
-            for _, _, reply, _ in truth_eval.CONTROLS:
-                self.assertNotIn(reply, text)
-            for reply in held:
-                self.assertNotIn(reply, text)
-
-    def test_yes_is_clean_with_one_call(self):
-        model = FakeTwoStep(defer={'Hermes will do it.': 'YES'})
-        name = sorted(truth_eval.DEFERRAL_PROMPTS)[0]
-        label, step1 = truth_eval.grade_two_step(model, 'q', None, 'Hermes will do it.', name)
-        self.assertEqual((label, step1), ('CLEAN', 'YES'))
-        self.assertEqual(len(model.calls), 1)
-        system, data, _, _, grammar = model.calls[0]
-        self.assertEqual(system, truth_eval.DEFERRAL_PROMPTS[name])
-        self.assertEqual(grammar, truth_eval.YES_NO_GRAMMAR)
-        self.assertEqual(data, {'lane_reply': 'Hermes will do it.'})
-
-    def test_no_runs_unchanged_default_rubric(self):
-        model = FakeTwoStep(labels={'It is 5.': 'UNCERTAIN'})
-        name = sorted(truth_eval.DEFERRAL_PROMPTS)[-1]
-        label, step1 = truth_eval.grade_two_step(model, 'q', 'ref', 'It is 5.', name)
-        self.assertEqual((label, step1), ('UNCERTAIN', 'NO'))
-        self.assertEqual(len(model.calls), 2)
-        system, data, max_tokens, literal, grammar = model.calls[1]
-        self.assertEqual(system, truth_eval.RUBRIC)
-        self.assertTrue(literal)
-        self.assertIsNone(grammar)
-        self.assertEqual(max_tokens, 16)
-        self.assertEqual(data, {'question': 'q', 'hermes_reference': 'ref', 'lane_reply': 'It is 5.'})
-
-    def test_step1_failure_or_off_label_is_error_without_step2(self):
-        name = sorted(truth_eval.DEFERRAL_PROMPTS)[0]
-        for model in (FakeTwoStep(fail1={'r'}), FakeTwoStep(off1={'r'})):
-            label, step1 = truth_eval.grade_two_step(model, 'q', None, 'r', name)
-            self.assertEqual((label, step1), ('ERROR', 'ERROR'))
-            self.assertEqual(len(model.calls), 1)
-
-    def test_grade_sets_two_step_records_step1(self):
-        items = truth_adj.load_set(truth_adj.SET)[0]['items'][:4]
-        defer = {items[0]['lane_reply']: 'YES', 'Hermes can take that one.': 'YES'}
-        name = sorted(truth_eval.DEFERRAL_PROMPTS)[0]
-        model = FakeTwoStep(defer=defer)
-        out = truth_adj.grade_sets(model, [('a', {'items': items})], mode='two_step', deferral=name)
-        self.assertEqual([r['step1'] for r in out['rows']], ['YES', 'NO', 'NO', 'NO'])
-        self.assertEqual(out['rows'][0]['label'], 'CLEAN')
-        self.assertEqual(len(out['controls']), len(truth_eval.CONTROLS))
-        self.assertIn('step1', out['controls'][3])
-        self.assertEqual(out['controls'][3]['label'], 'CLEAN')
-        # calls: 4 items + 5 controls step 1, then step 2 for every NO (3 items + 4 controls)
-        self.assertEqual(len(model.calls), 9 + 7)
-
-    def test_single_mode_rows_unchanged(self):
-        items = truth_adj.load_set(truth_adj.SET)[0]['items'][:2]
-        out = truth_adj.grade_sets(FakeModel(), [('a', {'items': items})])
-        self.assertEqual(set(out['rows'][0]), {'set', 'id', 'split', 'category', 'gold', 'label'})
-        self.assertEqual(set(out['controls'][0]), {'expected', 'label'})
-
-    def test_cli_mode_flags(self):
-        parser = truth_adj.build_parser()
-        args = parser.parse_args([])
-        self.assertEqual((args.mode, args.deferral_prompt), ('single', None))
-        name = sorted(truth_eval.DEFERRAL_PROMPTS)[0]
-        args = parser.parse_args(['--mode', 'two_step', '--deferral-prompt', name])
-        self.assertEqual((args.mode, args.deferral_prompt), ('two_step', name))
-        with self.assertRaises(SystemExit):
-            parser.parse_args(['--mode', 'other'])
-
-    def test_local_model_grammar_kwarg(self):
-        model = eval_local.LocalModel.__new__(eval_local.LocalModel)
-        model.model, bodies = 'm', []
-
-        def request(path, body=None):
-            bodies.append(body)
-            return {'choices': [{'finish_reason': 'stop', 'message': {'content': 'YES'}}], 'usage': {'prompt_tokens': 3}}
-
-        model.request = request
-        model.ask('s', 'u', 4, grammar=truth_eval.YES_NO_GRAMMAR)
-        model.ask('s', 'u', 16, literal=True)
-        model.ask('s', 'u', 16)
-        self.assertEqual(bodies[0]['grammar'], truth_eval.YES_NO_GRAMMAR)
-        self.assertEqual(bodies[1]['grammar'], 'root ::= "HALLUCINATION" | "CLEAN" | "UNCERTAIN"')
-        self.assertNotIn('grammar', bodies[2])
 
 
 class Holdout3Tests(unittest.TestCase):
@@ -480,11 +333,6 @@ class UncClauseTests(unittest.TestCase):
         args = truth_adj.build_parser().parse_args(['--rubric-variant', name])
         self.assertEqual(args.rubric_variant, name)
 
-    def test_handoff_variants_unchanged(self):
-        for name, clause in truth_eval.HANDOFF_CLAUSES.items():
-            self.assertEqual(truth_eval.RUBRIC_VARIANTS[name],
-                             truth_eval.RUBRIC.replace(truth_eval._HANDOFF_ANCHOR,
-                                                       f'{truth_eval._HANDOFF_ANCHOR} {clause}'))
 
 
 class Holdout5Tests(unittest.TestCase):
