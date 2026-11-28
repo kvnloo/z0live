@@ -1,0 +1,13 @@
+# C56-brief freeze (written before the first scored run) 2026-11-26T00:20:42-06:00
+740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8  gemma-4-E2B-it-Q4_K_M.gguf (unsloth/gemma-4-E2B-it-GGUF rev 0314792d7f1f7e229411f620751375812bb9faf2; same file as C56)
+c2758c87b9dd41293653e665fa3b06f5853d69243443d5d06d930683a55e35e4  llama-b12527-bin-ubuntu-arm64.tar.gz
+7fa9f7c64ce0a68741232a46707edecf2dd74e2403232e0c211aad03a792367c  voice-adapter/bench/slm-v2.json
+add175760279a64dece3f4c1df895f62192965882d386a56c64fce69dd889887  voice-adapter/bench/slm-v2-e5.json
+805a2518e6e58d6f2f55e666af6bea7b2a41dbb298aa2edb94e59cb00bd5a4c0  voice-adapter/slm_bench.py
+8496ab2c47683c0d6b4fe2d929a8534be6a1e06581063a7e275a53a15205230c  voice-adapter/tiers.py
+1eabfc9db5fc577bbf0a2d722682babe649e9d8086fd046ee5e5479620f77470  voice-adapter/bench/lanespeed.py
+978c699eadc872f457bfd8021b29dbc81d91e233c230e07b9c7ab6320e2fc58c  voice-adapter/bench/lanespeed_verdict.py
+d0de314450f18ed9a5098b50be3ba3fcb10c9bf077a9b932c9b28d0f38f79029  voice-adapter/bench/lane_brief_e5.py
+9d181b6516c2db9fa732427d39aec5a857530460cc841f389961ccfdeb07e72c  voice-adapter/bench/lanespeed_c56brief_check.py
+89179d33910d19448155ef39b677c15a9c2dc3f5c3c6c80b27a641bc36f3a184  voice-adapter/bench/lanespeed-c56brief-PREREG.md
+2ae75bbda4d37777dcfe4819695c1c975b408ab9c2dd208a12832cf766402b12  .github/workflows/lanespeed-c56brief.yml
