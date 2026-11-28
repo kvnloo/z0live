@@ -244,7 +244,12 @@ def start(brief: str, title: str = "", engine: str = "kanban", model: str = "", 
             _, e = _led("claim", item, by, f"job: {title}")
             led_err = led_err or e
         if engine == "kanban":
-            jid, ref_err = _start_kanban(brief, title, model, provider, workspace, max_runtime, goal, key, by,
+            body = brief
+            if bot and bot != ASSIGNEE:  # cfg 11-28: a card handed to another bot names who asked, and keeps Kevin's gate
+                body = (f"Requested from z0live by {ASSIGNEE} ({by}) on call {call or 'none'} for Kevin.\n"
+                        "Config, secret or spending changes still need Kevin's explicit go; ask him, do not assume this "
+                        "card is that go.\n\n" + brief)
+            jid, ref_err = _start_kanban(body, title, model, provider, workspace, max_runtime, goal, key, by,
                                          bot or ASSIGNEE)
         else:
             jid, ref_err = _start_pid(brief, title, cmd, workspace, item)
