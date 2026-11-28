@@ -2927,7 +2927,11 @@ class Call:
 
     async def tier_lanes(self, did, request):
         """Tier races are trace-only: an unchecked count or diagnosis must never reach the speaker."""
-        began, cfg = time.monotonic(), tiers.load()
+        began, mode = time.monotonic(), tiers.conductor_mode()
+        cfg = tiers.for_request(tiers.load(), mode)  # turbo adds the semantic-router fast lane; normal drops it
+        if mode != "normal":
+            self.trace("lanes.mode", did=did, mode=mode, fast=[b["model"] for b in cfg.get("fast", [])])
+
         context = tiers.snapshot(self.context_text, list(self.protocol.exchanges), live=live_picture(),
                                  ledger=self.ledger_brief(did, 2500, proof_rule=False))
 

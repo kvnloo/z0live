@@ -71,6 +71,37 @@ def load() -> dict:
 
 CONDUCTOR_STATE = Path(os.environ.get("Z0LIVE_CONDUCTOR", str(Path.home() / ".local/share/z0live/conductor"))) / "state.json"
 
+# Semantic-router fast lane (Kevin, call 11-28: "we have hundreds of models via Semantic Router ... you're not using
+# any of them"). Measured 11-28 on 12 neutral asks with this tier prompt: vllm-sr/turbo (Groq gpt-oss) 0.4 s p50
+# vs luna 1.3 s / terra 1.4 s, same answers and the same SKIPs. Its hosts are third-party free tiers, so policy/RULES.md
+# decides when it may run: "anything that sees Kevin's message text ... runs on Claude or local models only", except
+# "Turbo mode stacks ... sr:free" when Kevin turns turbo on. So the router lane races only while the TV conductor is
+# in turbo/ultra (his spoken switch), and gets the bare request (race() never sends it the brief, TV or call). In
+# normal mode any router binding, even one written into the layout, is dropped. Z0LIVE_SR_FAST=off disables it.
+SR_FAST = {"provider": "custom", "model": os.environ.get("Z0LIVE_SR_FAST_MODEL", "vllm-sr/turbo"),
+           "base_url": lane_layout.SR_URL}
+SR_MODES = ("turbo", "ultra")
+
+
+def conductor_mode(path: Path | None = None) -> str:
+    """The TV conductor's lane mode (normal / turbo / ultra); "normal" when the state file can't be read."""
+    try:
+        mode = json.loads((path or CONDUCTOR_STATE).read_text()).get("mode")
+    except (OSError, ValueError, AttributeError):
+        return "normal"
+    return mode if mode in ("normal",) + SR_MODES else "normal"
+
+
+def for_request(cfg: dict, mode: str | None = None) -> dict:
+    """The tiers one request races: `cfg` with the router lane added to the fast tier in turbo/ultra, and every router
+    (base_url) binding removed otherwise. Never mutates `cfg`."""
+    mode = conductor_mode() if mode is None else mode
+    allow = mode in SR_MODES and os.environ.get("Z0LIVE_SR_FAST", "auto") != "off"
+    out = {t: [b for b in bs if allow or not b.get("base_url")] for t, bs in cfg.items()}
+    if allow and not any(b.get("base_url") for b in out.get("fast", [])):
+        out["fast"] = [SR_FAST] + list(out.get("fast", []))
+    return {t: bs for t, bs in out.items() if bs}
+
 
 def live_facts(now: float | None = None, path: Path | None = None) -> str:
     """What is running right now, from the TV conductor's state file: lanes running by model, and the newest finished
