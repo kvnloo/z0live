@@ -122,7 +122,7 @@ class ReplayContract(unittest.TestCase):
         self.assertEqual([text.rsplit("Request: ", 1)[-1] for _, _, text in sent],
                          ["Can you look at my studio and tell me how much disk space is free right now"])
 
-    def test_one_lane_answer_per_request_then_hermes(self):
+    def test_only_hermes_answers_the_request(self):
         # 11-20 15:17 call: three lane answers and Hermes landed within 4.4 s; the voice spoke a garbled merge
         # and the listener asked "can you repeat the question, you kinda cut off".
         rows = (turn(25.0, 33.6, "user", "He is an intern, ask him an easy first question about the dashboard", "u1")
@@ -134,7 +134,8 @@ class ReplayContract(unittest.TestCase):
                 + turn(36.6, 56.85, "assistant", "Okay, hey Vinay, easy start.", "a2")
                 + turn(60.0, 63.4, "user", "Thanks, that works", "u2"))
         report = run(rows)
-        self.assertEqual(report["max_finals_per_delegation"], 2)  # the first lane answer, then Hermes (it adds)
+        self.assertEqual(report["max_finals_per_delegation"], 1)
+        self.assertIn("first thing you would change", report["answers"]["d1"])
 
     def test_a_long_hermes_turn_does_not_hold_a_later_request(self):
         # 11-20 10:42 call: a usage check ran 95 s in the chat. Requests made meanwhile joined that turn
@@ -150,7 +151,7 @@ class ReplayContract(unittest.TestCase):
         self.assertLess(report["own_answer_s"]["d2"], 10)  # its own work (6 s), not the long turn's 95 s
         self.assertLess(report["own_answer_s"]["d1"], 100)  # the long work still lands, spoken when it does
 
-    def test_a_long_hermes_request_gets_a_spoken_receipt_within_seconds(self):
+    def test_a_long_hermes_request_stays_quiet_until_its_answer(self):
         # A0190: "On it", then minutes of silence (8 of 23 delegations ran over 60 s on 11-20). Task I (11-27): the
         # voice's ack is the call's first status line, so a receipt 8 s after it was a burst; a request the voice never
         # acked still hears the receipt within seconds, an acked one hears its first status line one gap after the ack.
@@ -158,13 +159,14 @@ class ReplayContract(unittest.TestCase):
                 + delegation(9.8, "d1", "usage left")
                 + hermes("d1", 95, "You have about forty percent left on the main account."))
         report = run(rows)
-        self.assertLessEqual(report["receipt_s"].get("d1", 999), 12)
+        self.assertEqual(report["receipt_s"], {})
+        self.assertIn("forty percent", report["answers"]["d1"])
         self.assertEqual(report["duplicate_finals"], {})
         import mobile_live
         r, report = replay_rows(rows[:2] + turn(10, 11, "assistant", "On it.", "a1") + rows[2:])
         status = [t for t, x in said_to(r, "d1") if mobile_live.status_line(x)]
-        self.assertGreaterEqual(report["receipt_s"]["d1"], mobile_live.STATUS_GAP, "no receipt right after the ack")
-        self.assertTrue(status and 11 + mobile_live.STATUS_GAP <= status[0] <= 11 + mobile_live.STATUS_GAP + 5, status)
+        self.assertEqual(status, [])
+        self.assertIn("forty percent", report["answers"]["d1"])
 
     def test_a_failed_background_agent_is_spoken_not_silent(self):
         rows = (turn(5, 10, "user", "Check every server we run", "u1") + delegation(9.8, "d1", "servers")
@@ -711,7 +713,7 @@ def lane_card_call():
 class LaneCardsOnTheCall(unittest.TestCase):
     """Task E (11-27): the conductor's lane cards only reached the TV; none of them was heard on the call."""
 
-    def test_a_lane_card_is_spoken_after_the_floor_frees_and_stays_quiet_once_kevin_moved_on(self):
+    def test_a_lane_card_does_not_race_background_but_still_reaches_the_ledger(self):
         import asyncio
         with tempfile.TemporaryDirectory() as d:
             state = Path(d) / "state.json"
@@ -721,18 +723,11 @@ class LaneCardsOnTheCall(unittest.TestCase):
             asyncio.run(r.run())
         spoken = [(t, kw) for t, ev, kw in r.cards if ev == "lanes.card_spoken"]
         skipped = [(t, kw) for t, ev, kw in r.cards if ev == "lanes.card_skipped"]
-        self.assertEqual(len(spoken), 1, r.cards)
-        t, kw = spoken[0]
-        self.assertEqual((kw["did"], kw["lanes"], kw["text"]), ("d1", ["a1-1"], "Sol lane: 9 boat sandboxes live, all idle."))
-        self.assertGreaterEqual(t, 37)  # Kevin spoke 29-34 and the voice answered until 36: never over either
-        finals = [(at, e) for at, e in r.sent if "Sol lane:" in "".join(c.get("text", "") for c in e.get("content", []))]
-        self.assertEqual([(e["delegation_item_id"], e["channel"]) for _, e in finals], [("d1", "speakable")])
-        # Not dropped: the card of the request Kevin moved on from is one short "earlier lane" line and a ledger result.
-        self.assertEqual([(kw["reason"], kw["lanes"]) for _, kw in skipped], [("earlier", ["a1-2"])])
+        self.assertEqual(spoken, [], r.cards)
+        self.assertEqual([(kw["reason"], kw["lanes"]) for _, kw in skipped],
+                         [("background_owns", ["a1-1"]), ("background_owns", ["a1-2"])])
         earlier = [(t, kw) for t, ev, kw in r.cards if ev == "lanes.card_earlier_spoken"]
-        self.assertEqual([kw["lanes"] for _, kw in earlier], [["a1-2"]], r.cards)
-        self.assertIn("An earlier lane finished", earlier[0][1]["text"])
-        by_item = {i["text"]: i for i in r.ledger_items}
+        self.assertEqual(earlier, [], r.cards)
         self.assertTrue(any(res["by"].startswith("lane:") for i in r.ledger_items for res in i["results"]),
                         "every finished card is a result on its request's item")
 
@@ -789,7 +784,7 @@ class HermesPathNeverSilent(unittest.TestCase):
         self.assertEqual(report["held"], [])
         self.assertIn("210 gigabytes", report["answers"].get("d1", ""))
 
-    def test_a_long_request_hears_one_receipt_then_quiet_and_still_gets_its_answer(self):
+    def test_a_long_request_hears_no_stock_receipt_and_still_gets_its_answer(self):
         # 120608 at 84.9 s: one receipt at 8 s, then 224 s of silence before the chat turn answered. Kevin, 11-27: after
         # the kickoff the voice does not have to say anything: one receipt line, no progress or cap lines after it.
         rows = (turn(80, 84.5, "user", "Sort every photo from the trip into albums by day", "u1")
@@ -799,13 +794,10 @@ class HermesPathNeverSilent(unittest.TestCase):
         r, report = replay_rows(rows)
         lines = said_to(r, "d1")
         status = [(round(t - 84.9, 1), x) for t, x in lines if mobile_live.status_line(x)]
-        self.assertEqual(len(status), 1, status)
-        self.assertTrue(status[0][1].startswith("Still working on that"), status)
-        for _, x in status:
-            self.assertFalse(mobile_live.promises_new_work(x), x)
+        self.assertEqual(status, [])
         self.assertFalse([x for _, x in lines if "seconds so far" in x or x.startswith("No answer")], lines)
         self.assertIn("sorted into six albums", report["answers"].get("d1", ""), "the late answer is still spoken")
-        self.assertGreaterEqual(report["receipt_s"]["d1"], 45, "the ack was the receipt: the first status line waits a gap")
+
 
     def test_no_progress_line_while_kevin_is_talking(self):
         rows = (turn(5, 10, "user", "Check how much of my usage I have left across every account", "u1")
@@ -820,10 +812,7 @@ class HermesPathNeverSilent(unittest.TestCase):
         r, _ = replay_rows(rows)
         status = [t for t, x in said_to(r, "d1") if mobile_live.status_line(x)]
         self.assertFalse([t for t in status if 14.0 <= t < 50.2], status)
-        # The ack at 11 s holds the gap to 56 s; the one receipt plays then, and nothing follows it.
-        self.assertTrue(any(50.2 <= t <= 11 + mobile_live.STATUS_GAP + 2 for t in status),
-                        ("the deferred line plays once he stops and the gap allows", status))
-        self.assertEqual(len(status), 1, status)
+        self.assertEqual(status, [])  # no factual partial in this tape, even after speech ends
 
     def test_a_quick_background_answer_hears_no_status_line(self):
         rows = (turn(5, 10, "user", "What is on my calendar today?", "u1") + delegation(9.8, "d1", "calendar")
@@ -863,11 +852,11 @@ class OneStatusBudget(unittest.TestCase):
         spoken = sorted([(t, "ack") for t in acks] + [(t, "status") for t in status])
         close = [(a, b) for a, b in zip(spoken, spoken[1:]) if b[1] == "status" and b[0] - a[0] < getattr(mobile_live, "STATUS_GAP", 45) - 1]
         self.assertEqual(close, [], ("a status line within the gap of an earlier ack/status line", spoken))
-        self.assertTrue(status, "the long request still hears something")
+        self.assertEqual(status, [])  # no factual partial in this tape
         self.assertEqual(report["unanswered"], [])
 
 
-    def test_concurrent_long_requests_hear_one_receipt_line_between_them_and_nothing_after(self):
+    def test_concurrent_long_requests_hear_no_stock_receipts(self):
         rows = (turn(8, 12, "user", "Re-index the photo library", "u1") + delegation(12.2, "dA", "re-index photos")
                 + turn(12.3, 14, "assistant", "Starting that.", "a1") + hermes("dA", 200, "The photo library is re-indexed.")
                 + turn(14.5, 17, "user", "And defrag the old backup disk", "u2") + delegation(17.2, "dB", "defrag disk")
@@ -875,7 +864,7 @@ class OneStatusBudget(unittest.TestCase):
         import mobile_live
         r, report = replay_rows(rows)
         lines = sorted((t, did, x) for did in ("dA", "dB") for t, x in said_to(r, did) if mobile_live.status_line(x))
-        self.assertEqual(len(lines), 1, lines)
+        self.assertEqual(lines, [])
         self.assertFalse([x for _, _, x in lines if "seconds" in x or x.startswith("No answer")], lines)
         self.assertEqual(report["unanswered"], [])
 
@@ -975,11 +964,10 @@ class RequestLedgerOnTheCall(unittest.TestCase):
         import mobile_live
         r, _ = replay_rows(rows)
         status = [(round(t - 9, 1), x) for t, x in said_to(r, "d1") if mobile_live.status_line(x)]
-        self.assertEqual(len(status), 2, status)
-        self.assertTrue(status[0][1].startswith("Still working"), status)
-        self.assertIn("no proof that one started", status[1][1])
-        self.assertTrue(120 <= status[1][0] <= 175, status)
-        self.assertFalse(mobile_live.promises_new_work(status[1][1]))
+        self.assertEqual(len(status), 1, status)
+        self.assertIn("no proof that one started", status[0][1])
+        self.assertTrue(120 <= status[0][0] <= 175, status)
+        self.assertFalse(mobile_live.promises_new_work(status[0][1]))
 
 
 

@@ -128,7 +128,10 @@ class FakeChat:
             async for msg in ws:
                 frame = json.loads(msg.data)
                 rid, method, params = frame["id"], frame["method"], frame.get("params") or {}
-                if method == "session.resume":
+                if method in ("session.list", "session.create"):
+                    # This historical fixture has one anchored chat and bg_* costs, not project-chat frames.
+                    await ws.send_json({"id": rid, "error": {"message": "project chat unavailable in legacy tape"}})
+                elif method == "session.resume":
                     # A live chat reports whether a turn runs in it, ours or one Kevin typed (session_registry.py).
                     await ws.send_json({"id": rid, "result": {"session_id": params["session_id"],
                                                               "running": self.busy()}})
@@ -294,6 +297,7 @@ class Replay:
     async def run(self):
         import mobile_live as live
         import tiers
+        import topic_sessions
 
         chat = FakeChat(self)
         url = await chat.start()
@@ -355,6 +359,7 @@ class Replay:
         guest = live.guest_voice.GuestConfig("gpt-live", "tek", "ember", "tek") if self.guest else None
         with tempfile.TemporaryDirectory() as traces, \
                 patch.dict(os.environ, {"Z0LIVE_LEDGER": str(Path(traces) / "ledger")}), \
+                patch.object(topic_sessions, "ENABLED", False), \
                 patch.object(tiers, "CONDUCTOR_STATE", self.conductor or Path(traces) / "no-conductor" / "state.json"), \
                 patch.object(live, "TRACE_DIR", Path(traces)), patch.object(live, "TIERS_ON", True), \
                 patch.object(live.chat_continuity, "WS", url), patch.object(tiers, "race", race), \
@@ -366,6 +371,8 @@ class Replay:
                 patch.object(live.Call, "sleep", lambda call, seconds: replay.later(seconds, None), create=True):
             http = ClientSession()
             call = self.call = live.Call(live.Manager(http), profile="")
+            if hasattr(call.protocol, "fragments"):
+                call.protocol.fragments.clock = lambda: replay.now
             call.relay, call.chat, call.heard_user = None, "chat-1", True
             call.live_records = False  # N216: no records of the recorded call's minute (status answers, proof gate)
             call.subscription.ready.set()

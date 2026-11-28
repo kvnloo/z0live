@@ -64,16 +64,16 @@ class FableLanes(unittest.IsolatedAsyncioTestCase):
 
 
 class OneVoice(unittest.IsolatedAsyncioTestCase):
-    async def test_only_one_instant_answer_is_spoken_per_question(self):
+    async def test_legacy_fast_lanes_do_not_speak(self):
         said = []
         call = SimpleNamespace(closed=False, latest_did="d1", speak_for=lambda did, text, lane=False: said.append(text))
         say = lambda did, text: mobile_live.Call.say_first(call, did, text)
         self.assertFalse(say("d1", "SKIP"))
         self.assertFalse(say("d1", "**Model guard:** The hook flagged the active model"))
-        self.assertTrue(say("d1", "Three sessions are running."))
+        self.assertFalse(say("d1", "Three sessions are running."))
         self.assertFalse(say("d1", "A second fast answer"))
         self.assertFalse(say("d0", "an older question's answer"))
-        self.assertEqual(said, ["Three sessions are running."])
+        self.assertEqual(said, [])
 
     def test_a_previous_turn_is_not_this_request(self):
         self.assertFalse(mobile_live.same_words(" Hey, what's up", "Awesome. Um, can you act as my chief of staff"))

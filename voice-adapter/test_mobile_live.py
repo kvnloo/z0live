@@ -575,8 +575,8 @@ class BoundedHostQueueTests(unittest.IsolatedAsyncioTestCase):
             jobs = await self.start(call, running + ["w1"])
             await asyncio.sleep(0.8)
             self.assertFalse(any(live.status_line(s) for s in self.said("w1")), "the receipt claims a queued run works")
-            self.assertTrue(any(live.status_line(s) for d in running for s in self.said(d)),
-                            "a running request keeps its receipt")
+            self.assertFalse(any(live.status_line(s) for d in running for s in self.said(d)),
+                             "a running request without a finding also gives no stock receipt")
             for did in running + ["w1"]:
                 self.release(did)
             await asyncio.wait_for(asyncio.gather(*jobs.values()), 5)
@@ -878,11 +878,11 @@ class OneFastLaneTests(unittest.IsolatedAsyncioTestCase):
         await call.close('test')
         return call, flags, sent, live.time.monotonic() - began
 
-    async def test_gather_answer_is_framed_and_spoken_while_the_driver_runs(self):
+    async def test_gather_answer_does_not_race_the_driver(self):
         relay = self.Relay("You're on a detached HEAD at 2dd8589.", 0.1, source="gather")
         call, flags, sent, took = await self.delegate(relay, 0.6)
         self.assertEqual(flags, [True])  # FAST_LANE_OFF: the profile plugin starts no second lane
-        self.assertEqual(sent[0], "You're on a detached HEAD at 2dd8589.")  # no plumbing framing (11-16)
+        self.assertEqual(len(sent), 1)
         self.assertIn('detached HEAD (2dd8589)', sent[-1])
         self.assertLess(took, 1.2)  # the lane wait never runs before the driver (it used to add up to 9.5 s)
 
@@ -901,11 +901,11 @@ class OneFastLaneTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(sent), 1)
         self.assertIn('detached HEAD', sent[0])
 
-    async def test_smol_answer_is_plain_and_driver_only_if_it_adds(self):
+    async def test_smol_answer_does_not_preempt_the_driver(self):
         relay = self.Relay("Canberra.", 0.05)
         call, _, sent, _ = await self.delegate(relay, 0.2, answer="The capital of Australia is Canberra.")
-        self.assertEqual(sent, ["Canberra."])
-        self.assertEqual(call.counts['host_delegation_covered'], 1)
+        self.assertEqual(sent, ["The capital of Australia is Canberra."])
+        self.assertEqual(call.counts['host_delegation_covered'], 0)
 
     async def test_lane_layout_line_is_answered_without_the_driver(self):
         relay = self.Relay(None, 0)

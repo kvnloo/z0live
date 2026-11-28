@@ -136,6 +136,22 @@ CARD_ID = re.compile(r"\bt_[0-9a-f]{6,}\b")
 CLIMB = re.compile(r"hill\s*-?\s*climb|\bclimb\b", re.I)
 
 
+# F2: a request that asks about something other than the records themselves is not a status question even when it
+# says "lanes", "running" or "cards" ("give me the OSS repo rundown" is about repos, not a lane count).
+SUBJECT = re.compile(r"\b(?:repos?|repositor(?:y|ies)|oss|open[- ]source|github|pull requests?|prs?|branch(?:es)?|"
+                     r"commits?|code|files?|rundown|run-down|overview|summar(?:y|ize|ise)|explain|describe|compare|"
+                     r"review|walk me through|breakdown|details? (?:on|of|about)|why|history|logs?)\b", re.I)
+
+
+def exact_topics(request: str) -> list[str]:
+    """topics(), or [] when the request also asks about something the records cannot answer (status.answer yields to
+    the lanes and background then)."""
+    found = topics(request)
+    if found and SUBJECT.search(" ".join(str(request or "").split())):
+        return []
+    return found
+
+
 def read(want, sources: Sources | None = None, now: float | None = None, request: str = "") -> dict:
     """Read the records the topics need, now. Every reader failure is kept (errors) and said, never guessed over.
     The snapshot: read_at, topics, the records per topic, ids (every id read) and state ({id: status as read})."""

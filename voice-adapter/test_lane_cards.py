@@ -19,7 +19,8 @@ REQUEST = "How many boat sandboxes are live right now?"
 
 def lane(lid, model, summary, state="done"):
     return {"id": lid, "title": "t", "model": model, "state": state, "t1": 1.0,
-            "card": {"title": "c", "summary": summary, "facts": [], "unknowns": [], "sources": []} if summary else {}}
+            "card": {"title": "c", "summary": summary, "facts": [], "unknowns": [], "sources": [],
+                     "verified": True} if summary else {}}
 
 
 def ask(call, text, *lanes, aid="a1"):
