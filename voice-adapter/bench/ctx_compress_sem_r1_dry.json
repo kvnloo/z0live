@@ -1,0 +1,201 @@
+{
+ "experiment": "C1-ctx-sem-r1",
+ "written_before_scored_run": true,
+ "basis": "local model precheck (Metal, I) + oracle bound (M, deterministic) + r15 measured CPU prefill/decode speed (M, r15 jobs: 1793 prompt tokens in 34.1 s, 11 tokens in 0.63 s)",
+ "arms": {
+  "r15-vet": {
+   "u1": {
+    "cat": "UPD_SAME",
+    "A": "STALE",
+    "B": "CURRENT",
+    "R(r14)": "STALE",
+    "O": "BOTH or CURRENT (full brief)"
+   },
+   "u2": {
+    "cat": "UPD_RENAMED",
+    "A": "STALE",
+    "B": "STALE",
+    "R(r14)": "STALE",
+    "O": "BOTH or CURRENT (full brief)"
+   },
+   "u3": {
+    "cat": "UPD_RENAMED",
+    "A": "STALE",
+    "B": "STALE",
+    "R(r14)": "STALE",
+    "O": "BOTH or CURRENT (full brief)"
+   },
+   "p_old": {
+    "cat": "TWO_OLD",
+    "A": "CURRENT",
+    "B": "ABSENT",
+    "R(r14)": "CURRENT",
+    "O": "BOTH or CURRENT (full brief)"
+   },
+   "s1": {
+    "cat": "STATIC",
+    "A": "CURRENT",
+    "B": "CURRENT",
+    "R(r14)": "CURRENT",
+    "O": "BOTH or CURRENT (full brief)"
+   },
+   "s2": {
+    "cat": "STATIC",
+    "A": "CURRENT",
+    "B": "CURRENT",
+    "R(r14)": "CURRENT",
+    "O": "BOTH or CURRENT (full brief)"
+   },
+   "s3": {
+    "cat": "STATIC",
+    "A": "CURRENT",
+    "B": "CURRENT",
+    "R(r14)": "CURRENT",
+    "O": "BOTH or CURRENT (full brief)"
+   },
+   "p_new": {
+    "cat": "TWO_NEW",
+    "A": "ABSENT",
+    "B": "CURRENT",
+    "R(r14)": "ABSENT",
+    "O": "BOTH or CURRENT (full brief)"
+   }
+  },
+  "r15-car": {
+   "u1": {
+    "cat": "UPD_SAME",
+    "A": "STALE",
+    "B": "CURRENT",
+    "R(r14)": "STALE",
+    "O": "BOTH or CURRENT (full brief)"
+   },
+   "u2": {
+    "cat": "UPD_SAME",
+    "A": "STALE",
+    "B": "CURRENT",
+    "R(r14)": "STALE",
+    "O": "BOTH or CURRENT (full brief)"
+   },
+   "u3": {
+    "cat": "UPD_SAME",
+    "A": "STALE",
+    "B": "CURRENT",
+    "R(r14)": "STALE",
+    "O": "BOTH or CURRENT (full brief)"
+   },
+   "p_old": {
+    "cat": "TWO_OLD",
+    "A": "CURRENT",
+    "B": "CURRENT",
+    "R(r14)": "CURRENT",
+    "O": "BOTH or CURRENT (full brief)"
+   },
+   "s1": {
+    "cat": "STATIC",
+    "A": "CURRENT",
+    "B": "ABSENT",
+    "R(r14)": "CURRENT",
+    "O": "BOTH or CURRENT (full brief)"
+   },
+   "s2": {
+    "cat": "STATIC",
+    "A": "CURRENT",
+    "B": "CURRENT",
+    "R(r14)": "CURRENT",
+    "O": "BOTH or CURRENT (full brief)"
+   },
+   "s3": {
+    "cat": "STATIC",
+    "A": "CURRENT",
+    "B": "CURRENT",
+    "R(r14)": "CURRENT",
+    "O": "BOTH or CURRENT (full brief)"
+   },
+   "s4": {
+    "cat": "STATIC",
+    "A": "CURRENT",
+    "B": "CURRENT",
+    "R(r14)": "CURRENT",
+    "O": "BOTH or CURRENT (full brief)"
+   },
+   "s5": {
+    "cat": "STATIC",
+    "A": "CURRENT",
+    "B": "CURRENT",
+    "R(r14)": "CURRENT",
+    "O": "BOTH or CURRENT (full brief)"
+   }
+  },
+  "r15-pottery": {
+   "u1": {
+    "cat": "UPD_RENAMED",
+    "A": "STALE",
+    "B": "CURRENT",
+    "R(r14)": "STALE",
+    "O": "BOTH or CURRENT (full brief)"
+   },
+   "u2": {
+    "cat": "UPD_RENAMED",
+    "A": "STALE",
+    "B": "CURRENT",
+    "R(r14)": "STALE",
+    "O": "BOTH or CURRENT (full brief)"
+   },
+   "u3": {
+    "cat": "UPD_SAME",
+    "A": "STALE",
+    "B": "CURRENT",
+    "R(r14)": "STALE",
+    "O": "BOTH or CURRENT (full brief)"
+   },
+   "p_old": {
+    "cat": "TWO_OLD",
+    "A": "CURRENT",
+    "B": "CURRENT",
+    "R(r14)": "CURRENT",
+    "O": "BOTH or CURRENT (full brief)"
+   },
+   "s1": {
+    "cat": "STATIC",
+    "A": "CURRENT",
+    "B": "CURRENT",
+    "R(r14)": "CURRENT",
+    "O": "BOTH or CURRENT (full brief)"
+   },
+   "s2": {
+    "cat": "STATIC",
+    "A": "CURRENT",
+    "B": "CURRENT",
+    "R(r14)": "CURRENT",
+    "O": "BOTH or CURRENT (full brief)"
+   },
+   "s3": {
+    "cat": "STATIC",
+    "A": "CURRENT",
+    "B": "CURRENT",
+    "R(r14)": "CURRENT",
+    "O": "BOTH or CURRENT (full brief)"
+   },
+   "p_new": {
+    "cat": "TWO_NEW",
+    "A": "ABSENT",
+    "B": "ABSENT",
+    "R(r14)": "ABSENT",
+    "O": "BOTH or CURRENT (full brief)"
+   }
+  }
+ },
+ "predicted_gates": {
+  "G1_r15_two_true_loss": "FAIL (B 1, A 0): vet 'favorite vet tech' and 'go-to vet tech' get one key (I, local)",
+  "G1e_r15_update_fixed": "PASS (B STALE 2, A 9; B CORRECT >= 3 if the model reads the newest value) (I, local)",
+  "G1s_r15_static_recall": "FAIL (B 10/11, A 11/11): car static s1 displaced by budget, also with perfect keys (M oracle)",
+  "G1b/G1c dev old-fact LOSS": "PASS (0 on 21 + 6) (I, local; CI numerics may differ)",
+  "G2 dev stale no worse": "PASS",
+  "G3 unique": "PASS",
+  "G4/G5 main recall": "PASS (0 planted lost, main local)",
+  "G6 invented": "PASS",
+  "G7 first-sentence p50": "PASS expected; B adds nothing to the probe prompt",
+  "G8_sem_latency": "FAIL: ~370-450 prompt tokens at ~53 tok/s plus ~100 generated tokens at ~17 tok/s = about 11-15 s per brief on the CI CPU vs the 3.0 s budget (I)"
+ },
+ "predicted_outcome": "REVERT, failed gates G1, G1s, G8 (I)"
+}
