@@ -15,6 +15,7 @@ import hashlib
 import json
 import re
 import logging
+import math
 import os
 import signal
 from pathlib import Path
@@ -624,10 +625,55 @@ def slim(event, limit=1500):
     return event if len(raw) <= limit else {"type": event.get("type"), "truncated": raw[:limit]}
 
 
+LEVELS_WINDOW_SECONDS = 0.25  # one audio.levels event per direction per window
+LEVELS_FLOOR_DB = -120.0      # dBFS reported for digital silence (log of zero)
+
+
+def trace_levels() -> bool:
+    """Z0LIVE_TRACE_LEVELS=1 opts a call into per-frame level traces (batched `audio.levels` events) for offline
+    barge-in/echo replay. Default off. Levels only: no audio, no transcripts."""
+    return os.environ.get("Z0LIVE_TRACE_LEVELS", "").strip() == "1"
+
+
+def dbfs(value: float) -> float:
+    """An s16 magnitude in dBFS (full scale = 32768), 1 decimal, floored at LEVELS_FLOOR_DB (silence)."""
+    return max(LEVELS_FLOOR_DB, round(20 * math.log10(value / 32768.0), 1)) if value > 0 else LEVELS_FLOOR_DB
+
+
+def frame_dbfs(pcm, peak: int) -> tuple[float, float]:
+    """(RMS, peak) dBFS of an int16 frame whose s16 peak is already known."""
+    if not pcm.size:
+        return LEVELS_FLOOR_DB, LEVELS_FLOOR_DB
+    x = pcm.astype(np.float32)
+    return dbfs(float(np.sqrt(np.dot(x, x) / x.size))), dbfs(peak)
+
+
 class Level:
     """Sound on/off spans of one audio direction, from frame peaks (energy, not speech recognition)."""
     def __init__(self, call, direction):
         self.call, self.direction, self.on, self.quiet, self.peak = call, direction, None, 0.0, 0
+        self.levels = trace_levels()
+        self.levels_t, self.levels_rms, self.levels_peak, self.levels_n = [], [], [], []
+        self.levels_start = 0.0
+
+    def trace_level(self, pcm, peak, samples, now):
+        """Batch one frame's levels; emit `audio.levels` once per LEVELS_WINDOW_SECONDS. Never raises."""
+        try:
+            if self.levels_t and now - self.levels_start >= LEVELS_WINDOW_SECONDS:
+                batch = self.levels_t, self.levels_rms, self.levels_peak, self.levels_n
+                self.levels_t, self.levels_rms, self.levels_peak, self.levels_n = [], [], [], []
+                n = batch[3]
+                self.call.trace("audio.levels", dir=self.direction, t=batch[0], rms=batch[1], peak=batch[2],
+                                n=n[0] if len(set(n)) == 1 else n)
+            rms, peak_db = frame_dbfs(pcm, peak)
+            if not self.levels_t:
+                self.levels_start = now
+            self.levels_t.append(round((now - self.call.trace.t0) * 1000))
+            self.levels_rms.append(rms)
+            self.levels_peak.append(peak_db)
+            self.levels_n.append(int(samples))
+        except Exception:  # noqa: BLE001 - tracing must never break audio
+            pass
 
     def frame(self, frame, speaker: Leg | None = None):
         try:
@@ -637,6 +683,8 @@ class Level:
         except Exception:  # noqa: BLE001 - tracing must never break audio
             return
         now = time.monotonic()
+        if self.levels:
+            self.trace_level(pcm, peak, frame.samples, now)
         if peak >= LEVEL_ON:
             self.quiet = 0.0
             self.peak = max(self.peak, peak)
