@@ -126,16 +126,13 @@ class WorkSourcesHelpersTests(unittest.TestCase):
         self.assertEqual(len(sources.compact("x" * 50, limit=10)), 10)
 
     def test_window(self):
-        before = datetime.now().astimezone()
-        start, end = sources.window("today")
-        after = datetime.now().astimezone()
-        possible_midnights = {
-            moment.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-            for moment in (before, after)
-        }
-        self.assertIn(start, possible_midnights)
-        self.assertGreaterEqual(end, before.timestamp())
-        self.assertLessEqual(end, after.timestamp())
+        with patch.object(sources, "datetime", wraps=datetime) as clock:
+            for hour in (9, 15):
+                now = datetime(2026, 5, 15, hour)
+                clock.now.return_value = now
+                start, end = sources.window("today")
+                self.assertEqual(end, now.timestamp())
+                self.assertEqual(start, min(now.replace(hour=0).timestamp(), end - 12 * 3600))
 
         before = datetime.now().astimezone()
         yesterday_start, yesterday_end = sources.window("yesterday")

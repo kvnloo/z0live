@@ -488,7 +488,7 @@ class L2Tests(Base):
         self.assertEqual(spoken, [])
 
     def test_speak_kinds_holds_a_confident_simple_fact(self):
-            spoken = []
+        spoken = []
         out = self.fanout({"claude-haiku-4-5": (0, '{"route":"answer","answer":"The Meteors, in 1970.",'
                                                    '"kind":"simple","confidence":0.95}')}, spoken)
         out.calls[self.sid]["splice"]["speak_kinds"] = ["chat"]

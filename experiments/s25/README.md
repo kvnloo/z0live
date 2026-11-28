@@ -8,7 +8,7 @@
 
 **Real-model follow-up:** source-pinned Gradium Phonon q8 model GGUF SHA-256 a7d9aad2cd6dc66473f24a08bc6d2939030ef4d751ef82349361fbef3272dbae was verified on an ephemeral runner. The independent read-only tensor-header audit found **185 declared tensors, 17 names exceeding GGUF's 64-byte format cap, longest 76 bytes**. REA 6.8.0 correctly returned target_unavailable / GGUF name exceeds its format byte limit and retained partial Evidence, rather than fabricating a full model inspection. See [Actions run 40280264223](https://github.com/kvnloo/z0live/actions/runs/40280264223) and [official GGUF specification](https://github.com/ggml-org/ggml/blob/master/docs/gguf.md). This is a **model artifact representation incompatibility for REA and strict GGUF consumers**, **not** evidence that Gradium's specialized Phonon inference runtime fails. The QNN Android bundle is a different compiled artifact and must be tested separately. The workflow asserts this exact expected refusal; unexpected failures remain failures. No phone touched.
 
-Older z0live [#44](https://github.com/kvnloo/z0live/issues/44) 40/40 local cascade trials ran on **groot desktop**, not the S25; first generated PCM is not first **audible** speech. Prior S25 work documented ADB pairing and app-level qualification, not a trustworthy quantified CPU/GPU/HTP inferencing comparison.
+Older z0live [#44](https://github.com/kvnloo/z0live/issues/44) 40/40 local cascade trials ran on **the benchmark host desktop**, not the S25; first generated PCM is not first **audible** speech. Prior S25 work documented ADB pairing and app-level qualification, not a trustworthy quantified CPU/GPU/HTP inferencing comparison.
 
 ## REA protocol (REA by morluto)
 
@@ -28,7 +28,7 @@ Static model inspection on a machine with a working REA binary, no phone require
 python3 experiments/s25/rea_protocol.py --execute --model-file /absolute/path/to/model.gguf
 ~~~
 
-On the owner's **groot** with its already-verified, identity-pinned phone-adb wrapper, **only during an owner-authorized read-only S25 diagnostic slot**:
+On the owner's **the benchmark host** with its already-verified, identity-pinned phone-adb wrapper, **only during an owner-authorized read-only S25 diagnostic slot**:
 
 ~~~bash
 phone-adb status

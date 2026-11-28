@@ -12,7 +12,7 @@ TV requirement list R1-R17 (whole app, ephemeral, factory, taste/retro/product, 
 
 | family | views | couch question |
 |---|---|---|
-| Call views (shown while Kevin talks) | `ephemeral`, `ask` | What did the call just produce? Which lane is holding up my request? |
+| Call views (shown while the caller talks) | `ephemeral`, `ask` | What did the call just produce? Which lane is holding up my request? |
 | Dashboard views | `home`, `factory`, `product`, `retro`, `timeline`, `artifact`, `lineage`, `research`, `taste` | What needs me, what is moving, where did time go? |
 | Helper | `legend` | Which remote key does what here? |
 
@@ -24,7 +24,7 @@ Per-view primary question, supporting-fact task and useful-surprise task are fro
 Five dimensions, four checks each. Dimension rating = checks passed / checks available. Score =
 `30*A + 25*F + 20*T + 15*M + 10*U` (each a fraction), out of 100.
 
-| dim | weight | Kevin's requirement it encodes | checks |
+| dim | weight | the caller's requirement it encodes | checks |
 |---|---:|---|---|
 | A: across-room reading | 30 | words, not only dots (R2); labels survive reload (R5) | A1 title readable on the couch proxy; A2 the primary answer readable on the couch proxy; A3 three supporting labels readable on the mild proxy; A4 primary answer identical after reload |
 | F: fast understanding | 25 | self-explaining (R3); answer first | F1 what the view is about is obvious at a glance; F2 the primary question is answered on screen; F3 the supporting fact can be read; F4 a next step is shown, or the screen says truthfully there is none |
@@ -53,7 +53,7 @@ baked by `textlayer.py`), so a desktop shot shows what the TV shows. The TV itse
   on any overlapping text boxes.
 - A vision scorer looks at each image and records `[pass, evidence]` per check in `scores.json`.
 - M3 and M4 need the native app and the remote; desktop-only rounds report coverage 18/20 and renormalise.
-  Native checks are run from Kevin's seat before a view is called done.
+  Native checks are run from the caller's seat before a view is called done.
 - Two runs per arm or a parent-vs-parent null pass give the noise floor; a keep needs a gain above it.
 
 Keep rule: the weighted score rises, no hard gate fails, and A, F and T do not drop. Stop a view after
@@ -90,7 +90,7 @@ Keep rule: the weighted score rises, no hard gate fails, and A, F and T do not d
 ## Ideas (2026-11-27)
 
 Ideator: Codex `gpt-6.2-astra` (normal tier, read-only), given the requirements R1-R17, this rubric, the baseline
-scores and how Kevin uses the call + TV. Its sandbox could not open the files, so it worked from the brief alone and
+scores and how the caller uses the call + TV. Its sandbox could not open the files, so it worked from the brief alone and
 its score estimates are unverified. Reviewer: one Claude Code lane, Sonnet main with the Fable 5.2 advisor (2 advisor
 consults, free harness path), which checked the 12 ideas against the real baseline evidence.
 
@@ -113,7 +113,7 @@ Rubric gaps the advisor flagged (to fix before trusting high scores):
   Next metric: view-switch time and changed-pixel area on a scripted data change.
 - The call views were scored after the call ended, never in the live state. Next call: render ephemeral/ask
   during the call from the lane-local server (no deploy needed).
-- Every view weighs the same; home and ephemeral matter more to Kevin than lineage or research.
+- Every view weighs the same; home and ephemeral matter more to the caller than lineage or research.
 
 ## Round ledger
 
