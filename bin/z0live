@@ -78,13 +78,15 @@ def main():
         "engine", help="Show or set the voice model for the next call (lanes.voice.actor in the lanes config)"
     )
     engine_cmd.add_argument("name", nargs="?", choices=sorted(ENGINE_ACTORS))
-    if len(sys.argv) > 1 and sys.argv[1] == "job":  # own argument parser: voice-adapter/jobs.py
+    sub.add_parser("ask", help="Ask another bot profile and print its answer: z0live ask pc 'list the drive'")
+    if len(sys.argv) > 1 and sys.argv[1] in ("job", "ask"):  # own argument parsers: voice-adapter/jobs.py, ask_bot.py
         import importlib.util
 
-        spec = importlib.util.spec_from_file_location("z0live_jobs", Path(__file__).resolve().parents[1] / "voice-adapter/jobs.py")
-        jobs = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(jobs)
-        return jobs.main(sys.argv[2:])
+        name = {"job": "jobs", "ask": "ask_bot"}[sys.argv[1]]
+        spec = importlib.util.spec_from_file_location("z0live_" + name, Path(__file__).resolve().parents[1] / f"voice-adapter/{name}.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.main(sys.argv[2:])
     args = parser.parse_args()
     if args.command == "engine":
         from z0live_desktop import lanes as lanes_mod

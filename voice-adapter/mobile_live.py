@@ -45,6 +45,7 @@ import tiers  # noqa: E402 - sibling module (fast/medium/slow model lanes)
 import lane_cards  # noqa: E402 - sibling module (the TV conductor's lane cards, spoken on their call)
 import lane_layout  # noqa: E402 - sibling module (the lanes attached to the conversation)
 import ledger as request_ledger  # noqa: E402 - sibling module (the request ledger: asks, promises, proof, results)
+import ask_bot  # noqa: E402 - sibling module ("ask @pc to ...": another bot profile answers, outside the agent sandbox)
 import guest_voice  # noqa: E402
 import answer_delivery  # noqa: E402 - sibling module (what each voice has actually said)
 from subscription_leg import Speaker, SubscriptionLeg  # noqa: E402
@@ -2017,6 +2018,8 @@ class Call:
         # Before delegation.start: the TV conductor turns every delegation.start into worker lanes.
         if self.lane_command(did, request):  # "add two opus lanes": the layout changes here, Hermes never runs
             return
+        if self.bot_ask(did, request):  # "ask @pc to list the drive": pc answers, tek's agent never runs
+            return
         # passthru=True marks a delegation made while z0 sat in a meeting (this leg still hears the phone alone).
         self.trace("delegation.start", did=did, request=(request or "")[:4000],
                    **({"passthru": True} if self.passthru and self.passthru.active else {}))
@@ -2233,6 +2236,46 @@ class Call:
                    error=result.get("error"))
         if not self.closed:
             self.speak_for(did, result.get("say") or "")
+        return True
+
+    def bot_ask(self, did, request):
+        """A spoken "ask @pc to list the drive" / "ask the PC bot ..." goes straight to that profile's own Hermes host
+        (ask_bot.py; GPT-Live has no tools, so the words are the command). The ask, its delivery id (receipt kind ask)
+        and the answer land on this call's ledger item; the answer is spoken when it comes. Never on a guest-profile
+        call. One utterance is one ask: the same words again within 20 s are swallowed. True when it was an ask."""
+        if self.profile == "guest":
+            return False
+        user = str(self.protocol.turn_text.get("user") or "") if hasattr(self.protocol, "turn_text") else ""
+        names = ask_bot.hosts()
+        # Kevin's own words back up a paraphrased request only when the request still names that bot.
+        named = any(re.search(rf"\b{re.escape(n)}\b", request or "", re.I) for n in names)
+        hit = next((h for h in map(ask_bot.parse, (request, user if named else "")) if h), None)
+        if not hit:
+            return False
+        profile, message = hit
+        now, key = time.monotonic(), f"{profile}\0{message.casefold()}"
+        recent = self.__dict__.setdefault("asks_done", {})
+        if now - recent.get(key, -99) < 20:
+            self.trace("ask.repeat", did=did, profile=profile)
+            return True
+        recent[key] = now
+        self.trace("ask.start", did=did, profile=profile, message=message[:500])
+        self.ledger_open(did, request)
+        self.counts["bot_asks"] += 1
+        if not self.closed:
+            self.speak_for(did, f"Sent to {profile}. I'll read you its answer when it comes.")
+
+        async def run():
+            began = time.monotonic()
+            result = await asyncio.to_thread(ask_bot.ask, profile, message, call=self.ledger_call,
+                                             item=self.item_of.get(did, ""), by="voice", via="voice", caller="tek")
+            self.counts["bot_ask_" + ("ok" if result.get("ok") else "failed")] += 1
+            self.trace("ask.done", did=did, profile=profile, ok=result.get("ok"), delivery=result.get("delivery"),
+                       item=result.get("item"), error=result.get("error"), answer=(result.get("answer") or "")[:2000],
+                       s=round(time.monotonic() - began, 3))
+            if not self.closed:
+                self.speak_for(did, result.get("say") or f"I couldn't reach {profile}.")
+        self.spawn(run())
         return True
 
     async def tier_lanes(self, did, request):

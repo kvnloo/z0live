@@ -17,5 +17,5 @@ config_schema:
   voices_file: {type: str, default: "~/.config/z0live/voices.json", label: "Second voice", description: "{\"guest\": \"grok\"} adds Grok to GPT-Live calls"}
   traces_dir: {type: str, default: "~/.local/share/z0live/voice-traces", label: "Call traces", description: "Per-call JSONL event traces written by the voice adapter"}
   lane_url: {type: str, default: "http://127.0.0.1:8646", label: "Lane server", description: "HTTP URL on 127.0.0.1 or [::1] for the lane server's /health probe"}
-provides_tools: ["z0live_status", "z0live_configure", "z0live_lanes", "z0live_job", "z0live_say"]
+provides_tools: ["z0live_status", "z0live_configure", "z0live_lanes", "z0live_job", "z0live_ask", "z0live_say"]
 provides_hooks: []

@@ -7,7 +7,7 @@ by path like lane_layout.py.
 
     open_item(call, text, kind, owner) -> id      kind: action | question | research; owner: voice|background|conductor|job
     claim(id, by, note)                           "I will do X": a promise, no proof yet
-    receipt(id, by, kind, ref, detail="")         proof it started: kind in pid|kanban|cron|commit|file|lane, ref = the id
+    receipt(id, by, kind, ref, detail="")         proof it started: kind in pid|kanban|cron|commit|file|lane|ask, ref = the id
     result(id, by, text, ok=True, refs=[], final=True)   finished output (a lane card, an answer, an artifact path)
     state(id, s, by, why="")                      s in open|running|done|blocked|failed|dropped
     items(call=None, open_only=False) -> [dict]   folded view, newest first
@@ -39,8 +39,9 @@ from pathlib import Path
 
 KINDS = ("action", "question", "research")
 OWNERS = ("voice", "background", "conductor", "job")
-RECEIPT_KINDS = ("pid", "kanban", "cron", "commit", "file", "lane")
-PROOF_KINDS = ("pid", "kanban", "cron", "commit", "file")  # what proves an ACTION started
+RECEIPT_KINDS = ("pid", "kanban", "cron", "commit", "file", "lane", "ask")
+# what proves an ACTION started; ask = another bot profile answered (ref = profile:completion id, ask_bot.py)
+PROOF_KINDS = ("pid", "kanban", "cron", "commit", "file", "ask")
 STATES = ("open", "running", "done", "blocked", "failed", "dropped")
 TERMINAL = ("done", "failed", "dropped")
 NOT_STARTED_SECONDS = 120.0
