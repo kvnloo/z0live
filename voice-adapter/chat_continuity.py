@@ -33,6 +33,8 @@ def user_texts(history) -> list[str]:
 
 
 NOT_A_CHAT = "('oneshot','tool','cron','kanban','subagent')"
+# Never Kevin's chat: local sessions, side runs (bg_*) and z0live's own api_server runs (z0live-ask-*, probes).
+NOT_KEVINS = "id NOT LIKE 'local-%' AND id NOT LIKE 'bg\\_%' ESCAPE '\\' AND id NOT LIKE 'z0live-%'"
 RECENT = 20000  # only the newest message rows: a full-table scan took ~28 s and stalled call setup
 
 
@@ -76,11 +78,101 @@ def newest_chat(profile: str, db_path: Path | None = None) -> str:
     (11-27 11:20: three CLI runs, none answered before hang-up). Never a side run (bg_*) or a local session."""
     try:
         with sqlite3.connect(f"file:{db_path or _db(profile)}?mode=ro", uri=True, timeout=2) as db:
-            row = db.execute(f"SELECT id FROM sessions WHERE source NOT IN {NOT_A_CHAT} AND id NOT LIKE 'local-%' "
-                             "AND id NOT LIKE 'bg\\_%' ESCAPE '\\' ORDER BY started_at DESC LIMIT 1").fetchone()
+            row = db.execute(f"SELECT id FROM sessions WHERE source NOT IN {NOT_A_CHAT} AND {NOT_KEVINS} "
+                             "ORDER BY started_at DESC LIMIT 1").fetchone()
             return row[0] if row else ""
     except sqlite3.Error:
         return ""
+
+
+PIN = Path.home() / ".config" / "z0live" / "anchor-session"
+ANCHOR_WINDOW_S = 6 * 3600  # only chats Kevin typed in during the last 6 h compete
+DECAY_PER_HOUR = 2.0  # score = log2(1 + chat size) - 2 per hour since Kevin's last message in it
+
+
+def _pinned(db, path: Path) -> str:
+    """The session id in the pin file (first non-comment line), if that session is in this profile's store."""
+    try:
+        line = next((l.strip() for l in path.read_text().splitlines() if l.strip() and not l.lstrip().startswith("#")),
+                    "")
+    except OSError:
+        return ""
+    sid = line.split()[0] if line else ""
+    if sid and db.execute("SELECT 1 FROM sessions WHERE id=?", (sid,)).fetchone():
+        return sid
+    return ""
+
+
+def _chain_size(db, sid: str, size: int) -> int:
+    """Messages in the chat and the sessions it continues (a GUI chat rolls over to a child at each handoff, so a
+    fresh continuation of a 500-message chat is still a 500-message chat)."""
+    seen = {sid}
+    parent = db.execute("SELECT parent_session_id FROM sessions WHERE id=?", (sid,)).fetchone()
+    while parent and parent[0] and parent[0] not in seen and len(seen) < 20:
+        seen.add(parent[0])
+        row = db.execute("SELECT message_count, parent_session_id FROM sessions WHERE id=?", (parent[0],)).fetchone()
+        if not row:
+            break
+        size += row[0] or 0
+        parent = (row[1],)
+    return size
+
+
+def _continuation(db, sid: str) -> str:
+    while sid:  # newest continuation; a subagent child is the chat's helper, never its continuation
+        child = db.execute(f"SELECT id FROM sessions WHERE parent_session_id=? AND source NOT IN {NOT_A_CHAT} "
+                           "ORDER BY started_at DESC LIMIT 1", (sid,)).fetchone()
+        if not child:
+            break
+        sid = child[0]
+    return sid
+
+
+def rank_chats(db, now: float, window: float = ANCHOR_WINDOW_S) -> list[tuple[float, str, float, int]]:
+    """Kevin's chats with a user message in the window, best first: (score, sid, last user message ts, size)."""
+    import math
+    rows = db.execute(f"SELECT id, message_count FROM sessions WHERE source NOT IN {NOT_A_CHAT} AND {NOT_KEVINS} "
+                      "AND (coalesce(last_activity_at, started_at) > ? OR started_at > ?) "
+                      "ORDER BY coalesce(last_activity_at, started_at) DESC LIMIT 200",
+                      (now - window, now - 30 * 86400)).fetchall()
+    ranked = []
+    for sid, count in rows:
+        # indexed (session_id, timestamp): one short range read per chat
+        last = db.execute("SELECT max(timestamp) FROM messages WHERE session_id=? AND role='user' AND timestamp>? "
+                          "AND timestamp<=?", (sid, now - window, now)).fetchone()[0]
+        if not last:
+            continue
+        size = _chain_size(db, sid, count or 0)
+        score = math.log2(1 + size) - DECAY_PER_HOUR * max(0.0, now - last) / 3600
+        ranked.append((score, sid, last, size))
+    ranked.sort(reverse=True)
+    return ranked
+
+
+def anchor_chat(profile: str, db_path: Path | None = None, now: float | None = None,
+                pin: Path | None = None) -> tuple[str, str]:
+    """(stored id, why) of the chat a call's background agents run beside when the call matched no chat.
+
+    11-28 10:15: newest_chat picked a 22-message side chat started a minute earlier, so the call's memory was 170
+    chars instead of the ~40k of the 559-message chat Kevin had typed in one minute before that. Now: a pin file
+    (~/.config/z0live/anchor-session holding a session id) wins; else the chat with Kevin's most recent message in
+    the last 6 h, weighted by size (log2 of its messages, -2 per hour of age), so a big working chat beats a tiny
+    side chat a few minutes newer (each doubling of size is worth 30 min of recency: 559 vs 22 messages = 2.3 h).
+    Else the newest chat."""
+    import time
+    now = time.time() if now is None else now
+    try:
+        with sqlite3.connect(f"file:{db_path or _db(profile)}?mode=ro", uri=True, timeout=2) as db:
+            sid = _pinned(db, PIN if pin is None else pin)
+            if sid:
+                return _continuation(db, sid), "pin"
+            ranked = rank_chats(db, now)
+            if ranked:
+                return _continuation(db, ranked[0][1]), "recent_user"
+    except sqlite3.Error:
+        return "", "error"
+    sid = newest_chat(profile, db_path)
+    return sid, "newest" if sid else "none"
 
 
 SUMMARY_MARK = "CONTEXT COMPACTION"

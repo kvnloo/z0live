@@ -395,6 +395,9 @@ def proof_exists(kind: str, ref: str, profile: str = "") -> bool:
 # Delegated requests run as background agents beside the chat (2.8-16 s on 11-27) even when it is idle: chat turns
 # took 24.9-338 s. Z0LIVE_CHAT_TURNS=1 puts a request into an idle chat's own turn instead (never a running one).
 CHAT_TURNS = os.environ.get("Z0LIVE_CHAT_TURNS", "") == "1"
+# The call opens with a <=1500-char read-only brief of Kevin's other threads (call_brief.cross_thread, 11-28 F4).
+CROSS_BRIEF = os.environ.get("Z0LIVE_CROSS_BRIEF", "1") != "0"
+CROSS_BRIEF_WAIT = float(os.environ.get("Z0LIVE_CROSS_BRIEF_WAIT", "1.0"))
 
 
 def status_line(text: str, part: bool = False) -> bool:
@@ -1861,6 +1864,8 @@ class Call:
     async def start(self, sdp, history):
         if CHAT_CONTINUITY and self.token:  # off the setup path: a slow lookup must never stall the phone's offer
             self.chat_lookup = asyncio.ensure_future(asyncio.to_thread(chat_continuity.find_chat, history, self.profile))
+        if CROSS_BRIEF and self.profile != "guest":  # read-only, off the setup path; awaited briefly before the brief
+            self.cross_lookup = asyncio.ensure_future(asyncio.to_thread(call_brief.cross_thread, self.profile))
         self.trace("call.start", history_items=len(history) if isinstance(history, list) else None)
         try:
             await self.mobile.setRemoteDescription(RTCSessionDescription(sdp=sdp, type="offer"))
@@ -1886,7 +1891,8 @@ class Call:
             # The subscription endpoint ignores session instructions (11-16 canary: "I'm ChatGPT"), so the
             # persona and the call brief go in as context, framed as background so they are not answered.
             channel = os.environ.get("HERMES_VOICE_BRIEF_CHANNEL", "developer")
-            brief = call_brief.build(history, self.chat, note=self.call_note)
+            self.cross_brief = await self.read_cross_brief()
+            brief = call_brief.build(history, self.chat, note=self.call_note, cross=self.cross_brief)
             if self.guest:
                 self.spawn(self.start_guest(brief))
             persona = PERSONA + ("\n" + guest_voice.PRIMARY_NOTE if isinstance(self.guest, guest_voice.GuestVoice) else "")
@@ -1908,6 +1914,20 @@ class Call:
             self.trace("call.setup_failed", error=type(exc).__name__, detail=str(exc)[:300])
             await self.close("setup_failed")
             raise
+
+    async def read_cross_brief(self) -> str:
+        """Kevin's other threads (latest asks, running/blocked cards, last complaint; call_brief.cross_thread), read
+        at call start. A slow store never delays the call past CROSS_BRIEF_WAIT: it opens without the brief."""
+        lookup = self.__dict__.get("cross_lookup")
+        if lookup is None:
+            return ""
+        try:
+            text = await asyncio.wait_for(asyncio.shield(lookup), CROSS_BRIEF_WAIT)
+        except Exception as exc:  # noqa: BLE001 - a timeout or a store error: no brief, never a failed call
+            self.trace("call.cross_brief", chars=0, error=type(exc).__name__)
+            return ""
+        self.trace("call.cross_brief", chars=len(text or ""))
+        return text or ""
 
     def read_history(self, history) -> list[str]:
         """The chat the call opened from: its recent lines become this call's context text (lanes, hosts)."""
@@ -2896,13 +2916,15 @@ class Call:
             self.trace("delegation.dequeued", did=did, waited_s=round(time.monotonic() - self.told_queued[did], 3))
 
     async def anchor_chat(self):
-        """The chat a background agent runs beside when the call matched none: the profile's newest chat. 112025
-        (11-27): chat.resolved "" sent three requests to cold CLI runs and none answered before hang-up."""
+        """The chat a background agent runs beside when the call matched none (112025, 11-27: chat.resolved "" sent
+        three requests to cold CLI runs and none answered before hang-up). Not the newest-started chat: on 11-28 that
+        was a 22-message side chat and the call's memory was 170 chars. chat_continuity.anchor_chat: the pin file,
+        else the chat Kevin typed in most recently in the last 6 h, weighted by size."""
         if not (CHAT_CONTINUITY and self.token):
             return ""
         if "anchor" not in self.__dict__:
-            self.anchor = await asyncio.to_thread(chat_continuity.newest_chat, self.profile)
-            self.trace("chat.anchor", chat=self.anchor)
+            self.anchor, why = await asyncio.to_thread(chat_continuity.anchor_chat, self.profile)
+            self.trace("chat.anchor", chat=self.anchor, why=why)
         return self.anchor
 
     async def ask_chat_slot(self, did, request, sid=None):
@@ -2974,13 +2996,15 @@ class Call:
         and the call's recent words. Tek's Hermes got only the words to it, so "the glass crash in PR 28" was looked
         up in the wrong repo (11-22 film call, take 7)."""
         led = self.ledger_brief(did) if ledger else ""
-        if not (self.context_text or self.call_note):
+        cross = self.__dict__.get("cross_brief") or ""
+        if not (self.context_text or self.call_note or cross):
             return led
         # The written brief the primary voice opened with (without its voice-only framing): it can name what the
         # chat's lines do not ("PR 28" is kvnloo/hermes-android#28). Without one, the primary's brief is a digest of
         # the same chat lines, which follow in full.
         note = f"\n\nBrief for this call:\n{self.call_note}" if self.call_note else ""
         chat = f"\n\n{self.context_text[-6000:]}" if self.context_text else ""
+        chat += f"\n\n{cross}" if cross else ""
         said = "\n".join(f"{'Caller' if role == 'user' else 'Voice'}: {' '.join(text.split())[:400]}"
                          for role, text in list(self.protocol.exchanges)[-6:])
         return (f"{CALL_CONTEXT}{note}{chat}"

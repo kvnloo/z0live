@@ -178,6 +178,91 @@ class NewestChat(unittest.TestCase):
         self.assertEqual(cc.newest_chat("", Path(self.dir.name) / "missing.db"), "")
 
 
+T = 1795882517.0  # 2026-11-28 10:15:17 CST, the 101517 call
+SCHEMA = """
+CREATE TABLE sessions(id TEXT, source TEXT, parent_session_id TEXT, started_at REAL, message_count INTEGER,
+                      title TEXT, last_activity_at REAL);
+CREATE TABLE messages(id INTEGER PRIMARY KEY, session_id TEXT, role TEXT, content TEXT, timestamp REAL);
+"""
+
+
+def store_1128(path):
+    """tek's store at the 101517 call (11-28), reduced to the chats that competed (L1-call-failures.md F4)."""
+    with sqlite3.connect(path) as db:
+        db.executescript(SCHEMA)
+        db.executemany("INSERT INTO sessions VALUES (?,?,?,?,?,?,?)", [
+            ("20261128_101420_6ca786", "gui", None, T - 57, 22, "Auto-request permission approvals", T + 540),
+            ("20261125_092939_953e1b", "gui", None, T - 3 * 86400, 559, "Resume z0live canvas mode on TV", T + 1260),
+            ("20261125_080323_7b9fc7", "gui", None, T - 3 * 86400 - 4000, 357, "Sanity check memories", T + 4300),
+            ("20261128_100619_217eed", "gui", None, T - 538, 32, "Prevent untitled partition", T + 60),
+            ("z0live-ask-tek-d45e", "api_server", None, T - 17700, 8, "Delete approval probe", None),
+            ("sub", "subagent", "20261125_092939_953e1b", T - 30, 40, "helper", T),
+            ("bg_x", "tui", None, T - 20, 3, "side run", T)])
+        db.executemany("INSERT INTO messages(session_id, role, content, timestamp) VALUES (?,?,?,?)", [
+            ("20261128_101420_6ca786", "user", "auto-request approvals via @pc", T - 57),
+            ("20261125_092939_953e1b", "user", "ok so what happened to my asks", T - 117),
+            ("20261125_092939_953e1b", "assistant", "here is where each stands", T - 100),
+            ("20261125_080323_7b9fc7", "user", "sanity check skills", T - 427),
+            ("20261128_100619_217eed", "user", "stop the partition auto-mount", T - 538),
+            ("z0live-ask-tek-d45e", "user", "delete the probe folder", T - 30),
+            ("sub", "user", "build it", T - 30),
+            ("bg_x", "user", "side", T - 20)])
+
+
+class AnchorChat(unittest.TestCase):
+    """11-28 101517: the call anchored to the newest-STARTED chat, a 22-message side chat, so delegation.memory was
+    170 chars instead of ~40k. The anchor is now the chat Kevin typed in most recently in the last 6 h, weighted by
+    size, unless a pin file names one."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.db = Path(self.dir.name) / "state.db"
+        self.pin = Path(self.dir.name) / "anchor-session"  # absent unless a test writes it
+        store_1128(self.db)
+
+    def anchor(self, now=T):
+        return cc.anchor_chat("", self.db, now=now, pin=self.pin)
+
+    def test_1128_the_big_working_chat_beats_the_side_chat_a_minute_newer(self):
+        self.assertEqual(cc.newest_chat("", self.db), "20261128_101420_6ca786", "the old rule picked the side chat")
+        self.assertEqual(self.anchor(), ("20261125_092939_953e1b", "recent_user"))
+
+    def test_a_small_chat_wins_once_the_big_one_has_been_quiet_long_enough(self):
+        with sqlite3.connect(self.db) as db:  # Kevin moved on: 3 h in the side chat, nothing in the big ones
+            db.execute("UPDATE messages SET timestamp=timestamp-3*3600 WHERE session_id!='20261128_101420_6ca786'")
+        self.assertEqual(self.anchor()[0], "20261128_101420_6ca786")
+
+    def test_only_kevins_messages_in_the_last_6_hours_count(self):
+        with sqlite3.connect(self.db) as db:
+            db.execute("UPDATE messages SET timestamp=timestamp-7*3600 WHERE session_id='20261125_092939_953e1b' "
+                       "AND role='user'")  # its newer assistant row does not make it Kevin's recent chat
+        self.assertEqual(self.anchor()[0], "20261125_080323_7b9fc7")
+
+    def test_never_z0lives_own_runs_subagents_or_side_runs(self):
+        ranked = [sid for _, sid, _, _ in cc.rank_chats(sqlite3.connect(self.db), T)]
+        for sid in ("z0live-ask-tek-d45e", "sub", "bg_x"):
+            self.assertNotIn(sid, ranked)
+
+    def test_a_continuation_carries_its_parents_size_and_is_the_anchor(self):
+        with sqlite3.connect(self.db) as db:  # the big chat rolled over to a fresh child one minute ago
+            db.execute("INSERT INTO sessions VALUES ('953e1b-c','gui','20261125_092939_953e1b',?,4,'cont',?)",
+                       (T - 70, T))
+            db.execute("INSERT INTO messages(session_id, role, content, timestamp) VALUES "
+                       "('953e1b-c','user','continue',?)", (T - 60,))
+        self.assertEqual(self.anchor(), ("953e1b-c", "recent_user"))
+
+    def test_the_pin_file_overrides_and_an_unknown_pin_is_ignored(self):
+        self.pin.write_text("# pinned for the CoS call\n20261128_100619_217eed\n")
+        self.assertEqual(self.anchor(), ("20261128_100619_217eed", "pin"))
+        self.pin.write_text("no-such-session\n")
+        self.assertEqual(self.anchor(), ("20261125_092939_953e1b", "recent_user"))
+
+    def test_nothing_recent_falls_back_to_the_newest_chat_and_a_missing_store_is_empty(self):
+        self.assertEqual(self.anchor(now=T + 7 * 3600), ("20261128_101420_6ca786", "newest"))
+        self.assertEqual(cc.anchor_chat("", Path(self.dir.name) / "missing.db", now=T, pin=self.pin)[0], "")
+
+
 class ChatMemory(unittest.TestCase):
     """11-27 13:00: Kevin found the call "dumb, 0 context on any of our work". Since f62dc9a every request runs as a
     background agent, which does not see the chat; it got only the chat's last ~6,000 characters (two status replies).

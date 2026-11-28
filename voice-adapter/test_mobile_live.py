@@ -347,7 +347,7 @@ class NoLinkedChatTests(unittest.IsolatedAsyncioTestCase):
             return 'The garden is sunny and twenty degrees.'
 
         cli = MagicMock(side_effect=AssertionError("a cold CLI run on a call"))
-        with patch.object(live.chat_continuity, 'newest_chat', return_value='gui9'), \
+        with patch.object(live.chat_continuity, 'anchor_chat', return_value=('gui9', 'recent_user')), \
                 patch.object(live.chat_continuity, 'ask_background', background), \
                 patch.object(live, 'run_hermes', cli), patch.object(live, 'RECEIPT_SECONDS', 30):
             await asyncio.wait_for(call.host_delegate('d1', 'what is the weather in the garden'), 5)
@@ -362,7 +362,7 @@ class NoLinkedChatTests(unittest.IsolatedAsyncioTestCase):
         async def background(*a, **k):
             raise OSError("connection refused")
 
-        with patch.object(live.chat_continuity, 'newest_chat', return_value='gui9'), \
+        with patch.object(live.chat_continuity, 'anchor_chat', return_value=('gui9', 'recent_user')), \
                 patch.object(live.chat_continuity, 'ask_background', background), \
                 patch.object(live, 'run_hermes', return_value='cli answer'), patch.object(live, 'RECEIPT_SECONDS', 30):
             await asyncio.wait_for(call.host_delegate('d1', 'what is the weather in the garden'), 5)
@@ -376,7 +376,7 @@ class NoLinkedChatTests(unittest.IsolatedAsyncioTestCase):
             raise asyncio.TimeoutError()  # TimeoutError is an OSError: it must not look like an unreachable dashboard
 
         cli = MagicMock(return_value='second run')
-        with patch.object(live.chat_continuity, 'newest_chat', return_value='gui9'), \
+        with patch.object(live.chat_continuity, 'anchor_chat', return_value=('gui9', 'recent_user')), \
                 patch.object(live.chat_continuity, 'ask_background', background), \
                 patch.object(live, 'run_hermes', cli), patch.object(live, 'RECEIPT_SECONDS', 30):
             await asyncio.wait_for(call.host_delegate('d1', 'what is the weather in the garden'), 5)
@@ -405,11 +405,41 @@ class NoLinkedChatTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any('chat turn answer' in str(e) for e in sent))
 
         call2, sent2 = await self.call()  # no linked chat: the anchor refused -> the CLI, never a silent failure
-        with patch.object(live.chat_continuity, 'newest_chat', return_value='gui9'), \
+        with patch.object(live.chat_continuity, 'anchor_chat', return_value=('gui9', 'recent_user')), \
                 patch.object(live.chat_continuity, 'ask_background', refused), \
                 patch.object(live, 'run_hermes', return_value='cli answer'), patch.object(live, 'RECEIPT_SECONDS', 30):
             await asyncio.wait_for(call2.host_delegate('d1', 'what is on the TV'), 5)
         self.assertTrue(any('cli answer' in str(e) for e in sent2))
+
+
+class CrossBriefTests(unittest.IsolatedAsyncioTestCase):
+    """11-28 F4: the call opens with a short brief of Kevin's other threads (call_brief.cross_thread); background
+    agents get it too. A slow store never holds the call up."""
+
+    async def test_the_brief_reaches_background_agents_and_a_slow_store_is_skipped(self):
+        call = live.Call(live.Manager(None), profile='tek')
+        self.addAsyncCleanup(call.close, 'test')
+        traced, trace = [], call.trace
+
+        class Recorder:  # the call's Trace, recording what it is handed
+            def __call__(self, kind, **kw):
+                traced.append((kind, kw))
+
+            def __getattr__(self, name):
+                return getattr(trace, name)
+
+        call.trace = Recorder()
+        loop = asyncio.get_running_loop()
+        call.cross_lookup = loop.create_future()
+        call.cross_lookup.set_result("Across Kevin's threads (read-only snapshot taken at call start):\nCards running: x")
+        call.cross_brief = await call.read_cross_brief()
+        self.assertIn("Cards running: x", call.host_context(None, ledger=False))
+        self.assertIn(("call.cross_brief", {"chars": len(call.cross_brief)}), traced)
+
+        call.cross_lookup = loop.create_future()  # never resolves
+        with patch.object(live, 'CROSS_BRIEF_WAIT', 0.05):
+            self.assertEqual(await asyncio.wait_for(call.read_cross_brief(), 2), "")
+        self.assertEqual(traced[-1], ("call.cross_brief", {"chars": 0, "error": "TimeoutError"}))
 
 
 class StatusLineTests(unittest.TestCase):
