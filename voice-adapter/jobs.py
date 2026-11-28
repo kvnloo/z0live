@@ -210,6 +210,8 @@ def start(brief: str, title: str = "", engine: str = "kanban", model: str = "", 
         return {"ok": False, "error": why}
     if bot and engine != "kanban":
         return {"ok": False, "error": "a bot job runs on the kanban board (engine kanban)"}
+    if bot and bot != ASSIGNEE and (model or provider):  # cfg: pinning another bot's model/provider is a spend change
+        return {"ok": False, "error": "a job for another bot runs on that bot's own model; omit model/provider"}
     brief = brief[:MAX_BRIEF]
     title = (title or brief.split("\n", 1)[0])[:90]
     led_err = None
@@ -247,8 +249,8 @@ def start(brief: str, title: str = "", engine: str = "kanban", model: str = "", 
             body = brief
             if bot and bot != ASSIGNEE:  # cfg 11-28: a card handed to another bot names who asked, and keeps Kevin's gate
                 body = (f"Requested from z0live by {ASSIGNEE} ({by}) on call {call or 'none'} for Kevin.\n"
-                        "Config, secret or spending changes still need Kevin's explicit go; ask him, do not assume this "
-                        "card is that go.\n\n" + brief)
+                        "Config, secret or spending changes still need Kevin's explicit go: block this card with the "
+                        "question for him; do not assume this card is that go.\n\n" + brief)
             jid, ref_err = _start_kanban(body, title, model, provider, workspace, max_runtime, goal, key, by,
                                          bot or ASSIGNEE)
         else:
