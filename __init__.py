@@ -290,6 +290,37 @@ def make_job(cfg):
     return handle
 
 
+def _ask_module(root):
+    """voice-adapter/ask_bot.py loaded by path (stdlib only): the tool, `z0live ask` and the voice share one sender."""
+    key = "_z0live_plugin_ask"
+    if key not in sys.modules:
+        spec = importlib.util.spec_from_file_location(key, Path(root) / "voice-adapter/ask_bot.py")
+        if spec is None or spec.loader is None:
+            raise ImportError("z0live ask_bot is missing")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[key] = module
+        spec.loader.exec_module(module)
+    return sys.modules[key]
+
+
+def _profile_name() -> str:
+    home = os.environ.get("HERMES_HOME") or ""
+    return Path(home).name if "/profiles/" in home else "default"
+
+
+def make_ask(cfg):
+    def handle(args: Dict[str, Any], **_kw: Any) -> str:
+        try:
+            if _profile_name() == "guest":  # never: also gated by check_fn, this is the second lock
+                return json.dumps({"ok": False, "error": "the guest profile cannot message other bots"})
+            ask = _ask_module(_path(cfg("z0live_repo") or ROOT))
+            return json.dumps(ask.ask(args.get("profile") or "", args.get("message") or "", call=args.get("call") or "",
+                                      item=args.get("item") or "", by="agent", via="chat"))
+        except Exception as exc:  # a tool handler never raises
+            return json.dumps({"ok": False, "error": f"z0live_ask failed: {type(exc).__name__}"})
+    return handle
+
+
 PROGRESS_TOKEN_ENV = "Z0LIVE_PROGRESS_TOKEN"
 
 
@@ -392,6 +423,21 @@ JOB_SCHEMA = {
         "open_only": {"type": "boolean"},
     }},
 }
+ASK_SCHEMA = {
+    "name": "z0live_ask",
+    "description": ("Message another of Kevin's bot profiles and get its answer back, when he says \"ask @pc ...\", "
+                    "\"ask the PC bot to ...\" or \"tell pc to ...\". The other bot runs the request with its own tools in "
+                    "its own Hermes host (outside this sandbox) and replies; this returns {ok, answer, say, delivery, item}. "
+                    "Only say the other bot answered if ok is true; repeat its answer as `say`. Write the message as a "
+                    "self-contained request in Kevin's words. Never put secrets in the message (it is refused). Waits up to "
+                    "15 min for the reply."),
+    "parameters": {"type": "object", "additionalProperties": False, "required": ["profile", "message"], "properties": {
+        "profile": {"type": "string", "description": "the bot profile to ask, e.g. pc (an error lists the ones that can be asked)"},
+        "message": {"type": "string", "description": "the request for that bot, self-contained"},
+        "call": {"type": "string", "description": "the voice call id, when asked on a call"},
+        "item": {"type": "string", "description": "an existing ledger item this ask answers"},
+    }},
+}
 
 
 def register(ctx) -> None:
@@ -425,6 +471,10 @@ def register(ctx) -> None:
     ctx.register_tool(name="z0live_job", toolset=TOOLSET, schema=JOB_SCHEMA, handler=make_job(cfg),
                       check_fn=lambda: installed() and (_path(cfg("z0live_repo") or ROOT) / "voice-adapter/jobs.py").is_file(),
                       description="Start, track and stop long z0live jobs on the Hermes kanban board", emoji="🧗")
+    ctx.register_tool(name="z0live_ask", toolset=TOOLSET, schema=ASK_SCHEMA, handler=make_ask(cfg),
+                      check_fn=lambda: _profile_name() != "guest" and not_worker()
+                      and (_path(cfg("z0live_repo") or ROOT) / "voice-adapter/ask_bot.py").is_file(),
+                      description="Ask another bot profile (ask @pc ...) and bring its answer back", emoji="📨")
     lines = _read_json(ROOT / "voice-adapter/progress_lines.json") or []
     ctx.register_tool(name="z0live_say", toolset=TOOLSET, handler=make_say(lines),
                       check_fn=lambda: bool(lines and _secret(PROGRESS_TOKEN_ENV)),
