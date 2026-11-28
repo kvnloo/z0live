@@ -30,6 +30,10 @@ counted >= EC_SILENCE_MS (200 ms = 10 quiet frames) of trailing silence AND conf
 unchanged --endpointer-silence-ms commit still applies if that never happens. An early commit is final: the turn plays.
 If speech resumes after it (commit before the true speech end) the row is a false cut ('split before speech end'),
 exactly as the control's split. specN rows without 'ec' run the OD-slice-3 path unchanged.
+Pause-heavy set (OD-pause, --utt-set pause): PAUSE_SET = 12 items spliced GPU-free from the --utterances clips by
+inserting digital silence (join: two questions with a 260-700 ms pause after a complete clause; mid: the widest inner
+gap widened; mid+join: both), to stress rule ec1 on mid-turn pauses. --fake-stt oracle (dry runs only) makes the fake
+STT return the text of the segments heard so far instead of the fixed always-passing sentence.
 """
 import argparse
 import asyncio
@@ -613,6 +617,109 @@ def sleep_stages(stt_ms, model_ms, tts_ms):
     return stt, model, tts
 
 
+PAUSE_SET = (  # OD-pause: (name, kind, source utterances, pause ms); frozen before any scored pause run
+    ('p00', 'join', ['u00.wav', 'u07.wav'], [260]),
+    ('p01', 'join', ['u03.wav', 'u09.wav'], [340]),
+    ('p02', 'join', ['u05.wav', 'u08.wav'], [420]),
+    ('p03', 'join', ['u10.wav', 'u02.wav'], [480]),
+    ('p04', 'join', ['u07.wav', 'u11.wav'], [600]),
+    ('p05', 'join', ['u09.wav', 'u01.wav'], [700]),
+    ('p06', 'mid', ['u04.wav'], [280]),
+    ('p07', 'mid', ['u06.wav'], [360]),
+    ('p08', 'mid', ['u11.wav'], [450]),
+    ('p09', 'mid', ['u02.wav'], [650]),
+    ('p10', 'mid+join', ['u04.wav', 'u09.wav'], [300, 380]),
+    ('p11', 'mid+join', ['u01.wav', 'u07.wav'], [260, 520]),
+)
+
+
+def _voiced(x, db=VAD_DB):
+    return np.nonzero(np.abs(x.astype(np.int32)) >= 32768 * 10 ** (db / 20))[0]
+
+
+def _widen_mid_gap(x, text, pause_ms):
+    """Widen the widest gap between voiced samples in the middle half of the speech to exactly pause_ms of
+    sub-threshold audio (digital silence inserted at the gap's centre). Returns (pcm, segments) where segments
+    split text into a fragment (no end punctuation) and the rest, by the gap's share of the speech span."""
+    v = _voiced(x)
+    a, b = int(v[0]), int(v[-1])
+    lo, hi = a + (b - a) // 4, a + 3 * (b - a) // 4
+    gaps = np.diff(v) - 1
+    idx = [i for i in range(len(gaps)) if lo <= v[i] <= hi]
+    i = max(idx, key=lambda j: (gaps[j], -j)) if idx else int(np.searchsorted(v, (a + b) // 2)) - 1
+    start, g = int(v[i]) + 1, int(gaps[i])
+    add = pause_ms * RATE // 1000 - g
+    if add < 0:
+        raise ValueError(f'inner gap {g} samples already exceeds {pause_ms} ms')
+    cut = start + g // 2
+    y = np.concatenate([x[:cut], np.zeros(add, '<i2'), x[cut:]])
+    words = text.split()
+    k = min(max(1, round(len(words) * (start - a) / max(1, b - a))), len(words) - 1)
+    frag = ' '.join(words[:k]).rstrip('?.!,')
+    end_s = start / RATE
+    return y, [{'text': frag, 'end_s': end_s}, {'text': ' '.join(words[k:]), 'end_s': None}]
+
+
+def make_pause_set(src, spec=PAUSE_SET):
+    """Pause-heavy utterances from base clips, GPU-free (silence splicing only). src: file -> (text, pcm bytes).
+    join: clip A trimmed after its last voiced sample + pause_ms of zeros + clip B from its first voiced sample.
+    mid: the widest inner gap widened (_widen_mid_gap). mid+join: mid on A (pauses[0]) then join (pauses[1]).
+    Returns [(manifest entry, pcm bytes)]; segments[i]['end_s'] = clip time just after segment i's last voiced
+    sample (the oracle fake STT returns the segments heard so far)."""
+    out = []
+    for name, kind, files, pauses in spec:
+        texts = [src[f][0] for f in files]
+        clips = [np.frombuffer(src[f][1], '<i2') for f in files]
+        segs = []
+        if kind in ('mid', 'mid+join'):
+            x, segs = _widen_mid_gap(clips[0], texts[0], pauses[0])
+        else:
+            x, segs = clips[0], [{'text': texts[0], 'end_s': None}]
+        if kind in ('join', 'mid+join'):
+            va, vb = _voiced(x), _voiced(clips[1])
+            end_a = int(va[-1]) + 1
+            x = np.concatenate([x[:end_a], np.zeros(pauses[-1] * RATE // 1000, '<i2'), clips[1][int(vb[0]):]])
+            segs[-1]['end_s'] = end_a / RATE
+            segs.append({'text': texts[1], 'end_s': None})
+        segs[-1]['end_s'] = (int(_voiced(x)[-1]) + 1) / RATE
+        for s in segs:
+            s['end_s'] = round(s['end_s'], 6)
+        x = x.astype('<i2')
+        m = {'file': name, 'text': ' '.join(s['text'] for s in segs), 'seconds': round(len(x) / RATE, 3),
+             'kind': kind, 'sources': list(files), 'pauses_ms': list(pauses), 'segments': segs}
+        out.append((m, x.tobytes()))
+    return out
+
+
+def oracle_text(pcm, clip, segments, silence_ms=ENDPOINT_SILENCE_MS):
+    """The transcript an ideal STT would give for this partial utterance: the segments whose speech has ended by the
+    end of pcm (pcm = a run of whole frames of padded_frames(clip)); '' if none (a mid-segment cut)."""
+    frames = padded_frames(clip, silence_ms)
+    p = np.frombuffer(pcm, '<i2').reshape(-1, FRAME)
+    n = len(p)
+    end_k = None
+    for k0 in range(len(frames) - n + 1):
+        if np.array_equal(frames[k0], p[0]) and np.array_equal(frames[k0:k0 + n], p):
+            end_k = k0 + n
+            break
+    if end_k is None:
+        raise ValueError('pcm is not a frame run of the clip')
+    end_s = end_k * FRAME / RATE
+    return ' '.join(s['text'] for s in segments if s['end_s'] <= end_s + 1e-9)
+
+
+def oracle_stages(ctx, stt_ms, model_ms, tts_ms):
+    """Dry-run stages (UNSCORED) like sleep_stages, but STT returns oracle_text for ctx['clip'] / ctx['segments']
+    (set per turn by bench): ec1 sees the heard prefix, not an always-passing fixed sentence."""
+    _, model, tts = sleep_stages(stt_ms, model_ms, tts_ms)
+
+    async def stt(pcm):
+        await asyncio.sleep(stt_ms / 1000)
+        return oracle_text(pcm, ctx['clip'], ctx['segments'])
+
+    return stt, model, tts
+
+
 def read_wav(path):
     with wave.open(str(path), 'rb') as w:
         if (w.getnchannels(), w.getsampwidth(), w.getframerate()) != (1, 2, RATE):
@@ -673,18 +780,36 @@ async def real_stages(a, stack):
     return stt.stt, model, as_bytes(lure.tts)
 
 
-async def bench(a):
+def load_utterances(a):
+    """[(manifest entry, pcm)] for --utt-set: base = the --utterances WAVs as is; pause = make_pause_set of them."""
     manifest = json.loads((a.utterances / 'manifest.json').read_text())
     utts = [(m, read_wav(a.utterances / m['file'])) for m in manifest]
+    if getattr(a, 'utt_set', 'base') == 'pause':
+        utts = make_pause_set({m['file']: (m['text'], pcm) for m, pcm in utts})
+    for m, pcm in utts:
+        if 'segments' not in m:
+            end = speech_end_sample(pcm)
+            m['segments'] = [{'text': m['text'], 'end_s': 0.0 if end is None else (end + 1) / RATE}]
+    return utts
+
+
+async def bench(a, clock=time.perf_counter_ns):
+    utts = load_utterances(a)
+    ctx: dict = {'clip': None, 'segments': None}  # the current turn's clip, for --fake-stt oracle
     arms = (mode_arms(a.arm_modes, a.endpointer_silence_ms) if a.arm_modes else
             [(label, ms, None) for label, ms in window_arms(a.arm_windows)] if a.arm_windows else None)
     plan = schedule_windows(a.runs, len(utts), a.seed, arms) if arms else schedule(a.runs, len(utts), a.seed)
     rows, aborted, t_start = [], None, time.monotonic()
     async with AsyncExitStack() as stack:
-        stages = sleep_stages(*a.fake_stages) if a.fake_stages else await real_stages(a, stack)
+        if a.fake_stages and getattr(a, 'fake_stt', 'fixed') == 'oracle':
+            stages = oracle_stages(ctx, *a.fake_stages)
+        else:
+            stages = sleep_stages(*a.fake_stages) if a.fake_stages else await real_stages(a, stack)
         for i in range(a.warmup):
             arm = arms[i % len(arms)] if arms else (None, a.endpointer_silence_ms, None)
-            row = await run_arm_turn(stages, utts[i % len(utts)][1], turn_id=-1 - i, db=a.vad_db,
+            m, pcm = utts[i % len(utts)]
+            ctx.update(clip=pcm, segments=m['segments'])
+            row = await run_arm_turn(stages, pcm, turn_id=-1 - i, db=a.vad_db, clock=clock,
                                      silence_ms=arm[1], spec_ms=arm[2], ec=arm[3] if len(arm) > 3 else None)
             print(json.dumps({'warmup': i, 'ok': row['ok'], 'e2a': row['eos_to_first_audio_ms'],
                               'se2a': row['speech_end_to_first_audio_ms']}), file=sys.stderr)
@@ -699,8 +824,9 @@ async def bench(a):
                     aborted = f'gate before run {p["run"]} {arm} turn {turn}'
                     break
                 m, pcm = utts[idx]
+                ctx.update(clip=pcm, segments=m['segments'])
                 row = await run_arm_turn(stages, pcm, turn_id=turn, db=a.vad_db, silence_ms=window, spec_ms=spec_ms,
-                                         ec=ec[0] if ec else None)
+                                         clock=clock, ec=ec[0] if ec else None)
                 turn += 1
                 if spec_ms is not None:
                     row['spec_ms'] = spec_ms
@@ -718,7 +844,10 @@ async def bench(a):
             'vad_db': a.vad_db, 'endpointer_silence_ms': a.endpointer_silence_ms,
             'arm_windows': window_arms(a.arm_windows) if a.arm_windows else None,
             **({'arm_modes': arms} if a.arm_modes else {}),
-            **({'fake_stages_ms': list(a.fake_stages), 'scored': False} if a.fake_stages else {}),
+            **({'fake_stages_ms': list(a.fake_stages), 'scored': False,
+                'fake_stt': getattr(a, 'fake_stt', 'fixed')} if a.fake_stages else {}),
+            'utt_set': getattr(a, 'utt_set', 'base'),
+            **({'pause_manifest': [m for m, _ in utts]} if getattr(a, 'utt_set', 'base') == 'pause' else {}),
             'n_utterances': len(utts), 'utterances_sha256': hashlib.sha256(
                 b''.join(pcm for _, pcm in utts)).hexdigest(), 'summary': summarize(rows), 'rows': rows}
 
@@ -755,7 +884,15 @@ def parse_args(argv=None):
     ap.add_argument('--fake-stages', default='',
                     help='STT,MODEL,TTS fixed sleeps in ms (dry run, UNSCORED): no Whisper / llama.cpp / Lure')
     ap.add_argument('--gate', help='command run before every pass; nonzero exit aborts the bench')
+    ap.add_argument('--utt-set', choices=('base', 'pause'), default='base',
+                    help='base = --utterances as is; pause = the OD-pause set (PAUSE_SET) spliced from them with '
+                         'inserted mid-turn silences (GPU-free); default base')
+    ap.add_argument('--fake-stt', choices=('fixed', 'oracle'), default='fixed',
+                    help='with --fake-stages: fixed = the always-ec1-passing sentence; oracle = the text of the '
+                         'segments heard so far (dry runs only, UNSCORED)')
     a = ap.parse_args(argv)
+    if a.fake_stt != 'fixed' and not a.fake_stages:
+        ap.error('--fake-stt oracle needs --fake-stages')
     try:
         a.fake_stages = tuple(int(x) for x in a.fake_stages.split(',')) if a.fake_stages else ()
     except ValueError:

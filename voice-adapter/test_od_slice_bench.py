@@ -7,6 +7,7 @@ import contextlib
 import io
 import json
 from pathlib import Path
+import re
 import sys
 import tempfile
 import textwrap
@@ -601,6 +602,164 @@ class EarlyCommit(unittest.TestCase):
         rows = [{'arm': arm, 'ok': True, 'speech_end_to_first_audio_ms': base + i, 'endpointer_ms': 480}
                 for arm, base in (('SPEC150', 480), ('SPEC150b', 483), ('SPEC150EC', 300)) for i in range(5)]
         self.assertAlmostEqual(osb.summarize(rows)['aa_band_ms']['p50'], 3)
+
+
+def quiet_runs_ms(pcm16, db=osb.VAD_DB):
+    """Lengths (ms) of the sub-threshold runs strictly between voiced samples (interior pauses), longest first."""
+    x = np.abs(np.frombuffer(pcm16, '<i2').astype(np.int32))
+    v = np.nonzero(x >= 32768 * 10 ** (db / 20))[0]
+    gaps = np.diff(v) - 1
+    return sorted((g * 1000 / osb.RATE for g in gaps if g >= 80), reverse=True)  # >= 5 ms (not zero crossings)
+
+
+def gapped_clip(gap_s=0.04):
+    """A 1.2 s 'utterance' with one short interior gap at 0.6 s of speech (an inter-word gap)."""
+    return tone_clip(lead_s=0.05, speech_s=0.6, tail_s=gap_s) + tone_clip(lead_s=0, speech_s=0.6, tail_s=0.1)
+
+
+class PauseSet(unittest.TestCase):
+    """OD-pause contract. --utt-set pause derives a pause-heavy set from the base utterances by splicing digital
+    silence: 'join' = two whole questions with one mid-turn pause after a complete clause; 'mid' = one question with
+    its widest inner gap (middle half of the speech) widened; 'mid+join' = both (two pauses). Each pause is exactly
+    the listed ms of sub-threshold audio. GPU-free: no TTS is run."""
+
+    def src(self):
+        return {'u00.wav': ('What is the capital of France?', gapped_clip()),
+                'u01.wav': ('What do bees make?', tone_clip(lead_s=0.05, speech_s=0.5, tail_s=0.15))}
+
+    def test_frozen_spec_has_12_items_with_one_or_two_pauses_in_250_700_ms(self):
+        self.assertEqual(len(osb.PAUSE_SET), 12)
+        kinds = {k for _, k, _, _ in osb.PAUSE_SET}
+        self.assertEqual(kinds, {'join', 'mid', 'mid+join'})
+        for name, kind, srcs, pauses in osb.PAUSE_SET:
+            self.assertIn(len(pauses), (1, 2), name)
+            self.assertTrue(all(250 <= p <= 700 and p % 10 == 0 for p in pauses), name)
+            self.assertEqual(len(srcs), 1 if kind == 'mid' else 2, name)
+            self.assertEqual(len(pauses), 2 if kind == 'mid+join' else 1, name)
+            self.assertTrue(all(re.fullmatch(r'u(0\d|1[01])\.wav', s) for s in srcs), name)
+        self.assertEqual(len({n for n, *_ in osb.PAUSE_SET}), 12)
+
+    def test_join_inserts_exactly_the_pause_after_a_complete_clause(self):
+        (m, pcm), = osb.make_pause_set(self.src(), [('p00', 'join', ['u00.wav', 'u01.wav'], [420])])
+        self.assertEqual(m['text'], 'What is the capital of France? What do bees make?')
+        self.assertEqual((m['kind'], m['pauses_ms'], m['sources']), ('join', [420], ['u00.wav', 'u01.wav']))
+        runs = quiet_runs_ms(pcm)
+        self.assertAlmostEqual(runs[0], 420, delta=0.1)  # trailing / leading quiet of the two clips is trimmed
+        self.assertLess(runs[1], 100)  # the source's own 40 ms inner gap is untouched
+        self.assertEqual([s['text'] for s in m['segments']], ['What is the capital of France?', 'What do bees make?'])
+        end0 = m['segments'][0]['end_s']
+        x = np.frombuffer(pcm, '<i2')
+        i = round(end0 * osb.RATE)
+        self.assertTrue(np.all(x[i:i + 420 * 16] == 0))  # the pause starts right at segment 0's speech end
+        self.assertAlmostEqual(m['seconds'], len(x) / osb.RATE, delta=1e-3)
+        self.assertAlmostEqual(m['segments'][-1]['end_s'], (osb.speech_end_sample(pcm) + 1) / osb.RATE, delta=1e-3)
+
+    def test_mid_widens_the_inner_gap_to_the_pause_and_keeps_the_rest(self):
+        src = self.src()
+        (m, pcm), = osb.make_pause_set(src, [('p06', 'mid', ['u00.wav'], [360])])
+        runs = quiet_runs_ms(pcm)
+        self.assertAlmostEqual(runs[0], 360, delta=0.1)
+        self.assertEqual(len(runs), 1)
+        self.assertAlmostEqual(len(pcm) - len(src['u00.wav'][1]), (360 - 40) * 16 * 2, delta=64)  # only the gap grew
+        self.assertEqual(m['text'], 'What is the capital of France?')
+        self.assertEqual(len(m['segments']), 2)
+        first = m['segments'][0]['text']
+        self.assertFalse(first.rstrip()[-1:] in '?.!')  # a mid-clause fragment carries no end punctuation
+        self.assertTrue('What is the capital of France?'.startswith(first))
+
+    def test_mid_plus_join_has_two_pauses(self):
+        (m, pcm), = osb.make_pause_set(self.src(), [('p10', 'mid+join', ['u00.wav', 'u01.wav'], [300, 380])])
+        runs = quiet_runs_ms(pcm)
+        self.assertAlmostEqual(runs[0], 380, delta=0.1)
+        self.assertAlmostEqual(runs[1], 300, delta=0.1)
+        self.assertEqual(len(m['segments']), 3)
+
+    def test_deterministic(self):
+        a = osb.make_pause_set(self.src(), osb.PAUSE_SET[:1] and [('p00', 'join', ['u00.wav', 'u01.wav'], [260])])
+        b = osb.make_pause_set(self.src(), [('p00', 'join', ['u00.wav', 'u01.wav'], [260])])
+        self.assertEqual(a[0][1], b[0][1])
+
+    def test_oracle_transcript_is_the_heard_prefix(self):
+        (m, pcm), = osb.make_pause_set(self.src(), [('p00', 'join', ['u00.wav', 'u01.wav'], [420])])
+        frames = osb.padded_frames(pcm, 500)
+        end_frame = int(m['segments'][0]['end_s'] * osb.RATE) // osb.FRAME + 10  # inside the pause
+        part = np.concatenate(frames[2:end_frame]).tobytes()
+        self.assertEqual(osb.oracle_text(part, pcm, m['segments']), 'What is the capital of France?')
+        whole = np.concatenate(frames[2:]).tobytes()
+        self.assertEqual(osb.oracle_text(whole, pcm, m['segments']), m['text'])
+
+    def run_item(self, spec_ms, ec, item=('p00', 'join', ['u00.wav', 'u01.wav'], [400]), stt_ms=60):
+        (m, pcm), = osb.make_pause_set(self.src(), [item])
+        ctx = {'clip': pcm, 'segments': m['segments']}
+        stages = osb.oracle_stages(ctx, stt_ms, 50, 40)
+
+        async def go(clock):
+            return await osb.run_arm_turn(stages, pcm, turn_id=1, silence_ms=500, spec_ms=spec_ms, clock=clock,
+                                          sleep=asyncio.sleep, ec=ec)
+        return vrun(go)
+
+    def test_false_cut_counter_fires_on_resumed_speech_after_an_early_commit(self):
+        row = self.run_item(150, 'ec')
+        self.assertFalse(row['ok'])
+        self.assertEqual(row['error'], 'split before speech end')
+        self.assertEqual((row['early_commit'], row['ec_resumed']), (1, True))
+        self.assertEqual(row['transcript'], 'What is the capital of France?')
+        s = osb.summarize([dict(row, arm='SPEC150EC')])['arms']['SPEC150EC']
+        self.assertEqual((s['false_cuts'], s['ec_false_cuts']), (1, 1))
+
+    def test_w500_control_is_not_cut_by_a_400_ms_pause_and_hears_both_clauses(self):
+        async def go():
+            (m, pcm), = osb.make_pause_set(self.src(), [('p00', 'join', ['u00.wav', 'u01.wav'], [400])])
+            clock = FakeClock()
+            ctx = {'clip': pcm, 'segments': m['segments']}
+            return await osb.run_arm_turn(osb.oracle_stages(ctx, 60, 50, 40), pcm, silence_ms=500, spec_ms=None,
+                                          clock=clock, sleep=FakeSleep(clock)), m
+        row, m = asyncio.run(go())
+        self.assertTrue(row['ok'], row)
+        self.assertEqual(row['transcript'], m['text'])
+
+    def test_mid_clause_pause_is_not_early_committed_with_the_oracle_transcript(self):
+        row = self.run_item(150, 'ec', item=('p06', 'mid', ['u00.wav'], [400]))
+        self.assertTrue(row['ok'], row)  # the fragment fails ec1 -> no early commit inside the pause
+        self.assertEqual(row['early_commit'], 1)  # ...the final transcript commits early after the true end
+        self.assertGreaterEqual(row['ec_rule_evals'], 2)
+
+    def test_utt_set_and_fake_stt_flags(self):
+        base = ['--out', '/tmp/x', '--utterances', '/tmp/u', '--fake-stages', '115,62,90']
+        a = osb.parse_args(base)
+        self.assertEqual((a.utt_set, a.fake_stt), ('base', 'fixed'))
+        a = osb.parse_args(base + ['--utt-set', 'pause', '--fake-stt', 'oracle'])
+        self.assertEqual((a.utt_set, a.fake_stt), ('pause', 'oracle'))
+        for extra in (['--utt-set', 'x'], ['--fake-stt', 'x']):
+            with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                osb.parse_args(base + extra)
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            osb.parse_args(ArmModes.BASE + ['--fake-stt', 'oracle'])  # oracle STT is a fake stage only
+
+    def test_bench_pause_set_dry_run_end_to_end(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            u = Path(tmp) / 'u'
+            u.mkdir()
+            man = []
+            for i in range(12):
+                name = f'u{i:02d}.wav'
+                osb.write_wav(u / name, np.frombuffer(gapped_clip(), '<i2'))
+                man.append({'file': name, 'text': f'Question number {i} here?', 'seconds': 1.4})
+            (u / 'manifest.json').write_text(json.dumps(man))
+            a = osb.parse_args(['--out', str(Path(tmp) / 'o'), '--utterances', str(u), '--fake-stages', '0,0,0',
+                                '--utt-set', 'pause', '--fake-stt', 'oracle', '--runs', '1', '--warmup', '0',
+                                '--arm-modes', 'spec150ec,w500', '--endpointer-silence-ms', '500'])
+            a.utterances = u
+            res = vrun(lambda clock: osb.bench(a, clock=clock))
+            self.assertEqual(res['utt_set'], 'pause')
+            self.assertEqual(res['n_utterances'], 12)
+            self.assertEqual(len(res['rows']), 24)
+            self.assertEqual({r['utt'] for r in res['rows']}, {n for n, *_ in osb.PAUSE_SET})
+            self.assertIn('pause_manifest', res)
+            self.assertEqual(res['fake_stt'], 'oracle')
+            ctl = res['summary']['arms']['W500']
+            self.assertEqual(ctl['n'] + ctl['errors'], 12)
+            self.assertTrue(all(r['stt_exact'] for r in res['rows'] if r['arm'] == 'W500' and r['ok']))
 
 
 SLOW_STT_HELPER = textwrap.dedent('''
