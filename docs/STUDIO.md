@@ -290,6 +290,34 @@ by its one final message. The adapter does not resubmit a failed turn because He
 already have acted. The API-only host on 8644 serves the core's lanes, not call hand-offs: a
 per-call API conversation ran hand-offs one at a time with no one to approve tools (11-20 night).
 
+### One chat per project group (`topic_sessions.py`)
+
+A background agent is a new `bg_*` session every time: 86 of them on 11-28, most of them cold
+repeats of the same few projects. Now each hand-off is sorted into a project group first (z0live
+calls, Grok and xAI, TV dashboard, Dash and S Pen, Meetings, Phones and cameras, groot, Tokens and
+routing, Hermes, else `general`). It then runs as a turn of that group's chat, titled
+`z0live · <group>`. The chat is found by exact title (`session.list {title}`, which follows a compacted
+chat to its newest part) or created once with the group's repo as its folder. Follow-ups see the
+group's earlier turns, and the chat shows in the app under its project. A request with no project
+word stays in the call's last group for 5 minutes (`Z0LIVE_TOPIC_STICKY_SECONDS`).
+
+A new group chat's first turn gets the anchored chat's memory. Its first turn on each call gets the
+call brief. Later turns get only the call's last few lines and the ledger. A turn that lands while
+the group chat is busy is queued behind the running turn (`queued: true`); it never steers into it.
+Past `Z0LIVE_TOPIC_DEPTH` (2) requests in one group, or when the dashboard refuses before the submit,
+the request runs beside the chat as a background agent, as it did before. Traces:
+`delegation.topic` (group, why, chat, created, status), `delegation.topic_overflow` and
+`delegation.topic_refused`. Groups can be replaced with `~/.config/z0live/topic-groups.json`.
+`Z0LIVE_TOPIC_SESSIONS=0` turns the whole feature off.
+
+The guest leg and `ask @bot` key their API-server session by group and day
+(`z0live-guest-<group>-<YYYYMMDD>`, `z0live-ask-<caller>-<group>-<YYYYMMDD>`), not by call. If that
+session answers 409 (busy), the request falls back to the call's own session.
+
+Check it with `voice-adapter/topic_replay.py <day>`, which counts sessions before and after from the
+day's traces and `state.db`, and with `voice-adapter/live_topic_probe.py`, which runs two turns on
+the real dashboard in a probe group chat and then archives it.
+
 `HERMES_VOICE_MAX_CALL_SECONDS` defaults to 14400. Each GPT-Live leg uses its own advertised expiry.
 The adapter prepares a silent replacement and swaps it in at a quiet boundary if time allows.
 The new primary gets the original call brief and a bounded recap. Tek gets its guest persona and a

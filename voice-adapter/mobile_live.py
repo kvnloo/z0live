@@ -61,6 +61,7 @@ import needs_voice  # noqa: E402 - sibling module (blockers spoken when the TV i
 import handoff  # noqa: E402 - sibling module (call continues on z0live when Kevin leaves the screen)
 import passthru  # noqa: E402 - sibling module (z0 joins Kevin's other video call)
 import turn_slots  # noqa: E402 - sibling module (a call's bounded line of Hermes runs)
+import topic_sessions  # noqa: E402 - sibling module (one warm Hermes chat per project group, not one per request)
 CHAT_CONTINUITY = os.environ.get("HERMES_MOBILE_VOICE_CHAT", "1") != "0"
 TTFT_MODEL = os.environ.get("VOICE_TTFT_MODEL", "qwen/qwen3.8-27b")  # Groq: ~0.2 s whole answer (11-15 probe)
 # Children (claude, hermes, lanes) get their own transient scope. Inside this unit's 768M cap they pushed it
@@ -311,7 +312,8 @@ PROGRESS = "Still on that in Hermes, {seconds} seconds so far."
 PROGRESS_MANY = "Still on {count} requests in Hermes, the oldest {seconds} seconds so far."
 CAP = ("No answer on that after {seconds} seconds. It keeps running in Hermes; if it finishes while we're still on, "
        "you'll hear it here, and it lands {where} and on the TV.")
-WHERE = {"chat": "in your chat", "background": "in Hermes as a background result", "host": "in Hermes"}
+WHERE = {"chat": "in your chat", "background": "in Hermes as a background result", "host": "in Hermes",
+         "topic": "in its project chat in Hermes"}
 # Task K (11-27 15:14 call): Kevin said three times that after a kickoff the voice need not say anything. A request
 # hears the one receipt, then nothing until its state changes (the answer, a failure, a result); the repeating progress,
 # cap and merged lines are gone. The one other line: an action with a promise and no proof after UNPROVEN_SECONDS.
@@ -1005,7 +1007,8 @@ class GPTGuest:
         self.protocol = Protocol(host_delegation=True)
         self.closed = False
         self.audio = bytearray()
-        self.session = "z0live-guest-" + call.id
+        self.session = "z0live-guest-" + call.id  # this call's own guest session: the fallback when the group's is busy
+        self.topics = topic_sessions.Router()
 
     def new_subscription(self, *, active=False):
         return SubscriptionLeg(self.trace, self.message, self.failed, self.on_track, active=active)
@@ -1498,11 +1501,24 @@ class GPTGuest:
 
     async def delegate(self, did, request):
         profile = self.config.profile
-        self.call.trace("guest.delegation.start", profile=profile, did=did, session=self.session)
+        # One guest session per project group and day (topic_sessions), not one per call: on 11-28 six calls each
+        # asked "Tek, what did you work on today" in six fresh sessions. A busy one (another call's turn) falls back
+        # to this call's own session.
+        group, _ = self.topics.route(request)
+        session = topic_sessions.day_session("z0live-guest", group) if topic_sessions.ENABLED else self.session
+        self.call.trace("guest.delegation.start", profile=profile, did=did, session=session, group=group.key)
         try:
-            answer = await ask_guest_host(self.call.manager.http, profile, self.session, request,
-                                          self.call.host_context())
-            self.call.trace("guest.delegation.done", profile=profile, did=did, session=self.session, answer=answer)
+            try:
+                answer = await ask_guest_host(self.call.manager.http, profile, session, request,
+                                              self.call.host_context())
+            except RuntimeError as exc:
+                if not topic_sessions.busy_error(str(exc)) or session == self.session:
+                    raise
+                self.call.trace("guest.delegation.busy", profile=profile, did=did, session=session)
+                session = self.session
+                answer = await ask_guest_host(self.call.manager.http, profile, session, request,
+                                              self.call.host_context())
+            self.call.trace("guest.delegation.done", profile=profile, did=did, session=session, answer=answer)
         except Exception as exc:  # noqa: BLE001 - explain failure on the guest, never fall back to the primary
             self.call.trace("guest.delegation.failed", profile=profile, did=did, detail=str(exc)[:300])
             answer = f"I couldn't reach the {profile} Hermes profile for that answer."
@@ -1610,6 +1626,9 @@ class Call:
         self.status_running: dict[str, float] = {}  # did -> start, for requests whose status loop still runs
         self.ack_due = False  # a request started and the voice has not finished its reply (the ack) since
         self.hermes_path: dict[str, str] = {}  # did -> where its Hermes run went: background, chat or host (WHERE)
+        # One warm Hermes chat per project group for this call's requests, not a bg_* session per request.
+        self.topics = topic_sessions.Router()
+        self.topic_primed: set[str] = set()  # group chats that already got this call's brief
         self.protocol = Protocol(host_delegation=HOST_DELEGATION)
         self.counts = Counter()
         self.created = time.monotonic()
@@ -2913,6 +2932,10 @@ class Call:
         (CHAT_TURNS, or the background run was refused before it began). Never folded into a running turn: 114034's
         request joined a turn Kevin had going, got no line of its own and was silent for 184 s."""
         sid = sid or self.chat
+        if topic_sessions.ENABLED and not CHAT_TURNS:
+            answer = await self.ask_topic(did, request, sid)
+            if answer is not None:
+                return answer
         if not CHAT_TURNS:
             try:
                 return await self.ask_background(did, request, sid)
@@ -2942,6 +2965,55 @@ class Call:
                 self.counts["chat_fold_rerun"] += 1
                 self.trace("delegation.fold_rerun", did=did, chat=sid)
         return await self.ask_background(did, request, sid)
+
+    async def ask_topic(self, did, request, sid):
+        """The request as a turn of its project group's chat (topic_sessions): the chat holds the group's earlier
+        requests and answers, so a follow-up starts warm and the call leaves one chat per project, not one session
+        per request. None when it did not start there (the group's chat is DEPTH deep, or the dashboard refused before
+        the submit): the caller runs the request beside the chat as before. Never a second run once submitted."""
+        group, why = self.topics.route(request)
+        if not self.topics.admit(group.key):
+            self.counts["topic_overflow"] += 1
+            self.trace("delegation.topic_overflow", did=did, group=group.key, depth=topic_sessions.DEPTH)
+            return None
+        self.hermes_path[did] = "topic"
+        primed = group.key in self.topic_primed
+        self.topic_primed.add(group.key)
+
+        def compose(created: bool) -> str:
+            if created:  # a new chat starts empty: the anchored chat's memory and the call's brief, once
+                memory = chat_continuity.chat_memory(self.profile, sid)
+                self.trace("delegation.memory", did=did, chat=sid, chars=len(memory))
+                return self.side_request(request, memory, sid, did)
+            if not primed:  # first request of this call in a chat that already knows the project
+                context = self.host_context(did)
+                return (context + "\n\nRequest: " + request) if context else request
+            said = "\n".join(f"{'Caller' if role == 'user' else 'Voice'}: {' '.join(text.split())[:400]}"
+                             for role, text in list(self.protocol.exchanges)[-4:])
+            led = self.ledger_brief(did)
+            return (f"Asked on the same live voice call; answer in a few short spoken sentences."
+                    + (f"\n\nSaid on the call since:\n{said}" if said else "") + (f"\n\n{led}" if led else "")
+                    + f"\n\nRequest: {request}")
+
+        try:
+            answer, chat, created = await asyncio.wait_for(topic_sessions.ask_topic(
+                self.manager.http, chat_continuity.WS, self.token, self.profile, group, compose,
+                known=self.topics.chats.get(group.key, ""),
+                on_submit=lambda chat, created, status: self.trace(
+                    "delegation.topic", did=did, group=group.key, why=why, chat=chat, created=created,
+                    status=status)), DELEGATION_TIMEOUT_SECONDS)
+        except topic_sessions.NotStarted as exc:
+            self.counts["topic_refused"] += 1
+            self.trace("delegation.topic_refused", did=did, group=group.key, detail=str(exc)[:200])
+            if not primed:
+                self.topic_primed.discard(group.key)
+            return None
+        finally:
+            self.topics.release(group.key)
+        self.topics.chats[group.key] = chat
+        self.counts["topic_turns"] += 1
+        self.counts["topic_chats_created"] += int(created)
+        return answer
 
     async def ask_background(self, did, request, sid):
         self.hermes_path[did] = "background"

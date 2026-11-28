@@ -110,6 +110,9 @@ class FakeChat:
     def __init__(self, replay):
         self.replay, self.turn, self.sockets, self.runner = replay, None, set(), None
         self.side: list[tuple[float, str, str]] = []  # (ends, task_id, answer) of running background agents
+        # Project group chats (topic_sessions): title -> id, and each one's turns in order [ends, answer, began].
+        self.titles: dict[str, str] = {}
+        self.topic_turns: dict[str, list[list]] = {}
 
     async def start(self):
         app = web.Application()
@@ -128,7 +131,32 @@ class FakeChat:
             async for msg in ws:
                 frame = json.loads(msg.data)
                 rid, method, params = frame["id"], frame["method"], frame.get("params") or {}
-                if method == "session.resume":
+                if method == "session.list":  # exact-title lookup (methods_session._session_list_by_title)
+                    sid = self.titles.get(params.get("title", ""))
+                    await ws.send_json({"id": rid, "result": {"sessions": [{"id": sid, "resolved_id": sid}]
+                                                              if sid else []}})
+                elif method == "session.create":
+                    sid = f"topic-{len(self.titles) + 1}"
+                    self.titles[params["title"]] = sid
+                    self.topic_turns[sid] = []
+                    await ws.send_json({"id": rid, "result": {"session_id": sid, "stored_session_id": sid}})
+                elif method == "session.resume" and params["session_id"] in self.topic_turns:
+                    await ws.send_json({"id": rid, "result": {"session_id": params["session_id"],
+                                                              "running": bool(self.topic_turns[params["session_id"]])}})
+                elif method == "prompt.submit" and params["session_id"] in self.topic_turns:
+                    # A group chat's turn: idle -> it starts now; busy -> queued (queued: true) behind the running one.
+                    sid = params["session_id"]
+                    did = next((d for d, text in reversed(self.replay.requests) if text in params["text"]), None)
+                    self.replay.submitted.append((self.replay.now, did, params["text"]))
+                    self.replay.topic_submits.append((did, sid))
+                    work, answer = self.replay.hermes.get(did, (5.0, f"answer for {did}"))
+                    turns = self.topic_turns[sid]
+                    began = turns[-1][0] if turns else self.replay.now
+                    turns.append([began + work, answer, began])
+                    await ws.send_json({"id": rid, "result": {"status": "queued" if len(turns) > 1 else "streaming"}})
+                    if len(turns) == 1:
+                        await self.topic_event(sid, "message.start", "")
+                elif method == "session.resume":
                     # A live chat reports whether a turn runs in it, ours or one Kevin typed (session_registry.py).
                     await ws.send_json({"id": rid, "result": {"session_id": params["session_id"],
                                                               "running": self.busy()}})
@@ -167,9 +195,21 @@ class FakeChat:
 
     def next_due(self, t):
         ends = [e for e, _, _ in self.side] + ([self.turn.ends] if self.turn else [])
+        ends += [turns[0][0] for turns in self.topic_turns.values() if turns]
         return min((e for e in ends if e <= t), default=None)
 
+    async def topic_event(self, sid, kind, text):
+        frame = {"method": "event", "params": {"type": kind, "session_id": sid, "payload": {"text": text}}}
+        for ws in list(self.sockets):
+            await ws.send_json(frame)
+
     async def tick(self, now):
+        for sid, turns in self.topic_turns.items():
+            while turns and turns[0][0] <= now:
+                _, answer, _ = turns.pop(0)
+                await self.topic_event(sid, "message.complete", answer)
+                if turns:
+                    await self.topic_event(sid, "message.start", "")
         for side in [s for s in self.side if s[0] <= now]:
             self.side.remove(side)
             frame = {"method": "event", "params": {"type": "background.complete", "session_id": "chat-1",
@@ -188,8 +228,11 @@ class FakeChat:
 
 
 class Replay:
-    def __init__(self, rows: list[dict], history: list | None = None, conductor: Path | None = None):
+    def __init__(self, rows: list[dict], history: list | None = None, conductor: Path | None = None,
+                 topics: bool | None = None):
         self.rows = sorted(rows, key=lambda r: r["t"])
+        self.topics = topics  # one chat per project group (topic_sessions); None: the adapter's own default
+        self.topic_submits: list[tuple[str, str]] = []  # (did, group chat id) of requests run in a group chat
         # The TV conductor's state.json the call watches for lane cards: never the owner's own (a missing file is
         # no conductor). `conductor` rows ({"t", "conductor": state}) write it at their time, with the call's id.
         self.conductor = conductor
@@ -363,7 +406,10 @@ class Replay:
                 patch.object(live, "ask_guest_host", ask_guest_host), patch.object(live.Trace, "__call__", floor_trace), \
                 patch.object(live.GPTGuest, "message", from_guest), \
                 patch.object(live.GPTGuest, "later", lambda _, seconds, callback: self.call_later(seconds, callback)), \
-                patch.object(live.Call, "sleep", lambda call, seconds: replay.later(seconds, None), create=True):
+                patch.object(live.Call, "sleep", lambda call, seconds: replay.later(seconds, None), create=True), \
+                patch.object(live.topic_sessions, "ENABLED",
+                             live.topic_sessions.ENABLED if self.topics is None else self.topics), \
+                patch.object(live.topic_sessions, "load_groups", return_value=live.topic_sessions.DEFAULT_GROUPS):
             http = ClientSession()
             call = self.call = live.Call(live.Manager(http), profile="")
             call.relay, call.chat, call.heard_user = None, "chat-1", True
@@ -529,6 +575,10 @@ def report(replay: Replay) -> dict:
                     and not any(abs(began - u["t"]) < 5 for u in unasked)):  # both legs hear the same words
                 unasked.append({"t": began, "said": text[:120]})
     return {"delegations": len(replay.started), "answer_s": answer_s, "own_answer_s": own_s,
+            # Hermes sessions the call's requests made: a bg_* per background agent, one per group chat (topic_sessions)
+            "sessions": {"background": len(replay.backgrounded), "chat_turns": len(replay.chat_submits),
+                         "group_chats": len({sid for _, sid in replay.topic_submits}),
+                         "group_turns": len(replay.topic_submits)},
             "held": [did for did in replay.started if did not in own],
             "receipt_s": {did: round(t - replay.started[did], 3) for did, t in receipts.items() if did in replay.started},
             "queued_s": {did: round(t - replay.started[did], 3) for did, t in queued.items() if did in replay.started},

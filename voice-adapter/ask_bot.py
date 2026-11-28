@@ -27,6 +27,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import topic_sessions  # noqa: E402 - sibling module (one session per project group, not per call)
+
 HERE = Path(__file__).resolve().parent
 HOME = Path.home()
 DEFAULT_HOSTS = {"pc": 18645}  # launchd com.kvn.hermes-pc: hermes_host.py --profile pc --port 18645
@@ -217,15 +220,29 @@ def ask(profile: str, message: str, call: str = "", item: str = "", by: str = BY
     led_ok = bool(item) and not led_err
     if led_ok:
         _led("claim", item, by, f"asking {profile}")
-    session = f"z0live-ask-{caller}-{call or time.strftime('%Y%m%d')}"[:120]
+    # One session per project group and day on the asked bot (topic_sessions), not one per call: the same question
+    # about the same project lands where the bot already answered it. A busy one (another call's turn running in it)
+    # falls back to this call's own session.
+    group, _ = topic_sessions.classify(message, topic_sessions.load_groups())
+    fallback = f"z0live-ask-{caller}-{call or time.strftime('%Y%m%d')}"[:120]
+    session = topic_sessions.day_session(f"z0live-ask-{caller}", group) if topic_sessions.ENABLED else fallback
     messages = [{"role": "system", "content": SYSTEM.format(caller=caller, via="voice call" if via == "voice" else via)},
                 {"role": "user", "content": message}]
     began = time.monotonic()
-    try:
+
+    def ask(sid):
         if on_approval is not None:
-            answer, cid, echoed = _run(profile, table[profile], session, messages, timeout, on_approval)
-        else:
-            answer, cid, echoed = _post(profile, table[profile], session, messages, timeout)
+            return _run(profile, table[profile], sid, messages, timeout, on_approval)
+        return _post(profile, table[profile], sid, messages, timeout)
+
+    try:
+        try:
+            answer, cid, echoed = ask(session)
+        except RuntimeError as exc:
+            if not topic_sessions.busy_error(str(exc)) or fallback == session:
+                raise
+            session = fallback
+            answer, cid, echoed = ask(session)
     except RuntimeError as exc:
         if led_ok:
             _led("result", item, by, f"ask @{profile} failed: {exc}", False)
