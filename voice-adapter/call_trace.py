@@ -69,7 +69,6 @@ class Trace:
         self.previous = deque(maxlen=3)
         self.delegations = {}
         self.audio = None
-        self.scrub: re.Pattern | None = None  # N230: compiled pattern of a secret said on the call (the approval pass-phrase): never written
         if os.environ.get("HERMES_MOBILE_VOICE_TRACE", "1") == "0":
             return
         try:
@@ -85,11 +84,8 @@ class Trace:
     def __call__(self, ev, **data):
         if self.f:
             try:
-                line = json.dumps({"t": round(time.monotonic() - self.t0, 3), "wall": round(time.time(), 3),
-                                   "ev": ev, **data}, ensure_ascii=False, default=str)
-                if self.scrub is not None:
-                    line = self.scrub.sub("[redacted]", line)
-                self.f.write(line + "\n")
+                self.f.write(json.dumps({"t": round(time.monotonic() - self.t0, 3), "wall": round(time.time(), 3),
+                                         "ev": ev, **data}, ensure_ascii=False, default=str) + "\n")
             except (OSError, ValueError):
                 pass
 

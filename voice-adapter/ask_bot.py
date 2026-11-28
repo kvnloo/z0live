@@ -179,9 +179,9 @@ def _run(profile: str, port: int, session: str, messages: list, timeout: float, 
     import voice_approvals  # sibling module
     client = voice_approvals.RunsClient.for_profile(profile, port)
     try:
-        run_id, output, failed, _ = voice_approvals.run(
+        run_id, output, failed = voice_approvals.run(
             client, messages[-1]["content"], session, messages[0]["content"],
-            lambda rid, event: on_approval(client, rid, event), timeout)
+            on_approval, timeout)
     except RuntimeError as exc:
         raise RuntimeError(f"{profile}'s {exc}") from None
     if failed and not output.strip():
@@ -194,8 +194,8 @@ def _run(profile: str, port: int, session: str, messages: list, timeout: float, 
 def ask(profile: str, message: str, call: str = "", item: str = "", by: str = BY, via: str = "chat",
         caller: str = "", timeout: float = TIMEOUT_S, on_approval=None) -> dict:
     """Send message to profile's Hermes host and wait for its answer. Never raises. ok=True only with a delivery id.
-    on_approval(client, run_id, event): when given, the ask runs on the host's Runs API and each approval event is
-    handed to it (it must not block; the caller answers through client.respond)."""
+    on_approval(run_id, event): when given, the ask runs on the host's Runs API and each approval event is
+    handed to it without blocking the run reader."""
     profile = (profile or "").strip().lstrip("@").lower()
     message = " ".join(str(message or "").split())[:MAX_MESSAGE]
     caller = caller or caller_profile() or "tek"

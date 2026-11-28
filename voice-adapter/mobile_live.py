@@ -47,7 +47,7 @@ import lane_layout  # noqa: E402 - sibling module (the lanes attached to the con
 import ledger as request_ledger  # noqa: E402 - sibling module (the request ledger: asks, promises, proof, results)
 import ask_bot  # noqa: E402 - sibling module ("ask @pc to ...": another bot profile answers, outside the agent sandbox)
 import live_status  # noqa: E402 - sibling module (status answers and the proof gate, from the live records)
-import voice_approvals  # noqa: E402 - sibling module (N230: Hermes approval prompts spoken on the call, pass-phrase answers)
+import voice_approvals  # noqa: E402 - sibling module (N230: Hermes approval notifications)
 import guest_voice  # noqa: E402
 import answer_delivery  # noqa: E402 - sibling module (what each voice has actually said)
 from subscription_leg import Speaker, SubscriptionLeg  # noqa: E402
@@ -413,10 +413,7 @@ CALL_CONTEXT = ("This request comes from a live voice call; answer in a few shor
 # Hermes runs one call may have going at once on the host path (no linked chat). Past it a request waits for a free
 # run, and the voice says it is queued instead of claiming a hand-off that has not happened.
 HOST_MAX = 3
-# N230: an ask to another bot's host runs on its Runs API, so a Hermes approval prompt is spoken on the call and Kevin's
-# pass-phrase approves it once (voice_approvals.py). Z0LIVE_VOICE_APPROVALS=0 restores the plain chat-completions ask.
-VOICE_APPROVALS = os.environ.get("Z0LIVE_VOICE_APPROVALS", "1") != "0"
-APPROVAL_QUIET_S = 2.5  # words heard while a prompt waits, then this long with none: answered (deny unless the phrase)
+VOICE_APPROVALS = voice_approvals.enabled()
 # The line past HOST_MAX (or past the chat turn plus SIDE_MAX): at most QUEUE_MAX requests wait, first in, first
 # out. Past that a request is refused out loud at once and never runs, so nothing waits without the caller knowing.
 QUEUE_MAX = max(0, int(os.environ.get("Z0LIVE_QUEUE_MAX", "3")))
@@ -1637,11 +1634,7 @@ class Call:
         # Status answers and the proof gate use the records as they are now. replay.py turns this off: an offline
         # replay of a recorded call has no records of that call's minute, and today's would make it nondeterministic.
         self.live_records = True
-        # N230: Hermes approval prompts this call's host runs raised, oldest first; the head is the one spoken and the
-        # one Kevin's next utterance answers (pass-phrase -> once, anything else -> deny, silence -> Hermes' timeout).
-        self.approvals: list[dict] = []
-        self.approval_quiet_until = float("-inf")  # the voice's own delegation of an approval answer is swallowed
-        self.arm_scrub(voice_approvals.load_phrase(self.phrase_profile()))
+        self.approvals: set[tuple[str, str, str]] = set()
         self.token = ""  # the app's own bearer, for submitting voice turns into its open chat
         self.chat_lookup = None
         self.context_text = ""  # recent chat history text, for the ttft lane
@@ -1776,16 +1769,6 @@ class Call:
         if not isinstance(event, dict):
             return
         kind = str(event.get("type", ""))[:80]
-        heard = None
-        if from_provider and self.approvals:  # N230: his words while a prompt waits are its answer, not a turn
-            try:
-                event, heard = self.approval_mask(kind, event)
-            except Exception as exc:  # noqa: BLE001 - an exception here would close the data channel (the call)
-                # Fail closed: drop this event (it may carry the phrase unmasked) and leave the prompt to Hermes'
-                # own timeout. Probe 11-28 05:08: a TypeError raised here hung up the whole call.
-                self.counts["approval_mask_error"] += 1
-                self.trace("approval.error", type=kind, error=type(exc).__name__)
-                return
         self.trace("rx", src="provider" if from_provider else "mobile", type=kind, event=slim(event))
         self.counts[("provider:" if from_provider else "mobile:") + kind] += 1
         if from_provider and kind == "session.started":
@@ -1809,9 +1792,7 @@ class Call:
                 if turn.get("role") == "user" and isinstance(text, str):
                     self.trace.finish_turn(text or self.protocol.turn_text["user"])
                     said = text or self.protocol.turn_text["user"]
-                    if heard is not None:
-                        pass  # N230: an approval answer (approval_mask decided it); never a status question
-                    elif said and live_status.topics(said):  # N216: his own words; the voice may never delegate it
+                    if said and live_status.topics(said):  # N216: his own words; the voice may never delegate it
                         self.spawn(self.status_answer(f"turn-{turn.get('id') or uuid.uuid4().hex[:8]}", said))
                 elif turn.get("role") == "assistant" and self.ack_due:  # the voice acked a request: the gap starts
                     self.ack_due = False
@@ -1840,7 +1821,7 @@ class Call:
                 self.counts["output_gated_text"] += 1  # its audio is silenced (AudioBridge): keep its words off the app
                 continue
             self.send(msg, to_provider=not from_provider)
-        if self.relay and from_provider and heard is None and not self.approvals:  # N230: an answer never reaches lanes
+        if self.relay and from_provider:
             if kind == "input_transcript.added" and self.protocol.turn_text["user"]:
                 self.spawn(self.relay.transcript(self.protocol.turn_text["user"], False))
             elif kind == "turn.done" and (event.get("turn") or {}).get("role") == "user" and self.protocol.last_user:
@@ -2050,12 +2031,6 @@ class Call:
         Kevin's own work. The first lane answer is spoken once; the driver is spoken only if it adds to it."""
         self.counts["host_delegations"] += 1
         began = time.monotonic()
-        if self.approvals or time.monotonic() < self.approval_quiet_until:
-            # N230: while a prompt waits (or just after its answer) the voice's delegation is Kevin's approval answer
-            # retold, never a new request: no Hermes run, and its words (maybe the pass-phrase) are not traced.
-            self.counts["approval_delegation_swallowed"] += 1
-            self.trace("approval.delegation_swallowed", did=did)
-            return
         # Before delegation.start: the TV conductor turns every delegation.start into worker lanes.
         if self.lane_command(did, request):  # "add two opus lanes": the layout changes here, Hermes never runs
             return
@@ -2326,130 +2301,27 @@ class Call:
         self.spawn(run())
         return True
 
-    # ---- N230: Hermes approval prompts on the call ----
-    def phrase_profile(self) -> str:
-        """Whose .env holds the pass-phrase: the call's own profile (secret-intake saves it there), tek by default."""
-        return self.profile if self.profile and self.profile != "guest" else "tek"
-
-    def arm_scrub(self, phrase: str):
-        """Keep the pass-phrase out of this call's trace in any spelling ASR gives it (case, punctuation)."""
-        if phrase:
-            self.trace.scrub = re.compile(r"[\W_]+".join(map(re.escape, phrase.split())), re.I)
-
     def approval_hook(self, did, profile):
-        """A thread-safe hand-off from the ask's Runs reader to this call's loop. Never blocks the reader."""
+        """Queue Hermes approval notifications on this call's event loop."""
         loop = asyncio.get_running_loop()
 
-        def hook(client, run_id, event):
-            loop.call_soon_threadsafe(self.approval_event, did, profile, client, run_id, event)
+        def hook(run_id, event):
+            loop.call_soon_threadsafe(self.approval_event, did, profile, run_id, event)
         return hook
 
-    def approval_event(self, did, profile, client, run_id, event):
-        kind, rid = voice_approvals.event_kind(event), voice_approvals.request_id(event)
-        if kind == "approval.request":
-            if self.closed or self.profile == "guest" or not rid:
-                self.trace("approval.ignored", did=did, profile=profile, run=run_id, request_id=rid,
-                           why="closed" if self.closed else ("guest" if self.profile == "guest" else "no request id"))
-                return  # nobody answers it here: Hermes' own timeout denies it
-            phrase = voice_approvals.load_phrase(self.phrase_profile())
-            self.arm_scrub(phrase)
-            first = not self.approvals
-            self.approvals.append({"did": did, "profile": profile, "client": client, "run": run_id, "rid": rid,
-                                   "gen": event.get("execution_generation"), "event": event, "spoken_at": None})
+    def approval_event(self, did, profile, run_id, event):
+        if not VOICE_APPROVALS or self.closed or self.profile == "guest":
+            return
+        kind = voice_approvals.event_kind(event)
+        rid = voice_approvals.request_id(event)
+        key = (profile, run_id, rid)
+        if kind == "approval.request" and rid and key not in self.approvals:
+            self.approvals.add(key)
             self.counts["approval_requests"] += 1
-            self.trace("approval.request", did=did, profile=profile, run=run_id, request_id=rid,
-                       command=str(event.get("command") or "")[:300], description=str(event.get("description") or "")[:200],
-                       phrase_set=bool(phrase), queued=not first)
-            if first:
-                self.speak_approval()
-            return
-        # approval.responded / approval.cleared: the request stopped waiting (answered here or elsewhere, or timed out).
-        head = self.approvals[0] if self.approvals else None
-        left = [a for a in self.approvals if not (a["run"] == run_id and (not rid or a["rid"] == rid))]
-        if len(left) == len(self.approvals):
-            return
-        self.approvals = left
-        self.trace("approval.settled", did=did, run=run_id, request_id=rid, by=kind)
-        if self.approvals and self.approvals[0] is not head:
-            self.speak_approval()
-
-    def speak_approval(self):
-        head = self.approvals[0]
-        head["spoken_at"] = time.monotonic()
-        text = voice_approvals.spoken_prompt(head["event"], head["profile"])
-        self.trace("approval.spoken", did=head["did"], request_id=head["rid"], say=text)
-        self.speak_for(head["did"], text)
-
-    def approval_mask(self, kind, event):
-        """(event with Kevin's words replaced, True) for a user-words event while a spoken prompt waits, else (event,
-        None). His words come as turn.created/turn.delta of a user turn (the whole text) and input_transcript.added
-        (the same words again); all are masked so the app, lanes and trace never get the phrase. The answer is decided
-        at the first of: the phrase heard, the user turn's turn.done, or APPROVAL_QUIET_S with no new words. Live
-        probe 11-28 04:58: gpt-live held a bare 'copper meadow falcon' turn open with no turn.done for minutes."""
-        if not self.approvals or self.approvals[0]["spoken_at"] is None:
-            return event, None
-        head, masked = self.approvals[0], "[approval answer]"
-        if kind == "input_transcript.added" and isinstance(event.get("item"), dict):
-            return {**event, "item": {**event["item"], "text": masked}}, True
-        turn = event.get("turn") if kind in ("turn.created", "turn.done") else None
-        if isinstance(turn, dict) and turn.get("role") == "user":
-            head.setdefault("turns", set()).add(turn.get("id"))
-            text = str(turn.get("transcript") or "")
-            if kind == "turn.done":
-                head["heard"] = text or head.get("heard", "") or str(self.protocol.turn_text.get("user") or "")
-                self.protocol.turn_text["user"] = ""
-                self.approval_decide(head, now=True)
-            else:
-                head["heard"] = (head.get("heard", "") + " " + text).strip()
-                self.approval_decide(head)
-            return {**event, "turn": {**turn, "transcript": masked}}, True
-        if kind == "turn.delta" and event.get("turn_id") in head.get("turns", ()):
-            head["heard"] = head.get("heard", "") + str(event.get("delta") or "")
-            self.approval_decide(head)
-            return {**event, "delta": " " + masked}, True
-        return event, None
-
-    def approval_decide(self, head, now=False):
-        """Answer at once on turn.done or a heard phrase; otherwise after APPROVAL_QUIET_S without new words."""
-        timer = head.pop("timer", None)
-        if timer:
-            timer.cancel()
-        heard = head.get("heard", "")
-        if now or voice_approvals.matches(heard, voice_approvals.load_phrase(self.phrase_profile())):
-            self.spawn(self.approval_answer(heard, head))
-        elif heard.strip():
-            head["timer"] = asyncio.get_running_loop().call_later(
-                APPROVAL_QUIET_S, lambda: self.spawn(self.approval_answer(head.get("heard", ""), head)))
-
-    async def approval_answer(self, heard, head=None):
-        """Answer the spoken prompt once: the pass-phrase approves it once, anything else denies it (fail closed)."""
-        if not self.approvals or (head is not None and self.approvals[0] is not head):
-            return  # already answered (a late turn.done after the phrase was heard) or settled elsewhere
-        head = self.approvals.pop(0)
-        timer = head.pop("timer", None)
-        if timer:
-            timer.cancel()
-        self.approval_quiet_until = time.monotonic() + 30
-        phrase = voice_approvals.load_phrase(self.phrase_profile())
-        choice = voice_approvals.decide(heard, phrase)
-        error = ""
-        try:
-            await asyncio.to_thread(head["client"].respond, head["run"], head["rid"], choice, head["gen"])
-        except (RuntimeError, ValueError) as exc:
-            error = str(exc)[:200]
-        self.counts["approval_" + choice] += 1
-        self.trace("approval.answer", did=head["did"], profile=head["profile"], run=head["run"], request_id=head["rid"],
-                   choice=choice, phrase_set=bool(phrase), heard=voice_approvals.mask(heard, phrase), error=error or None)
-        if error:
-            say = (voice_approvals.SETTLED if "409" in error else
-                   "I couldn't send that answer to Hermes, so it will deny the command when its approval times out.")
-        elif choice == "once":
-            say = voice_approvals.APPROVED
-        else:
-            say = voice_approvals.DENIED if phrase else voice_approvals.NO_PHRASE
-        self.speak_for(head["did"], say)
-        if self.approvals:
-            self.speak_approval()
+            self.trace("approval.request", did=did, profile=profile, run=run_id, request_id=rid)
+            self.speak_for(did, voice_approvals.spoken_prompt(event, profile))
+        elif kind == "approval.cleared":
+            self.approvals = {k for k in self.approvals if k[:2] != (profile, run_id)}
 
     def status_reader(self):
         if self.status_sources is None:
