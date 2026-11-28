@@ -2619,7 +2619,8 @@ class Call:
             if await self.gate_claims(latest, summary, "earlier_card") != summary:
                 return
             now = time.monotonic()
-            if self.closed or not self.card_floor_free(now) or not self.status_gap_open(now, acks=False):
+            if (self.closed or latest != getattr(self, "latest_did", latest)
+                    or not self.card_floor_free(now) or not self.status_gap_open(now, acks=False)):
                 self.earlier_cards.extend(fresh)
                 return
         text = lane_cards.earlier_line(lanes)
@@ -2677,7 +2678,7 @@ class Call:
                 self.card_skipped("earlier", did, [ln], latest=latest)
             pending = [p for p in pending if p[0] == latest]
             await self.say_earlier_cards(now, latest)
-            if self.closed or latest != self.latest_did:
+            if self.closed or latest != getattr(self, "latest_did", None):
                 continue
             if not pending:
                 if not self.cards_busy and now - self.last_delegation_at > lane_cards.IDLE_SECONDS:
@@ -2699,9 +2700,11 @@ class Call:
                 else:
                     fresh.append(ln)
                     said.append(ln["card"]["summary"])
-            pending = []
             text = await self.card_text(fresh)
-            if not text or self.closed or latest != self.latest_did:
+            if self.closed or latest != getattr(self, "latest_did", None):
+                continue
+            pending = []
+            if not text:
                 continue
             self.counts["lane_cards_spoken"] += 1
             self.trace("lanes.card_spoken", did=latest, lanes=[ln["id"] for ln in fresh],
