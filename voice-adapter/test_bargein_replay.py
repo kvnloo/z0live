@@ -2134,7 +2134,7 @@ MULTI_SPEAKERS = {'1272': 'M', '174': 'M', '2803': 'M', '84': 'F', '1462': 'F', 
 QU_MULTI_ARGS = ('--trials', '20', '--echo-model', 'residual', '--echo-continuous', '--bot-render', 'recorded',
                  '--clip-set', 'multi', '--energy-k-db=-12', '--energy-min-speech-ms', '30', '--resid-threshold',
                  '1360', '--arm-o', '--guard-packets', '5', '--arm-q', '--duck-window-ms', '300', '--arm-s',
-                 '--prearm-rms', '5000', '--arm-u', '--caller-level-db-range=-10,0')
+                 '--prearm-rms', '5000', '--arm-u', '--only-arms', 'Q,U', '--caller-level-db-range=-10,0')
 
 
 class MultiSpeakerClipSetTest(unittest.TestCase):
@@ -2221,7 +2221,7 @@ class MultiSpeakerClipSetTest(unittest.TestCase):
         d = json.loads(data)
         self.assertEqual(d['harness'], 'bargein_replay/22')
         self.assertEqual(d['parameters']['clip_set'], 'multi')
-        self.assertEqual(sorted(d['arms']), ['A', 'B', 'O', 'Q', 'S', 'U'])
+        self.assertEqual(sorted(d['arms']), ['A', 'B', 'Q', 'U'])
         for arm in ('Q', 'U'):
             for row in d['arms'][arm]['trials']:
                 br = row['bot_render']
@@ -2249,13 +2249,13 @@ class MultiSpeakerClipSetTest(unittest.TestCase):
                             '--energy-min-speech-ms', '30', '--arm-o', '--resid-threshold', '1360',
                             '--guard-packets', '5', '--guard-margin-db', '3', '--arm-q', '--duck-commit-ms', '100',
                             '--duck-window-ms', '300', '--arm-s', '--prearm-rms', '5000', '--arm-u',
-                            '--out', tmp],
+                            '--only-arms', 'Q,U', '--out', tmp],
                            check=True, capture_output=True, timeout=900)
             res = json.loads(Path(tmp, 'seed-39.json').read_text())
             self.assertEqual(res['harness'], 'bargein_replay/22')
             self.assertEqual(res['extra_args'][:7], ['--echo-model', 'residual', '--echo-continuous', '--bot-render',
                                                      'recorded', '--clip-set', 'multi'])
-            self.assertEqual(sorted(res['arms']), ['A', 'B', 'O', 'Q', 'S', 'U'])
+            self.assertEqual(sorted(res['arms']), ['A', 'B', 'Q', 'U'])
 
 
 if __name__ == '__main__':

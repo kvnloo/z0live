@@ -134,6 +134,7 @@ def main():
     p.add_argument("--arm-s", action="store_true", help="also run arm S (Q + pre-arm speech rule, bargein_replay/16)")
     p.add_argument("--prearm-rms", type=float, default=None)
     p.add_argument("--arm-u", action="store_true", help="also run arm U (S without pre-arm ducking, bargein_replay/18)")
+    p.add_argument("--only-arms", help="run only the listed opt-in arms (A and B always run)")
     p.add_argument("--bot-render", choices=("periodic", "recorded"), default="periodic")
     p.add_argument("--clip-set", choices=("single", "multi"), default="single",
                    help="bargein_replay/22 pass-through: multi = six-speaker clip set (needs --bot-render recorded)")
@@ -199,6 +200,8 @@ def main():
         extra += ["--arm-s", "--prearm-rms", str(a.prearm_rms)]
     if a.arm_u:  # bargein_replay/18 (A-bargein-U)
         extra += ["--arm-u"]
+    if a.only_arms:
+        extra += ["--only-arms", a.only_arms]
     if a.caller_level_db_range:
         extra += ["--caller-level-db-range=" + a.caller_level_db_range]  # "=": the value starts with "-"
     if a.erl_db_range:

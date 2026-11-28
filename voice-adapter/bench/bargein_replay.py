@@ -1675,11 +1675,12 @@ def run(n, seed, cfg, bot):
     arm_r = getattr(cfg, "arm_r", False)
     arm_s = getattr(cfg, "arm_s", False)
     arm_u = getattr(cfg, "arm_u", False)
+    only = getattr(cfg, "only_arms", None)
     nlms = arm_f or arm_f2 or arm_g or arm_g2 or arm_h or arm_o
     result = dict(seed=seed, trials_per_arm=n, parameters={
         k: v for k, v in vars(cfg).items()
         if k not in ("aa", "output", "seed", "trials", "arm_c", "arm_d", "arm_e", "arm_e2", "arm_f", "arm_f2",
-                     "arm_g", "arm_g2", "arm_h", "arm_o", "arm_q", "arm_r", "arm_s", "arm_u")
+                     "arm_g", "arm_g2", "arm_h", "arm_o", "arm_q", "arm_r", "arm_s", "arm_u", "only_arms")
         and (arm_r or not k.startswith("split_"))  # bargein_replay/15 only with --arm-r
         and (arm_s or not k.startswith("prearm_"))  # bargein_replay/16 only with --arm-s
         and (arm_c or not k.startswith("gate_"))  # default run keeps the frozen bytes
@@ -1736,6 +1737,8 @@ def run(n, seed, cfg, bot):
     arms += (("G",) if arm_g else ()) + (("G2",) if arm_g2 else ()) + (("H",) if arm_h else ())
     for arm in arms + (("O",) if arm_o else ()) + (("Q",) if arm_q else ()) + (("R",) if arm_r else ()) + (("S",) if arm_s else ()) \
             + (("U",) if arm_u else ()):
+        if only is not None and arm not in ("A", "B") and arm not in only:
+            continue
         prearm_packets = silent_windows = 0
         rows = []
         for case in cases:
@@ -1956,6 +1959,8 @@ def main():
     parser.add_argument("--arm-u", action="store_true",
                         help="add arm U (bargein_replay/18, needs --arm-s): arm S that never ducks playout while the "
                              "residual gate is not yet armed; pre-arm speech still counts toward the commit")
+    parser.add_argument("--only-arms", type=lambda value: value.split(","), metavar="ARM,ARM",
+                        help="run only the listed opt-in arms (A and B always run)")
     parser.add_argument("--echo-erle-db", type=float, default=None,
                         help="bargein_replay/8 (needs --echo-continuous): linear-AEC residual, echo attenuated X dB")
     parser.add_argument("--echo-model", choices=("copy", "residual"), default="copy",
@@ -2038,6 +2043,10 @@ def main():
         parser.error("--prearm-rms is required with --arm-s and must be >= --resid-threshold")
     if cfg.arm_u and not cfg.arm_s:
         parser.error("--arm-u needs --arm-s (arm U is arm S without pre-arm ducking)")
+
+    known_arms = {"C", "D", "E", "E2", "F", "F2", "G", "G2", "H", "O", "Q", "R", "S", "U"}
+    if cfg.only_arms is not None and not set(cfg.only_arms) <= known_arms:
+        parser.error("--only-arms takes a comma-separated list from " + ",".join(sorted(known_arms)))
 
     bot = voice(BOT_MS, 142, 11000, 115)
     result = run(cfg.trials, cfg.seed, cfg, bot)

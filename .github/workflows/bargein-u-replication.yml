@@ -1,0 +1,90 @@
+name: z0live barge-in A-bargein-V replication, arm U vs arm Q on fresh seeds 30000-30119 (S0, FULL; CPU, stdlib)
+# A-bargein-V: confirmatory replication slot. Same harness and the same flags as the A-bargein-U slot
+# (bargein_replay/18, offline virtual-time sim, Python stdlib only, no network, no secrets); only the seeds, the
+# conditions and the sharding differ. This branch reuses the registered text-climb.yml file name so
+# `gh workflow run text-climb.yml --ref <branch>` can dispatch it.
+# Arms: the sweep always runs A and B; --arm-q needs --arm-o and --arm-u needs --arm-s, so O, Q, S and U all run.
+# Q (reference) and U (candidate) are the compared arms; O and S are reported only.
+# Seeds 30000-30119 (never used before), two seeds per shard (matrix value = first seed, second = first + 1),
+# 60 shards. Both conditions run as parallel processes on the runner (two seeds x two conditions = four processes
+# on four vCPUs): S0 unstressed -> out/s0, FULL (--caller-level-db-range -10,0 and --erl-db-range 0,6) -> out/full.
+# No S1 and no holdout seed in this slot.
+on:
+  workflow_dispatch:
+    inputs:
+      note:
+        description: "free-text label for this run (shown in the summary)"
+        required: false
+        default: ""
+permissions:
+  contents: read
+jobs:
+  sweep:
+    name: seeds ${{ matrix.first }}+1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        first: [30096, 30098, 30100, 30102, 30104, 30106, 30108, 30110, 30112, 30114, 30116, 30118]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Runner CPU
+        run: |
+          cpu=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)
+          echo "runner CPU: ${cpu:-unknown} ($(uname -m), $(nproc) cpus), $(python --version)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Sweep
+        timeout-minutes: 35
+        env:
+          FIRST: ${{ matrix.first }}
+        run: |
+          set -euo pipefail
+          cd voice-adapter
+          seeds="$FIRST,$((FIRST + 1))"
+          common=(--seeds "$seeds" --jobs 2 --echo-model residual --echo-continuous
+                  --bot-render recorded --rhos none --energy-k-db -12 --energy-min-speech-ms 30
+                  --resid-threshold 1360 --arm-o --guard-erle-db 6 --guard-margin-db 3 --guard-packets 5
+                  --arm-q --duck-commit-ms 100 --duck-window-ms 300 --arm-s --prearm-rms 5000 --arm-u)
+          t0=$(date +%s)
+          python -B bench/bargein_sweep.py "${common[@]}" --out ../out/s0 > ../s0.log &
+          p0=$!
+          python -B bench/bargein_sweep.py "${common[@]}" --out ../out/full \
+            --caller-level-db-range=-10,0 --erl-db-range=0,6 > ../full.log &
+          p2=$!
+          rc=0
+          wait $p0 || rc=1
+          wait $p2 || rc=1
+          for c in s0 full; do sed "s/^/$c /" "../$c.log" | tee -a "$GITHUB_STEP_SUMMARY"; done
+          echo "sweep wall $(( $(date +%s) - t0 )) s" | tee -a "$GITHUB_STEP_SUMMARY"
+          exit $rc
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sweep-${{ matrix.first }}
+          path: out/
+          if-no-files-found: warn
+          retention-days: 30
+  summary:
+    needs: sweep
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sweep-*
+          path: results
+          merge-multiple: true
+      - name: Hashes
+        env:
+          NOTE: ${{ inputs.note }}
+        run: |
+          set -euo pipefail
+          { [ -n "${NOTE}" ] && echo "note: ${NOTE}"; echo '```'; (cd results && ls s0/seed-*.json full/seed-*.json | wc -l && sha256sum s0/seed-*.json full/seed-*.json); echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          (cd results && sha256sum s0/seed-*.json full/seed-*.json)
