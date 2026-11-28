@@ -22,7 +22,8 @@ class PluginTests(unittest.TestCase):
         self.tmp = Path(tmp.name)
         paths = {"lanes_file": self.tmp / "lanes.json", "tiers_file": self.tmp / "tiers.json",
                  "voices_file": self.tmp / "voices.json", "traces_dir": self.tmp / "traces",
-                 "lane_url": "http://127.0.0.1:9", "z0live_repo": ROOT}
+                 "lane_url": "http://127.0.0.1:9", "z0live_repo": ROOT,
+                 "broker_url": "http://127.0.0.1:9", "device_token_file": self.tmp / "device.token"}
         self.cfg = lambda key: str(paths[key])
         self.tools, self.commands = {}, {}
         z.register(self)
@@ -114,6 +115,25 @@ class PluginTests(unittest.TestCase):
         tools = next(line.split(":", 1)[1] for line in manifest if line.startswith("provides_tools:"))
         self.assertEqual(set(self.tools), set(json.loads(tools)))
         self.assertEqual(list(self.commands), ["z0live-lanes"])
+
+    def test_globe_needs_a_token_and_forwards_to_the_broker_command_route(self):
+        with patch.object(z, "_secret", lambda name: ""):
+            self.assertIn("no z0live device token", self.call("globe", action="fly-to")["error"])
+            self.assertIn("args must be an object", self.call("globe", action="fly-to", args="Tokyo")["error"])
+            (self.tmp / "device.token").write_text("file-token\n")
+            displays = z._desktop_module("displays")
+            with patch.object(displays, "client_call", return_value={"ok": True, "status": "done"}) as call:
+                out = self.call("globe", action="fly-to", args={"query": "Tokyo"})
+            self.assertEqual(out, {"ok": True, "status": "done"})
+            call.assert_called_once_with("/v1/displays/gev/command", {"action": "fly-to", "args": {"query": "Tokyo"}},
+                                         token="file-token", base="http://127.0.0.1:9")
+            with patch.object(displays, "client_call", return_value={"connected": False}) as call:
+                self.assertEqual(self.call("globe"), {"connected": False})
+            call.assert_called_once_with("/v1/displays/gev", token="file-token", base="http://127.0.0.1:9")
+            # A real (closed) port: honest unavailability, no raise, no token echo.
+            out = self.call("globe", action="fly-to", args={"query": "Tokyo"})
+            self.assertFalse(out["ok"])
+            self.assertNotIn("file-token", json.dumps(out))
 
     def test_say_rejects_private_free_text_even_without_the_adapter(self):
         with patch.object(z, "HTTPConnection") as connection:

@@ -191,6 +191,29 @@ class Handler(BaseHTTPRequestHandler):
                 if path == "/v1/stream":
                     return self.stream(device, after)
                 result = store.inbox(device, after)
+            elif path.startswith("/v1/displays/"):
+                parts = path.split("/")[3:]
+                displays = store.displays
+                if method == "POST" and parts == ["register"]:
+                    result = displays.register(device, body)
+                elif len(parts) == 1 and method == "GET":
+                    result = displays.status(parts[0])
+                elif len(parts) == 2 and method == "GET" and parts[1] == "inbox":
+                    displays.heartbeat(device, parts[0])  # 404 unless this device registered it
+                    return self.display_stream(device, parts[0])
+                elif len(parts) == 2 and method == "POST" and parts[1] == "heartbeat":
+                    result = displays.heartbeat(device, parts[0], body)
+                elif len(parts) == 2 and method == "POST" and parts[1] == "context":
+                    result = displays.update_context(device, parts[0], body)
+                elif len(parts) == 2 and method == "POST" and parts[1] == "result":
+                    result = displays.result(device, parts[0], body)
+                elif len(parts) == 2 and method == "POST" and parts[1] == "command":
+                    # Owner-authorized agents (bin/z0live globe, the Hermes plugin) without a voice session.
+                    if not isinstance(body, dict) or set(body) - {"action", "args"}:
+                        raise ValueError("command takes action and optional args")
+                    result = displays.command(parts[0], body.get("action"), body.get("args") or {})
+                else:
+                    return self.reply(404, {"error": "unknown endpoint"})
             elif method == "POST" and path.startswith("/v1/tools/"):
                 result = store.tool(device, path.rsplit("/", 1)[-1], body)
             elif (
@@ -247,6 +270,50 @@ class Handler(BaseHTTPRequestHandler):
                     if not self.server.store.authenticate(auth):
                         break
                 self.server.stop.wait(0.5)
+        except (BrokenPipeError, ConnectionResetError, TimeoutError):
+            pass
+        finally:
+            self.close_connection = True
+            with self.server.sse_lock:
+                self.server.sse_clients -= 1
+
+
+    def display_stream(self, device, name):
+        """SSE inbox for one display: `event: command` frames of {id, action, args}."""
+        with self.server.sse_lock:
+            if self.server.sse_clients >= 16:
+                return self.reply(429, {"error": "too many SSE streams"})
+            self.server.sse_clients += 1
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Accel-Buffering", "no")
+            self.send_header("Connection", "close")
+            origin = self.headers.get("Origin")
+            if origin in self.server.origins:
+                self.send_header("Access-Control-Allow-Origin", origin)
+                self.send_header("Vary", "Origin")
+            self.end_headers()
+            self.wfile.write(b": z0live display connected\n\n")
+            self.wfile.flush()
+            last = time.monotonic()
+            displays = self.server.store.displays
+            while not self.server.stop.is_set():
+                try:
+                    commands = displays.next_commands(device, name, wait=0.5)
+                except LookupError:
+                    break  # another device took the display over, or it was never ours
+                for cmd in commands:
+                    self.wfile.write(f"id: {cmd['id']}\nevent: command\ndata: {dumps(cmd)}\n\n".encode())
+                if commands:
+                    self.wfile.flush()
+                if time.monotonic() - last > 10:
+                    self.wfile.write(b": heartbeat\n\n")
+                    self.wfile.flush()
+                    last = time.monotonic()
+                    if not self.server.store.authenticate(self.headers.get("Authorization", "")[7:]):
+                        break
         except (BrokenPipeError, ConnectionResetError, TimeoutError):
             pass
         finally:
