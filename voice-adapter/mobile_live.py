@@ -34,7 +34,7 @@ from aiortc import RTCPeerConnection, RTCSessionDescription, RTCConfiguration
 from aiortc.mediastreams import MediaStreamError
 from aiortc import MediaStreamTrack
 from call_trace import Trace, context_sent
-from guest_floor import Address, Addressing, Answer, Floor, IDLE_SECONDS, Leg, substantive
+from guest_floor import Address, Addressing, Answer, Floor, GREETING, IDLE_SECONDS, Leg, substantive
 import numpy as np
 
 LOG = logging.getLogger("hermes.mobile.subscription_voice")
@@ -49,6 +49,7 @@ import ask_bot  # noqa: E402 - sibling module ("ask @pc to ...": another bot pro
 import live_status  # noqa: E402 - sibling module (status answers and the proof gate, from the live records)
 import voice_approvals  # noqa: E402 - sibling module (N230: Hermes approval prompts spoken on the call, pass-phrase answers)
 import guest_voice  # noqa: E402
+import guest_join  # noqa: E402 - sibling module ("add Tek to the call": a second agent for this call only)
 import answer_delivery  # noqa: E402 - sibling module (what each voice has actually said)
 from subscription_leg import Speaker, SubscriptionLeg  # noqa: E402
 import av  # noqa: E402
@@ -266,6 +267,8 @@ the commentary channel is silent context, not something to read aloud. Present a
 Final Message as your own concise answer. Never narrate routing or backend plumbing.
 Helper notes may arrive as silent context: a verified note or a correction about something
 already answered is true; mention a correction briefly ("Actually, ...").
+Adding or removing another agent on this call ("add Tek to the call", "remove PC") is a request:
+delegate it and say only "One sec." The client brings the agent in and says so.
 """
 
 
@@ -970,11 +973,8 @@ class GPTGuest:
     for a call where several people share the phone with Hermes (Call.read_history)."""
 
     def __init__(self, call, config):
-        self.call, self.config = call, config
-        # The transcriber hears Tek as "Tech", "Teck", "Tec" or "Tech's" (takes 9 and 14); only a vocative names a voice.
-        aliases = (("tek", "tech's", "tech’s", "tech", "teck", "tec", "teknium", "டெக்", "டெக்னியம்")
-                   if config and config.profile == "tek" else ())
-        self.addressing = Addressing((config.name, *aliases) if config else ())
+        self.call, self.config = call, None
+        self.addressing = Addressing(())
         self.floor = Floor(time.monotonic(), self.floor_event)
         self.users: dict[Leg, UserTurn] = {}
         self.replies: dict[Leg, VoiceReply] = {}
@@ -993,18 +993,35 @@ class GPTGuest:
         self.quiet_since: dict[Leg, float | None] = {"primary": None, "guest": None}  # last reply or caller turn end
         self.user_heard_at = float("-inf")  # the latest caller transcript event on either leg
         self.flush_timer: asyncio.TimerHandle | None = None
-        identity = "Tek (also Teknium, டெக் or டெக்னியம்)" if aliases else (config.name if config else "")
+        self.persona = ""
+        self.subscription = None
+        self.protocol = Protocol(host_delegation=True)
+        self.closed = False
+        self.audio = bytearray()
+        self.session = "z0live-guest-" + call.id
+        if config:
+            self.adopt(config)
+
+    def adopt(self, config):
+        """The second voice on this floor: named by voices.json at call start, or added mid-call by Kevin's words
+        (guest_join: "add Tek to the call"). A floor that had no voice (people on the call) keeps its state."""
+        # The transcriber hears Tek as "Tech", "Teck", "Tec" or "Tech's" (takes 9 and 14); only a vocative names a voice.
+        aliases = (("tek", "tech's", "tech’s", "tech", "teck", "tec", "teknium", "டெக்", "டெக்னியம்")
+                   if config.profile == "tek" else tuple(guest_join.SPOKEN.get(config.profile, ())))
+        self.config = config
+        self.addressing = Addressing(tuple(dict.fromkeys((config.name, *aliases))))
+        identity = "Tek (also Teknium, டெக் or டெக்னியம்)" if config.profile == "tek" else config.name
         self.persona = (f"You are {identity}, a guest on Kevin's call. When Kevin addresses you or continues "
                         "that exchange, answer briefly. Do not reply to other exchanges or backchannels. "
                         "For questions about your work or history, delegate to your own Hermes, then speak "
                         "its answer. When you delegate, say at most a short neutral line such as \"Let me check\"; "
                         "never promise new work, say you are taking it on or handling it, or promise receipts or a "
                         "follow-up. Never invent work. Notes about what Hermes said are silent background.")
-        self.subscription = self.new_subscription(active=True) if config else None
+        self.subscription = self.new_subscription(active=True)
         self.protocol = Protocol(host_delegation=True)
         self.closed = False
-        self.audio = bytearray()
-        self.session = "z0live-guest-" + call.id
+        for table in (self.users, self.replies, self.tails, self.ended):
+            table.pop("guest", None)
 
     def new_subscription(self, *, active=False):
         return SubscriptionLeg(self.trace, self.message, self.failed, self.on_track, active=active)
@@ -1042,7 +1059,8 @@ class GPTGuest:
             self.tails.pop(data["previous"], None)
             self.audio.clear()
         self.call.trace(event, **data)
-        if event == "floor.changed" and data["reason"] not in ("answer_ready", "guest_idle", "guest_failed"):
+        if event == "floor.changed" and data["reason"] not in ("answer_ready", "guest_idle", "guest_failed",
+                                                                 "guest_left", "guest_joined"):
             self.supersede(data["speaker"])  # the caller gave this voice the floor with a new request
         if event == "floor.changed" and data["speaker"] == "people" and data["reason"] == "people_talk":
             # Both voices heard words that were not for them; what they said to it was never heard.
@@ -1510,19 +1528,33 @@ class GPTGuest:
             self.floor.enqueue(Answer("guest", did, answer), self.config.name)
             self.flush_answers()
 
-    def failed(self, reason):
+    def failed(self, reason, line=None):
         if self.closed or self.call.closed:
             return
         self.closed = True
         self.call.trace("guest.failed", reason=reason)
-        self.replies.pop("guest", None)
+        self.off(line, "guest_failed")
+
+    def leave(self, line):
+        """Kevin sent the guest off the call ("remove Tek from the call"). The floor stays for Hermes."""
+        if self.closed or self.call.closed or self.config is None:
+            return False
+        self.closed = True
+        self.call.trace("guest.left", profile=self.config.profile)
+        self.off(line, "guest_left")
+        return True
+
+    def off(self, line, reason):
+        for table in (self.users, self.replies, self.tails, self.ended):
+            table.pop("guest", None)
         self.audio.clear()
         # What Tek was handed and never said goes to the primary voice with the rest of Tek's answers.
         unsaid = self.ledger.retire("guest")
         self.floor.answers["guest"].extend(Answer("guest", entry.did, text) for entry, text in unsaid)
-        self.floor.failed(self.config.name, time.monotonic())
+        self.floor.failed(self.config.name, time.monotonic(), line=line, reason=reason)  # (drops its hello)
         self.flush_answers()
-        self.call.spawn(self.subscription.close())
+        if self.subscription:
+            self.call.spawn(self.subscription.close())
 
     def on_track(self, track):
         self.call.spawn(self.drain(track))
@@ -1568,7 +1600,7 @@ class GPTGuest:
 
 async def ask_guest_host(http, profile, session, request, context=""):
     key = (Path.home() / ".config/z0live/guest-hosts" / (profile + ".key")).read_text().strip()
-    port = int(os.environ.get("Z0LIVE_GUEST_HOST_PORT", "18644"))
+    port = guest_join.port(profile) or int(os.environ.get("Z0LIVE_GUEST_HOST_PORT", "18644"))
     headers = {"Authorization": "Bearer " + key, "X-Hermes-Session-Id": session}
     messages = [{"role": "system", "content": "You are answering as a guest on a voice call. Give a brief spoken "
                  "answer. Never message, post, deploy, or change settings from this call. Do not quote secrets."},
@@ -1657,6 +1689,7 @@ class Call:
         self.passthru = passthru.Passthru(self) if passthru.enabled() else None
         self.guest_config = guest_voice.configured() if self.engine == "gpt-live" else None
         self.guest = None
+        self.people = 1  # people sharing the phone (call_brief.people), set once the history is read
         if self.guest_config:
             self.guest = (GPTGuest(self, self.guest_config) if self.guest_config.engine == "gpt-live"
                           else guest_voice.GuestVoice(self))
@@ -1811,6 +1844,8 @@ class Call:
                     said = text or self.protocol.turn_text["user"]
                     if heard is not None:
                         pass  # N230: an approval answer (approval_mask decided it); never a status question
+                    elif said and (join := self.join_words(said)):  # "add Tek to the call": even if not delegated
+                        self.join(join, None, said)
                     elif said and live_status.topics(said):  # N216: his own words; the voice may never delegate it
                         self.spawn(self.status_answer(f"turn-{turn.get('id') or uuid.uuid4().hex[:8]}", said))
                 elif turn.get("role") == "assistant" and self.ack_due:  # the voice acked a request: the gap starts
@@ -1929,7 +1964,7 @@ class Call:
         if context:
             self.context_text = "Recent chat context (do not read aloud):\n" + "\n".join(context)
         self.call_note = call_brief.written(self.chat)
-        people = call_brief.people(history)
+        people = self.people = call_brief.people(history)
         if people > 1 and not self.guest and not self.leg:
             # Several people and Hermes the only bot (take 7 without Tek): the same floor, with no second voice.
             self.duplex = GPTGuest(self, None)
@@ -2058,6 +2093,8 @@ class Call:
             return
         # Before delegation.start: the TV conductor turns every delegation.start into worker lanes.
         if self.lane_command(did, request):  # "add two opus lanes": the layout changes here, Hermes never runs
+            return
+        if self.join_command(did, request):  # "add Tek to the call": a second voice joins, Hermes never runs
             return
         if self.bot_ask(did, request):  # "ask @pc to list the drive": pc answers, tek's agent never runs
             return
@@ -2325,6 +2362,117 @@ class Call:
                 self.speak_for(did, result.get("say") or f"I couldn't reach {profile}.")
         self.spawn(run())
         return True
+
+    # ---- a second agent joins by voice (guest_join) ----
+    def join_words(self, text):
+        """("add" | "remove", profile) when Kevin's words are a join command this call can act on, else None."""
+        if self.profile == "guest" or self.leg or self.engine != "gpt-live":
+            return None
+        return guest_join.parse(text)
+
+    def join_command(self, did, request) -> bool:
+        """The voice delegated "add Tek to the call": act on it here, never in Hermes. Kevin's own words back up a
+        paraphrased request only when the request still names a profile that can join."""
+        user = str(self.protocol.turn_text.get("user") or "") if hasattr(self.protocol, "turn_text") else ""
+        named = any(re.search(rf"\b{re.escape(spoken)}\b", request or "", re.I)
+                    for spoken, _ in guest_join._spellings())
+        hit = next((h for h in map(self.join_words, (request, user if named else "")) if h), None)
+        if not hit:
+            return False
+        self.join(hit, did, request)
+        return True
+
+    def join(self, hit, did, said=""):
+        """One utterance is one join: Kevin's turn and the voice's delegation of it both arrive (20 s window)."""
+        action, profile = hit
+        now, key = time.monotonic(), f"{action}\0{profile}"
+        recent = self.__dict__.setdefault("joins_done", {})
+        if now - recent.get(key, -99) < 20:
+            self.trace("guest.join_repeat", action=action, profile=profile, did=did)
+            return
+        recent[key] = now
+        self.counts["guest_join_" + action] += 1
+        self.trace("guest.join", action=action, profile=profile, did=did, said=(said or "")[:200])
+        self.spawn(self.add_guest(did, profile) if action == "add" else self.remove_guest(did, profile))
+
+    async def guest_host_up(self, profile) -> bool:
+        port = guest_join.port(profile)
+        try:
+            key = (Path.home() / ".config/z0live/guest-hosts" / (profile + ".key")).read_text().strip()
+            async with self.manager.http.get(f"http://127.0.0.1:{port}/v1/models", allow_redirects=False,
+                                             headers={"Authorization": "Bearer " + key},
+                                             timeout=ClientTimeout(total=3)) as response:
+                return response.status == 200
+        except Exception:  # noqa: BLE001 - unreachable is the answer
+            return False
+
+    async def add_guest(self, did, profile):
+        """Kevin asked for a second agent: it joins this call only (voices.json is never written), in its own voice,
+        and says so itself once its session is up. One guest at a time."""
+        def say(text):
+            if not self.closed:
+                self.speak_for(did, text)
+        guest = self.guest
+        if isinstance(guest, guest_voice.GuestVoice):
+            return say("Grok is on this call already. One guest at a time.")
+        if isinstance(guest, GPTGuest) and not guest.closed and guest.config:
+            name = guest.config.name
+            return say(f"{name} is already on the call." if guest.config.profile == profile else
+                       f"{name} is on the call. One guest at a time: say remove {name} first.")
+        config = guest_join.config(profile)
+        if config is None or not guest_join.has_key(profile):
+            self.trace("guest.join_refused", profile=profile, why="no_host")
+            return say(f"{profile} can't join calls yet: it has no voice host.")
+        if not await self.guest_host_up(profile):
+            self.trace("guest.join_refused", profile=profile, why="host_down", port=guest_join.port(profile))
+            return say(f"I can't reach {config.name}'s Hermes, so {config.name} can't join right now.")
+        say(f"Bringing {config.name} in.")
+        duplex = self.duplex
+        if duplex is None:
+            duplex = self.duplex = GPTGuest(self, None)
+            duplex.set_people(self.people)
+        duplex.adopt(config)
+        self.guest, self.guest_config = duplex, config
+        self.protocol.own = lambda said: duplex.own_words("primary", said)
+        duplex.protocol.own = lambda said: duplex.own_words("guest", said)
+        if self.microphone:
+            duplex.attach(self.subscribe_mic())
+        self.trace("guest.joining", profile=profile, name=config.name, voice=config.voice)
+        try:
+            await duplex.start()
+        except Exception as exc:  # noqa: BLE001 - the call goes on with one voice
+            duplex.failed("join_" + type(exc).__name__, line=f"I couldn't bring {config.name} onto the call.")
+            if self.guest is duplex:
+                self.guest = None
+            return
+        if self.closed or duplex.closed:
+            return
+        duplex.note(duplex.persona)
+        self.guest_note(config.primary_note)
+        self.spawn(self.renew_subscription(duplex))
+        # The guest says hello in its own voice once Hermes's "Bringing Tek in" is off the phone.
+        end = time.monotonic() + 8
+        while time.monotonic() < end and not self.closed and (
+                "primary" in duplex.replies or duplex.playing("primary") or duplex.floor.answers["primary"]
+                or duplex.ledger.pending("primary")):
+            await asyncio.sleep(0.1)
+        if self.closed or duplex.closed:
+            return
+        duplex.floor.change("guest", "guest_joined", time.monotonic())
+        duplex.floor.enqueue(Answer("guest", GREETING + profile, guest_join.greeting(config)), config.name)
+        duplex.flush_answers()
+
+    async def remove_guest(self, did, profile):
+        guest = self.guest
+        config = guest_join.config(profile)
+        name = config.name if config else profile
+        if not (isinstance(guest, GPTGuest) and guest.config and guest.config.profile == profile and not guest.closed):
+            if not self.closed:
+                self.speak_for(did, f"{name} isn't on the call.")
+            return
+        guest.leave(f"{name} left the call. It's just me again.")
+        self.guest = None
+        self.guest_note(f"{name} has left the call. You are the only voice again; ignore earlier notes about {name}.")
 
     # ---- N230: Hermes approval prompts on the call ----
     def phrase_profile(self) -> str:
