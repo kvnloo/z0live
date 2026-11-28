@@ -41,6 +41,7 @@
     if (ready) return ready;
     ready = (async () => {
       const ctx = new AudioContext({ sampleRate: RATE });
+      state.ctx = ctx;  // before any connect(), so the output tap below never taps z0's own graph
       const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
       await ctx.audioWorklet.addModule(url);
       const mic = new AudioWorkletNode(ctx, 'z0-src', { numberOfOutputs: 1, outputChannelCount: [1] });
@@ -93,6 +94,29 @@
       track.addEventListener('ended', () => { try { src.disconnect(); } catch (_) {} });
     });
   }
+  // Some apps (Google Meet, Nov 2026) decode remote audio themselves: the receiver tracks stay silent
+  // while RTP flows, and the room is played through the page's own AudioContext or a generated stream
+  // on an <audio> element. Tap those outputs too, so z0 hears what a person in the room would hear.
+  if (window.AudioNode && window.AudioDestinationNode) {
+    const nativeConnect = AudioNode.prototype.connect, outs = new WeakMap();
+    AudioNode.prototype.connect = function (dest, ...rest) {
+      const r = nativeConnect.call(this, dest, ...rest);
+      try {
+        if (dest instanceof AudioDestinationNode && this.context !== state.ctx) {
+          let md = outs.get(this.context);
+          if (!md) { md = this.context.createMediaStreamDestination(); outs.set(this.context, md); tap(md.stream.getAudioTracks()[0]); state.outTaps = (state.outTaps || 0) + 1; }
+          nativeConnect.call(this, md);
+        }
+      } catch (_) {}
+      return r;
+    };
+  }
+  const srcDesc = window.HTMLMediaElement && Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'srcObject');
+  if (srcDesc && srcDesc.set) Object.defineProperty(HTMLMediaElement.prototype, 'srcObject', {
+    ...srcDesc,
+    set(v) { try { if (v && v.getAudioTracks && !state.own?.has(this)) v.getAudioTracks().forEach(t => tap(t)); } catch (_) {} return srcDesc.set.call(this, v); },
+  });
+
   const NativePC = window.RTCPeerConnection;
   if (NativePC) {
     const Wrapped = function (...args) {
