@@ -50,6 +50,7 @@ import live_status  # noqa: E402 - sibling module (status answers and the proof 
 import voice_approvals  # noqa: E402 - sibling module (N230: Hermes approval prompts spoken on the call, pass-phrase answers)
 import guest_voice  # noqa: E402
 import answer_delivery  # noqa: E402 - sibling module (what each voice has actually said)
+import multi_caller  # noqa: E402 - sibling module (a second caller joins the call; Z0LIVE_MULTI_CALLER)
 from subscription_leg import Speaker, SubscriptionLeg  # noqa: E402
 import av  # noqa: E402
 from aiortc.contrib.media import MediaRelay  # noqa: E402
@@ -1591,6 +1592,10 @@ class Call:
     def __init__(self, manager, profile: str = ""):
         self.manager = manager
         self.profile = profile
+        self.engine = voice_engine()
+        self.multi = (multi_caller.Room(self)
+                      if multi_caller.enabled() and profile == "guest" and self.engine == "gpt-live" else None)
+        self.persona = multi_caller.PERSONA if self.multi else PERSONA
         self.id = "hermes-subscription-" + uuid.uuid4().hex
         self.trace = Trace(self.id, _call_trace_dir())
         self.mobile = RTCPeerConnection(RTCConfiguration(iceServers=[]))
@@ -1609,7 +1614,7 @@ class Call:
         self.status_running: dict[str, float] = {}  # did -> start, for requests whose status loop still runs
         self.ack_due = False  # a request started and the voice has not finished its reply (the ack) since
         self.hermes_path: dict[str, str] = {}  # did -> where its Hermes run went: background, chat or host (WHERE)
-        self.protocol = Protocol(host_delegation=HOST_DELEGATION)
+        self.protocol = Protocol(host_delegation=HOST_DELEGATION or bool(self.multi))
         self.counts = Counter()
         self.created = time.monotonic()
         self.closed = False
@@ -1619,7 +1624,7 @@ class Call:
         self.to_mobile = deque(maxlen=256)
         self.to_provider = deque(maxlen=256)
         self.tasks = set()
-        self.relay = LaneRelay.from_env() if (LaneRelay and HOST_DELEGATION) else None
+        self.relay = LaneRelay.from_env() if (LaneRelay and HOST_DELEGATION and not self.multi) else None
         self.lane_said = {}  # delegation id -> (lane answer, entry id)
         self.spoken_for: dict = {}  # delegation id -> every line handed to a voice for it (lane cards never repeat)
         self.ask_dids: dict[str, str] = {}  # conductor ask text (lane_cards.request_key) -> delegation id
@@ -1641,7 +1646,8 @@ class Call:
         # one Kevin's next utterance answers (pass-phrase -> once, anything else -> deny, silence -> Hermes' timeout).
         self.approvals: list[dict] = []
         self.approval_quiet_until = float("-inf")  # the voice's own delegation of an approval answer is swallowed
-        self.arm_scrub(voice_approvals.load_phrase(self.phrase_profile()))
+        if not self.multi:
+            self.arm_scrub(voice_approvals.load_phrase(self.phrase_profile()))
         self.token = ""  # the app's own bearer, for submitting voice turns into its open chat
         self.chat_lookup = None
         self.context_text = ""  # recent chat history text, for the ttft lane
@@ -1649,13 +1655,12 @@ class Call:
         self.haiku = None  # WarmHaiku, started once chat context is known
         self.chat = ""   # stored id of the chat Live Voice was started from ('' = hidden voice session)
         self.output_loud_at = self.input_loud_at = float("-inf")
-        self.engine = voice_engine()
         if self.engine not in ("gpt-live", "grok"):  # on_device (STT -> model -> TTS) is not built yet
             self.trace("engine.unavailable", wanted=self.engine, using="gpt-live")
             self.engine = "gpt-live"
         self.leg = grok_leg.GrokLeg(self, PERSONA) if self.engine == "grok" else None
-        self.passthru = passthru.Passthru(self) if passthru.enabled() else None
-        self.guest_config = guest_voice.configured() if self.engine == "gpt-live" else None
+        self.passthru = passthru.Passthru(self) if not self.multi and passthru.enabled() else None
+        self.guest_config = guest_voice.configured() if self.engine == "gpt-live" and not self.multi else None
         self.guest = None
         if self.guest_config:
             self.guest = (GPTGuest(self, self.guest_config) if self.guest_config.engine == "gpt-live"
@@ -1673,7 +1678,7 @@ class Call:
         def mobile_track(track):
             if track.kind != "audio":
                 return
-            mic = AudioBridge(track, self, "input")
+            mic = AudioBridge(self.multi.mixed(track) if self.multi else track, self, "input")
             if self.leg:
                 self.leg.attach(mic)
             else:
@@ -1725,7 +1730,8 @@ class Call:
         source = self.primary_audio
         if isinstance(self.guest, guest_voice.GuestVoice):
             source = guest_voice.FloorSwitch(source, self.guest)
-        self.mobile.addTrack(AudioBridge(source, self, "output"))
+        output = AudioBridge(source, self, "output")
+        self.mobile.addTrack(self.multi.fan_out(output) if self.multi else output)
 
     def spawn(self, coro):
         task = asyncio.create_task(coro)
@@ -1776,6 +1782,9 @@ class Call:
         if not isinstance(event, dict):
             return
         kind = str(event.get("type", ""))[:80]
+        if self.multi and not from_provider and kind not in (
+                "session.input_audio.mute", "session.input_audio.unmute", "session.close", "session.closed"):
+            return
         heard = None
         if from_provider and self.approvals:  # N230: his words while a prompt waits are its answer, not a turn
             try:
@@ -1788,6 +1797,8 @@ class Call:
                 return
         self.trace("rx", src="provider" if from_provider else "mobile", type=kind, event=slim(event))
         self.counts[("provider:" if from_provider else "mobile:") + kind] += 1
+        if self.multi and from_provider and kind == "turn.done" and (event.get("turn") or {}).get("role") == "user":
+            self.multi.end_turn(str((event.get("turn") or {}).get("transcript") or self.protocol.turn_text["user"]))
         if from_provider and kind == "session.started":
             self.subscription.ready.set()
             self.flush(self.provider_dc, self.to_provider)
@@ -1859,7 +1870,9 @@ class Call:
             self.spawn(self.close("client_closed" if not from_provider else "provider_closed"))
 
     async def start(self, sdp, history):
-        if CHAT_CONTINUITY and self.token:  # off the setup path: a slow lookup must never stall the phone's offer
+        if self.multi:
+            history = []
+        if not self.multi and CHAT_CONTINUITY and self.token:  # off the setup path: a slow lookup must never stall the phone's offer
             self.chat_lookup = asyncio.ensure_future(asyncio.to_thread(chat_continuity.find_chat, history, self.profile))
         self.trace("call.start", history_items=len(history) if isinstance(history, list) else None)
         try:
@@ -1874,10 +1887,10 @@ class Call:
             else:
                 if not any(t.kind == "audio" for t in self.provider.getTransceivers()):
                     raise ValueError("An audio track is required")
-                await start_subscription(self.manager.http, self.provider, PERSONA, "sol", self.trace)
+                await start_subscription(self.manager.http, self.provider, self.persona, "sol", self.trace)
             answer = await self.mobile.createAnswer()
             await self.mobile.setLocalDescription(answer)
-            context = self.read_history(history)
+            context = [] if self.multi else self.read_history(history)
             if context:
                 if os.environ.get("VOICE_WARM_HAIKU", "1") != "0" and shutil.which("claude"):
                     self.haiku = WarmHaiku(FAST_SYSTEM.format(who="Haiku") + "\n\n" + self.context_text[-6000:])
@@ -1886,10 +1899,10 @@ class Call:
             # The subscription endpoint ignores session instructions (11-16 canary: "I'm ChatGPT"), so the
             # persona and the call brief go in as context, framed as background so they are not answered.
             channel = os.environ.get("HERMES_VOICE_BRIEF_CHANNEL", "developer")
-            brief = call_brief.build(history, self.chat, note=self.call_note)
+            brief = "" if self.multi else call_brief.build(history, self.chat, note=self.call_note)
             if self.guest:
                 self.spawn(self.start_guest(brief))
-            persona = PERSONA + ("\n" + guest_voice.PRIMARY_NOTE if isinstance(self.guest, guest_voice.GuestVoice) else "")
+            persona = self.persona + ("\n" + guest_voice.PRIMARY_NOTE if isinstance(self.guest, guest_voice.GuestVoice) else "")
             self.opening_context = self.brief_events(persona + "\n" + brief, channel)
             for event in self.opening_context:
                 self.send(event, True, turn_id=0)
@@ -1900,10 +1913,12 @@ class Call:
             if self.relay:
                 self.spawn(self.relay_start())
             self.trace("call.negotiated", setup_s=round(time.monotonic() - self.created, 3), context_items=len(context))
-            live_picture()  # warm the cache so the first question already sees the TV and the lanes
+            if not self.multi:
+                live_picture()  # warm the cache for the first question
             LOG.info("subscription voice negotiated id=%s", self.id)
             return {"ok": True, "session": {"id": self.id},
-                    "transport": {"type": "webrtc", "sdp": self.mobile.localDescription.sdp}}
+                    "transport": {"type": "webrtc", "sdp": self.mobile.localDescription.sdp},
+                    **({"multi": self.multi.host_member()} if self.multi else {})}
         except BaseException as exc:
             self.trace("call.setup_failed", error=type(exc).__name__, detail=str(exc)[:300])
             await self.close("setup_failed")
@@ -2050,6 +2065,20 @@ class Call:
         Kevin's own work. The first lane answer is spoken once; the driver is spoken only if it adds to it."""
         self.counts["host_delegations"] += 1
         began = time.monotonic()
+        if self.multi:
+            if self.pending_delegations or self.closed:
+                self.speak_for(did, "The guest profile is busy. Please try again in a moment.")
+                return
+            job = asyncio.current_task()
+            self.pending_delegations.add(job)
+            try:
+                answer = await ask_guest_host(self.manager.http, "guest", self.id, request)
+            except Exception:  # A missing or unavailable guest host leaves the shared call isolated.
+                answer = "The guest profile is unavailable."
+            finally:
+                self.pending_delegations.discard(job)
+            self.speak_for(did, answer)
+            return
         if self.approvals or time.monotonic() < self.approval_quiet_until:
             # N230: while a prompt waits (or just after its answer) the voice's delegation is Kevin's approval answer
             # retold, never a new request: no Hermes run, and its words (maybe the pass-phrase) are not traced.
@@ -3163,7 +3192,7 @@ class Call:
         trace = guest.trace if guest else self.trace
         try:
             candidate.attach(self.subscribe_mic())
-            await start_subscription(self.manager.http, candidate.peer, guest.persona if guest else PERSONA,
+            await start_subscription(self.manager.http, candidate.peer, guest.persona if guest else self.persona,
                                      guest.config.voice if guest else "sol", trace)
             await candidate.ready.wait()
             # Prefer a quiet boundary. A job that outlasts the deadline can still enqueue its answer.
@@ -3221,6 +3250,8 @@ class Call:
 
     async def maybe_handoff(self, reason):
         """Kevin left the call screen: hand the conversation to z0live on the phone (opt-out: HERMES_VOICE_HANDOFF=off)."""
+        if self.multi:
+            return
         how = handoff.mode()
         if how == "off" or reason not in handoff.PHONE_CLOSES or not self.protocol.exchanges:
             return
@@ -3250,7 +3281,8 @@ class Call:
             if task is not current:
                 task.cancel()
         await asyncio.gather(self.mobile.close(), self.subscription.close(), *([self.leg.close()] if self.leg else []),
-                             *(voice.close() for voice in {self.guest, self.duplex} if voice), return_exceptions=True)
+                             *(voice.close() for voice in {self.guest, self.duplex} if voice),
+                             *([self.multi.close()] if self.multi else []), return_exceptions=True)
         if self.relay:
             await self.relay.close()
             self.counts.update({"relay_" + k: v for k, v in self.relay.counts.items()})
@@ -3330,7 +3362,8 @@ async def session(request):
         raise web.HTTPBadRequest(text="A valid SDP offer is required") from None
     call = Call(manager, profile_name(request.headers.get("X-Hermes-Profile") or request.query.get("profile")))
     auth = request.headers.get("Authorization", "")
-    call.token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+    if not call.multi:
+        call.token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
     manager.calls[call.id] = call
     try:
         async with asyncio.timeout(55):
@@ -3381,6 +3414,7 @@ def make_app():
     app.router.add_get("/api/audio/voice-live/status", status)
     app.router.add_post("/api/audio/voice-live/session", session)
     app.router.add_get("/api/audio/voice-live/diagnostics", diagnostics)
+    multi_caller.routes(app, authenticate)  # 404 unless Z0LIVE_MULTI_CALLER=on
     return app
 
 
