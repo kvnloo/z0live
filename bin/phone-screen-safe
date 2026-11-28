@@ -1,0 +1,470 @@
+#!/usr/bin/env python3
+"""phone-screen-safe: redact secrets and PII from Android screen captures before an agent sees them.
+
+Agents must read the phone screen only through this tool (or its Python API). Raw captures
+stay in memory; only the redacted result is written.
+
+  phone-screen-safe shot  -s SERIAL OUT.png [--slm]   screencap -> redact -> OUT.png
+  phone-screen-safe dump  -s SERIAL [OUT.xml] [--slm] uiautomator dump -> redact -> OUT (stdout)
+  phone-screen-safe redact-image IN.png OUT.png [--xml IN.xml] [--slm]
+  phone-screen-safe redact-xml [IN.xml] [--slm]        stdin -> stdout when IN is omitted
+  phone-screen-safe scan PATH...                        exit 1 when a known secret pattern remains
+
+Python API (for uiautomator2 code):
+  from phone_screen_safe import safe_screenshot, safe_hierarchy
+  safe_screenshot(d, "out.png")   # d is a uiautomator2 device
+  xml = safe_hierarchy(d)
+
+Detection layers, all local:
+  1. Hierarchy: password fields (password="true"), and every text / content-desc / hint that
+     matches a secret or PII rule, is masked in the XML and blacked out in the image by bounds.
+  2. OCR: tesseract word boxes; tokens and whole lines are matched against the rules and an
+     entropy test for long random strings. Matches are blacked out.
+  3. --slm (optional): the OCR lines go to a local Ollama model on localhost only. Lines it
+     flags are blacked out too. The model never receives the image and never leaves the host.
+  4. Sensitive foreground apps (password managers, authenticators, banking, wallets) and
+     FLAG_SECURE screens give a fully black frame.
+
+Fail closed: when OCR is not available or fails, the whole frame is blacked out and the
+exit code is 3.
+"""
+from __future__ import annotations
+
+import argparse
+import io
+import json
+import math
+import os
+import re
+import shutil
+import subprocess
+import sys
+import urllib.request
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+REDACTED = "[REDACTED]"
+EXIT_FAIL_CLOSED = 3
+
+# Secret and PII rules. Each value is a compiled pattern that must match a whole token or a
+# substring of a line. Keep patterns specific; the entropy test covers generic random strings.
+RULES: dict[str, re.Pattern] = {k: re.compile(v) for k, v in {
+    "github_token": r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})",
+    "openai_key": r"\bsk-(?:proj-|ant-|or-)?[A-Za-z0-9_\-]{16,}",
+    "aws_key": r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b",
+    "google_key": r"\bAIza[0-9A-Za-z_\-]{30,}",
+    "slack_token": r"\bxox[abposr]-[A-Za-z0-9\-]{10,}",
+    "stripe_key": r"\b[rs]k_(?:live|test)_[A-Za-z0-9]{16,}",
+    "jwt": r"\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}",
+    "private_key": r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
+    "bearer": r"(?i)\bbearer\s+[A-Za-z0-9._\-]{16,}",
+    "hex_secret": r"\b[0-9a-fA-F]{32,}\b",          # sha1/sha256 tokens, api secrets
+    "kv_secret": r"(?i)\b(?:password|passwd|pwd|secret|token|api[_ -]?key|pin|otp|passcode)\b\s*[:=]\s*\S+",
+    "email": r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b",
+    "phone": r"(?<![\w.])(?:\+?1[\s.\-]?)?\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}(?![\w.])",
+    "card": r"\b(?:\d[ \-]?){13,19}\b",
+    "ssn": r"\b\d{3}-\d{2}-\d{4}\b",
+    "otp": r"(?i)(?:code|otp|verification|passcode)\D{0,20}\b\d{4,8}\b",
+    "ipv4": r"\b(?:\d{1,3}\.){3}\d{1,3}\b",
+    "seed_hint": r"(?i)\b(?:seed|recovery)\s+phrase\b",
+}.items()}
+
+# Apps whose screens are never shown to an agent. Prefix match on the package name.
+SENSITIVE_PACKAGES = (
+    "com.google.android.apps.authenticator", "com.azure.authenticator", "com.authy",
+    "com.x8bit.bitwarden", "com.onepassword", "com.agilebits", "com.lastpass", "com.dashlane",
+    "keepass", "com.kunzisoft", "proton.android.pass", "com.google.android.gms.auth",
+    "com.chase", "com.wf.", "com.wellsfargo", "com.bankofamerica", "com.infonow.bofa",
+    "com.citi", "com.capitalone", "com.americanexpress", "com.discoverfinancial",
+    "com.usaa", "com.schwab", "com.fidelity", "com.robinhood", "com.coinbase",
+    "com.venmo", "com.paypal", "com.squareup.cash", "com.zellepay",
+    "com.samsung.android.spay", "com.google.android.apps.walletnfcrel",
+    "com.samsung.android.samsungpass",
+)
+
+SENSITIVE_ATTRS = ("text", "content-desc", "hint", "tooltip-text")
+OLLAMA_URL = os.environ.get("PHONE_SCREEN_SAFE_OLLAMA", "http://127.0.0.1:11434")
+SLM_MODEL = os.environ.get("PHONE_SCREEN_SAFE_MODEL", "qwen3:4b-instruct-2507-q4_K_M")
+
+
+# ---------------------------------------------------------------- detection
+
+def entropy(s: str) -> float:
+    if not s:
+        return 0.0
+    n = len(s)
+    return -sum(c / n * math.log2(c / n) for c in (s.count(ch) for ch in set(s)))
+
+
+def looks_random(tok: str) -> bool:
+    """A long token with mixed classes and high entropy: a likely key or token."""
+    t = tok.strip(".,;:()[]{}<>\"'`")
+    if len(t) < 20 or not re.fullmatch(r"[A-Za-z0-9_\-+/=.]+", t):
+        return False
+    classes = sum(bool(re.search(p, t)) for p in (r"[a-z]", r"[A-Z]", r"[0-9]"))
+    return classes >= 2 and entropy(t) >= 3.5 and not re.fullmatch(r"[A-Za-z]+(?:[._\-][A-Za-z]+)*", t)
+
+
+def luhn(digits: str) -> bool:
+    d = [int(c) for c in digits if c.isdigit()]
+    if not 13 <= len(d) <= 19:
+        return False
+    s = 0
+    for i, v in enumerate(reversed(d)):
+        if i % 2:
+            v *= 2
+            v -= 9 if v > 9 else 0
+        s += v
+    return s % 10 == 0
+
+
+def find_spans(text: str) -> list[tuple[int, int, str]]:
+    """Return (start, end, rule) spans of secrets or PII in text."""
+    spans = []
+    for name, pat in RULES.items():
+        for m in pat.finditer(text):
+            if name == "card" and not luhn(m.group()):
+                continue
+            if name == "ipv4" and not all(0 <= int(p) <= 255 for p in m.group().split(".")):
+                continue
+            spans.append((m.start(), m.end(), name))
+    for m in re.finditer(r"\S+", text):
+        if looks_random(m.group()):
+            spans.append((m.start(), m.end(), "high_entropy"))
+    return sorted(spans)
+
+
+def is_sensitive(text: str) -> bool:
+    return bool(text) and bool(find_spans(text))
+
+
+def mask(text: str) -> str:
+    spans = find_spans(text)
+    if not spans:
+        return text
+    out, pos = [], 0
+    for s, e, _ in spans:
+        if s < pos:
+            if e > pos:
+                pos = e
+            continue
+        out.append(text[pos:s])
+        out.append(REDACTED)
+        pos = e
+    out.append(text[pos:])
+    return "".join(out)
+
+
+# ---------------------------------------------------------------- local SLM (optional)
+
+def slm_flag_lines(lines: list[str], url: str = OLLAMA_URL, model: str = SLM_MODEL) -> set[int]:
+    """Ask a local model which lines hold secrets or PII. Localhost only; never raises."""
+    host = re.sub(r"^https?://", "", url).split("/")[0].split(":")[0]
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        raise SystemExit("phone-screen-safe: --slm talks only to a localhost Ollama")
+    if not lines:
+        return set()
+    numbered = "\n".join(f"{i}: {ln}" for i, ln in enumerate(lines))
+    prompt = (
+        "You protect secrets on a phone screen. Below are numbered OCR lines. Return JSON "
+        '{"lines": [numbers]} listing every line that shows a password, token, API key, '
+        "hash-like secret, one-time code, private key, email address, phone number, street "
+        "address, account or card number, government ID, or a person's private message "
+        "content. When unsure, include the line.\n\n" + numbered)
+    body = json.dumps({"model": model, "prompt": prompt, "stream": False, "format": "json",
+                       "options": {"temperature": 0}}).encode()
+    try:
+        req = urllib.request.Request(f"{url}/api/generate", body, {"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            resp = json.loads(json.loads(r.read())["response"])
+        return {int(i) for i in resp.get("lines", []) if 0 <= int(i) < len(lines)}
+    except Exception as exc:  # the regex layer still applies
+        print(f"phone-screen-safe: slm unavailable ({type(exc).__name__}); regex layer only",
+              file=sys.stderr)
+        return set()
+
+
+# ---------------------------------------------------------------- hierarchy
+
+def parse_bounds(b: str):
+    m = re.fullmatch(r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]", b or "")
+    return tuple(int(x) for x in m.groups()) if m else None
+
+
+def redact_xml(xml: str, slm: bool = False) -> tuple[str, list[tuple[int, int, int, int]]]:
+    """Mask sensitive attribute values. Return (xml, boxes to black out in the image)."""
+    root = ET.fromstring(xml)
+    boxes, nodes = [], []
+    for node in root.iter("node"):
+        hit = node.get("password") == "true"
+        for attr in SENSITIVE_ATTRS:
+            v = node.get(attr)
+            if not v:
+                continue
+            if node.get("password") == "true":
+                node.set(attr, REDACTED)
+            elif is_sensitive(v):
+                node.set(attr, mask(v))
+                hit = True
+            else:
+                nodes.append((node, attr))
+        if hit and (b := parse_bounds(node.get("bounds"))):
+            boxes.append(b)
+    if slm and nodes:
+        flagged = slm_flag_lines([n.get(a) for n, a in nodes])
+        for i in flagged:
+            n, a = nodes[i]
+            n.set(a, REDACTED)
+            if b := parse_bounds(n.get("bounds")):
+                boxes.append(b)
+    return ET.tostring(root, encoding="unicode"), boxes
+
+
+# ---------------------------------------------------------------- image
+
+class FailClosed(RuntimeError):
+    pass
+
+
+def ocr_words(img) -> list[dict]:
+    exe = shutil.which("tesseract")
+    if not exe:
+        raise FailClosed("tesseract not found")
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, "PNG")
+    r = subprocess.run([exe, "stdin", "stdout", "--psm", "11", "tsv"], input=buf.getvalue(),
+                       capture_output=True, timeout=120)
+    if r.returncode != 0:
+        raise FailClosed("tesseract failed")
+    words = []
+    for row in r.stdout.decode("utf-8", "replace").splitlines()[1:]:
+        f = row.split("\t")
+        if len(f) == 12 and f[11].strip():
+            words.append({"block": f[2], "par": f[3], "line": f[4], "x": int(f[6]), "y": int(f[7]),
+                          "w": int(f[8]), "h": int(f[9]), "text": f[11]})
+    return words
+
+
+def ocr_boxes(img, slm: bool = False) -> list[tuple[int, int, int, int]]:
+    """Boxes of OCR words that belong to a secret or PII span."""
+    lines: dict[tuple, list[dict]] = {}
+    for w in ocr_words(img):
+        lines.setdefault((w["block"], w["par"], w["line"]), []).append(w)
+    boxes, line_list = [], list(lines.values())
+    for words in line_list:
+        text, offs = "", []
+        for w in words:
+            if text:
+                text += " "
+            offs.append((len(text), len(text) + len(w["text"])))
+            text += w["text"]
+        for s, e, _ in find_spans(text):
+            for (ws, we), w in zip(offs, words):
+                if ws < e and we > s:
+                    boxes.append((w["x"], w["y"], w["x"] + w["w"], w["y"] + w["h"]))
+    if slm:
+        flagged = slm_flag_lines([" ".join(w["text"] for w in ws) for ws in line_list])
+        for i in flagged:
+            for w in line_list[i]:
+                boxes.append((w["x"], w["y"], w["x"] + w["w"], w["y"] + w["h"]))
+    return boxes
+
+
+def black(img, boxes, pad: int = 6):
+    from PIL import ImageDraw
+    draw = ImageDraw.Draw(img)
+    for x1, y1, x2, y2 in boxes:
+        draw.rectangle([x1 - pad, y1 - pad, x2 + pad, y2 + pad], fill="black")
+    return img
+
+
+def blank_like(img, reason: str):
+    from PIL import Image, ImageDraw
+    out = Image.new("RGB", img.size if img is not None else (1080, 2340), "black")
+    ImageDraw.Draw(out).text((40, 40), f"REDACTED: {reason}", fill="white")
+    return out
+
+
+def redact_png(png: bytes, xml: str | None = None, slm: bool = False) -> tuple[bytes, int]:
+    """Return (redacted png, exit code). Exit code 3 means the frame was fully blacked out."""
+    from PIL import Image
+    img = Image.open(io.BytesIO(png)).convert("RGB")
+    code = 0
+    try:
+        boxes = ocr_boxes(img, slm=slm)
+        if xml:
+            try:
+                boxes += redact_xml(xml, slm=False)[1]
+            except ET.ParseError:
+                pass  # OCR layer still applies
+        img = black(img, boxes)
+    except (FailClosed, subprocess.TimeoutExpired, OSError) as exc:
+        img, code = blank_like(img, f"fail-closed ({exc})"), EXIT_FAIL_CLOSED
+    out = io.BytesIO()
+    img.save(out, "PNG")
+    return out.getvalue(), code
+
+
+# ---------------------------------------------------------------- device access
+
+def adb_bin() -> str:
+    sdk = Path.home() / "android/sdk/platform-tools/adb"
+    return os.environ.get("PHONE_SCREEN_SAFE_ADB") or (str(sdk) if sdk.is_file() else "adb")
+
+
+def adb(serial: str | None, *args: str, timeout: int = 60) -> bytes:
+    cmd = [adb_bin()] + (["-s", serial] if serial else []) + list(args)
+    return subprocess.run(cmd, capture_output=True, timeout=timeout, check=True).stdout
+
+
+def foreground_package(serial: str | None) -> str:
+    out = adb(serial, "shell", "dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'").decode(errors="replace")
+    m = re.search(r"\s([a-zA-Z0-9_.]+)/", out)
+    return m.group(1) if m else ""
+
+
+def sensitive_package(pkg: str) -> bool:
+    return any(pkg.startswith(p) or p in pkg for p in SENSITIVE_PACKAGES)
+
+
+def device_dump(serial: str | None) -> str | None:
+    """Raw hierarchy XML, or None. Falls back to uiautomator2 when adb's dump cannot get an
+    idle state (animated screens) and the module is importable (uv run --with uiautomator2)."""
+    try:
+        out = adb(serial, "exec-out", "uiautomator dump /sdcard/.pss.xml >/dev/null 2>&1 && "
+                  "cat /sdcard/.pss.xml; rm -f /sdcard/.pss.xml").decode("utf-8", "replace")
+        if "<?xml" in out:
+            return out[out.find("<?xml"):]
+    except subprocess.SubprocessError:
+        pass
+    try:
+        import uiautomator2 as u2
+        return u2.connect(serial).dump_hierarchy()
+    except Exception:
+        return None
+
+
+def shot(serial: str | None, out: Path, slm: bool) -> int:
+    from PIL import Image
+    pkg = foreground_package(serial)
+    png = adb(serial, "exec-out", "screencap", "-p")
+    if sensitive_package(pkg):
+        img = blank_like(Image.open(io.BytesIO(png)), f"sensitive app {pkg}")
+        buf = io.BytesIO()
+        img.save(buf, "PNG")
+        out.write_bytes(buf.getvalue())
+        return 0
+    xml = device_dump(serial)
+    data, code = redact_png(png, xml, slm=slm)
+    out.write_bytes(data)
+    return code
+
+
+def dump(serial: str | None, slm: bool) -> tuple[str, int]:
+    pkg = foreground_package(serial)
+    if sensitive_package(pkg):
+        return f'<?xml version="1.0"?><hierarchy redacted="sensitive app {pkg}"/>', 0
+    xml = device_dump(serial)
+    try:
+        return redact_xml(xml, slm=slm)[0], 0
+    except (ET.ParseError, TypeError):
+        return '<?xml version="1.0"?><hierarchy redacted="fail-closed: no parseable dump"/>', EXIT_FAIL_CLOSED
+
+
+# ---------------------------------------------------------------- uiautomator2 API
+
+def _u2_package(d) -> str:
+    try:
+        return d.app_current().get("package", "")
+    except Exception:
+        return ""
+
+
+def safe_hierarchy(d, slm: bool = False) -> str:
+    """Redacted d.dump_hierarchy() for a uiautomator2 device."""
+    pkg = _u2_package(d)
+    if sensitive_package(pkg):
+        return f'<?xml version="1.0"?><hierarchy redacted="sensitive app {pkg}"/>'
+    return redact_xml(d.dump_hierarchy(), slm=slm)[0]
+
+
+def safe_screenshot(d, path, slm: bool = False) -> int:
+    """Write a redacted screenshot of a uiautomator2 device to path. Raw pixels stay in memory."""
+    img = d.screenshot()  # PIL image, never written raw
+    pkg = _u2_package(d)
+    if sensitive_package(pkg):
+        blank_like(img, f"sensitive app {pkg}").save(str(path), "PNG")
+        return 0
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    try:
+        xml = d.dump_hierarchy()
+    except Exception:
+        xml = None
+    data, code = redact_png(buf.getvalue(), xml, slm=slm)
+    Path(path).write_bytes(data)
+    return code
+
+
+# ---------------------------------------------------------------- scan
+
+def scan(paths: list[str]) -> int:
+    """Exit 1 when a high-confidence secret pattern remains in text or OCR of an image."""
+    strong = ("github_token", "openai_key", "aws_key", "google_key", "slack_token", "stripe_key",
+              "jwt", "private_key", "hex_secret")
+    bad = 0
+    for p in paths:
+        path = Path(p)
+        if path.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp"):
+            from PIL import Image
+            text = " ".join(w["text"] for w in ocr_words(Image.open(path)))
+        else:
+            text = path.read_text(errors="replace")
+        hits = sorted({r for _, _, r in find_spans(text) if r in strong})
+        if hits:
+            bad = 1
+            print(f"LEAK {p}: {','.join(hits)}")  # rule names only, never the value
+    return bad
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(prog="phone-screen-safe", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    for name in ("shot", "dump"):
+        p = sub.add_parser(name)
+        p.add_argument("-s", "--serial", default=os.environ.get("ANDROID_SERIAL"))
+        p.add_argument("out", nargs="?" if name == "dump" else None)
+        p.add_argument("--slm", action="store_true")
+    p = sub.add_parser("redact-image")
+    p.add_argument("src")
+    p.add_argument("out")
+    p.add_argument("--xml")
+    p.add_argument("--slm", action="store_true")
+    p = sub.add_parser("redact-xml")
+    p.add_argument("src", nargs="?")
+    p.add_argument("--slm", action="store_true")
+    p = sub.add_parser("scan")
+    p.add_argument("paths", nargs="+")
+    a = ap.parse_args(argv)
+
+    if a.cmd == "shot":
+        return shot(a.serial, Path(a.out), a.slm)
+    if a.cmd == "dump":
+        x, code = dump(a.serial, a.slm)
+        Path(a.out).write_text(x) if a.out else sys.stdout.write(x)
+        return code
+    if a.cmd == "redact-image":
+        xml = Path(a.xml).read_text() if a.xml else None
+        data, code = redact_png(Path(a.src).read_bytes(), xml, slm=a.slm)
+        Path(a.out).write_bytes(data)
+        return code
+    if a.cmd == "redact-xml":
+        src = Path(a.src).read_text() if a.src else sys.stdin.read()
+        sys.stdout.write(redact_xml(src, slm=a.slm)[0])
+        return 0
+    return scan(a.paths)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
