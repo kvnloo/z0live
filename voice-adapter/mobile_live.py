@@ -1548,9 +1548,15 @@ class GPTGuest:
         for table in (self.users, self.replies, self.tails, self.ended):
             table.pop("guest", None)
         self.audio.clear()
-        # What Tek was handed and never said goes to the primary voice with the rest of Tek's answers.
         unsaid = self.ledger.retire("guest")
-        self.floor.answers["guest"].extend(Answer("guest", entry.did, text) for entry, text in unsaid)
+        if reason == "guest_left":
+            # Kevin sent Tek off: what Tek never said leaves with it. Join probe 13:29: the rest of Tek's answer, cut
+            # by Kevin's "Thanks Tek. Hermes, back to you", was read by Hermes right after "Tek is off the call".
+            for did in [entry.did for entry, _ in unsaid] + [a.delegation_id for a in self.floor.answers["guest"]]:
+                self.call.trace("floor.answer_dropped", speaker="guest", did=did, reason="guest_left")
+            self.floor.answers["guest"].clear()
+        else:  # it failed: what Tek was handed and never said goes to the primary voice with the rest of its answers
+            self.floor.answers["guest"].extend(Answer("guest", entry.did, text) for entry, text in unsaid)
         self.floor.failed(self.config.name, time.monotonic(), line=line, reason=reason)  # (drops its hello)
         self.flush_answers()
         if self.subscription:
@@ -2431,9 +2437,9 @@ class Call:
             duplex = self.duplex = GPTGuest(self, None)
             duplex.set_people(self.people)
         duplex.adopt(config)
-        # On the floor's ledger, so it is said once and Tek's hello waits for it (join probe 13:21: sent before
-        # the floor existed, it was lost under the voice's own "One sec.").
-        say(f"Bringing {config.name} in.")
+        # No line from Hermes on success: its own "One sec." is the ack and the guest's hello, in the guest's voice,
+        # is the confirmation. A "Bringing PC in." line was paraphrased ("PC's here now"), resent and dropped, and
+        # the hello waited behind it until Kevin had moved on (join probe 13:26).
         self.guest, self.guest_config = duplex, config
         self.protocol.own = lambda said: duplex.own_words("primary", said)
         duplex.protocol.own = lambda said: duplex.own_words("guest", said)
@@ -2452,11 +2458,10 @@ class Call:
         duplex.note(duplex.persona)
         self.guest_note(config.primary_note)
         self.spawn(self.renew_subscription(duplex))
-        # The guest says hello in its own voice once Hermes's "Bringing Tek in" is off the phone.
+        # The guest says hello in its own voice once Hermes's "One sec." is off the phone.
         end = time.monotonic() + 8
         while time.monotonic() < end and not self.closed and (
-                "primary" in duplex.replies or duplex.playing("primary") or duplex.floor.answers["primary"]
-                or duplex.ledger.pending("primary")):
+                "primary" in duplex.replies or duplex.playing("primary")):
             await asyncio.sleep(0.1)
         if self.closed or duplex.closed:
             return

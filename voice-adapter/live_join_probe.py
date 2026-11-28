@@ -276,8 +276,13 @@ async def main():
             cur = [t, by, t, d]
             lines.append(cur)
     repeats, lost, answers = judge(probe, lines)
+    # An answer the caller talked over (floor.barge_in on its voice) is cut by him, not lost by the adapter.
+    barges = [(r["t"], r.get("speaker")) for r in trace if r["ev"] == "floor.barge_in"]
+    cut_by_caller = [x for x in lost if any(by == x["voice"] and x["handed_at"][0] - 5 <= t <= x["handed_at"][-1] + 40
+                                            for t, by in barges)]
+    lost = [x for x in lost if x not in cut_by_caller]
     report = {
-        "repeats": repeats, "lost": lost, "answers": answers,
+        "repeats": repeats, "lost": lost, "cut_by_caller": cut_by_caller, "answers": answers,
         "said_by": [{"t": t, "voice": by, "text": text.strip()} for t, by, _, text in lines],
         "utterances": [(r["t"], r.get("text"), r.get("address"), r.get("owner")) for r in trace if r["ev"] == "floor.utterance"],
         "floor": [(r["t"], r["ev"], r.get("speaker"), r.get("reason") or r.get("did")) for r in trace
@@ -288,7 +293,7 @@ async def main():
         "call_id": call.id,
     }
     (OUT / "report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False, default=str))
-    print(json.dumps({k: report[k] for k in ("repeats", "lost", "said_by", "marks", "voices_json_after")},
+    print(json.dumps({k: report[k] for k in ("repeats", "lost", "cut_by_caller", "said_by", "marks", "voices_json_after")},
                      indent=2, ensure_ascii=False, default=str))
 
 

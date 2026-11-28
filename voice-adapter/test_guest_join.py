@@ -132,14 +132,14 @@ class JoinTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_add_tek_turns_the_guest_on_for_this_call_only_and_tek_says_hello_in_its_own_voice(self):
         self.call.join(("add", "tek"), None, "Add Tek to the call")
-        await self.settle(lambda: self.spoken())
-        self.assertEqual(self.spoken(), ["Bringing Tek in."])
+        await self.settle(lambda: self.call.duplex is not None and self.call.duplex.floor.available)
         g = self.call.duplex
         self.assertIsInstance(g, live.GPTGuest)
         self.assertIs(self.call.guest, g)
         self.assertEqual((g.config.profile, g.config.voice, g.floor.available), ("tek", "ember", True))
-        self.primary_says("Bringing Tek in.", "r1")
+        self.primary_says("One sec.", "r1")  # the voice's own ack (PERSONA); Hermes is handed no line of its own
         await asyncio.gather(*self.call.tasks)
+        self.assertEqual(self.spoken(), [])
         self.assertEqual(len(self.spoken("guest")), 1)
         self.assertIn("Hi Kevin, Tek here.", self.spoken("guest")[0])
         self.assertEqual((g.floor.owner, g.floor.reason), ("guest", "guest_joined"))
@@ -153,8 +153,8 @@ class JoinTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_remove_tek_leaves_hermes_alone_on_the_call(self):
         self.call.join(("add", "tek"), None)
-        await self.settle(lambda: self.spoken())
-        self.primary_says("Bringing Tek in.", "r1")
+        await self.settle(lambda: self.call.duplex is not None and self.call.duplex.floor.available)
+        self.primary_says("One sec.", "r1")
         await asyncio.gather(*self.call.tasks)
         g = self.call.duplex
         self.call.join(("remove", "tek"), None)
@@ -167,17 +167,43 @@ class JoinTest(unittest.IsolatedAsyncioTestCase):
         # Tek's hello, unsaid when it left, is not handed to Hermes as "Tek's Hermes returned this answer".
         self.assertFalse(any("joined Kevin's call" in text for text in self.spoken()))
 
+    async def test_what_tek_left_unsaid_leaves_with_it(self):
+        # Join probe 13:29: Kevin cut Tek's resumed rest ("Thanks Tek. Hermes, back to you"), then removed Tek, and
+        # Hermes read that rest as "Tek's Hermes returned this answer".
+        self.call.join(("add", "tek"), None)
+        await self.settle(lambda: self.call.duplex is not None and self.call.duplex.floor.available)
+        self.primary_says("One sec.", "r1")
+        await asyncio.gather(*self.call.tasks)
+        g = self.call.duplex
+        g.floor.answers["guest"].append(live.Answer("guest", "d-tek", "Two scheduled jobs ran this afternoon.", rest=True))
+        g.floor.change("primary", "redirected", live.time.monotonic())
+        self.call.join(("remove", "tek"), None)
+        await asyncio.gather(*self.call.tasks)
+        self.assertEqual(self.spoken(), ["Tek is off the call now."])
+        self.assertFalse(g.floor.answers["guest"] or g.floor.answers["primary"])
+
+    async def test_a_guest_that_fails_still_hands_its_unsaid_answer_to_hermes(self):
+        self.call.join(("add", "tek"), None)
+        await self.settle(lambda: self.call.duplex is not None and self.call.duplex.floor.available)
+        self.primary_says("One sec.", "r1")
+        await asyncio.gather(*self.call.tasks)
+        g = self.call.duplex
+        g.floor.answers["guest"].append(live.Answer("guest", "d-tek", "The release shipped at noon."))
+        g.failed("audio_ended")
+        await asyncio.gather(*self.call.tasks)
+        self.assertTrue(any("The release shipped at noon." in text for text in self.spoken()))
+
     async def test_turn_and_delegation_of_one_utterance_add_once(self):
         self.call.protocol.turn_text["user"] = "Hey, add Tek to the call."
         self.call.join(self.call.join_words("Hey, add Tek to the call."), None, "Hey, add Tek to the call.")
         # The voice then delegates its paraphrase of the same words.
         self.assertTrue(self.call.join_command("d1", "Kevin wants Tek added to this call"))
-        await self.settle(lambda: self.spoken())
-        self.primary_says("Bringing Tek in.", "r1")
+        await self.settle(lambda: self.call.duplex is not None and self.call.duplex.floor.available)
+        self.primary_says("One sec.", "r1")
         await asyncio.gather(*self.call.tasks)
         self.assertEqual(self.call.counts["guest_join_add"], 1)
         self.assertIn("guest.join_repeat", self.call.traces)
-        self.assertEqual(self.spoken(), ["Bringing Tek in."])
+        self.assertEqual(len(self.spoken("guest")), 1)
 
     async def test_a_request_that_does_not_name_a_joinable_agent_is_not_swallowed(self):
         self.call.protocol.turn_text["user"] = "Add Tek to the call"
@@ -200,8 +226,8 @@ class JoinTest(unittest.IsolatedAsyncioTestCase):
     async def test_one_guest_at_a_time(self):
         (Path(self.home) / ".config/z0live/guest-hosts/pc.key").write_text("pc-key")
         self.call.join(("add", "tek"), None)
-        await self.settle(lambda: self.spoken())
-        self.primary_says("Bringing Tek in.", "r1")
+        await self.settle(lambda: self.call.duplex is not None and self.call.duplex.floor.available)
+        self.primary_says("One sec.", "r1")
         await asyncio.gather(*self.call.tasks)
         self.call.join(("add", "pc"), None)
         await asyncio.gather(*self.call.tasks)
@@ -218,7 +244,7 @@ class JoinTest(unittest.IsolatedAsyncioTestCase):
         await self.settle(lambda: floor_only.config is not None and floor_only.floor.available)
         self.assertIs(self.call.duplex, floor_only)
         self.assertEqual(floor_only.floor.people, 2)
-        self.primary_says("Bringing Tek in.", "r1")
+        self.primary_says("One sec.", "r1")
         await asyncio.gather(*self.call.tasks)
         self.assertEqual(floor_only.config.profile, "tek")
 
