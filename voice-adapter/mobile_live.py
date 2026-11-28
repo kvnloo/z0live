@@ -58,7 +58,7 @@ from aiortc.contrib.media import MediaRelay  # noqa: E402
 # the warm-Haiku/Groq instant lane, the Fable lanes and the core lanes relay.
 TIERS_ON = os.environ.get("Z0LIVE_TIERS", "off") == "on"
 import handoff  # noqa: E402 - sibling module (call continues on z0live when the owner leaves the screen)
-import owner  # noqa: E402 - sibling module (who the prompts name: Z0LIVE_OWNER_NAME, default "the owner")
+import owner as owner_identity  # noqa: E402 - sibling module (who the prompts name: Z0LIVE_OWNER_NAME, default "the owner")
 import passthru  # noqa: E402 - sibling module (z0 joins the owner's other video call)
 import turn_slots  # noqa: E402 - sibling module (a call's bounded line of Hermes runs)
 CHAT_CONTINUITY = os.environ.get("HERMES_MOBILE_VOICE_CHAT", "1") != "0"
@@ -139,7 +139,7 @@ def tv_screen(timeout=0.8) -> str:
         return ""
     words = [" ".join(str(i.get("s", "")).split()) for i in dl.get("items", []) if i.get("k") == "text" and i.get("s")]
     text = " | ".join(w for w in words if w)[:1500]
-    return (owner.fill("The owner's 85-inch TV") + f" is showing the z0 lanes '{view}' view right now. Its words, top to bottom: {text}"
+    return (owner_identity.fill("The owner's 85-inch TV") + f" is showing the z0 lanes '{view}' view right now. Its words, top to bottom: {text}"
             if text else "")
 
 
@@ -250,7 +250,7 @@ def opens_promise(text: str) -> bool:
     return bool(PROMISE_OPENER.search(text) or PROMISE.search(text))
 
 
-PERSONA = owner.fill("""You are Hermes, speaking with the user in the official Hermes mobile app.
+PERSONA = owner_identity.fill("""You are Hermes, speaking with the user in the official Hermes mobile app.
 Be natural, brief and direct. Do not speak until the user speaks. While the user tells a longer
 story, acknowledge often with a quick "mm-hm", "yeah" or "right" and let them keep going. Start
 answering as soon as the user is clearly done; do not wait for a long silence. Listen while speaking
@@ -995,7 +995,7 @@ class GPTGuest:
         self.user_heard_at = float("-inf")  # the latest caller transcript event on either leg
         self.flush_timer: asyncio.TimerHandle | None = None
         identity = "Tek (also Teknium, டெக் or டெக்னியம்)" if aliases else (config.name if config else "")
-        self.persona = owner.fill(f"You are {identity}, a guest on the owner's call. When the owner addresses you or continues "
+        self.persona = owner_identity.fill(f"You are {identity}, a guest on the owner's call. When the owner addresses you or continues "
                         "that exchange, answer briefly. Do not reply to other exchanges or backchannels. "
                         "For questions about your work or history, delegate to your own Hermes, then speak "
                         "its answer. When you delegate, say at most a short neutral line such as \"Let me check\"; "
@@ -1285,7 +1285,7 @@ class GPTGuest:
                         if length:
                             self.note_budget[target] -= length
                             name = self.config.name if source == "guest" else "Hermes"
-                            note = (f"{name} said " + owner.fill("(the owner heard it; silent context, never repeat or summarize it), ")
+                            note = (f"{name} said " + owner_identity.fill("(the owner heard it; silent context, never repeat or summarize it), ")
                                     + f"starting: {gist[:length]}")
                             (self.note if target == "guest" else self.call.guest_note)(note)
                     if allowed:
@@ -1881,7 +1881,7 @@ class Call:
             context = self.read_history(history)
             if context:
                 if os.environ.get("VOICE_WARM_HAIKU", "1") != "0" and shutil.which("claude"):
-                    self.haiku = WarmHaiku(owner.fill(FAST_SYSTEM.format(who="Haiku")) + "\n\n" + self.context_text[-6000:])
+                    self.haiku = WarmHaiku(owner_identity.fill(FAST_SYSTEM.format(who="Haiku")) + "\n\n" + self.context_text[-6000:])
                     self.spawn(self.start_haiku())
                 # raw tail is for the lanes only: as live context items the model answered them (catch-up, 11-16)
             # The subscription endpoint ignores session instructions (11-16 canary: "I'm ChatGPT"), so the
@@ -1954,7 +1954,7 @@ class Call:
                         break
                     await asyncio.sleep(0.05)
                 if brief:
-                    await guest.note(owner.fill("Background on the owner's chat (do not read aloud):\n") + brief[:6000])
+                    await guest.note(owner_identity.fill("Background on the owner's chat (do not read aloud):\n") + brief[:6000])
         except Exception as exc:  # noqa: BLE001 - the call goes on with one voice
             if isinstance(guest, GPTGuest):
                 guest.failed("setup_" + type(exc).__name__)
@@ -2777,10 +2777,10 @@ class Call:
         # 11-25: the fast lane answered "I can't see your screen" about the owner's own TV and lost the thread of the
         # call: give it what the TV shows now and the call's last turns with every question.
         tv = await asyncio.to_thread(tv_screen)
-        said = "\n".join(f"{owner.LABEL if role == 'user' else 'Voice'}: {' '.join(text.split())[:300]}"
+        said = "\n".join(f"{owner_identity.LABEL if role == 'user' else 'Voice'}: {' '.join(text.split())[:300]}"
                          for role, text in list(self.protocol.exchanges)[-6:])
         ask = (f"Said on this call so far:\n{said}\n\n" if said else "") + (f"{tv}\n\n" if tv else "") + \
-            f"{owner.LABEL} now asks: {ask}"
+            f"{owner_identity.LABEL} now asks: {ask}"
         text = ""
         if self.haiku:
             began = time.monotonic()
@@ -2791,7 +2791,7 @@ class Call:
                 self.trace("delegation.haiku_fast_failed", did=did, error=type(exc).__name__)
         if not text or NOISE.match(text):
             began = time.monotonic()
-            text = await self.groq(owner.fill(FAST_SYSTEM.format(who="Qwen on Groq")) + "\n\n" + self.context_text[-6000:], ask,
+            text = await self.groq(owner_identity.fill(FAST_SYSTEM.format(who="Qwen on Groq")) + "\n\n" + self.context_text[-6000:], ask,
                                    200 if facts else 120)
             self.trace("delegation.ttft", did=did, s=round(time.monotonic() - began, 3), text=text[:500])
         if self.say_first(did, text):
@@ -2851,7 +2851,7 @@ class Call:
         before = self.__dict__.get("first_said", {}).get(did, "")
         found = "\n".join(f"- {name}: {text}" for name, text in answers)
         text = await self.groq(
-            owner.fill("Merge helper findings into what the owner hears on a live voice call: at most two short spoken sentences, "
+            owner_identity.fill("Merge helper findings into what the owner hears on a live voice call: at most two short spoken sentences, "
             "the single most important fact first, no lane names, no plumbing. If the findings add nothing to what "
             "he already heard, reply exactly SKIP."),
             f"He asked: {request}\nAlready said: {before or '(nothing)'}\nFindings:\n{found}", 160)
@@ -3003,13 +3003,13 @@ class Call:
         if memory:
             look = (f" For anything older or not covered here, search that chat first (session_search with "
                     f"session_id={sid}) before answering; never say you lack context." if sid else "")
-            context = (owner.fill("You are answering beside the owner's main chat with his agent;") + f" you share its work and "
+            context = (owner_identity.fill("You are answering beside the owner's main chat with his agent;") + f" you share its work and "
                        f"history.{look}\n\n{memory}" + (f"\n\n{context}" if context else ""))
         if context:
             return context + (f"\n\n{led}" if led else "") + "\n\nRequest: " + request
-        said = "\n".join(f"{owner.LABEL if role == 'user' else 'Voice'}: {text[:400]}"
+        said = "\n".join(f"{owner_identity.LABEL if role == 'user' else 'Voice'}: {text[:400]}"
                          for role, text in list(self.protocol.exchanges)[-6:])
-        return (owner.fill("The owner asked this on a live voice call.") + f" Answer it on its own, in a few short spoken sentences."
+        return (owner_identity.fill("The owner asked this on a live voice call.") + f" Answer it on its own, in a few short spoken sentences."
                 f"\n\nRecent call:\n{said or '(none)'}" + (f"\n\n{led}" if led else "") + f"\n\nRequest: {request}")
 
     async def sleep(self, seconds):  # the replay runs this on its own clock
@@ -3178,7 +3178,7 @@ class Call:
                     or candidate.peer.connectionState != "connected" or candidate.channel.readyState != "open"):
                 raise RuntimeError("Replacement voice transport disconnected")
             recent = "\n".join(f"{role}: {' '.join(text.split())[:400]}" for role, text in protocol.exchanges)
-            summary = (owner.fill("Continuing the same call. This is a recap, not a new request. Stay silent until the owner "
+            summary = (owner_identity.fill("Continuing the same call. This is a recap, not a new request. Stay silent until the owner "
                        "speaks again; do not repeat prior actions or answers.\n") + recent)
             opening = self.brief_events(guest.persona) if guest else self.opening_context
             if not guest and duplex and duplex.floor.available:
