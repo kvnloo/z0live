@@ -45,6 +45,25 @@ class Brief(unittest.TestCase):
             call_brief.save("this chat", "c1", root)
             self.assertEqual(call_brief.written("c1", root=root), "this chat")
 
+    def test_fresh_situation_is_appended_and_stale_is_dropped(self):
+        saved = call_brief.SITUATION_FILE
+        with tempfile.TemporaryDirectory() as d:
+            call_brief.BRIEF_DIR = Path(d)
+            sit = Path(d) / "situation.md"
+            sit.write_text("<preflight>4 workers free; sandbox host out of credit</preflight>")
+            call_brief.SITUATION_FILE = sit
+            try:
+                text = call_brief.build([msg("user", "hi")])
+                self.assertIn("4 workers free", text)
+                self.assertTrue(text.rstrip().endswith("</call_brief>"))
+                old = time.time() - call_brief.SITUATION_FRESH_S - 60
+                os.utime(sit, (old, old))
+                self.assertNotIn("4 workers free", call_brief.build([msg("user", "hi")]))
+                call_brief.SITUATION_FILE = Path(d) / "missing.md"
+                self.assertEqual(call_brief.situation(), "")
+            finally:
+                call_brief.SITUATION_FILE = saved
+
 
 if __name__ == "__main__":
     unittest.main()

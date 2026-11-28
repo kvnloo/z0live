@@ -17,6 +17,10 @@ from pathlib import Path
 
 BRIEF_DIR = Path(os.environ.get("HERMES_VOICE_BRIEF_DIR", "/mnt/zer0models/workspace/zer0/data/z0live/call-briefs"))
 FRESH_S = 3 * 3600
+# Optional live-situation block (capacity, tool health, infra) a local job rewrites every few minutes. It is
+# appended to the brief at call start so the voice can answer "what can you run right now" without delegating.
+SITUATION_FILE = Path(os.path.expanduser(os.environ.get("Z0LIVE_PREFLIGHT_FILE", "~/.local/state/preflight/brief.md")))
+SITUATION_FRESH_S = 20 * 60
 CAPABILITY = ("Kevin's Hermes chat is a separate agent on his PC with adb to his phone: it can screenshot and read "
               "his screen, watch logs and run commands, and Kevin has approved it watching his screen. You reach it "
               "by delegating. Never say you can't see his screen or aren't connected; never promise to do work "
@@ -74,11 +78,24 @@ def people(history) -> int:
     return max(counts, default=1)
 
 
+def situation(now: float | None = None, path: Path | None = None) -> str:
+    """The live-situation block if it is fresh (empty when missing or stale, so a dead job never feeds old state)."""
+    path = path or SITUATION_FILE
+    try:
+        if (now or time.time()) - path.stat().st_mtime < SITUATION_FRESH_S:
+            return path.read_text()[:3000].strip()
+    except OSError:
+        pass
+    return ""
+
+
 def build(history, chat: str = "", note: str | None = None) -> str:
     """`note` is the written brief already read for this call (`written(chat)`), so every voice and Hermes on the
     call works from the same one."""
     body = (written(chat) if note is None else note) or digest(history)
-    return FRAME + CAPABILITY + ("\n\n" + body if body else "") + "\n</call_brief>"
+    live = situation()
+    return (FRAME + CAPABILITY + ("\n\n" + body if body else "") + ("\n\n" + live if live else "")
+            + "\n</call_brief>")
 
 
 def save(text: str, chat: str = "", root: Path = BRIEF_DIR) -> Path:
