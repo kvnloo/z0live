@@ -1,0 +1,102 @@
+name: z0live C1-ctx-sem-r6 calibrated judge oracle (REPLACE-vs-ALSO logprob margin, one dev-fitted threshold), gemma4-e2b Q4_K_M (CPU)
+# Oracle only, not a scored run. One job: sem-r2 prompt unchanged, first-token logprob margin x2 passes on 198 recorded pairs.
+# Prereg: voice-adapter/bench/ctx-compress-sem-r6-oracle-PREREG.md
+on:
+  push:
+    branches: [ci/ctx-sem-r6-oracle]
+    paths: [".github/workflows/ctx-compress-sem-r6-oracle.yml"]
+permissions:
+  contents: read
+concurrency:
+  group: ctx-compress-sem-r6-oracle-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  LLAMA_TAG: b12527
+  LLAMA_SHA256: c2758c87b9dd41293653e665fa3b06f5853d69243443d5d06d930683a55e35e4   # llama-b12527-bin-ubuntu-arm64.tar.gz
+  REPO: unsloth/gemma-4-E2B-it-GGUF
+  REV: 0314792d7f1f7e229411f620751375812bb9faf2
+  FILE: gemma-4-E2B-it-Q4_K_M.gguf
+  SHA: 740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8   # = HF LFS oid at REV
+jobs:
+  oracle:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Runner CPU
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          lscpu | tee lscpu.txt
+          cpu=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)
+          echo "CPU_MODEL=${cpu:-unknown} ($(uname -m), $(nproc) cpus)" >> "$GITHUB_ENV"
+      - name: llama.cpp ${{ env.LLAMA_TAG }} (prebuilt ubuntu arm64 CPU)
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/llama" && cd "$RUNNER_TEMP/llama"
+          curl -fsSL --retry 5 --retry-all-errors -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_TAG}/llama-${LLAMA_TAG}-bin-ubuntu-arm64.tar.gz"
+          echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
+          tar xzf llama.tgz
+          server=$(find "$RUNNER_TEMP/llama" -type f -name llama-server | head -1)
+          test -x "$server"
+          echo "LLAMA_SERVER=$server" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$(dirname "$server")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+      - name: Restore GGUF cache
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/models/${{ env.FILE }}
+          key: gguf-${{ env.SHA }}
+      - name: Download GGUF (pinned by sha256, 3 attempts)
+        if: steps.cache.outputs.cache-hit != 'true'
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/models"
+          for i in 1 2 3; do
+            if curl -fsSL --retry 5 --retry-all-errors --speed-limit 2000000 --speed-time 60 -o "$RUNNER_TEMP/models/$FILE" "https://huggingface.co/$REPO/resolve/$REV/$FILE" \
+               && echo "$SHA  $RUNNER_TEMP/models/$FILE" | sha256sum -c -; then exit 0; fi
+            echo "download attempt $i failed"; rm -f "$RUNNER_TEMP/models/$FILE"; sleep $((20 * i))
+          done
+          exit 1
+      - name: Save GGUF cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/models/${{ env.FILE }}
+          key: gguf-${{ env.SHA }}
+      - name: Verify frozen inputs
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          echo "$SHA  $RUNNER_TEMP/models/$FILE" | sha256sum -c -
+          grep -E '^[0-9a-f]{64}  (voice-adapter|\.github)/' voice-adapter/bench/ctx-compress-sem-r6-oracle-FREEZE.sha256 | sha256sum -c -
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Unit tests (no model)
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet "aiohttp>=3.9,<4"   # tiers.py / slm_bench import chain
+          (cd voice-adapter && python -m unittest -v test_ctx_compress_sem_r6)
+      - name: Margin oracle (old prompt, logprob margin, 2 passes) on all pairs
+        timeout-minutes: 35
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cp lscpu.txt out/
+          meta=$(python -c 'import json,os;print(json.dumps({k.lower():os.environ[k] for k in ("REPO","REV","FILE","SHA","LLAMA_TAG","CPU_MODEL")}))')
+          python voice-adapter/bench/ctx_compress_sem_r6_margin.py --gguf "$RUNNER_TEMP/models/$FILE" --out out/margins.json --meta "$meta" | tee out/summary.json
+          { echo '```'; cat out/summary.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ctx-compress-sem-r6-oracle
+          path: out/
+          if-no-files-found: warn
+          retention-days: 30

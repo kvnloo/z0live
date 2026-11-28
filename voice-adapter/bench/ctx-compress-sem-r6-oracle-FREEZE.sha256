@@ -1,0 +1,8 @@
+# C1-ctx-sem-r6 oracle freeze (written before any model call; checked in the CI job)
+# 740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8  gemma-4-E2B-it-Q4_K_M.gguf (unsloth/gemma-4-E2B-it-GGUF rev 0314792d7f1f7e229411f620751375812bb9faf2)
+129641dddacf1a4aad10077bf41304f9b3c8865ac2fc928b8e560b05e9f59101  voice-adapter/brief_compress_sem2.py
+3bd3ecd1106e7d319be851b2643660c3e16164bc44297c944127560f9064b46c  voice-adapter/test_ctx_compress_sem_r6.py
+7413882b8a6740d4f3af091ac52c2479a88945c3a2788080e159f3ec06ecaaf4  voice-adapter/bench/ctx_compress_sem_r5_pairs.json
+5911f41a2d0517832ab4248b958fcff3151fe291ce3724bb7de07d91f5d4333e  voice-adapter/bench/ctx_compress_sem_r6_margin.py
+adcfdf1c6e1fed297c537e2144916f3df5907c916672a5ff27df8616c5fabb9d  voice-adapter/bench/ctx-compress-sem-r6-oracle-PREREG.md
+02bd44d65f7b1bf7a3ece3f592ab1a1cbd5c4cd32c974f67ef593bf6835fa477  voice-adapter/bench/lanespeed.py
