@@ -1,0 +1,17 @@
+{
+ "experiment": "C1-ctx-sem-r3",
+ "kind": "dry prediction (I), written before the scored run",
+ "outcome": "REVERT",
+ "failed": ["G1_blind_two_true_loss"],
+ "confidence": "moderate; alternative KEEP",
+ "r15": {"update_stale_B": 1, "update_correct_B": [6, 8], "two_old_loss_B": 1, "static_recall_B": 11,
+         "update_stale_A": 9, "two_old_loss_A": 0, "static_recall_A": 11},
+ "v2": {"update_stale_B": [1, 5], "update_correct_B": [10, 15], "two_old_loss_B": [1, 2], "static_recall_B": 21,
+        "update_stale_A": 17, "two_old_loss_A": 0, "static_recall_A": 21,
+        "pairs_at_risk": ["v2-pickup Time-300 / Time-300B", "v2-book-club READ-808 / READ-909"]},
+ "pooled": {"G1": "LOSS B 2-3 vs A 0 -> FAIL unless band >= 2", "G1e": "pass", "G1s": "pass"},
+ "dev": "G1b, G1c, G2, G3 pass (CPU-key replay: STOP empty, every gated dev stale probe fixed); G4, G5, G6 pass; main B == A so G7 pass",
+ "G8a_p50_s": "< 0.05",
+ "G8b_per_new_statement_p50_s": [1.4, 2.0],
+ "basis": ["ctx_compress_sem_r3_oracle_bound.json", "ctx_compress_sem_r3_replay_cpu_keys.json", "sem-r2 RESULT (run 46098403361)"]
+}

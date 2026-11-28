@@ -1,0 +1,904 @@
+{
+ "about": "E-blind-v2 blind held-out set (second blind set for the C1 supersession climb). Every 'text' is a verbatim User line of a chat written by a free hosted LLM (gpt-oss-120b / gpt-oss-20b) that saw only the r15 neutral spec with the topic substituted (no compressor, rule, or earlier set). Gold values and categories come deterministically from each text's own KEY section (convert_v2.py); the experimenter added only the probe questions, the noise topic and the padding (harness). raw_sha256 = sha256 of the raw blind text file (kept outside the repo).",
+ "categories": {
+  "UPD_SAME": "KEY type update; first and last statement share >= half their content words",
+  "UPD_RENAMED": "KEY type update; otherwise",
+  "TWO_OLD": "KEY still-true similar pair, member said first (gated, old-fact LOSS)",
+  "TWO_NEW": "KEY still-true similar pair, member said second (report-only)",
+  "STATIC": "KEY fact / free-form / one-off with a code (gated recall)"
+ },
+ "scenarios": [
+  {
+   "name": "v2-dentist",
+   "raw": "dentist-a1.txt",
+   "raw_sha256": "87c239bbf2f6678eb3e68df97b85a51e870dbc1b7ee7c63d208a1f73bc3e1395",
+   "noise": {
+    "topic": "dentist",
+    "noun": "Office",
+    "items": [
+     "mirror",
+     "poster",
+     "lamp",
+     "magazine",
+     "plant",
+     "cushion",
+     "clock"
+    ]
+   },
+   "old": [
+    {
+     "text": "My next dentist appointment reference is Crown-12.",
+     "value": "Crown-12"
+    },
+    {
+     "text": "I keep a spare toothbrush in my gym bag, tag is Grip-55.",
+     "value": "Grip-55"
+    },
+    {
+     "text": "My dental insurance policy number is Shield-88.",
+     "value": "Shield-88"
+    },
+    {
+     "text": "I have a morning reminder set for dental floss, code is Bright-03.",
+     "value": "Bright-03"
+    },
+    {
+     "text": "I prefer Dr. Patel for cleanings, her ID is Star-07.",
+     "value": "Star-07"
+    },
+    {
+     "text": "My favorite toothpaste flavor is mint, code is Fresh-11.",
+     "value": "Fresh-11"
+    },
+    {
+     "text": "I have a dental anxiety journal, entry code is Calm-77.",
+     "value": "Calm-77"
+    }
+   ],
+   "new": [
+    {
+     "text": "I have a morning reminder set for tooth brushing, code is Bright-04.",
+     "value": "Bright-04"
+    },
+    {
+     "text": "I changed my appointment, new reference is Crown-45.",
+     "value": "Crown-45"
+    },
+    {
+     "text": "I renewed my policy, now it's Shield-99.",
+     "value": "Shield-99"
+    },
+    {
+     "text": "I switched to Dr. Lee, her ID is Star-22.",
+     "value": "Star-22"
+    }
+   ],
+   "probes": [
+    {
+     "key": "u1",
+     "cat": "UPD_SAME",
+     "jaccard": 0.5,
+     "key_label": "Appointment",
+     "ask": "What is my appointment now?",
+     "current": "Crown-45",
+     "superseded": [
+      "Crown-12"
+     ]
+    },
+    {
+     "key": "u2",
+     "cat": "UPD_RENAMED",
+     "jaccard": 0.333,
+     "key_label": "Insurance",
+     "ask": "What is my insurance now?",
+     "current": "Shield-99",
+     "superseded": [
+      "Shield-88"
+     ]
+    },
+    {
+     "key": "u3",
+     "cat": "UPD_RENAMED",
+     "jaccard": 0.2,
+     "key_label": "Dentist",
+     "ask": "What is my dentist now?",
+     "current": "Star-22",
+     "superseded": [
+      "Star-07"
+     ]
+    },
+    {
+     "key": "p_old",
+     "cat": "TWO_OLD",
+     "key_label": "FlossReminder",
+     "ask": "What code did I give when I said: \"I have a morning reminder set for dental floss, code is ___.\"?",
+     "current": "Bright-03",
+     "superseded": []
+    },
+    {
+     "key": "s1",
+     "cat": "STATIC",
+     "key_label": "ToothbrushTag",
+     "ask": "What code did I give when I said: \"I keep a spare toothbrush in my gym bag, tag is ___.\"?",
+     "current": "Grip-55",
+     "superseded": []
+    },
+    {
+     "key": "s2",
+     "cat": "STATIC",
+     "key_label": "Toothpaste",
+     "ask": "What code did I give when I said: \"My favorite toothpaste flavor is mint, code is ___.\"?",
+     "current": "Fresh-11",
+     "superseded": []
+    },
+    {
+     "key": "s3",
+     "cat": "STATIC",
+     "key_label": "AnxietyJournal",
+     "ask": "What code did I give when I said: \"I have a dental anxiety journal, entry code is ___.\"?",
+     "current": "Calm-77",
+     "superseded": []
+    },
+    {
+     "key": "p_new",
+     "cat": "TWO_NEW",
+     "key_label": "BrushReminder",
+     "ask": "What code did I give when I said: \"I have a morning reminder set for tooth brushing, code is ___.\"?",
+     "current": "Bright-04",
+     "superseded": []
+    }
+   ],
+   "dropped": [
+    "4 user turns without a KEY code (small talk, questions, code-free facts): replaced by the harness topic noise as in r15",
+    "assistant replies: replaced by the harness acknowledgement (as in r15)"
+   ]
+  },
+  {
+   "name": "v2-move-in",
+   "raw": "move-in-a1.txt",
+   "raw_sha256": "0638fc2940f0e73d5eee5831b69e4a557f638251378a1750e3010baec687a34d",
+   "noise": {
+    "topic": "move-in",
+    "noun": "Room",
+    "items": [
+     "curtain",
+     "rug",
+     "shelf",
+     "lamp",
+     "basket",
+     "frame",
+     "vase"
+    ]
+   },
+   "old": [
+    {
+     "text": "My apartment move-in date is March 15, 2024, code APT-15.",
+     "value": "APT-15"
+    },
+    {
+     "text": "My parking spot number is B12, code PARK-12.",
+     "value": "PARK-12"
+    },
+    {
+     "text": "By the way, my work email is work@example.com, code EMAIL-01.",
+     "value": "EMAIL-01"
+    },
+    {
+     "text": "I love the balcony view, code BAL-01.",
+     "value": "BAL-01"
+    },
+    {
+     "text": "The building has a gym, code GYM-01.",
+     "value": "GYM-01"
+    },
+    {
+     "text": "My favorite pizza topping is pepperoni, code PIZZA-01.",
+     "value": "PIZZA-01"
+    }
+   ],
+   "new": [
+    {
+     "text": "Also, my personal email is personal@example.com, code EMAIL-02.",
+     "value": "EMAIL-02"
+    },
+    {
+     "text": "My apartment move-in date is March 20, 2024, code APT-20.",
+     "value": "APT-20"
+    },
+    {
+     "text": "My assigned parking spot is C3, code PARK-03.",
+     "value": "PARK-03"
+    },
+    {
+     "text": "My apartment move-in date is March 25, 2024, code APT-25.",
+     "value": "APT-25"
+    }
+   ],
+   "probes": [
+    {
+     "key": "u1",
+     "cat": "UPD_SAME",
+     "jaccard": 1.0,
+     "key_label": "MoveInDate",
+     "ask": "What is my move in date now?",
+     "current": "APT-25",
+     "superseded": [
+      "APT-15",
+      "APT-20"
+     ]
+    },
+    {
+     "key": "u2",
+     "cat": "UPD_SAME",
+     "jaccard": 0.667,
+     "key_label": "ParkingSpot",
+     "ask": "What is my parking spot now?",
+     "current": "PARK-03",
+     "superseded": [
+      "PARK-12"
+     ]
+    },
+    {
+     "key": "p_old",
+     "cat": "TWO_OLD",
+     "key_label": "WorkEmail",
+     "ask": "What code did I give when I said: \"By the way, my work email is work@example.com, code ___.\"?",
+     "current": "EMAIL-01",
+     "superseded": []
+    },
+    {
+     "key": "s1",
+     "cat": "STATIC",
+     "key_label": "BalconyView",
+     "ask": "What code did I give when I said: \"I love the balcony view, code ___.\"?",
+     "current": "BAL-01",
+     "superseded": []
+    },
+    {
+     "key": "s2",
+     "cat": "STATIC",
+     "key_label": "GymAccess",
+     "ask": "What code did I give when I said: \"The building has a gym, code ___.\"?",
+     "current": "GYM-01",
+     "superseded": []
+    },
+    {
+     "key": "s3",
+     "cat": "STATIC",
+     "key_label": "PizzaTopping",
+     "ask": "What code did I give when I said: \"My favorite pizza topping is pepperoni, code ___.\"?",
+     "current": "PIZZA-01",
+     "superseded": []
+    },
+    {
+     "key": "p_new",
+     "cat": "TWO_NEW",
+     "key_label": "PersonalEmail",
+     "ask": "What code did I give when I said: \"Also, my personal email is personal@example.com, code ___.\"?",
+     "current": "EMAIL-02",
+     "superseded": []
+    }
+   ],
+   "dropped": [
+    "5 user turns without a KEY code (small talk, questions, code-free facts): replaced by the harness topic noise as in r15",
+    "assistant replies: replaced by the harness acknowledgement (as in r15)"
+   ]
+  },
+  {
+   "name": "v2-gym",
+   "raw": "gym-a1.txt",
+   "raw_sha256": "81f18c1c960dfaeea40c506e2768b86e51c4015bf319d3007246d986e1de25c4",
+   "noise": {
+    "topic": "gym",
+    "noun": "Studio",
+    "items": [
+     "mat",
+     "towel",
+     "bottle",
+     "band",
+     "bench",
+     "rope",
+     "ball"
+    ]
+   },
+   "old": [
+    {
+     "text": "My membership ID is Alpha-101.",
+     "value": "Alpha-101"
+    },
+    {
+     "text": "My locker code is Bravo-202.",
+     "value": "Bravo-202"
+    },
+    {
+     "text": "Got a new kettlebell, tag Kilo-505.",
+     "value": "Kilo-505"
+    },
+    {
+     "text": "My favorite class slot is 6pm on Tuesdays, code Tango-303.",
+     "value": "Tango-303"
+    },
+    {
+     "text": "I have a summer discount coupon: Sun-606.",
+     "value": "Sun-606"
+    },
+    {
+     "text": "My emergency contact number is listed under code Echo-707.",
+     "value": "Echo-707"
+    },
+    {
+     "text": "I have a cardio badge, code Cardio-801.",
+     "value": "Cardio-801"
+    }
+   ],
+   "new": [
+    {
+     "text": "I switched to a family plan, my membership ID is now Alpha-108.",
+     "value": "Alpha-108"
+    },
+    {
+     "text": "I got a new locker; the access tag is now Delta-210.",
+     "value": "Delta-210"
+    },
+    {
+     "text": "I have a cardio badge for the treadmill, code Cardio-802.",
+     "value": "Cardio-802"
+    },
+    {
+     "text": "I moved my regular class to 7am on Saturdays, code Tango-311.",
+     "value": "Tango-311"
+    }
+   ],
+   "probes": [
+    {
+     "key": "u1",
+     "cat": "UPD_RENAMED",
+     "jaccard": 0.333,
+     "key_label": "MembershipID",
+     "ask": "What is my membership ID now?",
+     "current": "Alpha-108",
+     "superseded": [
+      "Alpha-101"
+     ]
+    },
+    {
+     "key": "u2",
+     "cat": "UPD_SAME",
+     "jaccard": 0.5,
+     "key_label": "LockerCode",
+     "ask": "What is my locker code now?",
+     "current": "Delta-210",
+     "superseded": [
+      "Bravo-202"
+     ]
+    },
+    {
+     "key": "u3",
+     "cat": "UPD_RENAMED",
+     "jaccard": 0.167,
+     "key_label": "PreferredClassSlot",
+     "ask": "What is my preferred class slot now?",
+     "current": "Tango-311",
+     "superseded": [
+      "Tango-303"
+     ]
+    },
+    {
+     "key": "p_old",
+     "cat": "TWO_OLD",
+     "key_label": "CardioBadge1",
+     "ask": "What code did I give when I said: \"I have a cardio badge, code ___.\"?",
+     "current": "Cardio-801",
+     "superseded": []
+    },
+    {
+     "key": "s1",
+     "cat": "STATIC",
+     "key_label": "KettlebellTag",
+     "ask": "What code did I give when I said: \"Got a new kettlebell, tag ___.\"?",
+     "current": "Kilo-505",
+     "superseded": []
+    },
+    {
+     "key": "s2",
+     "cat": "STATIC",
+     "key_label": "DiscountCoupon",
+     "ask": "What code did I give when I said: \"I have a summer discount coupon: ___.\"?",
+     "current": "Sun-606",
+     "superseded": []
+    },
+    {
+     "key": "s3",
+     "cat": "STATIC",
+     "key_label": "EmergencyContact",
+     "ask": "What code did I give when I said: \"My emergency contact number is listed under code ___.\"?",
+     "current": "Echo-707",
+     "superseded": []
+    },
+    {
+     "key": "p_new",
+     "cat": "TWO_NEW",
+     "key_label": "CardioBadge2",
+     "ask": "What code did I give when I said: \"I have a cardio badge for the treadmill, code ___.\"?",
+     "current": "Cardio-802",
+     "superseded": []
+    }
+   ],
+   "dropped": [
+    "4 user turns without a KEY code (small talk, questions, code-free facts): replaced by the harness topic noise as in r15",
+    "assistant replies: replaced by the harness acknowledgement (as in r15)"
+   ]
+  },
+  {
+   "name": "v2-pickup",
+   "raw": "pickup-a1.txt",
+   "raw_sha256": "c3923c5817943508663940450f77c1f039eb6f16da2e70c1da83ee1cffc3766f",
+   "noise": {
+    "topic": "pickup",
+    "noun": "School",
+    "items": [
+     "poster",
+     "banner",
+     "bench",
+     "garden",
+     "mural",
+     "sign",
+     "flag"
+    ]
+   },
+   "old": [
+    {
+     "text": "Route-12 is my daughter's school bus route.",
+     "value": "Route-12"
+    },
+    {
+     "text": "Pickup-23 is the school entrance.",
+     "value": "Pickup-23"
+    },
+    {
+     "text": "Spot-7B is my parking spot at the school.",
+     "value": "Spot-7B"
+    },
+    {
+     "text": "ID-4567 is my ID badge number for the school.",
+     "value": "ID-4567"
+    },
+    {
+     "text": "Door-1234 is my door code for the school.",
+     "value": "Door-1234"
+    },
+    {
+     "text": "Lunch-7890 is my child's lunch ID.",
+     "value": "Lunch-7890"
+    },
+    {
+     "text": "Time-300 is my kid's pickup time.",
+     "value": "Time-300"
+    }
+   ],
+   "new": [
+    {
+     "text": "Time-300B is my child's pickup time.",
+     "value": "Time-300B"
+    },
+    {
+     "text": "Route-15 is my daughter's school bus route.",
+     "value": "Route-15"
+    },
+    {
+     "text": "Spot-8C is my new parking spot.",
+     "value": "Spot-8C"
+    },
+    {
+     "text": "Door-5678 is my new access code.",
+     "value": "Door-5678"
+    }
+   ],
+   "probes": [
+    {
+     "key": "u1",
+     "cat": "UPD_SAME",
+     "jaccard": 1.0,
+     "key_label": "BusRoute",
+     "ask": "What is my bus route now?",
+     "current": "Route-15",
+     "superseded": [
+      "Route-12"
+     ]
+    },
+    {
+     "key": "u2",
+     "cat": "UPD_SAME",
+     "jaccard": 0.667,
+     "key_label": "ParkingSpot",
+     "ask": "What is my parking spot now?",
+     "current": "Spot-8C",
+     "superseded": [
+      "Spot-7B"
+     ]
+    },
+    {
+     "key": "u3",
+     "cat": "UPD_RENAMED",
+     "jaccard": 0.0,
+     "key_label": "DoorCode",
+     "ask": "What is my door code now?",
+     "current": "Door-5678",
+     "superseded": [
+      "Door-1234"
+     ]
+    },
+    {
+     "key": "p_old",
+     "cat": "TWO_OLD",
+     "key_label": "PickupTimeKid",
+     "ask": "What code did I give when I said: \"___ is my kid's pickup time.\"?",
+     "current": "Time-300",
+     "superseded": []
+    },
+    {
+     "key": "s1",
+     "cat": "STATIC",
+     "key_label": "PickupLocation",
+     "ask": "What code did I give when I said: \"___ is the school entrance.\"?",
+     "current": "Pickup-23",
+     "superseded": []
+    },
+    {
+     "key": "s2",
+     "cat": "STATIC",
+     "key_label": "IDBadge",
+     "ask": "What code did I give when I said: \"___ is my ID badge number for the school.\"?",
+     "current": "ID-4567",
+     "superseded": []
+    },
+    {
+     "key": "s3",
+     "cat": "STATIC",
+     "key_label": "LunchID",
+     "ask": "What code did I give when I said: \"___ is my child's lunch ID.\"?",
+     "current": "Lunch-7890",
+     "superseded": []
+    },
+    {
+     "key": "p_new",
+     "cat": "TWO_NEW",
+     "key_label": "PickupTimeChild",
+     "ask": "What code did I give when I said: \"___ is my child's pickup time.\"?",
+     "current": "Time-300B",
+     "superseded": []
+    }
+   ],
+   "dropped": [
+    "4 user turns without a KEY code (small talk, questions, code-free facts): replaced by the harness topic noise as in r15",
+    "assistant replies: replaced by the harness acknowledgement (as in r15)"
+   ]
+  },
+  {
+   "name": "v2-internet",
+   "raw": "internet-a1.txt",
+   "raw_sha256": "d1ec200ebdae3a25874d71cd9c7765c16e709aae096bf0bb1dbea86dfba3f541",
+   "noise": {
+    "topic": "internet",
+    "noun": "Desk",
+    "items": [
+     "cable",
+     "lamp",
+     "shelf",
+     "plant",
+     "tray",
+     "stand",
+     "mat"
+    ]
+   },
+   "old": [
+    {
+     "text": "My installation booking reference is Oak-45.",
+     "value": "Oak-45"
+    },
+    {
+     "text": "My building entry door code is Cedar-22.",
+     "value": "Cedar-22"
+    },
+    {
+     "text": "My Wi‑Fi network name is Maple-11.",
+     "value": "Maple-11"
+    },
+    {
+     "text": "My ISP account number is Aspen-99.",
+     "value": "Aspen-99"
+    },
+    {
+     "text": "Router serial is RZ-9987.",
+     "value": "RZ-9987"
+    },
+    {
+     "text": "I live in apartment Apt-12.",
+     "value": "Apt-12"
+    },
+    {
+     "text": "My hamster's tag is Hamster-07.",
+     "value": "Hamster-07"
+    },
+    {
+     "text": "My contact email is Email-88.",
+     "value": "Email-88"
+    },
+    {
+     "text": "I need a 15m cable, code Cable-15.",
+     "value": "Cable-15"
+    }
+   ],
+   "new": [
+    {
+     "text": "My ISP account ID is Birch-66.",
+     "value": "Birch-66"
+    },
+    {
+     "text": "My installation booking reference is Pine-78.",
+     "value": "Pine-78"
+    },
+    {
+     "text": "The access keypad now uses Spruce-33.",
+     "value": "Spruce-33"
+    },
+    {
+     "text": "My Wi‑Fi network name is Birch-44.",
+     "value": "Birch-44"
+    }
+   ],
+   "probes": [
+    {
+     "key": "u1",
+     "cat": "UPD_SAME",
+     "jaccard": 1.0,
+     "key_label": "Booking Ref",
+     "ask": "What is my booking ref now?",
+     "current": "Pine-78",
+     "superseded": [
+      "Oak-45"
+     ]
+    },
+    {
+     "key": "u2",
+     "cat": "UPD_RENAMED",
+     "jaccard": 0.0,
+     "key_label": "Door Code",
+     "ask": "What is my door code now?",
+     "current": "Spruce-33",
+     "superseded": [
+      "Cedar-22"
+     ]
+    },
+    {
+     "key": "u3",
+     "cat": "UPD_SAME",
+     "jaccard": 1.0,
+     "key_label": "Wi‑Fi SSID",
+     "ask": "What is my Wi-Fi SSID now?",
+     "current": "Birch-44",
+     "superseded": [
+      "Maple-11"
+     ]
+    },
+    {
+     "key": "p_old",
+     "cat": "TWO_OLD",
+     "key_label": "ISP Account Number",
+     "ask": "What code did I give when I said: \"My ISP account number is ___.\"?",
+     "current": "Aspen-99",
+     "superseded": []
+    },
+    {
+     "key": "s1",
+     "cat": "STATIC",
+     "key_label": "Router Serial",
+     "ask": "What code did I give when I said: \"Router serial is ___.\"?",
+     "current": "RZ-9987",
+     "superseded": []
+    },
+    {
+     "key": "s2",
+     "cat": "STATIC",
+     "key_label": "Apartment",
+     "ask": "What code did I give when I said: \"I live in apartment ___.\"?",
+     "current": "Apt-12",
+     "superseded": []
+    },
+    {
+     "key": "s3",
+     "cat": "STATIC",
+     "key_label": "Hamster Tag",
+     "ask": "What code did I give when I said: \"My hamster's tag is ___.\"?",
+     "current": "Hamster-07",
+     "superseded": []
+    },
+    {
+     "key": "s4",
+     "cat": "STATIC",
+     "key_label": "Contact Email",
+     "ask": "What code did I give when I said: \"My contact email is ___.\"?",
+     "current": "Email-88",
+     "superseded": []
+    },
+    {
+     "key": "s5",
+     "cat": "STATIC",
+     "key_label": "Cable Code",
+     "ask": "What code did I give when I said: \"I need a 15m cable, code ___.\"?",
+     "current": "Cable-15",
+     "superseded": []
+    },
+    {
+     "key": "p_new",
+     "cat": "TWO_NEW",
+     "key_label": "ISP Account ID",
+     "ask": "What code did I give when I said: \"My ISP account ID is ___.\"?",
+     "current": "Birch-66",
+     "superseded": []
+    }
+   ],
+   "dropped": [
+    "2 user turns without a KEY code (small talk, questions, code-free facts): replaced by the harness topic noise as in r15",
+    "assistant replies: replaced by the harness acknowledgement (as in r15)"
+   ]
+  },
+  {
+   "name": "v2-book-club",
+   "raw": "book-club-a3.txt",
+   "raw_sha256": "a97940b4e2ab4b615c9b5bcf0245c6496433be8898bc09d1ef28640c61dc897d",
+   "noise": {
+    "topic": "book club",
+    "noun": "Library",
+    "items": [
+     "bookmark",
+     "cover",
+     "shelf",
+     "poster",
+     "lamp",
+     "chair",
+     "rug"
+    ]
+   },
+   "old": [
+    {
+     "text": "I joined the book club last month, CLUB-101.",
+     "value": "CLUB-101"
+    },
+    {
+     "text": "My favorite genre is science fiction, GENRE-202.",
+     "value": "GENRE-202"
+    },
+    {
+     "text": "The club meets at the downtown library, LOC-303.",
+     "value": "LOC-303"
+    },
+    {
+     "text": "Next meeting is on June 15, DATE-404.",
+     "value": "DATE-404"
+    },
+    {
+     "text": "The reading list includes 'Dune' and 'Neuromancer', LIST-505.",
+     "value": "LIST-505"
+    },
+    {
+     "text": "My member ID is 12345, ID-606.",
+     "value": "ID-606"
+    },
+    {
+     "text": "I read a book every week, READ-808.",
+     "value": "READ-808"
+    },
+    {
+     "text": "I have a cat named Whiskers, CAT-707.",
+     "value": "CAT-707"
+    }
+   ],
+   "new": [
+    {
+     "text": "I read a book each week, READ-909.",
+     "value": "READ-909"
+    },
+    {
+     "text": "I actually prefer fantasy now, GENRE-2022.",
+     "value": "GENRE-2022"
+    },
+    {
+     "text": "We moved the meetings to the community center, LOC-3032.",
+     "value": "LOC-3032"
+    },
+    {
+     "text": "The reading list now includes 'The Hobbit' and 'The Name of the Wind', LIST-5052.",
+     "value": "LIST-5052"
+    }
+   ],
+   "probes": [
+    {
+     "key": "u1",
+     "cat": "UPD_RENAMED",
+     "jaccard": 0.0,
+     "key_label": "FavoriteGenre",
+     "ask": "What is my favorite genre now?",
+     "current": "GENRE-2022",
+     "superseded": [
+      "GENRE-202"
+     ]
+    },
+    {
+     "key": "u2",
+     "cat": "UPD_RENAMED",
+     "jaccard": 0.0,
+     "key_label": "MeetingLocation",
+     "ask": "What is my meeting location now?",
+     "current": "LOC-3032",
+     "superseded": [
+      "LOC-303"
+     ]
+    },
+    {
+     "key": "u3",
+     "cat": "UPD_RENAMED",
+     "jaccard": 0.333,
+     "key_label": "ReadingList",
+     "ask": "What is my reading list now?",
+     "current": "LIST-5052",
+     "superseded": [
+      "LIST-505"
+     ]
+    },
+    {
+     "key": "p_old",
+     "cat": "TWO_OLD",
+     "key_label": "ReadingHabit1",
+     "ask": "What code did I give when I said: \"I read a book every week, ___.\"?",
+     "current": "READ-808",
+     "superseded": []
+    },
+    {
+     "key": "s1",
+     "cat": "STATIC",
+     "key_label": "BookClubMembership",
+     "ask": "What code did I give when I said: \"I joined the book club last month, ___.\"?",
+     "current": "CLUB-101",
+     "superseded": []
+    },
+    {
+     "key": "s2",
+     "cat": "STATIC",
+     "key_label": "NextMeetingDate",
+     "ask": "What code did I give when I said: \"Next meeting is on June 15, ___.\"?",
+     "current": "DATE-404",
+     "superseded": []
+    },
+    {
+     "key": "s3",
+     "cat": "STATIC",
+     "key_label": "MemberID",
+     "ask": "What code did I give when I said: \"My member ID is 12345, ___.\"?",
+     "current": "ID-606",
+     "superseded": []
+    },
+    {
+     "key": "s4",
+     "cat": "STATIC",
+     "key_label": "CatFact",
+     "ask": "What code did I give when I said: \"I have a cat named Whiskers, ___.\"?",
+     "current": "CAT-707",
+     "superseded": []
+    },
+    {
+     "key": "p_new",
+     "cat": "TWO_NEW",
+     "key_label": "ReadingHabit2",
+     "ask": "What code did I give when I said: \"I read a book each week, ___.\"?",
+     "current": "READ-909",
+     "superseded": []
+    }
+   ],
+   "dropped": [
+    "3 user turns without a KEY code (small talk, questions, code-free facts): replaced by the harness topic noise as in r15",
+    "assistant replies: replaced by the harness acknowledgement (as in r15)"
+   ]
+  }
+ ]
+}

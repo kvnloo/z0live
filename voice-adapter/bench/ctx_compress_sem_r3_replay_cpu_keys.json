@@ -1,0 +1,2621 @@
+{
+ "experiment": "C1-ctx-sem-r3",
+ "kind": "dry replay of sem-r2 CPU keys / verdicts, not scored",
+ "n_keys": 338,
+ "n_judges": 155,
+ "stop": [],
+ "missing_keys": 0,
+ "briefs": {
+  "main/workshop-1": {
+   "chars": {
+    "A": 2485,
+    "B": 2485,
+    "sem2": 2485
+   },
+   "B_eq_A": true,
+   "replaced": 0,
+   "trimmed": [],
+   "untrimmed": 0,
+   "probes": {
+    "studio": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "locker": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "vendor": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "flight": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     }
+    },
+    "room": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     }
+    },
+    "parcel": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    }
+   }
+  },
+  "main/workshop-2": {
+   "chars": {
+    "A": 2485,
+    "B": 2485,
+    "sem2": 2485
+   },
+   "B_eq_A": true,
+   "replaced": 0,
+   "trimmed": [],
+   "untrimmed": 0,
+   "probes": {
+    "studio": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "locker": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "vendor": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "flight": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     }
+    },
+    "room": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     }
+    },
+    "parcel": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    }
+   }
+  },
+  "main/workshop-3": {
+   "chars": {
+    "A": 2484,
+    "B": 2484,
+    "sem2": 2484
+   },
+   "B_eq_A": true,
+   "replaced": 0,
+   "trimmed": [],
+   "untrimmed": 0,
+   "probes": {
+    "studio": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "locker": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "vendor": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "flight": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     }
+    },
+    "room": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     }
+    },
+    "parcel": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    }
+   }
+  },
+  "recency/recency-1": {
+   "chars": {
+    "A": 2458,
+    "B": 2620,
+    "sem2": 2516
+   },
+   "B_eq_A": false,
+   "replaced": 2,
+   "trimmed": [
+    [
+     15,
+     2,
+     1,
+     258,
+     364
+    ],
+    [
+     16,
+     3,
+     1,
+     259,
+     365
+    ]
+   ],
+   "untrimmed": 0,
+   "probes": {
+    "bench": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "badge": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "glaze": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    }
+   }
+  },
+  "recency/recency-2": {
+   "chars": {
+    "A": 2458,
+    "B": 2620,
+    "sem2": 2516
+   },
+   "B_eq_A": false,
+   "replaced": 2,
+   "trimmed": [
+    [
+     16,
+     2,
+     1,
+     258,
+     364
+    ],
+    [
+     17,
+     3,
+     1,
+     259,
+     365
+    ]
+   ],
+   "untrimmed": 0,
+   "probes": {
+    "bench": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "badge": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "glaze": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    }
+   }
+  },
+  "recency/recency-3": {
+   "chars": {
+    "A": 2457,
+    "B": 2619,
+    "sem2": 2515
+   },
+   "B_eq_A": false,
+   "replaced": 2,
+   "trimmed": [
+    [
+     17,
+     2,
+     1,
+     258,
+     364
+    ],
+    [
+     18,
+     3,
+     1,
+     259,
+     365
+    ]
+   ],
+   "untrimmed": 0,
+   "probes": {
+    "bench": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "badge": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "glaze": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    }
+   }
+  },
+  "r8/r8-allotment": {
+   "chars": {
+    "A": 2528,
+    "B": 2772,
+    "sem2": 2655
+   },
+   "B_eq_A": false,
+   "replaced": 4,
+   "trimmed": [
+    [
+     11,
+     2,
+     1,
+     237,
+     349
+    ],
+    [
+     12,
+     5,
+     1,
+     238,
+     351
+    ],
+    [
+     13,
+     0,
+     1,
+     227,
+     347
+    ],
+    [
+     14,
+     3,
+     1,
+     218,
+     347
+    ]
+   ],
+   "untrimmed": 0,
+   "probes": {
+    "a1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "d": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "b1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "b2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "c_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "c_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    }
+   }
+  },
+  "r8/r8-cycling": {
+   "chars": {
+    "A": 2532,
+    "B": 2517,
+    "sem2": 2617
+   },
+   "B_eq_A": false,
+   "replaced": 3,
+   "trimmed": [
+    [
+     12,
+     5,
+     1,
+     230,
+     348
+    ],
+    [
+     13,
+     0,
+     1,
+     229,
+     350
+    ],
+    [
+     14,
+     3,
+     1,
+     220,
+     351
+    ]
+   ],
+   "untrimmed": 0,
+   "probes": {
+    "a1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "d": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "b1": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     }
+    },
+    "b2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "c_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "c_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    }
+   }
+  },
+  "r8/r8-choir": {
+   "chars": {
+    "A": 2539,
+    "B": 2769,
+    "sem2": 2643
+   },
+   "B_eq_A": false,
+   "replaced": 4,
+   "trimmed": [
+    [
+     11,
+     2,
+     1,
+     233,
+     351
+    ],
+    [
+     12,
+     5,
+     1,
+     226,
+     350
+    ],
+    [
+     13,
+     0,
+     1,
+     233,
+     352
+    ],
+    [
+     14,
+     3,
+     1,
+     229,
+     352
+    ]
+   ],
+   "untrimmed": 0,
+   "probes": {
+    "a1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "d": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "b1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "b2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "c_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "c_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    }
+   }
+  },
+  "r12/r12-campsite": {
+   "chars": {
+    "A": 2519,
+    "B": 2706,
+    "sem2": 2679
+   },
+   "B_eq_A": false,
+   "replaced": 2,
+   "trimmed": [
+    [
+     12,
+     2,
+     1,
+     217,
+     300
+    ],
+    [
+     15,
+     6,
+     1,
+     211,
+     296
+    ]
+   ],
+   "untrimmed": 0,
+   "probes": {
+    "a_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "b_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "c_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "d_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "f": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "b_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "c_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "d_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    }
+   }
+  },
+  "r12/r12-coworking": {
+   "chars": {
+    "A": 2531,
+    "B": 2720,
+    "sem2": 2694
+   },
+   "B_eq_A": false,
+   "replaced": 2,
+   "trimmed": [
+    [
+     12,
+     2,
+     1,
+     219,
+     298
+    ],
+    [
+     15,
+     6,
+     1,
+     214,
+     300
+    ]
+   ],
+   "untrimmed": 0,
+   "probes": {
+    "a_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "b_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "c_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "d_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "f": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "b_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "c_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "d_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    }
+   }
+  },
+  "r12/r12-leisure": {
+   "chars": {
+    "A": 2524,
+    "B": 2738,
+    "sem2": 2689
+   },
+   "B_eq_A": false,
+   "replaced": 2,
+   "trimmed": [
+    [
+     12,
+     2,
+     1,
+     228,
+     298
+    ],
+    [
+     15,
+     6,
+     1,
+     228,
+     299
+    ]
+   ],
+   "untrimmed": 0,
+   "probes": {
+    "a_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "b_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "c_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "d_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "f": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "b_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "c_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "d_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    }
+   }
+  },
+  "r13/r13-marina": {
+   "chars": {
+    "A": 2531,
+    "B": 2627,
+    "sem2": 2769
+   },
+   "B_eq_A": false,
+   "replaced": 3,
+   "trimmed": [
+    [
+     12,
+     1,
+     1,
+     226,
+     298
+    ],
+    [
+     14,
+     3,
+     1,
+     203,
+     300
+    ],
+    [
+     16,
+     6,
+     1,
+     207,
+     298
+    ]
+   ],
+   "untrimmed": 0,
+   "probes": {
+    "a2x_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a2y_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "f": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a3_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e3": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a2x_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a2y_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a3_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    }
+   }
+  },
+  "r13/r13-hotel": {
+   "chars": {
+    "A": 2530,
+    "B": 2609,
+    "sem2": 2778
+   },
+   "B_eq_A": false,
+   "replaced": 3,
+   "trimmed": [
+    [
+     12,
+     1,
+     1,
+     202,
+     297
+    ],
+    [
+     14,
+     3,
+     1,
+     196,
+     297
+    ],
+    [
+     16,
+     6,
+     1,
+     215,
+     296
+    ]
+   ],
+   "untrimmed": 0,
+   "probes": {
+    "a2x_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a2y_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "f": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a3_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e3": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a2x_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a2y_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a3_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    }
+   }
+  },
+  "r13/r13-festival": {
+   "chars": {
+    "A": 2549,
+    "B": 2712,
+    "sem2": 2712
+   },
+   "B_eq_A": false,
+   "replaced": 2,
+   "trimmed": [
+    [
+     12,
+     1,
+     1,
+     203,
+     300
+    ],
+    [
+     14,
+     3,
+     1,
+     197,
+     295
+    ]
+   ],
+   "untrimmed": 0,
+   "probes": {
+    "a2x_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a2y_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e2": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     }
+    },
+    "f": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a3_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e3": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a2x_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a2y_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a3_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    }
+   }
+  },
+  "r14/r14-airport": {
+   "chars": {
+    "A": 2519,
+    "B": 2488,
+    "sem2": 2462
+   },
+   "B_eq_A": false,
+   "replaced": 4,
+   "trimmed": [
+    [
+     12,
+     1,
+     1,
+     207,
+     299
+    ],
+    [
+     13,
+     2,
+     1,
+     203,
+     300
+    ],
+    [
+     15,
+     5,
+     1,
+     201,
+     299
+    ],
+    [
+     16,
+     6,
+     1,
+     194,
+     296
+    ]
+   ],
+   "untrimmed": 0,
+   "probes": {
+    "a3x_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a3y_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e3x": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": false
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e3y": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "f": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a3x_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a3y_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    }
+   }
+  },
+  "r14/r14-ski": {
+   "chars": {
+    "A": 2510,
+    "B": 2494,
+    "sem2": 2465
+   },
+   "B_eq_A": false,
+   "replaced": 4,
+   "trimmed": [
+    [
+     12,
+     1,
+     1,
+     205,
+     295
+    ],
+    [
+     13,
+     2,
+     1,
+     204,
+     299
+    ],
+    [
+     15,
+     5,
+     1,
+     207,
+     295
+    ],
+    [
+     16,
+     6,
+     1,
+     196,
+     296
+    ]
+   ],
+   "untrimmed": 0,
+   "probes": {
+    "a3x_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a3y_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e3x": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": false
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e3y": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "f": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a3x_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a3y_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    }
+   }
+  },
+  "r14/r14-theatre": {
+   "chars": {
+    "A": 2518,
+    "B": 2499,
+    "sem2": 2470
+   },
+   "B_eq_A": false,
+   "replaced": 4,
+   "trimmed": [
+    [
+     12,
+     1,
+     1,
+     216,
+     300
+    ],
+    [
+     13,
+     2,
+     1,
+     206,
+     297
+    ],
+    [
+     15,
+     5,
+     1,
+     198,
+     300
+    ],
+    [
+     16,
+     6,
+     1,
+     193,
+     293
+    ]
+   ],
+   "untrimmed": 0,
+   "probes": {
+    "a3x_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a3y_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e3x": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e3y": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": false
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "e2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "f": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a3x_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "a3y_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    }
+   }
+  },
+  "r15/r15-vet": {
+   "chars": {
+    "A": 2598,
+    "B": 2803,
+    "sem2": 2462
+   },
+   "B_eq_A": false,
+   "replaced": 2,
+   "trimmed": [
+    [
+     12,
+     0,
+     1,
+     188,
+     257
+    ],
+    [
+     14,
+     2,
+     1,
+     170,
+     256
+    ]
+   ],
+   "untrimmed": 0,
+   "probes": {
+    "u1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": false
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "u2": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     }
+    },
+    "u3": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "p_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "s1": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "s2": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "s3": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "p_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    }
+   }
+  },
+  "r15/r15-car": {
+   "chars": {
+    "A": 2756,
+    "B": 2809,
+    "sem2": 2472
+   },
+   "B_eq_A": false,
+   "replaced": 4,
+   "trimmed": [
+    [
+     13,
+     3,
+     1,
+     188,
+     256
+    ],
+    [
+     14,
+     2,
+     1,
+     177,
+     259
+    ],
+    [
+     15,
+     0,
+     1,
+     190,
+     258
+    ],
+    [
+     16,
+     8,
+     1,
+     176,
+     259
+    ]
+   ],
+   "untrimmed": 0,
+   "probes": {
+    "u1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "u2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": false
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "u3": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": false
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "p_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "s1": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "s2": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "s3": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "s4": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "s5": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    }
+   }
+  },
+  "r15/r15-pottery": {
+   "chars": {
+    "A": 2590,
+    "B": 2745,
+    "sem2": 2573
+   },
+   "B_eq_A": false,
+   "replaced": 3,
+   "trimmed": [
+    [
+     12,
+     0,
+     1,
+     192,
+     255
+    ],
+    [
+     13,
+     1,
+     1,
+     189,
+     255
+    ],
+    [
+     14,
+     6,
+     1,
+     183,
+     259
+    ]
+   ],
+   "untrimmed": 0,
+   "probes": {
+    "u1": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "u2": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "u3": {
+     "current": {
+      "A": false,
+      "B": true,
+      "sem2": false
+     },
+     "superseded": {
+      "A": true,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "p_old": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "s1": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "s2": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "s3": {
+     "current": {
+      "A": true,
+      "B": true,
+      "sem2": true
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    },
+    "p_new": {
+     "current": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     },
+     "superseded": {
+      "A": false,
+      "B": false,
+      "sem2": false
+     }
+    }
+   }
+  }
+ }
+}
