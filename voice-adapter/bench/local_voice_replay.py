@@ -9,6 +9,7 @@ import io
 import json
 import os
 from pathlib import Path
+import random
 import re
 import signal
 import socket
@@ -211,10 +212,12 @@ class LureTTS:
                     self._send({'cancel': True})
 
 
-def lure_helper_argv(args):
+def lure_helper_argv(args, first_chunk_frames=None):
+    """Helper command line; first_chunk_frames overrides --lure-first-chunk-frames (one helper per interleaved arm)."""
+    fc = args.lure_first_chunk_frames if first_chunk_frames is None else first_chunk_frames
     argv = [args.lure_python, '-I', HERE / 'lure_tts_helper.py', '--model', args.lure_model,
             '--voice', args.lure_voice, '--voice-text', args.lure_voice_text, '--seed', str(args.lure_seed),
-            '--first-chunk-frames', str(args.lure_first_chunk_frames)]
+            '--first-chunk-frames', str(fc)]
     return [str(a) for a in argv] + ([] if args.lure_snapshot else ['--no-snapshot'])
 
 
@@ -318,10 +321,41 @@ class Playout:
         del self.pcm[self.end * 2:]
 
 
-async def conversation(models, pcm, db, silence_ms, context='', turns=(), drain=False):
+class TurnLog:
+    """Opt-in per-turn wall-clock and load receipt (--interleave-arms only; default rows stay byte-identical).
+
+    Adds to each turn row: wall = Unix epochs (s) of the call start, the last voiced input frame (end of speech), the
+    endpoint (asr_start) and the first voiced playout sample; load1 = host 1-min load average at the endpoint; cpu_pct =
+    this bench process's CPU % (all threads, not the TTS helper) from call start to the endpoint.
+    """
+    WALL = ('last_voice', 'asr_start', 'voiced_playout')
+
+    def __init__(self, clock=time.time, load=os.getloadavg, cpu=time.process_time):
+        self.clock, self.load, self.cpu = clock, load, cpu
+        self.start = self.offset = self.cpu0 = None
+
+    def begin(self, start, now=None):
+        self.start, self.offset = start, (now or self.clock)() - time.monotonic()
+        self.cpu0 = self.cpu()
+
+    def eos(self, row, at):
+        row['load1'] = round(float(self.load()[0]), 2)
+        span = at - self.start
+        row['cpu_pct'] = round(100 * (self.cpu() - self.cpu0) / span, 1) if span > 0 else None
+
+    def finish(self, row):
+        """Call while marks are still monotonic (before conversation() rebases them to the call start)."""
+        marks = row['marks']
+        row['wall'] = {'call_start': round(self.start + self.offset, 3),
+                       **{k: round(marks[k] + self.offset, 3) for k in self.WALL if k in marks}}
+
+
+async def conversation(models, pcm, db, silence_ms, context='', turns=(), drain=False, turn_log=None):
     history = list(turns)
     rows, task = [], None
     start = time.monotonic()
+    if turn_log is not None:
+        turn_log.begin(start)
     playback = Playout(start)
     endpoint = Endpointer(db, silence_ms)
     frames = np.frombuffer(pcm, '<i2')[::3]
@@ -379,6 +413,8 @@ async def conversation(models, pcm, db, silence_ms, context='', turns=(), drain=
                 await interrupt('barge_in')
             if utterance is not None:
                 row = {'marks': {'last_voice': endpoint.last_voice, 'asr_start': time.monotonic()}}
+                if turn_log is not None:
+                    turn_log.eos(row, row['marks']['asr_start'])
                 rows.append(row)
                 task = asyncio.create_task(answer(utterance, row))
         if drain and task is not None:
@@ -386,6 +422,8 @@ async def conversation(models, pcm, db, silence_ms, context='', turns=(), drain=
     finally:
         await interrupt('clip_end')
     for row in rows:
+        if turn_log is not None:
+            turn_log.finish(row)
         row['marks'] = {k: round(v - start, 4) for k, v in row['marks'].items()}
     size = max(len(pcm), len(playback.pcm)) if drain else len(pcm)
     return bytes(playback.pcm[:size]).ljust(size, b'\0'), rows
@@ -419,6 +457,79 @@ async def replay(models, args):
                 ai=ai, per_call=per, out=str(args.out), **lure_extra(args))
 
 
+def arm_orders(names):
+    """Rotations of the given arm order plus their mirrors (duplicates dropped). Across one set every arm sits in every
+    slot equally often and every ordered neighbour pair appears in both directions; for 3 arms it is all 6 orders."""
+    base, orders = tuple(names), []
+    rotations = [base[i:] + base[:i] for i in range(len(base))]
+    for order in rotations + [tuple(reversed(r)) for r in rotations]:
+        if order not in orders:
+            orders.append(order)
+    return orders
+
+
+def arm_schedule(names, units, seed):
+    """Per-unit arm order: consecutive blocks each use every arm_orders() order once, block order shuffled by seed."""
+    rng, out = random.Random(seed), []
+    while len(out) < units:
+        block = arm_orders(names)
+        rng.shuffle(block)
+        out.extend(block)
+    return out[:units]
+
+
+async def replay_interleaved(pipes, args):
+    """--interleave-arms: for every (round, call) unit, replay that call once per arm back to back, arms in the
+    arm_schedule() order, each arm on its own warm Lure helper (pipes: arm -> Models). Receipts per unit and arm go to
+    OUT/r<round>/<arm>/; every turn row carries arm, fc, round, call, slot plus TurnLog epochs and load."""
+    names, fcs = [n for n, _ in args.interleave_arms], dict(args.interleave_arms)
+    units = [(r, name) for r in range(1, args.interleave_rounds + 1) for name in args.calls.split(',')]
+    acc = {arm: dict(offsets=[], bc=0, minutes=0.0, calls=0) for arm in names}
+    per, errors, schedule = {}, [], []
+    for (r, name), order in zip(units, arm_schedule(names, len(units), args.interleave_seed)):
+        schedule.append(dict(round=r, call=name, order=list(order)))
+        try:
+            pcm = dr.replay_input(name, args.clip)
+        except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+            errors.append(f'r{r}/{name}: {exc}')
+            continue
+        for slot, arm in enumerate(order):
+            key = f'r{r}/{arm}/{name}'
+            try:
+                models = pipes[arm]
+                if models.lure is not None and models.lure.dump is not None:
+                    models.lure.dump.start_call(f'r{r}-{name}')
+                ai, rows = await conversation(models, pcm, args.vad_db, args.silence_ms, turn_log=TurnLog())
+                for row in rows:
+                    row.update(arm=arm, fc=fcs[arm], round=r, call=name, slot=slot)
+                out = args.out / f'r{r}' / arm
+                out.mkdir(parents=True, exist_ok=True)
+                (out / f'{name}-local.json').write_text(json.dumps(rows, indent=2))
+                result = dr.score_audio(name, pcm, ai, out)
+                a = acc[arm]
+                a['offsets'].extend(result.pop('offsets'))
+                a['bc'] += result['backchannels']
+                a['minutes'] += result['minutes']
+                a['calls'] += 1
+                statuses = {s: sum(r_['status'] == s for r_ in rows) for s in sorted({r_['status'] for r_ in rows})}
+                per[key] = {**result, 'turns': statuses, 'arm': arm, 'round': r, 'call': name, 'slot': slot}
+                if not result['ai_talk_s'] or statuses.get('error'):
+                    errors.append(f'{key}: no scored audio or model error; see per-call receipt')
+            except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+                errors.append(f'{key}: {exc}')
+    per_arm = {}
+    for arm in names:
+        a = acc[arm]
+        ai = dt.summary(a['offsets'], a['bc'], a['minutes'])
+        if ai:
+            ai['D'] = round(score_d(ai['median_s'], ai['over_1s_pct'], ai['backchannels_per_min']), 3)
+        else:
+            errors.append(f'{arm}: No scored floor-takes')
+        per_arm[arm] = dict(calls_done=a['calls'], minutes=round(a['minutes'], 2), ai=ai)
+    return dict(engine='local', calls_done=len(per), errors=errors, per_arm=per_arm, schedule=schedule,
+                per_call=per, out=str(args.out), **lure_extra(args))
+
+
 def lure_extra(args):
     """Extra result keys for --tts lure; the default (Liquid) output keys stay exactly as before."""
     if args.tts == 'liquid':
@@ -426,6 +537,10 @@ def lure_extra(args):
     extra = dict(tts='lure', lure_first_chunk_frames=args.lure_first_chunk_frames, lure_snapshot=args.lure_snapshot)
     if args.lure_dump is not None:
         extra['lure_dump'] = str(args.lure_dump)
+    if args.interleave_arms:  # per-arm frames replace the single --lure-first-chunk-frames value
+        del extra['lure_first_chunk_frames']
+        extra.update(interleave_arms=dict(args.interleave_arms), interleave_rounds=args.interleave_rounds,
+                     interleave_seed=args.interleave_seed)
     return extra
 
 
@@ -509,17 +624,29 @@ async def run(args):
             gemma = await stack.enter_async_context(server(args.llama_server,
                 ['-m', args.gemma.expanduser().resolve(strict=True), '-c', '4096', '-ngl', '99', '-np', '1', '--jinja',
                  '--no-webui', '--reasoning', 'off'], args.out / 'gemma.log', 'listening on {url}'))
-            lure = None
-            if args.tts == 'lure':
+            lure, arms = None, {}
+            if args.interleave_arms:  # one warm Lure helper per arm, all alive for the whole run
+                for arm, fc in args.interleave_arms:
+                    dump = (UtteranceDump(args.lure_dump / arm, f'{args.lure_dump_tag}_{arm}')
+                            if args.lure_dump is not None else None)
+                    arm_lure = await stack.enter_async_context(
+                        LureTTS(lure_helper_argv(args, fc), args.out / f'lure-{arm}.log', dump))
+                    arms[arm] = Models(http, asr, None, gemma, arm_lure)
+                for arm, other in list(arms.items())[1:]:  # the first arm is warmed below with the ASR/reply check
+                    if not [samples async for samples in other.tts('What is the capital of France?')]:
+                        raise RuntimeError(f'Warm-up produced no audio ({arm})')
+            elif args.tts == 'lure':
                 dump = UtteranceDump(args.lure_dump, args.lure_dump_tag) if args.lure_dump is not None else None
                 lure = await stack.enter_async_context(LureTTS(lure_helper_argv(args), args.out / 'lure.log', dump))
-            pipe = Models(http, asr, tts[0] if tts else None, gemma, lure)
+            pipe = next(iter(arms.values())) if arms else Models(http, asr, tts[0] if tts else None, gemma, lure)
             warm = [samples async for samples in pipe.tts('What is the capital of France?')]
             if not warm:
                 raise RuntimeError('Warm-up produced no audio')
             text = await pipe.asr(np.concatenate(warm)[::3], {})
             if not text or not await pipe.reply([message('system', SYSTEM), message('user', text)], {}):
                 raise RuntimeError('Warm-up produced no text')
+            if arms:
+                return await replay_interleaved(arms, args)
             return await (spoken_suite(pipe, args) if args.slm else replay(pipe, args))
     finally:
         loop.remove_signal_handler(signal.SIGTERM)
@@ -553,7 +680,29 @@ def parse_args(argv=None):
     ap.add_argument('--lure-dump', type=Path,
                     help='write each Lure utterance as a 24 kHz WAV plus utterances.jsonl (id, text) into this dir')
     ap.add_argument('--lure-dump-tag', default='run', help='id prefix for --lure-dump files, e.g. r1_fc4_A')
+    ap.add_argument('--interleave-arms', metavar='NAME:FRAMES,...',
+                    help='--tts lure only: run every call once per arm back to back inside this one process, e.g. '
+                         'fc4_A:4,fc1:1,fc4_B:4 (one warm helper per arm; overrides --lure-first-chunk-frames)')
+    ap.add_argument('--interleave-rounds', type=int, help='repeat the --calls list this many times (default 1)')
+    ap.add_argument('--interleave-seed', type=int, help='seed of the balanced per-call arm order (default 0)')
     args = ap.parse_args(argv)
+    if args.interleave_arms is None:
+        if args.interleave_rounds is not None or args.interleave_seed is not None:
+            ap.error('--interleave-rounds/--interleave-seed need --interleave-arms')
+    else:
+        arms = []
+        for item in args.interleave_arms.split(','):
+            m = re.fullmatch(r'([a-zA-Z0-9_-]+):([0-9]+)', item)
+            if not m or not 1 <= int(m[2]) <= 32 or m[1] in dict(arms):
+                ap.error('--interleave-arms needs unique NAME:FRAMES items, NAME [a-zA-Z0-9_-], FRAMES 1..32')
+            arms.append((m[1], int(m[2])))
+        if len(arms) < 2 or args.tts != 'lure' or args.slm:
+            ap.error('--interleave-arms needs two or more arms and --tts lure, and does not run with --slm')
+        args.interleave_arms = arms
+        args.interleave_rounds = 1 if args.interleave_rounds is None else args.interleave_rounds
+        args.interleave_seed = 0 if args.interleave_seed is None else args.interleave_seed
+        if args.interleave_rounds < 1:
+            ap.error('--interleave-rounds must be >= 1')
     if args.tts == 'lure' and not (args.lure_model and args.lure_voice and args.lure_voice_text):
         ap.error('--tts lure needs --lure-model, --lure-voice and --lure-voice-text')
     if args.lure_dump is not None:
