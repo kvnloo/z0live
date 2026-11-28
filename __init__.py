@@ -277,7 +277,7 @@ def make_job(cfg):
                     args.get("brief") or "", title=args.get("title") or "", engine=args.get("engine") or "kanban",
                     model=args.get("model") or "", provider=args.get("provider") or "", item=args.get("item") or "",
                     call=args.get("call") or "", cmd=args.get("cmd") or "", workspace=args.get("workspace") or "",
-                    goal=args.get("goal") is not False, by="agent"))
+                    goal=args.get("goal") is not False, by="agent", bot=args.get("bot") or ""))
             if action in ("status", "stop"):
                 if not args.get("id"):
                     return json.dumps({"ok": False, "error": f"{action} needs id"})
@@ -419,6 +419,9 @@ JOB_SCHEMA = {
         "cmd": {"type": "string", "description": "start with engine=pid: the shell command to run"},
         "workspace": {"type": "string", "description": "start: scratch | worktree | dir:<path>"},
         "goal": {"type": "boolean", "description": "start: keep the worker going until a judge agrees it is done (default true)"},
+        "bot": {"type": "string", "description": ("start: hand the job to ANOTHER Hermes bot profile (\"@pc check the drive\" -> "
+                                                  "bot=pc). That bot's gateway runs it with its own tools, outside this "
+                                                  "sandbox, and the result comes back on status. Default: this profile.")},
         "id": {"type": "string", "description": "status/stop: the job id from start"},
         "open_only": {"type": "boolean"},
     }},

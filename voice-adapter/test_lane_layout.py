@@ -101,7 +101,7 @@ class ValidateTests(Tmp):
 
     def test_caps(self):
         with self.assertRaises(L.LayoutError):
-            L.act("add", "haiku", 5, "voice")  # fast already has terra + luna; cap 6 per tier
+            L.act("add", "haiku", 5, "voice")  # fast already has two Terra lanes; cap 6 per tier
         with self.assertRaises(L.LayoutError):
             L.act("add", "sol", 14)  # worker pool: 5 + 14 > 18
 
@@ -109,7 +109,7 @@ class ValidateTests(Tmp):
         L.act("remove", "sonnet", role="voice")
         L.act("remove", "sol", role="voice")
         L.act("remove", "opus", role="voice")
-        L.act("remove", "luna", role="voice")
+        L.act("remove", "terra", 1, role="voice")
         with self.assertRaises(L.LayoutError):
             L.act("remove", "terra", role="voice")
         self.assertEqual(L.current()[0]["voice"]["fast"], {"terra": 1})  # the refused write left the file alone
@@ -126,6 +126,11 @@ class StoreTests(Tmp):
         self.assertIsNone(L.load())
         with patch.object(tiers, "FILE", Path(self.dir.name) / "tiers.json"):
             self.assertEqual(tiers.load(), tiers.TIERS)
+
+    def test_fast_default_races_two_terra_lanes(self):
+        expected = [{"provider": L.CODEX, "model": L.latest_codex("terra")}] * 2
+        self.assertEqual(L.tiers(L.seed())["fast"], expected)
+        self.assertEqual(tiers.TIERS["fast"], [{"provider": L.CODEX, "model": L.CODEX_FALLBACK["terra"]}] * 2)
 
     def test_seed_reproduces_todays_tiers_json(self):
         live_tiers = {"fast": [{"provider": L.CLAUDE, "model": "claude-haiku-5-5"}] * 3,
@@ -154,7 +159,7 @@ class StoreTests(Tmp):
 
     def test_remove_all_of_a_model_from_every_tier(self):
         out = L.act("remove", "sol", role="voice")
-        self.assertEqual(out["layout"]["voice"], {"fast": {"terra": 1, "luna": 1}, "medium": {"sonnet": 1}, "slow": {"opus": 1}})
+        self.assertEqual(out["layout"]["voice"], {"fast": {"terra": 2}, "medium": {"sonnet": 1}, "slow": {"opus": 1}})
         self.assertEqual(out["layout"]["research"]["sol"], 5)  # the TV pool is its own role
 
     def test_research_role_and_set(self):

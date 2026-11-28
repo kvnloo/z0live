@@ -197,7 +197,8 @@ NEGATIVE = re.compile(r"\b(?:has(?:n't| not)|have(?:n't| not)|is(?:n't| not)|are
                       r"\b(?:zero|no|none of the)\s+(?:\w+\s+){0,2}?(?:lanes?|jobs?|cards?|workers?|climbs?|tasks?|"
                       r"agents?|runs?)\b", re.I)
 FINISHED = re.compile(r"\b(?:finished|completed|done|ran|succeeded|failed|ended|returned)\b|\bago\b"
-                      r"|\blast (?:run|check|checked|round|dispatch)\b", re.I)
+                      r"|\blast (?:run|check|checked|round|dispatch)\b"
+                      r"|\bdid (?:a|an|its|the) (?:\w+ )?(?:round|run|pass)\b", re.I)
 # A measured time ("the first result takes 30 to 67 seconds"): stands only on the numbers of the rubric row read now.
 MEASURE = re.compile(r"\b\d+(?:\.\d+)?\s*(?:to|-|–)?\s*(?:\d+(?:\.\d+)?\s*)?(?:s|secs?|seconds?|ms|minutes?)\b", re.I)
 MEASURE_TOPIC = re.compile(r"\b(?:takes?|took|latency|response|reply|answer|result|first|p50|p90|median|average)\b",

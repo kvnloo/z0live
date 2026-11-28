@@ -53,6 +53,8 @@ if not args.native:
         TERMINAL_CWD=str(ROOT),
         HERMES_DASHBOARD="0",
     )
+    if os.environ.get("Z0LIVE_VOICE_APPROVALS", "").strip().lower() in ("1", "on", "true", "yes"):
+        os.environ["HERMES_EXEC_ASK"] = "1"
     os.chdir(ROOT)
     runtime = json.loads(
         subprocess.check_output(

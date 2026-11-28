@@ -47,6 +47,7 @@ import lane_layout  # noqa: E402 - sibling module (the lanes attached to the con
 import ledger as request_ledger  # noqa: E402 - sibling module (the request ledger: asks, promises, proof, results)
 import ask_bot  # noqa: E402 - sibling module ("ask @pc to ...": another bot profile answers, outside the agent sandbox)
 import live_status  # noqa: E402 - sibling module (status answers and the proof gate, from the live records)
+import voice_approvals  # noqa: E402 - sibling module (N230: Hermes approval notifications)
 import guest_voice  # noqa: E402
 import answer_delivery  # noqa: E402 - sibling module (what each voice has actually said)
 from subscription_leg import Speaker, SubscriptionLeg  # noqa: E402
@@ -412,6 +413,7 @@ CALL_CONTEXT = ("This request comes from a live voice call; answer in a few shor
 # Hermes runs one call may have going at once on the host path (no linked chat). Past it a request waits for a free
 # run, and the voice says it is queued instead of claiming a hand-off that has not happened.
 HOST_MAX = 3
+VOICE_APPROVALS = voice_approvals.enabled()
 # The line past HOST_MAX (or past the chat turn plus SIDE_MAX): at most QUEUE_MAX requests wait, first in, first
 # out. Past that a request is refused out loud at once and never runs, so nothing waits without the caller knowing.
 QUEUE_MAX = max(0, int(os.environ.get("Z0LIVE_QUEUE_MAX", "3")))
@@ -1619,7 +1621,7 @@ class Call:
         self.spoken_for: dict = {}  # delegation id -> every line handed to a voice for it (lane cards never repeat)
         self.ask_dids: dict[str, str] = {}  # conductor ask text (lane_cards.request_key) -> delegation id
         self.item_of: dict[str, str] = {}  # delegation id -> request ledger item id
-        self.earlier_cards: list[dict] = []  # finished lanes of earlier requests: one line, never silently dropped
+        self.earlier_cards: list[tuple[str, dict]] = []  # finished lanes of earlier requests: one line, never silently dropped
         self.cards_seen: set[str] = set()  # conductor lane ids already spoken or skipped
         self.card_watch = None  # the watch_cards task, while one runs
         self.cards_busy = False  # a lane of this call's asks is still running (state.json, last read)
@@ -1632,6 +1634,7 @@ class Call:
         # Status answers and the proof gate use the records as they are now. replay.py turns this off: an offline
         # replay of a recorded call has no records of that call's minute, and today's would make it nondeterministic.
         self.live_records = True
+        self.approvals: set[tuple[str, str, str]] = set()
         self.token = ""  # the app's own bearer, for submitting voice turns into its open chat
         self.chat_lookup = None
         self.context_text = ""  # recent chat history text, for the ttft lane
@@ -2285,8 +2288,10 @@ class Call:
 
         async def run():
             began = time.monotonic()
+            hook = self.approval_hook(did, profile) if VOICE_APPROVALS else None
             result = await asyncio.to_thread(ask_bot.ask, profile, message, call=self.ledger_call,
-                                             item=self.item_of.get(did, ""), by="voice", via="voice", caller="tek")
+                                             item=self.item_of.get(did, ""), by="voice", via="voice", caller="tek",
+                                             on_approval=hook)
             self.counts["bot_ask_" + ("ok" if result.get("ok") else "failed")] += 1
             self.trace("ask.done", did=did, profile=profile, ok=result.get("ok"), delivery=result.get("delivery"),
                        item=result.get("item"), error=result.get("error"), answer=(result.get("answer") or "")[:2000],
@@ -2295,6 +2300,28 @@ class Call:
                 self.speak_for(did, result.get("say") or f"I couldn't reach {profile}.")
         self.spawn(run())
         return True
+
+    def approval_hook(self, did, profile):
+        """Queue Hermes approval notifications on this call's event loop."""
+        loop = asyncio.get_running_loop()
+
+        def hook(run_id, event):
+            loop.call_soon_threadsafe(self.approval_event, did, profile, run_id, event)
+        return hook
+
+    def approval_event(self, did, profile, run_id, event):
+        if not VOICE_APPROVALS or self.closed or self.profile == "guest":
+            return
+        kind = voice_approvals.event_kind(event)
+        rid = voice_approvals.request_id(event)
+        key = (profile, run_id, rid)
+        if kind == "approval.request" and rid and key not in self.approvals:
+            self.approvals.add(key)
+            self.counts["approval_requests"] += 1
+            self.trace("approval.request", did=did, profile=profile, run=run_id, request_id=rid)
+            self.speak_for(did, voice_approvals.spoken_prompt(event, profile))
+        elif kind == "approval.cleared":
+            self.approvals = {k for k in self.approvals if k[:2] != (profile, run_id)}
 
     def status_reader(self):
         if self.status_sources is None:
@@ -2443,22 +2470,38 @@ class Call:
         self.ledger_do(request_ledger.receipt, item, "conductor", "lane", str(ln.get("id")), str(ln.get("model") or ""))
         self.ledger_do(request_ledger.result, item, f"lane:{lane_cards.who(ln)}", text, ok, [str(ln.get("id"))], final)
 
-    def say_earlier_cards(self, now, latest):
+    async def say_earlier_cards(self, now, latest):
         """At most one short line, at least EARLIER_GAP apart, for lanes of requests Kevin moved on from."""
         if not self.earlier_cards or not latest or now - self.__dict__.get("earlier_at", float("-inf")) < EARLIER_GAP:
             return
         if not self.card_floor_free(now) or not self.status_gap_open(now, acks=False):
             return
         said = list(self.spoken_for.get(latest, []))
-        fresh = [ln for ln in self.earlier_cards if not lane_cards.said_already(ln["card"]["summary"], said)]
-        self.earlier_cards = []
-        text = lane_cards.earlier_line(fresh)
+        fresh = []
+        batch, self.earlier_cards = self.earlier_cards, []
+        for did, ln in batch:
+            summary = ln["card"]["summary"]
+            if lane_cards.superseded(summary, did, self.spoken_for):
+                self.card_skipped("superseded", did, [ln])
+            elif not lane_cards.said_already(summary, said):
+                fresh.append((did, ln))
+        lanes = [ln for _, ln in fresh]
+        if len(lanes) == 1:
+            summary = lane_cards.first_sentence(lanes[0]["card"]["summary"], 100)
+            if await self.gate_claims(latest, summary, "earlier_card") != summary:
+                return
+            now = time.monotonic()
+            if (self.closed or latest != getattr(self, "latest_did", latest)
+                    or not self.card_floor_free(now) or not self.status_gap_open(now, acks=False)):
+                self.earlier_cards.extend(fresh)
+                return
+        text = lane_cards.earlier_line(lanes)
         if not text:
             return
         self.earlier_at = now
         self.stamp_status(now)
         self.counts["lane_cards_earlier_spoken"] += 1
-        self.trace("lanes.card_earlier_spoken", did=latest, lanes=[ln["id"] for ln in fresh], text=text[:500])
+        self.trace("lanes.card_earlier_spoken", did=latest, lanes=[ln["id"] for ln in lanes], text=text[:500])
         self.speak_for(latest, text, lane=True)
 
     def card_skipped(self, reason, did, lanes, **data):
@@ -2503,10 +2546,12 @@ class Call:
             latest = getattr(self, "latest_did", None)
             for did, ln, _ in [p for p in pending if p[0] != latest]:
                 # Not dropped: already in the ledger (card_ledger), and said once in one line while the floor is free.
-                self.earlier_cards.append(ln)
+                self.earlier_cards.append((did, ln))
                 self.card_skipped("earlier", did, [ln], latest=latest)
             pending = [p for p in pending if p[0] == latest]
-            self.say_earlier_cards(now, latest)
+            await self.say_earlier_cards(now, latest)
+            if self.closed or latest != getattr(self, "latest_did", None):
+                continue
             if not pending:
                 if not self.cards_busy and now - self.last_delegation_at > lane_cards.IDLE_SECONDS:
                     break
@@ -2520,13 +2565,17 @@ class Call:
                 continue
             said, fresh = list(self.spoken_for.get(latest, [])), []
             for _, ln, _ in pending:
-                if lane_cards.said_already(ln["card"]["summary"], said):
+                if lane_cards.superseded(ln["card"]["summary"], latest, self.spoken_for):
+                    self.card_skipped("superseded", latest, [ln])
+                elif lane_cards.said_already(ln["card"]["summary"], said):
                     self.card_skipped("already_said", latest, [ln])
                 else:
                     fresh.append(ln)
                     said.append(ln["card"]["summary"])
-            pending = []
             text = await self.card_text(fresh)
+            if self.closed or latest != getattr(self, "latest_did", None):
+                continue
+            pending = []
             if not text:
                 continue
             self.counts["lane_cards_spoken"] += 1
@@ -3199,6 +3248,7 @@ def make_app():
     app.router.add_post(PATH, progress)
     app.router.add_post(passthru.PATH, passthru.control)
     app.router.add_get("/_z0live/ready", health)
+    app.router.add_get("/health", health)
     app.router.add_get("/_z0live/version", version)
     app.router.add_get("/api/audio/voice-live/status", status)
     app.router.add_post("/api/audio/voice-live/session", session)

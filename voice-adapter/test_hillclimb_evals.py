@@ -56,7 +56,8 @@ class ContextTests(unittest.TestCase):
         self.assertIn('Elm-24.', rendered)
         self.assertIn('I can remind you when you head over.', rendered)
         self.assertIn('Thursday', context.snapshot(scenario))
-        self.assertNotIn('Mint-57', context.snapshot(scenario))
+        # C56 wiring: the compressor keeps a reply-less user statement (Mint-57) as a fact; the old 6000-char tail cut dropped it
+        self.assertIn('Mint-57', context.snapshot(scenario))
         with self.assertRaises(ValueError):
             context.budgeted(scenario, len, 2, 0)
 

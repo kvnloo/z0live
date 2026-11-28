@@ -213,6 +213,41 @@ class Replay(unittest.IsolatedAsyncioTestCase):
         finally:
             await call.close("test")
 
+    async def test_completion_worded_as_doing_a_round_still_needs_proof(self):
+        said, _ = await self.run_path("B", 412, AT_412, "The orchard monitor did its second round at 11:20 PM.",
+                                      "say more about that")
+        self.assertIn(ls.CANT_CONFIRM, said)
+        self.assertNotIn("11:20", said)
+
+    async def test_earlier_cards_obey_corrections_and_the_proof_gate(self):
+        call, sent = self.call_at(412, AT_412)
+        try:
+            call.card_floor_free = lambda now: True
+            call.status_gap_open = lambda now, **kwargs: True
+            call.spoken_for = {
+                "d0": ["Actually, the north entrance stays open."],
+                "d1": ["I'll check the museum hours."],
+                "d2": ["Correction: the museum cafe closes at noon."],
+            }
+            call.earlier_cards = [("d1", {"id": "sample-1", "card": {
+                "summary": "The museum cafe closes at six."}})]
+            await call.say_earlier_cards(time.monotonic(), "d2")
+            self.assertFalse(self.spoken(sent))
+            self.assertEqual(call.counts["lane_cards_skipped"], 1)
+
+            call.earlier_cards = [("d1", {"id": "sample-2", "card": {
+                "summary": "The archive migration is running now."}})]
+            await call.say_earlier_cards(time.monotonic(), "d2")
+            self.assertFalse(self.spoken(sent))
+            self.assertEqual(call.counts["status_claims_dropped"], 1)
+
+            call.earlier_cards = [("d1", {"id": "sample-3", "card": {
+                "summary": "The north entrance stays open."}})]
+            await call.say_earlier_cards(time.monotonic(), "d2")
+            self.assertIn("The north entrance stays open.", self.spoken(sent))
+        finally:
+            await call.close("test")
+
     async def test_a_named_card_contradicted_by_the_board_is_corrected(self):
         said, _ = await self.run_path("B", 992, AT_412, "t_47402876 hasn't started; no one picked it up.",
                                       "say more about that")

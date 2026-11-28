@@ -17,6 +17,7 @@ from pathlib import Path
 
 from aiohttp import ClientTimeout
 
+import brief_compress
 import lane_layout
 
 CLAUDE = "claude-subscription-directsdk-experimental"
@@ -25,8 +26,7 @@ CODEX = "openai-codex"
 # terra/sol, luna is newest at 6.0; gpt-6-terra is refused for ChatGPT accounts). Measured through
 # lane_server: luna 1.38 s, terra 1.49 s, sol 1.54 s for a one-sentence answer.
 TIERS = {
-    # 11-27 replay (bench/lane_replay.py): with the call's context, Haiku answered at p50 3.4 s; Terra 2.05 s, Luna 1.72 s.
-    "fast": [{"provider": CODEX, "model": "gpt-6.1-terra"}, {"provider": CODEX, "model": "gpt-6-luna"}],
+    "fast": [{"provider": CODEX, "model": "gpt-6.1-terra"}] * 2,
     "medium": [{"provider": CLAUDE, "model": "claude-sonnet-5-5"}, {"provider": CODEX, "model": "gpt-6.2-sol"}],
     "slow": [{"provider": CLAUDE, "model": "claude-opus-5-5"}, {"provider": CODEX, "model": "gpt-6.2-sol"}],
 }
@@ -95,12 +95,15 @@ def live_facts(now: float | None = None, path: Path | None = None) -> str:
     return "Live lanes (from the TV conductor):\n" + "\n".join(out)
 
 
+BRIEF_BUDGET = 2810  # C56-live-compress: halves cold lane first answer vs the 6000-char brief (bench, PR #154)
+
+
 def snapshot(brief: str, exchanges, live: str = "", ledger: str = "") -> str:
     """The one context every lane sees: what is live now, the chat brief, the call's request ledger (earlier answers,
     promises, proof), then the call so far."""
     turns = "\n".join(f"{'Kevin' if role == 'user' else 'You'}: {text}" for role, text in exchanges)
     return (f"{live}\n\n" if live else "") + \
-           (f"Context from his Hermes chat:\n{brief[-6000:]}\n\n" if brief else "") + \
+           (f"Context from his Hermes chat:\n{brief_compress.compress_brief(brief, BRIEF_BUDGET)}\n\n" if brief else "") + \
            (f"{ledger}\n\n" if ledger else "") + \
            (f"This call so far:\n{turns}" if turns else "")
 

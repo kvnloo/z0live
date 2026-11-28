@@ -107,3 +107,17 @@ def said_already(summary: str, said: list[str], share: float = 0.6) -> bool:
     """Most of the card's first sentence was already spoken for this request (a tier lane, Hermes, an earlier card)."""
     card, heard = _words(first_sentence(summary)), set().union(*(_words(s) for s in said)) if said else set()
     return bool(card) and len(card & heard) >= share * len(card)
+
+
+_CORRECTION = re.compile(r"^\s*(?:actually|correction|to correct that)\b", re.I)
+
+
+def superseded(summary: str, did: str, spoken: dict[str, list[str]]) -> bool:
+    """Skip a card when a correction on its request or a subsequent request covers the same subject."""
+    same_or_later = did not in spoken
+    for key, lines in spoken.items():
+        same_or_later |= key == did
+        if same_or_later and any(_CORRECTION.match(line) and said_already(summary, [line], share=0.4)
+                                 for line in lines):
+            return True
+    return False

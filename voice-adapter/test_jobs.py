@@ -102,6 +102,29 @@ class JobsTest(unittest.TestCase):
         self.assertIn("--goal", create)
         self.assertIn("never service_tier", create[create.index("--body") + 1])
 
+    def test_bot_job_goes_to_that_profiles_board_queue(self):
+        prof = self.tmp / "home" / ".hermes/profiles"
+        for name in ("pc", "guest"):
+            (prof / name).mkdir(parents=True)
+            (prof / name / "config.yaml").write_text("x: 1\n")
+        self.jobs.HOME = self.tmp / "home"
+        r = self.jobs.start("List the made-up drive's top folders", bot="@PC", call="c1")
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(r["bot"], "pc")
+        create = [c for c in json.loads(self.board.read_text())["calls"] if c[1] == "create"][0]
+        self.assertEqual(create[create.index("--assignee") + 1], "pc")
+        body = create[create.index("--body") + 1]
+        self.assertIn("Requested from z0live by tek", body)
+        self.assertIn("on call c1", body)
+        self.assertIn("explicit go: block this card", body)
+        self.assertFalse(self.jobs.start("anything", bot="pc", model="gpt-6.2-sol")["ok"])
+        same_on_tek = self.jobs.start("List the made-up drive's top folders", call="c1")
+        self.assertNotEqual(same_on_tek["id"], r["id"])  # another owner is another job
+        self.assertFalse(self.jobs.start("anything", bot="guest")["ok"])
+        self.assertIn("no Hermes profile", self.jobs.start("anything", bot="nobody")["error"])
+        self.assertFalse(self.jobs.start("anything", bot="../tek")["ok"])
+        self.assertFalse(self.jobs.start("x", bot="pc", engine="pid", cmd="true")["ok"])
+
     def test_same_ask_twice_is_one_job_without_an_item(self):
         a = self.jobs.start("Improve the made-up gadget", call="c2")
         b = self.jobs.start("Improve the made-up gadget", call="c2")
