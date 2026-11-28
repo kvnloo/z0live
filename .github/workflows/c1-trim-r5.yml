@@ -1,0 +1,46 @@
+name: z0live C1-trim-r5 (value-preserving sem-r3 trim vs level-3 off, fresh synthetic holdout, CPU, no model)
+# Scored once. Prereg + frozen hashes: voice-adapter/bench/c1-trim-r5/PREREG.md, FREEZE.txt
+on:
+  push:
+    branches: [ci/c1-trim-r5]
+    paths: [".github/workflows/c1-trim-r5.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: c1-trim-r5-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify frozen inputs (sha256)
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          git rev-parse HEAD | tee out/head.txt
+          python3 --version | tee out/python.txt
+          cd voice-adapter/bench/c1-trim-r5
+          sha256sum -c FREEZE.txt | tee "$GITHUB_WORKSPACE/out/freeze_check.txt"
+      - name: Scored replay (arms A, B0, B1, B2; warm and key-miss)
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          cd voice-adapter/bench/c1-trim-r5
+          python3 -I c1_trim_r5.py replay fixtures.json "$GITHUB_WORKSPACE/out" | tee "$GITHUB_WORKSPACE/out/replay.stdout"
+          grep -A4 '"verdicts"' "$GITHUB_WORKSPACE/out/replay.stdout" >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: c1-trim-r5
+          path: out/
+          if-no-files-found: warn
+          retention-days: 30
