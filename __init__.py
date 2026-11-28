@@ -472,7 +472,7 @@ def register(ctx) -> None:
                       check_fn=lambda: installed() and (_path(cfg("z0live_repo") or ROOT) / "voice-adapter/jobs.py").is_file(),
                       description="Start, track and stop long z0live jobs on the Hermes kanban board", emoji="🧗")
     ctx.register_tool(name="z0live_ask", toolset=TOOLSET, schema=ASK_SCHEMA, handler=make_ask(cfg),
-                      check_fn=lambda: _profile_name() != "guest" and not_worker()
+                      check_fn=lambda: installed() and _profile_name() != "guest" and not_worker()
                       and (_path(cfg("z0live_repo") or ROOT) / "voice-adapter/ask_bot.py").is_file(),
                       description="Ask another bot profile (ask @pc ...) and bring its answer back", emoji="📨")
     lines = _read_json(ROOT / "voice-adapter/progress_lines.json") or []
