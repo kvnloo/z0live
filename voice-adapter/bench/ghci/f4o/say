@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# CI-only stand-in for macOS `say` (Linux runners have none): renders the text with espeak-ng (en-us) and converts to
+# mono signed 16-bit WAVE at the rate given by --data-format=LEI16@<rate>. Accepts only the argument shape
+# transport_bench.fixture() uses: say -v <voice> -o <path> --file-format=WAVE --data-format=LEI16@<rate> <text>
+set -euo pipefail
+out="" rate="" text=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -v) shift 2 ;;
+    -o) out="$2"; shift 2 ;;
+    --file-format=*) shift ;;
+    --data-format=LEI16@*) rate="${1#--data-format=LEI16@}"; shift ;;
+    *) text="$1"; shift ;;
+  esac
+done
+[ -n "$out" ] && [ -n "$rate" ] && [ -n "$text" ] || { echo "say shim: unsupported arguments" >&2; exit 2; }
+tmp="$(mktemp --suffix=.wav)"
+espeak-ng -v en-us -s 165 -w "$tmp" "$text"
+sox "$tmp" -r "$rate" -c 1 -b 16 -e signed-integer "$out"
+rm -f "$tmp"

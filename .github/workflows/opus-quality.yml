@@ -1,0 +1,64 @@
+name: z0live F4q-quality, mono Opus 96k PESQ-WB/STOI, complexity 5 vs default 10 (opus_quality/1), hosted arm64 + x86
+# F4q-quality: objective perceptual quality (PESQ-WB, ITU-T P.862.2 via pip `pesq`; STOI via pip `pystoi`) of the mono
+# 96 kbit/s Opus downlink encoder: A = complexity unset (libopus default 10), A2 = A (A/A), B = complexity 5,
+# C = complexity 3 (descriptive). Synthetic speech (espeak-ng via the F4o `say` shim); no network peers, no secrets.
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  quality:
+    name: f4q-quality ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04-arm, ubuntu-24.04]
+    defaults:
+      run:
+        working-directory: voice-adapter
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q && sudo apt-get install -y -q espeak-ng sox
+          python -m pip install -q -r requirements.lock numpy==2.5.5 scipy==1.18.1 pesq==0.0.4 pystoi==0.4.1
+          echo "$PWD/bench/ghci/f4o" >> "$GITHUB_PATH"
+      - name: Runner
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/out" && lscpu > "$GITHUB_WORKSPACE/out/lscpu.txt"
+          {
+            echo "### F4q-quality on ${{ matrix.runner }}"
+            echo '```'
+            uname -a; nproc
+            python --version
+            python -m pip list 2>/dev/null | grep -iE '^(aiortc|av|numpy|scipy|pesq|pystoi) '
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Quality (PESQ-WB, STOI)
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          which say
+          env -u PYTHONPATH python -I bench/opus_quality.py "$GITHUB_WORKSPACE/out/fx" "$GITHUB_WORKSPACE/out/opus_quality.json" \
+            | tee "$GITHUB_WORKSPACE/out/opus_quality.txt"
+          (cd "$GITHUB_WORKSPACE/out/fx" && sha256sum *.wav) | tee "$GITHUB_WORKSPACE/out/fixtures.sha256"
+          { echo '```'; cut -c1-220 "$GITHUB_WORKSPACE/out/opus_quality.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Unit tests (opus knobs)
+        run: env -u PYTHONPATH python -m unittest test_opus_complexity test_opus_mono
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f4q-quality-${{ matrix.runner }}
+          path: |
+            out/*.json
+            out/*.txt
+            out/*.sha256
+          if-no-files-found: warn
+          retention-days: 30
