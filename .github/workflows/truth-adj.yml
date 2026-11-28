@@ -1,0 +1,115 @@
+name: z0live truth grader adjudication (CPU llama.cpp)
+# Measures bench/truth_eval.py's unchanged RUBRIC + grade() against the synthetic adjudication set
+# voice-adapter/bench/truth_adj.json (constructed gold). Synthetic text only, no owner data or traces.
+on:
+  # workflow_dispatch needs the file on the default branch; a push to this branch that touches the workflow runs it once
+  push:
+    branches: [ci/truth-adj]
+    paths: [".github/workflows/truth-adj.yml"]
+  workflow_dispatch:
+    inputs:
+      note:
+        description: "free-text label for this run"
+        required: false
+        default: ""
+permissions:
+  contents: read
+concurrency:
+  group: truth-adj-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  LLAMA_TAG: b12527
+  LLAMA_SHA256: c2758c87b9dd41293653e665fa3b06f5853d69243443d5d06d930683a55e35e4   # llama-b12527-bin-ubuntu-arm64.tar.gz
+jobs:
+  grade:
+    name: ${{ matrix.cfg.model }} ${{ matrix.cfg.quant }} rep${{ matrix.rep }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        rep: [1, 2]   # A/A: two independent jobs per arm, same inputs
+        cfg:
+          - {model: gemma4-e4b, quant: Q4_0, repo: ggml-org/gemma-4-E4B-it-GGUF, file: gemma-4-E4B-it-Q4_0.gguf, sha: a555b900214b477d8880e7832e0b8925e139b0159640036b09fe472b6f2097f2}
+          - {model: gemma4-e2b, quant: Q4_K_M, repo: unsloth/gemma-4-E2B-it-GGUF, file: gemma-4-E2B-it-Q4_K_M.gguf, sha: 740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Runner CPU (lscpu)
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          lscpu
+          cpu=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)
+          echo "CPU_MODEL=${cpu:-unknown} ($(uname -m), $(nproc) cpus)" >> "$GITHUB_ENV"
+          echo "runner CPU: ${cpu:-unknown} ($(uname -m), $(nproc) cpus)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: llama.cpp ${{ env.LLAMA_TAG }} (prebuilt ubuntu arm64 CPU)
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/llama" && cd "$RUNNER_TEMP/llama"
+          curl -fsSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_TAG}/llama-${LLAMA_TAG}-bin-ubuntu-arm64.tar.gz"
+          echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
+          tar xzf llama.tgz
+          server=$(find "$RUNNER_TEMP/llama" -type f -name llama-server | head -1)
+          test -x "$server"
+          echo "LLAMA_SERVER=$server" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$(dirname "$server")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+          nproc; free -g; df -h "$RUNNER_TEMP" | tail -1
+      - name: Restore GGUF cache
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/models/${{ matrix.cfg.file }}
+          key: gguf-${{ matrix.cfg.sha }}
+      - name: Download GGUF (pinned by sha256)
+        timeout-minutes: 15
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          REPO: ${{ matrix.cfg.repo }}
+          FILE: ${{ matrix.cfg.file }}
+          SHA: ${{ matrix.cfg.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/models"
+          curl -fsSL --retry 5 --retry-all-errors --speed-limit 2000000 --speed-time 60 -o "$RUNNER_TEMP/models/$FILE" "https://huggingface.co/$REPO/resolve/main/$FILE"
+          echo "$SHA  $RUNNER_TEMP/models/$FILE" | sha256sum -c -
+      - name: Save GGUF cache
+        if: steps.cache.outputs.cache-hit != 'true' && matrix.rep == 1
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/models/${{ matrix.cfg.file }}
+          key: gguf-${{ matrix.cfg.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Grade adjudication set
+        timeout-minutes: 40
+        env:
+          MODEL: ${{ matrix.cfg.model }}
+          QUANT: ${{ matrix.cfg.quant }}
+          FILE: ${{ matrix.cfg.file }}
+          SHA: ${{ matrix.cfg.sha }}
+          REP: ${{ matrix.rep }}
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet "aiohttp>=3.9,<4"   # truth_eval imports tiers, which imports aiohttp
+          (cd voice-adapter/bench && python -m unittest test_truth_adj)
+          "$LLAMA_SERVER" --model "$RUNNER_TEMP/models/$FILE" --alias "$MODEL" --host 127.0.0.1 --port 18087 \
+            --ctx-size 8192 --parallel 1 --cache-ram 0 --jinja --no-ui --log-disable > "$RUNNER_TEMP/server.log" 2>&1 &
+          for i in $(seq 1 180); do curl -fsS http://127.0.0.1:18087/health > /dev/null 2>&1 && break; sleep 2; done
+          curl -fsS http://127.0.0.1:18087/health
+          mkdir -p out
+          meta=$(python -c 'import json,os;print(json.dumps({k.lower():os.environ[k] for k in ("MODEL","QUANT","FILE","SHA","REP","LLAMA_TAG")}))')
+          (cd voice-adapter/bench && python truth_adj.py --port 18087 --model "$MODEL" --cpu "$CPU_MODEL" --meta "$meta" \
+            --out "$GITHUB_WORKSPACE/out/$MODEL-$QUANT-rep$REP.json" > /dev/null)
+          python -c 'import json,sys;m=json.load(open(sys.argv[1]));x=m["metrics"];print(m["model"],"acc",x["accuracy"]["overall"],"errors",x["errors"],"controls",m["controls_passed"],"wall",m["wall_s"])' "out/$MODEL-$QUANT-rep$REP.json" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: truth-adj-${{ matrix.cfg.model }}-${{ matrix.cfg.quant }}-rep${{ matrix.rep }}
+          path: out/
+          if-no-files-found: warn
+          retention-days: 30
