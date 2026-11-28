@@ -46,6 +46,7 @@ import lane_cards  # noqa: E402 - sibling module (the TV conductor's lane cards,
 import lane_layout  # noqa: E402 - sibling module (the lanes attached to the conversation)
 import ledger as request_ledger  # noqa: E402 - sibling module (the request ledger: asks, promises, proof, results)
 import ask_bot  # noqa: E402 - sibling module ("ask @pc to ...": another bot profile answers, outside the agent sandbox)
+import live_status  # noqa: E402 - sibling module (status answers and the proof gate, from the live records)
 import guest_voice  # noqa: E402
 import answer_delivery  # noqa: E402 - sibling module (what each voice has actually said)
 from subscription_leg import Speaker, SubscriptionLeg  # noqa: E402
@@ -1624,6 +1625,13 @@ class Call:
         self.cards_busy = False  # a lane of this call's asks is still running (state.json, last read)
         self.last_delegation_at = float("-inf")
         self.handed_at = float("-inf")  # when speak_for last handed a voice a line
+        # N216: status answers come from the live records (live_status); the voice must say them verbatim.
+        self.status_sources = None  # live_status.Sources, built for this call's profile on first use (tests set it)
+        self.status_clock = time.time  # the read time spoken with a status answer (the replay sets the call's clock)
+        self.verbatim = None  # (did, status answer, handed at): the voice's next reading of it is checked once
+        # Status answers and the proof gate use the records as they are now. replay.py turns this off: an offline
+        # replay of a recorded call has no records of that call's minute, and today's would make it nondeterministic.
+        self.live_records = True
         self.token = ""  # the app's own bearer, for submitting voice turns into its open chat
         self.chat_lookup = None
         self.context_text = ""  # recent chat history text, for the ttft lane
@@ -1783,6 +1791,8 @@ class Call:
                 elif turn.get("role") == "assistant" and self.ack_due:  # the voice acked a request: the gap starts
                     self.ack_due = False
                     self.status_at = time.monotonic()
+                if turn.get("role") == "assistant" and self.verbatim:  # N216: did it keep the status numbers?
+                    self.check_verbatim(text if isinstance(text, str) and text else self.protocol.turn_text["assistant"])
             if self.passthru:
                 self.passthru_event(kind, event)
         duplex = self.duplex
@@ -2020,6 +2030,8 @@ class Call:
             return
         if self.bot_ask(did, request):  # "ask @pc to list the drive": pc answers, tek's agent never runs
             return
+        if await self.status_answer(did, request):  # "how many lanes are running": the records answer, no model
+            return
         # passthru=True marks a delegation made while z0 sat in a meeting (this leg still hears the phone alone).
         self.trace("delegation.start", did=did, request=(request or "")[:4000],
                    **({"passthru": True} if self.passthru and self.passthru.active else {}))
@@ -2184,6 +2196,9 @@ class Call:
         if not it:
             return text or answer
         if it["kind"] != "action":
+            # N216: a question's answer may not state that work is running, finished or not picked up unless it
+            # cites an id read now (or a PROOF that checked out) and that record agrees.
+            text = await self.gate_claims(did, text, "background", extra_ids=[r for _, r, _ in proofs])
             self.ledger_do(request_ledger.result, item, "background", text)
             return text
         if not it["proven"] and self.claims_work(text):
@@ -2278,6 +2293,84 @@ class Call:
         self.spawn(run())
         return True
 
+    def status_reader(self):
+        if self.status_sources is None:
+            self.status_sources = live_status.Sources.for_profile(self.profile)
+        return self.status_sources
+
+    async def status_read(self, topics, request=""):
+        return await asyncio.to_thread(live_status.read, topics, self.status_reader(), self.status_clock(), request)
+
+    async def status_answer(self, did, request) -> bool:
+        """N216: a status question (lanes running, hill climbs, blockers, a card or job, latency) is answered from the
+        live records read now, with the read time, never by a model or a cached snapshot. Before delegation.start, so
+        asking "how many lanes" never starts lanes. The answer is the request's ledger result; the voice is told to say
+        it verbatim and its reading is checked once (check_verbatim). True when the request was a status question."""
+        topics = live_status.topics(request)
+        if not topics or self.profile == "guest" or not self.live_records:
+            return False
+        began = time.monotonic()
+        self.ledger_open(did, request)
+        try:
+            snap = await self.status_read(topics, request)
+            text = live_status.render(snap)
+        except Exception as exc:  # noqa: BLE001 - a broken reader is said, never guessed over
+            snap, text = None, f"I couldn't read the live records just now ({type(exc).__name__}), so I can't say."
+        self.counts["status_answers"] += 1
+        self.trace("status.answer", did=did, topics=topics, text=text[:2000], s=round(time.monotonic() - began, 3),
+                   read_at=(snap or {}).get("read_at"), ids=sorted((snap or {}).get("ids") or ())[:60],
+                   errors=(snap or {}).get("errors"))
+        self.ledger_do(request_ledger.result, self.item_of.get(did), "records", text)
+        if self.closed:
+            return True
+        self.note("The next final message is a live status read from the records. Say it word for word: keep every "
+                  "number, id and clock time exactly as written, add nothing and drop nothing.")
+        self.verbatim = (did, text, time.monotonic())
+        self.speak_for(did, text)
+        return True
+
+    def check_verbatim(self, spoken: str):
+        """The voice's reading of the last status answer keeps every count and clock time (live_status.reworded); if it
+        changed one, the records' own words follow once as a correction. Turns that do not read it (an ack) are skipped."""
+        if not self.verbatim or not str(spoken or "").strip():
+            return
+        did, source, at = self.verbatim
+        if time.monotonic() - at > 120:
+            self.verbatim = None
+            return
+        words = lambda t: {w for w in re.findall(r"[a-z]{4,}", t.lower())}  # noqa: E731
+        if not (words(spoken) & words(source)) and not live_status.reworded("", spoken):
+            return  # no word of the answer and no number: an ack, not its reading of the status answer
+        self.verbatim = None
+        problems = live_status.reworded(source, spoken)
+        self.trace("status.verbatim", did=did, ok=not problems, problems=problems, spoken=str(spoken)[:500])
+        if not problems:
+            return
+        self.counts["status_reworded"] += 1
+        if not self.closed:
+            self.speak_for(did, "Correction, from the records: " + source)
+
+    async def gate_claims(self, did, text: str, source: str, extra_ids=()) -> str:
+        """N216 proof gate for model words (a background answer, a tier lane, a lane card): a sentence that says work is
+        running, finished, stopped or not picked up keeps only with an id read now that agrees (live_status.gate)."""
+        if not text or not getattr(self, "live_records", True) or not live_status.has_claim(text):
+            return text
+        try:
+            snap = await self.status_read(live_status.ALL)
+        except Exception as exc:  # noqa: BLE001 - no records: no claim about them stands
+            snap = {"ids": set(), "state": {}, "read_at": self.status_clock(), "errors": {"read": type(exc).__name__}}
+        out, dropped = live_status.gate(text, snap, extra_ids)
+        if dropped:
+            self.counts["status_claims_dropped"] += len(dropped)
+            self.trace("status.gated", did=did, source=source, dropped=[d[:300] for d in dropped], said=out[:1000],
+                       read_at=snap.get("read_at"))
+        return out
+
+    async def card_text(self, lanes) -> str:
+        """The one line for finished lane cards, through the proof gate; '' when nothing in it can be confirmed."""
+        text = await self.gate_claims(None, lane_cards.line(lanes), "card")
+        return "" if text.strip() in ("", live_status.CANT_CONFIRM) else text
+
     async def tier_lanes(self, did, request):
         """Fast, medium and slow lanes race within each tier; tiers run at once. The first answer from any tier
         is the one lane answer spoken for this request; Hermes's answer follows only if it adds to it. Later
@@ -2300,6 +2393,9 @@ class Call:
             if text and self.tier_claims_work(did, text):
                 self.trace("lanes.tier_claim_held", did=did, tier=name)  # no tools: it cannot have started anything
                 text = ""
+            if text and live_status.has_claim(text):  # N216: no tools, so a state claim needs an id the records hold
+                text = await self.gate_claims(did, text, f"tier:{name}")
+                text = re.sub(rf"\s*{re.escape(live_status.CANT_CONFIRM)}\s*", " ", text).strip()
             if text and not quiet and not said and self.say_first(did, text):
                 said.append(text)
                 self.counts["tier_first_spoken"] += 1
@@ -2418,7 +2514,7 @@ class Call:
                     fresh.append(ln)
                     said.append(ln["card"]["summary"])
             pending = []
-            text = lane_cards.line(fresh)
+            text = await self.card_text(fresh)
             if not text:
                 continue
             self.counts["lane_cards_spoken"] += 1
