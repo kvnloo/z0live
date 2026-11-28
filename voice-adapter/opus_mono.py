@@ -13,6 +13,11 @@ stereo/sprop-stereo fmtp, i.e. the RFC 7587 defaults stereo=0 / sprop-stereo=0 (
 Mechanism: aiortc's RTCRtpSender builds its encoder lazily with the module-level name aiortc.rtcrtpsender.get_encoder
 (on the first frame after negotiation). install() wraps that name so audio/opus returns MonoOpusEncoder; every other
 codec is untouched. The patch is process-wide and idempotent; the env flag is read when install() runs.
+
+Complexity (track F4q): Z0LIVE_DOWNLINK_OPUS_COMPLEXITY=<0..10> sets FFmpeg libopusenc's `compression_level`
+(OPUS_SET_COMPLEXITY; FFmpeg default 10) on the mono encoder only (read in MonoOpusEncoder.__init__, so it only acts
+with MONO=1). Unset or invalid (not an integer in [0, 10]) = the option is not set at all, byte for byte the F4o
+encoder. The stock stereo encoder is never affected.
 """
 from __future__ import annotations
 
@@ -24,6 +29,7 @@ from aiortc import rtcrtpsender
 from aiortc.codecs import opus as aopus
 
 ENV = "Z0LIVE_DOWNLINK_OPUS_MONO"
+COMPLEXITY_ENV = "Z0LIVE_DOWNLINK_OPUS_COMPLEXITY"
 _STOCK_GET_ENCODER = rtcrtpsender.get_encoder
 
 
@@ -31,15 +37,32 @@ def enabled() -> bool:
     return os.environ.get(ENV, "").strip() == "1"
 
 
+def complexity() -> int | None:
+    """libopus complexity from Z0LIVE_DOWNLINK_OPUS_COMPLEXITY; unset/invalid/out of [0, 10] = None (not set)."""
+    raw = os.environ.get(COMPLEXITY_ENV, "").strip()
+    if not (raw.isascii() and raw.isdigit()):
+        return None
+    value = int(raw)
+    return value if 0 <= value <= 10 else None
+
+
+_env_complexity = complexity  # MonoOpusEncoder's `complexity` parameter shadows the module function
+
+
 class MonoOpusEncoder(aopus.OpusEncoder):
     """aiortc OpusEncoder with one channel. encode()/pack() are inherited unchanged (same pts/timestamp logic)."""
 
-    def __init__(self) -> None:  # noqa: D107 - mirrors OpusEncoder.__init__ with layout mono
+    def __init__(self, complexity: int | None = None) -> None:  # noqa: D107 - OpusEncoder.__init__, layout mono
         self.codec = CodecContext.create("libopus", "w")
         self.codec.bit_rate = 96000
         self.codec.format = "s16"
         self.codec.layout = "mono"
-        self.codec.options = {"application": "voip"}
+        options = {"application": "voip"}
+        level = _env_complexity() if complexity is None else complexity
+        if level is not None:  # F4q: only when set; unset = F4o options exactly
+            options["compression_level"] = str(level)
+        self.codec.options = options
+        self.complexity = level  # F4q: what was requested (codec.options is consumed when the codec opens)
         self.codec.sample_rate = aopus.SAMPLE_RATE
         self.codec.time_base = aopus.TIME_BASE
         self.resampler = AudioResampler(format="s16", layout="mono", rate=aopus.SAMPLE_RATE,
