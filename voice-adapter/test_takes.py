@@ -7,10 +7,12 @@ import json
 import os
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("HERMES_VOICE_ENGINE", "gpt-live")  # never the owner's lanes config
 import answer_delivery  # noqa: E402
 import replay  # noqa: E402
+import status_facts  # noqa: E402
 
 FIXTURES = Path(__file__).with_name("fixtures") / "takes"
 TAKES = sorted(FIXTURES.glob("take*.jsonl"), key=lambda p: int(p.stem[4:]))
@@ -21,16 +23,17 @@ RECORDED: dict[str, set[str]] = {}
 
 
 def checked(path):
-    rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-    r = replay.Replay(rows)
-    asyncio.run(r.run())
-    return replay.checks(r)
+    return replay.checks(take(path.stem))
 
 
 def take(name):
     rows = [json.loads(line) for line in (FIXTURES / f"{name}.jsonl").read_text().splitlines() if line.strip()]
     r = replay.Replay(rows)
-    asyncio.run(r.run())
+    # These fixtures replay fixed, scrambled provider transcripts to test the delivery floor.
+    # Independent status replays use fabricated sources and assert the rewritten handoff.
+    with (patch.object(status_facts, "is_status", return_value=False),
+          patch.object(status_facts, "has_claim", return_value=False)):
+        asyncio.run(r.run())
     return r
 
 

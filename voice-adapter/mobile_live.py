@@ -41,6 +41,7 @@ LOG = logging.getLogger("hermes.mobile.subscription_voice")
 import chat_continuity  # noqa: E402 - sibling module (voice turns land in the owner's open chat)
 import call_brief  # noqa: E402 - sibling module (context packet in the session instructions)
 import grok_leg  # noqa: E402 - sibling module (Grok Voice as the voice model)
+import status_facts  # noqa: E402 - timestamped status observations and claim checks
 import tiers  # noqa: E402 - sibling module (fast/medium/slow model lanes)
 import lane_cards  # noqa: E402 - sibling module (the TV conductor's lane cards, spoken on their call)
 import lane_layout  # noqa: E402 - sibling module (the lanes attached to the conversation)
@@ -144,14 +145,14 @@ _LIVE = {"at": 0.0, "text": "", "busy": False}
 
 
 def live_picture(max_age: float = 5.0) -> str:
-    """The TV's words plus the live lanes, from a cache: the race never waits on it (a cold TV view takes ~1 s to
+    """The TV's display text, from a cache: the race never waits on it (a cold TV view takes ~1 s to
     build, and even a 0.4 s wait shifted lane timing). A stale cache refreshes in a background thread."""
     if time.monotonic() - _LIVE["at"] > max_age and not _LIVE["busy"]:
         _LIVE["busy"] = True
 
         def refresh():
             try:
-                _LIVE["text"] = "\n\n".join(x for x in (tv_screen(0.8), tiers.live_facts()) if x)
+                _LIVE["text"] = tv_screen(0.8)
                 _LIVE["at"] = time.monotonic()
             finally:
                 _LIVE["busy"] = False
@@ -259,6 +260,8 @@ When you delegate, say at most a short neutral line such as "Let me check." The 
 already be running, may wait in line or may be refused, so never promise new work, say you are
 taking it on or handling it, or promise receipts or a follow-up. The client's answer, queued
 notice or refusal says what happened; say that.
+For status, counts and outcomes, repeat the latest Agent Final Message's factual wording exactly.
+Never infer progress or cause from older conversation, commentary, or a receipt for a different operation.
 Do not claim work happened until the client returns its actual result. Progress arriving on
 the commentary channel is silent context, not something to read aloud. Present an Agent
 Final Message as your own concise answer. Never narrate routing or backend plumbing.
@@ -340,9 +343,6 @@ CLAIMS_WORK = re.compile(
 PROMISES_WORK = re.compile(r"\b(?:i'?ll|i will|i'?m going to|going to|let me|gonna|i can)\s+(?:go\s+)?(?:start|kick|run|set|launch|begin|"
                            r"spin|deploy|fix|install|eject|schedule|build|get (?:it|that|them) (?:going|started))\b", re.I)
 PROOF_LINE = re.compile(r"^\W*PROOF:\s*(pid|kanban|cron|commit|file)\s+(\S+)\s*(.*)$", re.I | re.M)
-NOT_CONFIRMED = "I haven't confirmed it started."
-DONE_WORDS = re.compile(r"\b(done|finished|completed|ejected|installed|approved|rejected|deployed|fixed|pushed|merged)\b", re.I)
-RUNNING_WORDS = re.compile(r"\b(started|kicked|running|launched|scheduled|underway|in progress|working on)\b", re.I)
 
 
 def request_kind(request: str) -> str:
@@ -360,11 +360,6 @@ def split_proof(answer: str):
     """(answer without PROOF lines, [(kind, ref, detail)]): a background agent proves work with `PROOF: kind ref`."""
     proofs = [(m.group(1).lower(), m.group(2), m.group(3).strip()) for m in PROOF_LINE.finditer(answer or "")]
     return PROOF_LINE.sub("", answer or "").strip(), proofs
-
-
-def unproven_claim(answer: str) -> str:
-    """The agent's own words, plus the honest caveat: never discard what it said."""
-    return f"{' '.join(answer.split())} {NOT_CONFIRMED}"
 
 
 def proof_exists(kind: str, ref: str, profile: str = "") -> bool:
@@ -1408,11 +1403,13 @@ class GPTGuest:
                           (self.call.protocol, lambda msg: self.call.send(msg, to_provider=True)))
 
         def hand(did, text):
+            if source == "primary" and isinstance(self.call, Call):
+                text = self.call.refresh_status(did, text)
             did = did if did in protocol.seen else None
             for msg in protocol.from_mobile({"type": "session.commentary.append", "delegation_id": did,
                                              "content": text}):
                 send(msg)
-            return did
+            return did, text
 
         # A sent answer is resent only after the voice had its chance and stayed quiet without saying it (observe
         # credits what it says); a second miss is dropped.
@@ -1424,7 +1421,7 @@ class GPTGuest:
                     self.call.trace("floor.answer_dropped", speaker=source, did=entry.did, reason="unspoken")
                     dropped = True
                     continue
-                did = hand(entry.did, text)
+                did, _ = hand(entry.did, text)
                 self.ledger.resent(entry, now)
                 self.call.trace("floor.answer_resent", speaker=source, did=did, of=entry.did, sends=entry.sends)
         # New answers wait only for their floor. On it, they go out at once, even mid-reply: the voice merges them.
@@ -1438,9 +1435,15 @@ class GPTGuest:
                 continue
             # The cue is the floor's, not the answer's: the ledger keeps the rest bare, so a rest of a rest never
             # says it twice (take 15, 152.5 s).
-            did = hand(answer.delegation_id, answer_delivery.resumed(answer.text) if answer.rest else answer.text)
+            text = answer.text
+            if answer.rest:
+                if source == "primary" and isinstance(self.call, Call):
+                    text = self.call.refresh_status(answer.delegation_id, text)
+                text = answer_delivery.resumed(text)
+            did, delivered = hand(answer.delegation_id, text)
             # Into a reply already playing: that reply was made before this answer existed (take 15, line 3).
-            self.ledger.sent(source, answer.delegation_id, answer.text, now, lane=answer.lane, late=source in self.replies)
+            self.ledger.sent(source, answer.delegation_id, delivered if not answer.rest else answer.text, now,
+                             lane=answer.lane, late=source in self.replies)
             if answer.rest:
                 self.call.trace("floor.answer_resumed", speaker=source, did=answer.delegation_id)
             self.call.trace("floor.answer_sent", speaker=source, did=did, of=answer.delegation_id,  # did: the voice's id
@@ -1798,7 +1801,8 @@ class Call:
         if from_provider and isinstance(self.guest, guest_voice.GuestVoice):
             self.guest.observe(event, self.protocol.turn_text["user"], self.trace.turn_id)
         if not from_provider and duplex and kind == "session.commentary.append" and translated:
-            self.speak_for(event.get("delegation_id"), event["content"])
+            did = event.get("delegation_id")
+            self.speak_for(did, self.check_status_claim(did, event["content"]))
             return
         for msg in translated:
             if from_provider and not self.heard_user and str(msg.get("type", "")).startswith("session.output_transcript"):
@@ -1865,7 +1869,7 @@ class Call:
             if self.relay:
                 self.spawn(self.relay_start())
             self.trace("call.negotiated", setup_s=round(time.monotonic() - self.created, 3), context_items=len(context))
-            live_picture()  # warm the cache so the first question already sees the TV and the lanes
+            live_picture()
             LOG.info("subscription voice negotiated id=%s", self.id)
             return {"ok": True, "session": {"id": self.id},
                     "transport": {"type": "webrtc", "sdp": self.mobile.localDescription.sdp}}
@@ -1939,6 +1943,29 @@ class Call:
             LOG.warning("lanes relay start failed id=%s: %s", self.id, type(exc).__name__)
             self.relay = None
 
+    def refresh_status(self, did, text):
+        render = self.__dict__.get("status_renderers", {}).get((did, text))
+        if not render:
+            return text
+        refreshed = render()
+        self.status_renderer(did, refreshed, render)
+        return refreshed
+
+    def status_renderer(self, did, text, render):
+        self.__dict__.setdefault("status_renderers", {})[did, text] = render
+
+    def check_status_claim(self, did, text):
+        if not status_facts.has_claim(text):
+            return text
+        item = self.item_of.get(did)
+
+        def render():
+            return status_facts.guard(text, status_facts.read(self.ledger_call), item)
+
+        checked = render()
+        Call.status_renderer(self, did, checked, render)
+        return checked
+
     def speak_for(self, did, text, lane=False):
         if self.closed or not text.strip():
             return
@@ -1949,6 +1976,7 @@ class Call:
             self.duplex.floor.enqueue(Answer("primary", did, text, lane), config.name if config else "")
             self.duplex.flush_answers()
             return
+        text = self.refresh_status(did, text)
         # A session renewal clears the ids the new provider knows; an answer to an older delegation still speaks.
         did = did if did in self.protocol.seen else None
         for msg in self.protocol.from_mobile({"type": "session.commentary.append", "delegation_id": did, "content": text}):
@@ -2004,8 +2032,9 @@ class Call:
                 said = any(e == receipt["entry"] for _, e in self.lane_said.values())
                 if status == "corrected" and said:
                     self.counts["lane_corrections"] += 1
-                    self.note("Correction from a verifier to what you just said: " + value, turn_id)
-                elif status == "verified":
+                    if not status_facts.has_claim(value):
+                        self.note("Correction from a verifier to what you just said: " + value, turn_id)
+                elif status == "verified" and not status_facts.has_claim(value):
                     self.counts["lane_verified"] += 1
                     self.note(f'Verified note for "{text[:200]}": {value}', turn_id)
 
@@ -2015,6 +2044,20 @@ class Call:
         Kevin's own work. The first lane answer is spoken once; the driver is spoken only if it adds to it."""
         self.counts["host_delegations"] += 1
         began = time.monotonic()
+        if status_facts.is_status(request):
+            previous = self.item_of.get(getattr(self, "latest_did", None)) or getattr(self, "status_previous", None)
+            self.status_previous = previous
+            self.latest_did = did
+
+            def render():
+                return status_facts.answer(request, status_facts.read(self.ledger_call), previous=previous)
+
+            text = render()
+            self.status_renderer(did, text, render)
+            self.counts["status_facts_answers"] += 1
+            self.trace("delegation.status_facts", did=did)
+            self.speak_for(did, text)
+            return
         # Before delegation.start: the TV conductor turns every delegation.start into worker lanes.
         if self.lane_command(did, request):  # "add two opus lanes": the layout changes here, Hermes never runs
             return
@@ -2039,6 +2082,7 @@ class Call:
             job.add_done_callback(self.pending_delegations.discard)
             self.ack_due = True  # the voice's reply to this request is its ack (STATUS_GAP)
             self.spawn(self.receipt(did, job))
+            self.status_previous = None
             self.latest_did = did  # an older question's lanes go quiet once this one starts
             self.watch_lane_cards(did, request)
             if TIERS_ON:
@@ -2072,6 +2116,7 @@ class Call:
                 if lane and gathered and UNHELPFUL.match(lane):
                     self.counts["lane_unhelpful"] += 1  # "I couldn't find it" adds nothing before the driver
                     lane = None
+                lane = self.check_status_claim(did, lane) if lane else lane
                 if lane and self.say_first(did, lane):
                     self.counts["lane_answer_spoken"] += 1
                     self.lane_said[did] = (lane, ((turn or {}).get("receipt") or {}).get("entry"))
@@ -2164,14 +2209,10 @@ class Call:
         return bool(it and it["kind"] == "action" and not it["proven"] and it["state"] not in request_ledger.TERMINAL)
 
     async def ledger_answer(self, did, answer: str) -> str:
-        """Record a background agent's answer and keep it honest. A question's answer is its result. An action's
-        answer is a claim: PROOF lines are checked (proof_exists) and recorded as receipts; it becomes a result only with
-        proof and done words; if it says the work started or finished and the item has no proof, its own words are
-        spoken with "I haven't confirmed it started" (the item stays a claim, not started). An answer that says it
-        did NOT do the work blocks the item instead of leaving a promise."""
+        """Check receipt references and validate the speech separately from receipt existence."""
         item = self.item_of.get(did)
         if not item:
-            return answer
+            return self.check_status_claim(did, split_proof(answer)[0])
         text, proofs = split_proof(answer)
         for kind, ref, detail in proofs:
             ok = await asyncio.to_thread(proof_exists, kind, ref, self.profile)
@@ -2181,26 +2222,25 @@ class Call:
                 continue
             self.ledger_do(request_ledger.receipt, item, "background", kind, ref, detail)
         it = self.ledger_item(did)
+        checked = self.check_status_claim(did, text)
         if not it:
-            return text or answer
+            return checked
         if it["kind"] != "action":
-            self.ledger_do(request_ledger.result, item, "background", text)
-            return text
-        if not it["proven"] and self.claims_work(text):
+            if checked == text:
+                self.ledger_do(request_ledger.result, item, "background", checked)
+            return checked
+        if checked != text or self.claims_work(text):
             self.ledger_do(request_ledger.claim, item, "background", text[:500])
-            self.counts["unproven_claims"] += 1
-            self.trace("ledger.unproven_claim", did=did, item=item)
-            return unproven_claim(text)
-        if not it["proven"]:  # no claim and no proof: it did not start
-            if NEGATED.search(text):  # a refusal, a failure or a decision it needs from Kevin
-                self.ledger_do(request_ledger.state, item, "blocked", "background", text[:500])
-            else:  # an informational answer to a request that only looked like an action
-                self.ledger_do(request_ledger.result, item, "background", text)
-            return text
-        self.ledger_do(request_ledger.claim, item, "background", text[:500])
-        if DONE_WORDS.search(text) and not RUNNING_WORDS.search(text):
-            self.ledger_do(request_ledger.result, item, "background", text)
-        return text
+            if not it["proven"]:
+                self.counts["unproven_claims"] += 1
+                self.trace("ledger.unproven_claim", did=did, item=item)
+                if checked == text:
+                    checked = status_facts.UNKNOWN
+        elif not it["proven"] and NEGATED.search(text):
+            self.ledger_do(request_ledger.state, item, "blocked", "background", text[:500])
+        elif not it["proven"]:
+            self.ledger_do(request_ledger.result, item, "background", checked)
+        return checked
 
     def tier_claims_work(self, did, text: str) -> bool:
         """A tier lane has no tools: for an action its words must not say work started or finished."""
@@ -2284,7 +2324,10 @@ class Call:
         tiers are traced, not spoken: on 11-20 three tier answers and Hermes landed within 4.4 s and the voice
         spoke a garbled merge. Lanes go quiet once a newer request starts or Hermes answers."""
         began, cfg = time.monotonic(), tiers.load()
-        context = tiers.snapshot(self.context_text, list(self.protocol.exchanges), live=live_picture(),
+        facts = status_facts.block(status_facts.read(self.ledger_call))
+        display = live_picture()
+        live = facts + (f"\n\nTV display text (for screen questions): {display}" if display else "")
+        context = tiers.snapshot(self.context_text, list(self.protocol.exchanges), live=live,
                                  ledger=self.ledger_brief(did, 2500, proof_rule=False))
         said = self.__dict__.setdefault("tier_said", {}).setdefault(did, [])
 
@@ -2297,9 +2340,13 @@ class Call:
                        s=round(time.monotonic() - began, 3))
             quiet = (self.closed or getattr(self, "latest_did", did) != did
                      or did in self.__dict__.get("hermes_done", set()))
-            if text and self.tier_claims_work(did, text):
-                self.trace("lanes.tier_claim_held", did=did, tier=name)  # no tools: it cannot have started anything
-                text = ""
+            if text and not quiet:
+                checked = Call.check_status_claim(self, did, text)
+                if checked != text:
+                    self.trace("lanes.tier_claim_held", did=did, tier=name)
+                elif self.tier_claims_work(did, text):
+                    checked = ""
+                text = checked
             if text and not quiet and not said and self.say_first(did, text):
                 said.append(text)
                 self.counts["tier_first_spoken"] += 1
@@ -2342,7 +2389,10 @@ class Call:
         if not self.card_floor_free(now) or not self.status_gap_open(now, acks=False):
             return
         said = list(self.spoken_for.get(latest, []))
-        fresh = [ln for ln in self.earlier_cards if not lane_cards.said_already(ln["card"]["summary"], said)]
+        facts = status_facts.read(self.ledger_call)
+        fresh = [ln for ln in self.earlier_cards
+                 if not lane_cards.said_already(ln["card"]["summary"], said)
+                 and not lane_cards.superseded(ln, facts, self.spoken_for)]
         self.earlier_cards = []
         text = lane_cards.earlier_line(fresh)
         if not text:
@@ -2385,6 +2435,7 @@ class Call:
                     self.cards_seen.add(ln["id"])
                     did = self.ask_dids.get(lane_cards.request_key(ask.get("text"))) or ask.get("did")
                     self.card_ledger(did, ln)
+                    ln = {**ln, "did": did, "request": ask.get("text", "")}
                     if ln.get("state") != "done" or not (ln.get("card") or {}).get("summary"):
                         self.card_skipped("failed", did, [ln], ask=ask.get("id"))
                     elif not did:
@@ -2411,8 +2462,11 @@ class Call:
             if now - last_new < lane_cards.BATCH_SECONDS or not self.card_floor_free(now):
                 continue
             said, fresh = list(self.spoken_for.get(latest, [])), []
+            facts = status_facts.read(self.ledger_call)
             for _, ln, _ in pending:
-                if lane_cards.said_already(ln["card"]["summary"], said):
+                if lane_cards.superseded(ln, facts, self.spoken_for):
+                    self.card_skipped("superseded", latest, [ln])
+                elif lane_cards.said_already(ln["card"]["summary"], said):
                     self.card_skipped("already_said", latest, [ln])
                 else:
                     fresh.append(ln)
@@ -2486,7 +2540,8 @@ class Call:
         if SESSION_WORDS.search(request or ""):
             facts = await asyncio.to_thread(live_sessions)
             self.trace("delegation.sessions", did=did, n=len(facts.splitlines()))
-        ask = request + (f"\n\nLive Hermes sessions right now (newest first):\n{facts}\nSummarize the top few in at most "
+        ask = request + "\n\n" + status_facts.block(status_facts.read(self.ledger_call))
+        ask += (f"\n\nLive Hermes sessions right now (newest first):\n{facts}\nSummarize the top few in at most "
                          "three short spoken sentences, most important first." if facts else "")
         # 11-25: the fast lane answered "I can't see your screen" about Kevin's own TV and lost the thread of the
         # call: give it what the TV shows now and the call's last turns with every question.
@@ -2494,7 +2549,7 @@ class Call:
         said = "\n".join(f"{'Kevin' if role == 'user' else 'Voice'}: {' '.join(text.split())[:300]}"
                          for role, text in list(self.protocol.exchanges)[-6:])
         ask = (f"Said on this call so far:\n{said}\n\n" if said else "") + (f"{tv}\n\n" if tv else "") + \
-            f"Kevin now asks: {ask}"
+            f"{ask}\n\nKevin now asks: {request}"
         text = ""
         if self.haiku:
             began = time.monotonic()
@@ -2508,7 +2563,7 @@ class Call:
             text = await self.groq(FAST_SYSTEM.format(who="Qwen on Groq") + "\n\n" + self.context_text[-6000:], ask,
                                    200 if facts else 120)
             self.trace("delegation.ttft", did=did, s=round(time.monotonic() - began, 3), text=text[:500])
-        if self.say_first(did, text):
+        if self.say_first(did, self.check_status_claim(did, text)):
             self.counts["ttft_spoken"] += 1
 
     async def run_fable_lanes(self, did, request):
@@ -2558,7 +2613,7 @@ class Call:
         self.trace("delegation.lanes_merged", did=did, n=len(answers), text=(text or "")[:500])
         if text and not NOISE.match(text) and not self.closed and getattr(self, "latest_did", did) == did:
             self.counts["fable_lanes_spoken"] += 1
-            self.speak_for(did, text, lane=True)
+            self.speak_for(did, Call.check_status_claim(self, did, text), lane=True)
 
     async def merge_lanes(self, did, request, answers):
         """Two spoken sentences from the lanes, most important first; SKIP if they add nothing to what was said."""
@@ -2713,7 +2768,7 @@ class Call:
         request (host_context), or at least the call's recent words. The call's request ledger (earlier answers,
         promises, proof) comes last, next to the request: the call's memory of its own work."""
         context = self.host_context(did, ledger=False)
-        led = self.ledger_brief(did)
+        led = "\n\n".join(filter(None, (self.ledger_brief(did), status_facts.block(status_facts.read(self.ledger_call)))))
         if memory:
             look = (f" For anything older or not covered here, search that chat first (session_search with "
                     f"session_id={sid}) before answering; never say you lack context." if sid else "")

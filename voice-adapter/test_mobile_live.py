@@ -744,7 +744,7 @@ class IntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         async def hermes(did, request):
             await release.wait()
-            return 'The deploy finished cleanly.'
+            return 'The artifact is in the build folder.'
 
         async def no_lanes(did, request):
             return None
@@ -756,7 +756,7 @@ class IntegrationTests(unittest.IsolatedAsyncioTestCase):
             while dc.readyState != 'open' or not self.provider_channels:
                 await asyncio.sleep(.01)
             self.provider_channels[0].send(json.dumps({'type': 'delegation.created', 'item': {
-                'id': 'd1', 'target': 'client', 'content': [{'type': 'input_text', 'text': 'Is the deploy done?'}]}}))
+                'id': 'd1', 'target': 'client', 'content': [{'type': 'input_text', 'text': 'Where is the build artifact?'}]}}))
             while not call.pending_delegations:
                 await asyncio.sleep(.01)
             await call.replace_subscription(live.time.monotonic() + 3)
@@ -772,7 +772,7 @@ class IntegrationTests(unittest.IsolatedAsyncioTestCase):
                     spoken.append(json.dumps(await self.received.get()))
         except TimeoutError:
             pass
-        self.assertTrue(any('The deploy finished cleanly.' in s for s in spoken), 'dropped after the renewal swap')
+        self.assertTrue(any('The artifact is in the build folder.' in s for s in spoken), 'dropped after the renewal swap')
 
     @patch.object(live, 'HOST_DELEGATION', False)
     async def test_real_webrtc_audio_and_bidirectional_protocol_translation(self):
@@ -991,13 +991,11 @@ class RequestLedgerHelpers(unittest.TestCase):
         self.assertEqual(proofs, [("kanban", "t_77", "sweep"), ("pid", "4242", "")])
         self.assertEqual(live.split_proof("Nothing started, the drive is read-only.")[1], [])
 
-    def test_claim_words_and_the_caveat(self):
+    def test_claim_words(self):
         for claim in ("Kicked it off.", "It's running now.", "Done, the drive is ejected.", "I started the sweep.", "Started it, no problems."):
             self.assertTrue(live.CLAIMS_WORK.search(claim), claim)
         for plain in ("I can't do that without sudo.", "The sweep needs your decision on the drive."):
             self.assertFalse(live.CLAIMS_WORK.search(plain), plain)
-        self.assertEqual(live.unproven_claim("Kicked it off."), "Kicked it off. I haven't confirmed it started.")
-        self.assertTrue(live.unproven_claim("x " * 100 + "started").endswith("I haven't confirmed it started."))
         for honest in ("Nothing started, the drive is read-only.", "I couldn't start it without sudo.",
                        "It has not started yet; it needs your decision."):
             self.assertFalse(live.Call.claims_work(honest), honest)

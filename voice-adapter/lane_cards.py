@@ -13,6 +13,8 @@ import json
 import re
 from pathlib import Path
 
+import status_facts
+
 POLL_SECONDS = 1.0     # one stat() per call per second; the file is parsed only when its mtime moves
 BATCH_SECONDS = 1.5    # lanes finishing this close together are one line
 HOLD_SECONDS = 90.0    # a line the floor never let out by then is dropped (floor_busy)
@@ -107,3 +109,21 @@ def said_already(summary: str, said: list[str], share: float = 0.6) -> bool:
     """Most of the card's first sentence was already spoken for this request (a tier lane, Hermes, an earlier card)."""
     card, heard = _words(first_sentence(summary)), set().union(*(_words(s) for s in said)) if said else set()
     return bool(card) and len(card & heard) >= share * len(card)
+
+
+def superseded(lane: dict, facts: dict, spoken: dict) -> bool:
+    """Hold status prose that cannot survive the current facts or a later spoken correction."""
+    summary = first_sentence((lane.get("card") or {}).get("summary", ""))
+    if status_facts.guard(summary, facts) != summary:
+        return True
+    # A verified correction can also arrive for a subsequent delegation on this call.
+    # Compare the subject before suppressing an older card about a different ask.
+    correction = re.compile(r"^\s*(?:actually|correction|to correct that)\b", re.I)
+    own = lane.get("did")
+    later = own not in spoken
+    for did, lines in spoken.items():
+        if (later or did == own) and any(correction.match(text)
+                                         and said_already(summary, [text], share=0.4) for text in lines):
+            return True
+        later |= did == own
+    return False

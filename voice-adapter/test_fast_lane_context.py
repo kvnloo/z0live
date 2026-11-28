@@ -48,9 +48,8 @@ class LivePicture(unittest.TestCase):
     def test_never_blocks_and_refreshes_in_the_background(self):
         import threading, time
         gate = threading.Event()
-        old_tv, old_facts, old_live = m.tv_screen, m.tiers.live_facts, dict(m._LIVE)
+        old_tv, old_live = m.tv_screen, dict(m._LIVE)
         m.tv_screen = lambda t=0.8: (gate.wait(2), "TV words")[1]
-        m.tiers.live_facts = lambda: "Live lanes"
         m._LIVE.update(at=0.0, text="", busy=False)
         try:
             t = time.monotonic()
@@ -61,9 +60,9 @@ class LivePicture(unittest.TestCase):
                 if m._LIVE["text"]:
                     break
                 time.sleep(0.01)
-            self.assertEqual(m.live_picture(), "TV words\n\nLive lanes")
+            self.assertEqual(m.live_picture(), "TV words")
         finally:
-            m.tv_screen, m.tiers.live_facts = old_tv, old_facts
+            m.tv_screen = old_tv
             m._LIVE.clear(); m._LIVE.update(old_live)
 
 
@@ -79,6 +78,7 @@ class FastLaneAsk(unittest.IsolatedAsyncioTestCase):
             exchanges = [("user", "show me the factory"), ("assistant", "On the TV now.")]
 
         call = m.Call.__new__(m.Call)
+        call.id = "call-fixture"
         call.haiku, call.protocol = H(), P()
         call.trace = lambda *a, **k: None
         call.say_first = lambda did, text, **k: False
@@ -91,6 +91,7 @@ class FastLaneAsk(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(seen), 1)
         self.assertIn("Kevin: show me the factory", seen[0])
         self.assertIn("'factory' view", seen[0])
+        self.assertIn("STATUS FACTS observed", seen[0])
         self.assertTrue(seen[0].rstrip().endswith("Kevin now asks: what am I looking at"))
 
 

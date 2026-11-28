@@ -908,8 +908,7 @@ class RequestLedgerOnTheCall(unittest.TestCase):
                 + turn(9.1, 10, "assistant", "Okay.", "a1") + hermes("d1", 4, "Kicked it off, it is running now."))
         r, report = replay_rows(rows)
         said = report["answers"].get("d1", "")
-        self.assertIn("haven't confirmed", said)
-        self.assertIn("running now", said, "the agent's own words are never discarded")
+        self.assertEqual(said, "I can't confirm that.")
         item = r.ledger_items[0]
         self.assertEqual((item["kind"], item["proven"], item["claimed_not_started"]), ("action", False, True))
         self.assertEqual(r.counts.get("unproven_claims"), 1)
@@ -923,7 +922,8 @@ class RequestLedgerOnTheCall(unittest.TestCase):
             r, report = replay_rows(rows)
         check.assert_called_once()
         said = report["answers"].get("d1", "")
-        self.assertIn("running now", said)
+        self.assertIn("kanban receipt", said)
+        self.assertNotIn("running now", said)
         self.assertNotIn("PROOF", said)
         self.assertNotIn("haven't confirmed", said)
         item = r.ledger_items[0]
@@ -937,23 +937,23 @@ class RequestLedgerOnTheCall(unittest.TestCase):
         import mobile_live
         with patch.object(mobile_live, "proof_exists", return_value=False):
             r, report = replay_rows(rows)
-        self.assertIn("haven't confirmed", report["answers"].get("d1", ""))
+        self.assertEqual(report["answers"].get("d1", ""), "I can't confirm that.")
         self.assertEqual((r.ledger_items[0]["proven"], r.counts.get("ledger_proof_rejected")), (False, 1))
 
     def test_an_honest_no_is_spoken_as_it_is_and_blocks_the_item(self):
         rows = (turn(5, 9, "user", "Eject the blue drive", "u1") + delegation(9.0, "d1", "eject the blue drive")
                 + turn(9.1, 10, "assistant", "Okay.", "a1")
-                + hermes("d1", 4, "Nothing started: the drive is busy, close the photo app first."))
+                + hermes("d1", 4, "I couldn't start the eject. Close the photo app first."))
         r, report = replay_rows(rows)
-        self.assertEqual(report["answers"].get("d1", ""), "Nothing started: the drive is busy, close the photo app first.")
+        self.assertEqual(report["answers"].get("d1", ""), "I couldn't start the eject. Close the photo app first.")
         self.assertEqual((r.ledger_items[0]["state"], r.ledger_items[0]["claimed_not_started"]), ("blocked", False))
 
     def test_a_read_only_request_with_an_action_word_is_a_question(self):
         rows = (turn(5, 9, "user", "Tell me what the last run found", "u1") + delegation(9.0, "d1", "tell me what the last run found")
                 + turn(9.1, 10, "assistant", "Okay.", "a1") + hermes("d1", 4, "The last run finished with two failures."))
         r, report = replay_rows(rows)
-        self.assertEqual(report["answers"].get("d1", ""), "The last run finished with two failures.")
-        self.assertEqual((r.ledger_items[0]["kind"], r.ledger_items[0]["state"]), ("question", "done"))
+        self.assertEqual(report["answers"].get("d1", ""), "I can't confirm that.")
+        self.assertEqual((r.ledger_items[0]["kind"], r.ledger_items[0]["state"]), ("question", "open"))
 
     def test_a_question_answer_is_a_result_and_the_next_agent_reads_it(self):
         rows = (turn(5, 9, "user", "How many ferns are in the greenhouse", "u1") + delegation(9.0, "d1", "how many ferns are in the greenhouse")

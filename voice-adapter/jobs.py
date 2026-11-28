@@ -20,7 +20,9 @@ fake hermes in Z0LIVE_HERMES; no real board is touched.
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 import fcntl
+from functools import lru_cache
 import hashlib
 import importlib.util
 import json
@@ -28,6 +30,7 @@ import os
 import shlex
 import shutil
 import signal
+import sqlite3
 import subprocess
 import sys
 import time
@@ -316,37 +319,51 @@ def _pid_alive(pid: int) -> bool:
         return True
 
 
+def _kanban_state(status):
+    for state, values in (("done", DONE), ("running", RUNNING), ("blocked", BLOCKED), ("dropped", DROPPED)):
+        if status in values:
+            return state
+    return "waiting"
+
+
+def _pid_state(job):
+    pid = int(job.get("pid") or 0)
+    try:
+        code = (_job_dir(job["id"]) / "exit").read_text().strip()
+    except FileNotFoundError:
+        return ("running", "") if pid and _pid_alive(pid) else ("failed", "process gone without an exit code")
+    return ("done" if code == "0" else "failed"), f"exit {code}"
+
+
 def _observe(job: dict) -> tuple[str, str, str]:
     """(state, text, why): what the executor says now. state in waiting|running|done|blocked|failed|dropped."""
     if job["engine"] == "pid":
-        d = _job_dir(job["id"])
-        pid = int(job.get("pid") or 0)
-        if (d / "exit").exists():
-            code = (d / "exit").read_text().strip()
-            tail = ""
+        state, why = _pid_state(job)
+        tail = ""
+        if why.startswith("exit "):
             try:
-                tail = (d / "log.txt").read_bytes()[-1500:].decode("utf-8", "replace").strip()
+                with (_job_dir(job["id"]) / "log.txt").open("rb") as log:
+                    log.seek(max(0, os.fstat(log.fileno()).st_size - 1500))
+                    tail = log.read(1500).decode("utf-8", "replace").strip()
             except OSError:
                 pass
-            return ("done" if code == "0" else "failed"), tail or f"exit {code}", f"exit {code}"
-        if pid and _pid_alive(pid):
-            return "running", "", ""
-        return "failed", "", "process gone without an exit code"
+        return state, tail or (why if why.startswith("exit ") else ""), why
     data, err = _kanban_json(["show", job["id"]])
     if data is None:
         return job["state"], "", f"board unreadable: {err}"
     task = data.get("task") or {}
     status = task.get("status") or ""
     summary = (data.get("latest_summary") or "").strip()
-    if status in DONE:
+    state = _kanban_state(status)
+    if state == "done":
         return "done", summary or "completed (no summary)", ""
-    if status in RUNNING:
+    if state == "running":
         return "running", "", ""
-    if status in BLOCKED:
+    if state == "blocked":
         comments = data.get("comments") or []
         why = (comments[-1].get("body") if comments and isinstance(comments[-1], dict) else "") or task.get("block_reason") or status
         return "blocked", "", str(why)[:200]
-    if status in DROPPED:
+    if state == "dropped":
         return "dropped", "", "archived on the board"
     return "waiting", "", status
 
@@ -416,10 +433,92 @@ def status(jid: str) -> dict:
     return sync(jid)
 
 
-def list_jobs(open_only: bool = False) -> list[dict]:
-    sync_all()
-    with _Lock():
-        views = [_view(j) for j in reversed(_all_jobs())]
+@lru_cache(maxsize=256)
+def _recorded_view(path: Path, stamp: tuple) -> dict:
+    job = _read(path.parent.name)
+    if not job:
+        return {}
+    return {key: job.get(key) for key in ("id", "engine", "title", "state", "item", "receipt", "pid")} | {
+        "t": stamp[-1] / 1e9,
+    }
+
+
+def _board_path():
+    explicit = os.environ.get("HERMES_KANBAN_DB")
+    if explicit:
+        return Path(explicit).expanduser()
+    root = Path(os.environ.get("HERMES_KANBAN_HOME") or HOME / ".hermes").expanduser()
+    board = os.environ.get("HERMES_KANBAN_BOARD")
+    if not board:
+        try:
+            board = (root / "kanban/current").read_text().strip()
+        except OSError:
+            pass
+    if board and board != "default" and board.isascii() and board.replace("-", "").replace("_", "").isalnum():
+        path = root / "kanban/boards" / board / "kanban.db"
+        if path.is_file():
+            return path
+    return root / "kanban.db"
+
+
+def _file_stamp(path):
+    try:
+        st = path.stat()
+        return st.st_ino, st.st_size, st.st_mtime_ns
+    except OSError:
+        return None
+
+
+@lru_cache(maxsize=8)
+def _board_states(path, stamp, wal_stamp, ids):
+    if not stamp or not ids:
+        return {}
+    with closing(sqlite3.connect(path.absolute().as_uri() + "?mode=ro", uri=True, timeout=0)) as db:
+        params = ",".join("?" for _ in ids)
+        return dict(db.execute(f"SELECT id, status FROM tasks WHERE id IN ({params})", ids))
+
+
+def _live_views(views):
+    board = _board_path()
+    ids = tuple(sorted(v["id"] for v in views if v["engine"] == "kanban"))
+    try:
+        states = _board_states(board, _file_stamp(board), _file_stamp(board.with_name(board.name + "-wal")), ids)
+    except sqlite3.Error:
+        states = {}
+    observed = now()
+    result = []
+    for view in views:
+        jid = view["id"]
+        if jid in states:
+            view = {**view, "state": _kanban_state(states[jid]), "observed": observed}
+        elif view["engine"] == "pid" and view["state"] not in ("done", "failed", "dropped"):
+            try:
+                state, _ = _pid_state(view)
+            except (OSError, ValueError):
+                pass
+            else:
+                view = {**view, "state": state, "observed": observed}
+        result.append(view)
+    return result
+
+
+def list_jobs(open_only: bool = False, *, refresh: bool = True) -> list[dict]:
+    if refresh:
+        sync_all()
+        with _Lock():
+            views = [_view(j) for j in reversed(_all_jobs())]
+    else:
+        # Read the executor without syncing records or invoking blocking CLI commands.
+        views = []
+        for path in jobs_dir().glob("*/job.json"):
+            stamp = _file_stamp(path)
+            if not stamp:
+                continue
+            view = _recorded_view(path, stamp)
+            if view and view["id"] and view["title"]:
+                views.append(view)
+        views.sort(key=lambda v: v["t"], reverse=True)
+        views = _live_views(views)
     return [v for v in views if not open_only or v["state"] in ("waiting", "running", "blocked")]
 
 
