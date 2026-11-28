@@ -276,8 +276,11 @@ async def main():
             cur = [t, by, t, d]
             lines.append(cur)
     repeats, lost, answers = judge(probe, lines)
-    # An answer the caller talked over (floor.barge_in on its voice) is cut by him, not lost by the adapter.
+    # An answer the caller talked over (floor.barge_in on its voice), or moved on from by giving the floor to the
+    # other voice ("Thanks Tek. Hermes, back to you" while Tek retold a skipped paragraph), is cut by him, not lost.
     barges = [(r["t"], r.get("speaker")) for r in trace if r["ev"] == "floor.barge_in"]
+    barges += [(r["t"], r.get("previous")) for r in trace if r["ev"] == "floor.changed"
+               and r.get("reason") in ("redirected", "guest_addressed", "new_user_turn")]
     cut_by_caller = [x for x in lost if any(by == x["voice"] and x["handed_at"][0] - 5 <= t <= x["handed_at"][-1] + 40
                                             for t, by in barges)]
     lost = [x for x in lost if x not in cut_by_caller]
