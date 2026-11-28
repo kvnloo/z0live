@@ -284,7 +284,7 @@ class VoiceCommandTests(Tmp, unittest.IsolatedAsyncioTestCase):
             took = time.monotonic() - began
         self.assertLess(took, 0.5)
         self.assertEqual(L.current()[0]["research"]["opus"], 4)
-        self.assertIn("Added 2 Opus 5.5 to the worker lanes", self.spoken())
+        self.assertIn("worker pool now has four Opus", self.spoken())
         await self.call.host_delegate("d2", "add two opus lanes to the call")
         self.assertEqual(L.current()[0]["voice"]["slow"], {"opus": 3, "sol": 1})
 
@@ -321,7 +321,7 @@ class VoiceCommandTests(Tmp, unittest.IsolatedAsyncioTestCase):
 
         self.call.relay = Relay()
         with patch.object(live, "TIERS_ON", True), patch.object(live, "run_hermes", return_value="Done.") as hermes, \
-                patch.object(self.call, "tier_lanes", side_effect=lambda *a: asyncio.sleep(0)):
+                patch.object(self.call, "tier_lanes", return_value=None):
             try:
                 await self.call.host_delegate("d1", "gimme 2 fast lanes, 2 small, 2 large, one council")
             finally:

@@ -290,47 +290,107 @@ def _bucket(layout, role):
     return layout["research"] if role == "research" else layout["voice"].setdefault(role, {})
 
 
-def act(action: str, model: str = "", count: int | None = None, role: str = "", by: str = "",
-        path: Path | None = None) -> dict:
-    """list / add / remove / set. Returns {"ok", "layout", "say", ...}; LayoutError on a bad request."""
-    action = (action or "list").lower().strip()
-    if action in ("list", "show", "status"):
-        layout, saved = current(path)
-        busy = running()
-        say = describe(layout) + (f" {busy} workers running now." if busy is not None else "")
-        return {"ok": True, "action": "list", "saved": saved, "layout": layout, "running": busy, "say": say}
-    if action not in ("add", "remove", "set"):
-        raise LayoutError("action must be list, add, remove or set")
-    name = _name(model)
-    if count is not None and (not isinstance(count, int) or isinstance(count, bool) or count < 0):
-        raise LayoutError("count must be a whole number >= 0")
+def main_model(layout: dict, tier: str) -> str:
+    """The model a bare "N fast lanes" means: the one with most lanes in that tier now (first listed wins a tie),
+    else the tier's default (Terra for fast, 11-27 hill climb)."""
+    models = layout["voice"].get(tier) or {}
+    if models:
+        return max(models, key=lambda n: (models[n], -list(models).index(n)))
+    return next(iter(VOICE_DEFAULT.get(tier) or {"haiku": 1}))
+
+
+def _step(layout, action, name, count, role):
+    """One validated edit of `layout` in place (no write). name may be "" for a tier word with no model."""
+    if action == "tier":  # "attach five fast lanes": the tier holds exactly `count` lanes
+        tier = role if role in VOICE_TIERS else ""
+        if not tier:
+            raise LayoutError("say which tier: fast, medium or slow")
+        if count is None:
+            raise LayoutError("say how many lanes")
+        bucket = layout["voice"].setdefault(tier, {})
+        if name:  # "... and use Haiku for all of them"
+            if MODELS[name]["binding"] is None:
+                raise LayoutError(f"{name} is a TV research lane only, not a voice lane")
+            layout["voice"][tier] = {name: count} if count else {}
+            return
+        have = sum(bucket.values())
+        if count == have:
+            return
+        if count > have:
+            main = main_model(layout, tier)
+            bucket[main] = bucket.get(main, 0) + count - have
+        else:
+            drop = have - count
+            for n in sorted(bucket, key=lambda k: (bucket[k], -list(bucket).index(k))):  # fewest first
+                cut = min(drop, bucket[n])
+                bucket[n] -= cut
+                drop -= cut
+            for n in [n for n, c in bucket.items() if not c]:
+                bucket.pop(n)
+        return
+    if not name:
+        if role not in VOICE_TIERS:
+            raise LayoutError("say which model, or a tier: fast, medium or slow")
+        name = main_model(layout, role)
     target = _role(role, name)
     if target != "research" and MODELS[name]["binding"] is None:
         target = "research"
     if action == "add" and not count:
         count = 1
-
-    def edit(layout):
-        if action == "remove" and (role or "").strip().lower() in ("voice", "call", "answer") and target != "research":
-            tiers_ = [t for t in VOICE_TIERS if layout["voice"].get(t, {}).get(name)]  # "drop the sol lanes": all tiers
+    if action == "remove" and (role or "").strip().lower() in ("voice", "call", "answer") and target != "research":
+        tiers_ = [t for t in VOICE_TIERS if layout["voice"].get(t, {}).get(name)]  # "drop the sol lanes": all tiers
+    else:
+        tiers_ = [target]
+    for t in tiers_:
+        bucket = _bucket(layout, t)
+        have = bucket.get(name, 0)
+        if action == "add":
+            bucket[name] = have + count
+        elif action == "set":
+            bucket[name] = count if count is not None else 1
         else:
-            tiers_ = [target]
-        for t in tiers_:
-            bucket = _bucket(layout, t)
-            have = bucket.get(name, 0)
-            if action == "add":
-                bucket[name] = have + count
-            elif action == "set":
-                bucket[name] = count if count is not None else 1
-            else:
-                bucket[name] = max(0, have - count) if count else 0
-            if not bucket[name] and t != "research":
-                bucket.pop(name)
+            bucket[name] = max(0, have - count) if count else 0
+        if not bucket[name] and t != "research":
+            bucket.pop(name)
+
+
+def act(action: str, model: str = "", count: int | None = None, role: str = "", by: str = "",
+        path: Path | None = None) -> dict:
+    """Apply one validated edit. `receipt` reports the saved delta; `say` also includes the layout."""
+    action = (action or "list").lower().strip()
+    if action in ("list", "show", "status"):
+        layout, saved = current(path)
+        busy = running()
+        say = describe(layout) + (f" {busy} workers running now." if busy is not None else "")
+        return {"ok": True, "action": "list", "saved": saved, "layout": layout, "running": busy, "say": say,
+                "receipt": say}
+    if action not in ("add", "remove", "set", "tier"):
+        raise LayoutError("action must be list, add, remove, set or tier")
+    name, role_ = (_name(model) if model else ""), (role or "").lower().strip()
+    if count is not None and (not isinstance(count, int) or isinstance(count, bool) or count < 0):
+        raise LayoutError("count must be a whole number >= 0")
+    if not name and action in ("remove", "set"):
+        raise LayoutError("say which model")
+    if action == "add" and not count:
+        count = 1
+    before = {}
+    def edit(layout):
+        nonlocal name
+        before.update(voice={tier: dict(models) for tier, models in layout["voice"].items()},
+                      research=dict(layout["research"]))
+        if not name and action == "add" and role_ in VOICE_TIERS:
+            name = main_model(layout, role_)
+        _step(layout, action, name, count, role_)
         return layout
 
     layout = change(edit, by=by, path=path)
+    spoken = receipt(before, layout)
+    target = role_ if action == "tier" else (_role(role_, name) if name else role_)
+    if target != "research" and name and MODELS[name]["binding"] is None:
+        target = "research"
     return {"ok": True, "action": action, "model": name, "role": target, "layout": layout,
-            "say": confirm(action, name, count, target) + " " + describe(layout)}
+            "receipt": spoken, "say": (confirm(action, name, count, target) if name and action != "tier" else spoken)
+            + " " + describe(layout)}
 
 
 CONDUCTOR_STATE = Path(os.environ.get("Z0LIVE_CONDUCTOR", str(Path.home() / ".local/share/z0live/conductor"))) / "state.json"
@@ -367,18 +427,65 @@ def describe(layout: dict) -> str:
     return f"Answer lanes on the call: {total} ({voice}). Worker lanes: {workers} ({_count_words(layout['research'])})."
 
 
+WORDS = ("no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
+         "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen")
+
+
+def spoken_n(n: int) -> str:
+    return WORDS[n] if 0 <= n < len(WORDS) else str(n)
+
+
+def short(name: str) -> str:
+    """The spoken model name: Haiku, Terra; the router and Fable keep their words."""
+    return {"sr": "semantic router", "fable": "Fable"}.get(name, name.capitalize())
+
+
+def _mix(models: dict) -> str:
+    live = [(n, c) for n, c in models.items() if c]
+    if len(live) == 1:
+        return f"all {short(live[0][0])}" if live[0][1] > 1 else short(live[0][0])
+    parts = [f"{spoken_n(c)} {short(n)}" for n, c in live]
+    return ", ".join(parts[:-1]) + " and " + parts[-1]
+
+
+def receipt(before: dict, after: dict) -> str:
+    """One short spoken line naming exactly what changed (F3, 11-28: "attach five fast lanes" got "Let me check" and
+    no word of what happened). Built from the layout as written, so it never claims more than the file holds."""
+    voice = []
+    for tier in VOICE_TIERS:
+        old, new = (before.get("voice") or {}).get(tier) or {}, after["voice"].get(tier) or {}
+        if old != new:
+            n = sum(new.values())
+            voice.append(f"{spoken_n(n)} {tier} lane{'s' if n != 1 else ''}" + (f", {_mix(new)}" if n else ""))
+    workers = [n for n in MODELS if (before.get("research") or {}).get(n, 0) != after["research"].get(n, 0)]
+    out = []
+    if voice:
+        out.append("Done. This call now has " + "; ".join(voice) + ".")
+    if workers:
+        out.append(("Done. " if not voice else "") + "The worker pool now has "
+                   + ", ".join(f"{spoken_n(after['research'].get(n, 0))} {short(n)}" for n in workers)
+                   + " for research asks.")
+    return " ".join(out) or "No change: the lanes were already set that way."
+
+
 # ---------------------------------------------------------------- spoken / typed commands (precision over recall)
 # Verbs are pool edits only: "stop/kill the lanes" is the conductor's stop control (RX_STOP), and "use/start N X
 # lanes" reads as an instruction for one ask (conductor explicit()), so those stay with the conductor.
-NUM = {"a": 1, "an": 1, "one": 1, "another": 1, "single": 1, "two": 2, "to": 2, "too": 2, "couple": 2, "pair": 2,
-       "three": 3, "four": 4, "for": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+NUM = {**{word: n for n, word in enumerate(WORDS)}, "zero": 0,
+       "a": 1, "an": 1, "another": 1, "single": 1, "to": 2, "too": 2, "couple": 2, "pair": 2, "for": 4}
 _MODEL = (r"(?P<model>haikus?|sonnets?|opus(?:es)?|sols?|soul|sole|saul|gpt|codex|astras?|astro|terras?|tera|terror|"
           r"lunas?|sr|semantic router|router|fable|free)")
-_N = r"(?P<n>\d{1,2}|a|an|one|another|single|two|to|too|couple(?: of)?|pair(?: of)?|three|four|for|five|six|seven|eight|nine|ten)"
+_N = r"(?P<n>[0-9]{1,2}|" + "|".join(NUM) + r")(?:\s+of(?=\s+(?!the\b)))?"
 _KIND = r"(?:(?P<kind>answer|voice|worker|research|tv)\s+)?"
 _ROLE = (r"(?:\s+(?:to|in|on|for|into|from|off)\s+(?:the\s+|this\s+)?(?P<role>fast|medium|slow|research|tv|call|voice|"
-         r"answer|worker)(?:\s+(?:tier|lane|lanes|pool))?)?")
-_LEAD = r"^(?:(?:hey |ok |okay |so )?(?:z0|zero|z ?zero),?\s+)?(?:(?:please|can you|could you|would you|go ahead and|let's|lets)\s+)*"
+         r"answer|worker|conversation)(?:\s+(?:tier|lane|lanes|pool))?)?")
+_LEAD = r"^(?:(?:hey |ok |okay |so )?(?:z0|zero|z ?zero),?\s+)?(?:(?:please|can you|could you|would you|will you|go ahead and|let's|lets)[,\s]+)*"
+_TIER_COUNT = re.compile(_LEAD + r"(?:add|attach|give me|bring in|put on|set|make it)\s+" + _N
+                         + r"\s+(?P<tier>fast|medium|slow)\s+lanes?(?:\s+(?:to|on|in|for)\s+(?:the |this |my )?"
+                         r"(?:call|conversation))?\W*$", re.I)
+_TIER_MORE = re.compile(_LEAD + r"(?:add|attach|give me|bring in|put on)\s+" + _N
+                        + r"\s+more\s+(?P<tier>fast|medium|slow)\s+lanes?(?:\s+(?:to|on|in|for)\s+"
+                        r"(?:the |this |my )?(?:call|conversation))?\W*$", re.I)
 _ADD = re.compile(_LEAD + r"(?:add|attach|give me|spin up|bring in|put on)\s+" + _N + r"\s+(?:more\s+)?"
                   + _MODEL + r"\s+" + _KIND + r"lanes?\b" + _ROLE + r"\W*(?:please)?\W*$", re.I)
 _SET = re.compile(_LEAD + r"(?:set|make it)\s+(?:the\s+)?" + _N + r"\s+" + _MODEL + r"\s+" + _KIND
@@ -421,11 +528,14 @@ def command(text: str) -> dict | None:
         return None
     if _LIST.match(t):
         return {"action": "list"}
+    for action, rx in (("tier", _TIER_COUNT), ("add", _TIER_MORE)):
+        if m := rx.match(t):
+            return {"action": action, "count": _n(m.group("n")), "role": m.group("tier").lower()}
     for action, rx in (("add", _ADD), ("set", _SET), ("set", _SET2), ("remove", _REMOVE)):
         m = rx.match(t)
         if m:
             role = (m.group("role") or m.group("kind") or "").lower()
-            role = {"call": "voice", "answer": "voice", "tv": "research", "worker": "research"}.get(role, role)
+            role = {"call": "voice", "conversation": "voice", "answer": "voice", "tv": "research", "worker": "research"}.get(role, role)
             return {"action": action, "model": ALIASES.get(m.group("model").lower(), m.group("model").lower()),
                     "count": _n(m.group("n")), "role": role}
     return None
@@ -440,3 +550,5 @@ def run(text: str, by: str = "voice", path: Path | None = None) -> dict | None:
         return act(cmd["action"], cmd.get("model", ""), cmd.get("count"), cmd.get("role", ""), by=by, path=path)
     except LayoutError as exc:
         return {"ok": False, "error": str(exc), "say": "I couldn't change the lanes: " + str(exc)}
+    except OSError:
+        return {"ok": False, "error": "layout storage unavailable", "say": "I couldn't save the lane layout."}

@@ -100,7 +100,7 @@ def parse(text: str) -> tuple[str, str] | None:
         return None
     forms = (
         _LEAD + r"(?:ask|tell|message|ping)\s+" + _name(False) + r"\s*(?:,|:|-|\s)\s*(?:to\s+)?(?P<m>.+)$",
-        _LEAD + _name(True) + r"\s*[,:-]?\s+(?P<m>.+)$",
+        _LEAD + _name(True) + r"(?:\s*[,:-]\s*|\s+)(?P<m>.+)$",
         # ASR hears "At PC bot," as "That PC bot," (11-28 real-voice probe). Only with "bot" and a , or : after it,
         # so "that PC bot is slow" stays a remark, not an ask.
         _LEAD + r"that\s+(?P<p>" + _names() + r")\s*bot\s*[,:]\s*(?P<m>.+)$",
@@ -113,6 +113,11 @@ def parse(text: str) -> tuple[str, str] | None:
         message = m.group("m").strip(" ,:-")
         if profile and len(message) >= 2:
             return profile, message[:MAX_MESSAGE]
+    # 11-27: "Can you see if the PC bot is able to access the drive?" Ask the bot to check its own access.
+    ability = _LEAD + r"(?:see|check|find out)\s+(?:if|whether)\s+" + _name(False)
+    if m := re.fullmatch(ability + r"\s+(?:can|is able to)\s+(?P<m>(?:access|read|see|reach)\s+.+?)\??", t, re.I):
+        if profile := _profile(m.group("p")):
+            return profile, ("Check your access without changing anything: can you " + m.group("m") + "?")[:MAX_MESSAGE]
     return None
 
 
@@ -245,6 +250,7 @@ def ask(profile: str, message: str, call: str = "", item: str = "", by: str = BY
 
     def send(sid):
         if on_approval is not None:
+
             return _run(profile, table[profile], sid, messages, timeout, on_approval)
         return _post(profile, table[profile], sid, messages, timeout)
 
@@ -260,6 +266,8 @@ def ask(profile: str, message: str, call: str = "", item: str = "", by: str = BY
         if answer is None:  # the session stayed busy past the wait, or another process's turn holds it (409)
             session = fallback
             answer, cid, echoed = send(session)
+        if not cid and not echoed:
+            raise RuntimeError(f"{profile} returned no delivery receipt")
     except RuntimeError as exc:
         if led_ok:
             _led("result", item, by, f"ask @{profile} failed: {exc}", False)
