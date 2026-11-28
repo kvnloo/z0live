@@ -38,6 +38,7 @@ from guest_floor import Address, Addressing, Answer, Floor, IDLE_SECONDS, Leg, s
 import numpy as np
 
 LOG = logging.getLogger("hermes.mobile.subscription_voice")
+import call_recall  # noqa: E402 - sibling module (the records' cited block for a spoken request)
 import chat_continuity  # noqa: E402 - sibling module (voice turns land in the owner's open chat)
 import call_brief  # noqa: E402 - sibling module (context packet in the session instructions)
 import grok_leg  # noqa: E402 - sibling module (Grok Voice as the voice model)
@@ -1641,6 +1642,7 @@ class Call:
         # Status answers and the proof gate use the records as they are now. replay.py turns this off: an offline
         # replay of a recorded call has no records of that call's minute, and today's would make it nondeterministic.
         self.live_records = True
+        self.call_recall = True  # t_47576421: lanes and the Hermes turn get the records' cited block
         # N230: Hermes approval prompts this call's host runs raised, oldest first; the head is the one spoken and the
         # one the owner's next utterance answers (pass-phrase -> once, anything else -> deny, silence -> Hermes' timeout).
         self.approvals: list[dict] = []
@@ -2559,6 +2561,28 @@ class Call:
         text = await self.gate_claims(None, lane_cards.line(lanes), "card")
         return "" if text.strip() in ("", live_status.CANT_CONFIRM) else text
 
+    def recall_start(self, did, request):
+        """One records lookup per request (call_recall), started when its lanes start; None when recall is off."""
+        if not getattr(self, "call_recall", False) or getattr(self, "profile", "") == "guest":
+            return None
+        jobs = self.__dict__.setdefault("recall_jobs", {})
+        if did not in jobs:
+            async def run():
+                out = await asyncio.to_thread(call_recall.lookup, request)
+                self.trace("recall.block", did=did, s=out["s"], chars=len(out["text"]), hits=out["hits"],
+                           err=out["err"])
+                return out
+            jobs[did] = self.spawn(run())
+            while len(jobs) > 8:
+                jobs.pop(next(iter(jobs)))
+        return jobs[did]
+
+    async def recall_text(self, did, request, wait: float) -> str:
+        """The request's recall block if its lookup lands within `wait` seconds, else ''."""
+        job = self.recall_start(did, request)
+        out = await call_recall.within(job, wait) if job else None
+        return (out or {}).get("text") or ""
+
     async def tier_lanes(self, did, request):
         """Fast, medium and slow lanes race within each tier; tiers run at once. The first answer from any tier
         is the one lane answer spoken for this request; Hermes's answer follows only if it adds to it. Later
@@ -2569,8 +2593,13 @@ class Call:
                                  ledger=self.ledger_brief(did, 2500, proof_rule=False))
         said = self.__dict__.setdefault("tier_said", {}).setdefault(did, [])
 
+        self.recall_start(did, request)
+
         async def one(name):
-            return name, await tiers.race(self.manager.http, name, cfg[name], context, request)
+            # The fast lane answers in about a second and never waits; the medium and slow lanes get the block.
+            found = "" if name == "fast" else await self.recall_text(did, request, call_recall.LANE_WAIT)
+            return name, await tiers.race(self.manager.http, name, cfg[name],
+                                          context + (f"\n\n{found}" if found else ""), request)
 
         for job in asyncio.as_completed([one(name) for name in tiers.DEADLINE if cfg.get(name)]):
             name, (text, model, first_s, errors) = await job
@@ -2971,7 +3000,9 @@ class Call:
         memory = chat_continuity.chat_memory(self.profile, sid)
         self.trace("delegation.memory", did=did, chat=sid, chars=len(memory))
         answer = await asyncio.wait_for(chat_continuity.ask_background(
-            self.manager.http, self.token, self.profile, sid, self.side_request(request, memory, sid, did),
+            self.manager.http, self.token, self.profile, sid,
+            self.side_request(request, memory, sid, did,
+                              recall=await self.recall_text(did, request, call_recall.HERMES_WAIT)),
             lambda task: self.trace("delegation.background", did=did, task=task)),
             DELEGATION_TIMEOUT_SECONDS)
         self.counts["background_turns"] += 1
@@ -3017,13 +3048,13 @@ class Call:
         self.trace("delegation.hermes", did=did, running=len(self.host_slots.running))
         return await asyncio.to_thread(run_hermes, request, self.profile, True)
 
-    def side_request(self, request, memory: str = "", sid: str = "", did=None):
+    def side_request(self, request, memory: str = "", sid: str = "", did=None, recall: str = ""):
         """A background agent's prompt: it starts fresh, so it gets the chat's summary and turns since (memory,
         chat_continuity.chat_memory), the call's brief, the chat it opened from and the call's recent words with the
         request (host_context), or at least the call's recent words. The call's request ledger (earlier answers,
         promises, proof) comes last, next to the request: the call's memory of its own work."""
         context = self.host_context(did, ledger=False)
-        led = self.ledger_brief(did)
+        led = "\n\n".join(x for x in (recall, self.ledger_brief(did)) if x)
         if memory:
             look = (f" For anything older or not covered here, search that chat first (session_search with "
                     f"session_id={sid}) before answering; never say you lack context." if sid else "")
