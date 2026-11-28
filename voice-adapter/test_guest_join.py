@@ -162,7 +162,7 @@ class JoinTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(g.closed)
         self.assertIsNone(self.call.guest)
         self.assertEqual((g.floor.owner, g.floor.reason, g.floor.available), ("primary", "guest_left", False))
-        self.assertIn("Tek left the call. It's just me again.", self.spoken())
+        self.assertIn("Tek is off the call now.", self.spoken())
         self.assertFalse(any("disconnected" in text for text in self.spoken()))
         # Tek's hello, unsaid when it left, is not handed to Hermes as "Tek's Hermes returned this answer".
         self.assertFalse(any("joined Kevin's call" in text for text in self.spoken()))

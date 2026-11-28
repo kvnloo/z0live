@@ -2426,12 +2426,14 @@ class Call:
         if not await self.guest_host_up(profile):
             self.trace("guest.join_refused", profile=profile, why="host_down", port=guest_join.port(profile))
             return say(f"I can't reach {config.name}'s Hermes, so {config.name} can't join right now.")
-        say(f"Bringing {config.name} in.")
         duplex = self.duplex
         if duplex is None:
             duplex = self.duplex = GPTGuest(self, None)
             duplex.set_people(self.people)
         duplex.adopt(config)
+        # On the floor's ledger, so it is said once and Tek's hello waits for it (join probe 13:21: sent before
+        # the floor existed, it was lost under the voice's own "One sec.").
+        say(f"Bringing {config.name} in.")
         self.guest, self.guest_config = duplex, config
         self.protocol.own = lambda said: duplex.own_words("primary", said)
         duplex.protocol.own = lambda said: duplex.own_words("guest", said)
@@ -2470,7 +2472,10 @@ class Call:
             if not self.closed:
                 self.speak_for(did, f"{name} isn't on the call.")
             return
-        guest.leave(f"{name} left the call. It's just me again.")
+        # Only words the call has heard (the name, "call"): the voice says it its own way ("Tek's off the call"), and
+        # a line with no new words counts as said when its reply ends, so a paraphrase is never resent (join probe
+        # 13:18: "Tek left the call" was said as "Tek's off the call", resent, and said again).
+        guest.leave(f"{name} is off the call now.")
         self.guest = None
         self.guest_note(f"{name} has left the call. You are the only voice again; ignore earlier notes about {name}.")
 
