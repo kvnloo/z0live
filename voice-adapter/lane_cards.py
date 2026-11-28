@@ -20,7 +20,49 @@ QUIET_SECONDS = 1.0    # the phone's mic and the voice's output both quiet this 
 HANDED_SECONDS = 4.0   # a line handed to the voice this recently: its reply has not opened yet (no merge into it)
 IDLE_SECONDS = 180.0   # no lane of this call running or due: the watcher stops (the next request restarts it)
 MAX_LANES = 3          # in one line; the rest are "on the TV"
+MAX_EARLIER = 2        # per caller turn, including an explicit read-back
 SUMMARY_CHARS = 160
+
+_AWAY = re.compile(r"\bnot (?:at|near|by|in front of) (?:the|my) tv\b|\btv(?: is|['’]s) off\b", re.I)
+_READBACK = re.compile(
+    r"(?:can you |could you |please )?(?:just )?"
+    r"(?:(?:tell me|give me|read(?: (?:me|back|out)){0,2}) (?:the |those |my |your |the lane )?results"
+    r"|(?:tell me|read me) (?:what (?:you|they|the lanes) found|what came back)|tell me)"
+    r"(?: out loud| aloud)?(?: please)?[.!?]*", re.I)
+_AWAY_PREFACE = re.compile(
+    r"(?:(?:oh|bro|hey)[, ]+)*(?:(?:i(?:'m|’m| am) )?not (?:at|near|by|in front of) (?:the|my) tv"
+    r"(?: and (?:the |my )?tv(?: is|['’]s) off)?|(?:the |my )?tv(?: is|['’]s) off)[,.!; ]+", re.I)
+_TV_POINTER = re.compile(r"(?:[;,—-]\s*)?(?:\b(?:their |the )?(?:results|details)(?: are)?"
+                         r"|\b(?:see|check|look))\s+on the TV\b[.!?]?", re.I)
+
+
+def readback_requested(text: str) -> bool:
+    text = " ".join((text or "").split())
+    text = _AWAY_PREFACE.sub("", text, count=1) if _AWAY_PREFACE.match(text) else text
+    text = re.sub(r"^(?:(?:oh|bro|hey)[, ]+)+", "", text, flags=re.I)
+    return bool(_READBACK.fullmatch(text))
+
+
+def away_requested(text: str) -> bool:
+    return bool(_AWAY.search(text or "") or readback_requested(text))
+
+
+def spoken_summary(text: str) -> str:
+    text = _TV_POINTER.sub("", text).strip(" ,;—-")
+    return first_sentence(text) if text else ""
+
+
+def voice_only(text: str) -> str:
+    """Drop display-only pointers; keep factual mentions of the television."""
+    text = re.sub(r"\s+and on the TV\b(?=[.!?]|$)", "", _TV_POINTER.sub("", text), flags=re.I)
+    return re.sub(r"\bon the TV\b", "on the television", text, flags=re.I).strip()
+
+
+def speak_line(lane: dict, summary: str, earlier: str | None = None) -> str:
+    if earlier is None:
+        return f"{who(lane)} lane: {summary}"
+    topic = " ".join(earlier.split())[:100].rstrip(" .?!,:;") or "request"
+    return f"On your earlier request ({topic}): {summary}"
 
 
 def call_key(call_id: str) -> str:
@@ -86,17 +128,6 @@ def line(lanes: list[dict]) -> str:
     more = len(lanes) - MAX_LANES
     return (f"{len(lanes)} lanes back. " + " ".join(parts)
             + (f" And {more} more on the TV." if more > 0 else ""))
-
-
-def earlier_line(lanes: list[dict]) -> str:
-    """One short line for lanes of earlier requests that finished while Kevin had moved on: their cards are in the
-    ledger and on the TV already; this only says they exist (the words of one, a count for more)."""
-    lanes = [ln for ln in lanes if (ln.get("card") or {}).get("summary")]
-    if not lanes:
-        return ""
-    if len(lanes) == 1:
-        return f"An earlier lane finished. {who(lanes[0])}: {first_sentence(lanes[0]['card']['summary'], 100)}"
-    return f"{len(lanes)} earlier lanes finished; their results are on the TV."
 
 
 def _words(text: str) -> set[str]:

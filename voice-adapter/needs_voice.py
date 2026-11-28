@@ -135,35 +135,35 @@ async def speak(call, text):
 
 
 async def run(call):
-    """One per call, until it closes."""
-    if not ON:
-        return
-    w = Watch(load_memory())
+    """One per call; share serve.py's heartbeat verdict with the result reader."""
+    w = Watch(load_memory()) if ON else None
     while not call.closed:
-        await asyncio.sleep(POLL_S)
-        if not call.protocol.exchanges:
-            continue  # the voice never speaks first: wait for the call's first exchange
         payload = await fetch(call.manager.http)
-        if not payload or call.closed:
-            continue
-        w.memory.update({k: v for k, v in load_memory().items() if v > w.memory.get(k, 0)})  # another call's marks
-        out = w.step(payload)
-        if w.dirty and not out:
-            save_memory(w.memory)
-            w.dirty = False
-        if not out:
-            continue
-        text, ids = out
-        if not call.take_status("needs"):
-            continue  # floor busy or inside the status gap: try again next poll
-        try:
-            ok = await speak(call, text)
-        except Exception as exc:  # noqa: BLE001
-            LOG.warning("needs line failed id=%s: %s", call.id, type(exc).__name__)
-            ok = False
-        if ok:
-            w.said(ids)
-            save_memory(w.memory)
-            w.dirty = False
-        call.trace("needs.spoken" if ok else "needs.dropped", cards=len(ids), why=(payload.get("tv") or {}).get("why"),
-                   text=text[:300])
+        if call.closed:
+            return
+        call.observe_tv_presence(payload.get("tv") if isinstance(payload, dict) else None)
+        if w is not None and isinstance(payload, dict) and call.protocol.exchanges:
+            await poll_blockers(call, w, payload)
+        await asyncio.sleep(POLL_S)
+
+
+async def poll_blockers(call, w, payload):
+    w.memory.update({k: v for k, v in load_memory().items() if v > w.memory.get(k, 0)})  # another call's marks
+    out = w.step(payload)
+    if w.dirty and not out:
+        save_memory(w.memory)
+        w.dirty = False
+    if not out or not call.take_status("needs"):
+        return  # floor busy or inside the status gap: try again next poll
+    text, ids = out
+    try:
+        ok = await speak(call, text)
+    except Exception as exc:  # noqa: BLE001
+        LOG.warning("needs line failed id=%s: %s", call.id, type(exc).__name__)
+        ok = False
+    if ok:
+        w.said(ids)
+        save_memory(w.memory)
+        w.dirty = False
+    call.trace("needs.spoken" if ok else "needs.dropped", cards=len(ids), why=(payload.get("tv") or {}).get("why"),
+               text=text[:300])

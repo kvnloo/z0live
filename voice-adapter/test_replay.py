@@ -711,7 +711,7 @@ def lane_card_call():
 class LaneCardsOnTheCall(unittest.TestCase):
     """Task E (11-27): the conductor's lane cards only reached the TV; none of them was heard on the call."""
 
-    def test_a_lane_card_is_spoken_after_the_floor_frees_and_stays_quiet_once_kevin_moved_on(self):
+    def test_a_lane_card_is_spoken_after_the_floor_frees_and_becomes_a_delta_once_kevin_moves_on(self):
         import asyncio
         with tempfile.TemporaryDirectory() as d:
             state = Path(d) / "state.json"
@@ -727,11 +727,11 @@ class LaneCardsOnTheCall(unittest.TestCase):
         self.assertGreaterEqual(t, 37)  # Kevin spoke 29-34 and the voice answered until 36: never over either
         finals = [(at, e) for at, e in r.sent if "Sol lane:" in "".join(c.get("text", "") for c in e.get("content", []))]
         self.assertEqual([(e["delegation_item_id"], e["channel"]) for _, e in finals], [("d1", "speakable")])
-        # Not dropped: the card of the request Kevin moved on from is one short "earlier lane" line and a ledger result.
-        self.assertEqual([(kw["reason"], kw["lanes"]) for _, kw in skipped], [("earlier", ["a1-2"])])
+        self.assertEqual(skipped, [])
         earlier = [(t, kw) for t, ev, kw in r.cards if ev == "lanes.card_earlier_spoken"]
         self.assertEqual([kw["lanes"] for _, kw in earlier], [["a1-2"]], r.cards)
-        self.assertIn("An earlier lane finished", earlier[0][1]["text"])
+        self.assertIn("On your earlier request", earlier[0][1]["text"])
+        self.assertIn("The oldest boat is three days old.", earlier[0][1]["text"])
         by_item = {i["text"]: i for i in r.ledger_items}
         self.assertTrue(any(res["by"].startswith("lane:") for i in r.ledger_items for res in i["results"]),
                         "every finished card is a result on its request's item")
