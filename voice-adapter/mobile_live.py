@@ -1587,6 +1587,13 @@ async def ask_guest_host(http, profile, session, request, context=""):
         return answer
 
 
+def install_downlink_opus_mono() -> bool:
+    """Install the opt-in mono Opus encoder for the phone downlink."""
+    import opus_mono
+
+    return opus_mono.install()
+
+
 class Call:
     def __init__(self, manager, profile: str = ""):
         self.manager = manager
@@ -1864,6 +1871,8 @@ class Call:
         self.trace("call.start", history_items=len(history) if isinstance(history, list) else None)
         try:
             await self.mobile.setRemoteDescription(RTCSessionDescription(sdp=sdp, type="offer"))
+            if install_downlink_opus_mono():
+                self.trace("downlink.opus_mono", installed=True)
             if self.leg:  # Grok Voice: a WebSocket, no provider peer; its speech is our own track
                 if not any(t.kind == "audio" for t in self.mobile.getTransceivers()):
                     raise ValueError("An audio track is required")

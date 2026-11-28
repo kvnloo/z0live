@@ -87,7 +87,27 @@ def main():
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         return mod.main(sys.argv[2:])
+    globe_cmd = sub.add_parser(
+        "globe", help="Drive the connected God's Eye View globe display (no action: print its view and actions)"
+    )
+    globe_cmd.add_argument("action", nargs="?")
+    globe_cmd.add_argument("args", nargs="?", default="{}", help="JSON object of action arguments")
+    globe_cmd.add_argument("--broker", help="broker URL (default Z0LIVE_BROKER_URL or http://127.0.0.1:$Z0LIVE_PORT)")
+    globe_cmd.add_argument("--token-file", help="paired device token file (default Z0LIVE_TOKEN_FILE)")
     args = parser.parse_args()
+    if args.command == "globe":
+        from z0live_desktop import displays
+
+        try:
+            action_args = json.loads(args.args)
+        except ValueError:
+            parser.error("args must be a JSON object")
+        if not isinstance(action_args, dict):
+            parser.error("args must be a JSON object")
+        token = displays.client_token(args.token_file)
+        result = displays.globe(args.action, action_args, token=token, base=args.broker)
+        print(dumps(result))
+        return 0 if result.get("ok", True) is not False and "error" not in result else 1
     if args.command == "engine":
         from z0live_desktop import lanes as lanes_mod
 
