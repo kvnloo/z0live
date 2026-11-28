@@ -57,6 +57,7 @@ from aiortc.contrib.media import MediaRelay  # noqa: E402
 # Z0LIVE_TIERS=on: a delegated request runs the tiers.py lanes (via lane_server.py) beside Hermes, instead of
 # the warm-Haiku/Groq instant lane, the Fable lanes and the core lanes relay.
 TIERS_ON = os.environ.get("Z0LIVE_TIERS", "off") == "on"
+import needs_voice  # noqa: E402 - sibling module (blockers spoken when the TV is away)
 import handoff  # noqa: E402 - sibling module (call continues on z0live when Kevin leaves the screen)
 import passthru  # noqa: E402 - sibling module (z0 joins Kevin's other video call)
 import turn_slots  # noqa: E402 - sibling module (a call's bounded line of Hermes runs)
@@ -1897,6 +1898,7 @@ class Call:
                 self.spawn(self.renew_subscription())
             self.spawn(self.watchdog())
             self.spawn(self.audio_health())
+            self.spawn(needs_voice.run(self))  # blockers out loud while the TV is away (Kevin 11-28)
             if self.relay:
                 self.spawn(self.relay_start())
             self.trace("call.negotiated", setup_s=round(time.monotonic() - self.created, 3), context_items=len(context))

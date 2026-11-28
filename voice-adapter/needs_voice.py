@@ -1,0 +1,165 @@
+"""Blockers out loud when Kevin can't see the TV (Kevin 11-28: "keep surfacing blockers for me").
+
+The TV server (atlas-engine apps/z0live-tv serve.py, loopback GET /api/needs) owns the list: every blocked kanban card
+waiting on Kevin, each with a ready-to-say clause, plus tv.present (TV power on, TV app polling, not marked away).
+While the TV shows them (the NEEDS YOU band on every page), nothing is spoken and the cards count as seen. When the TV
+is away, cards he has not seen or heard within REMEMBER_S (across calls, MEMORY file) are spoken:
+  * the first time in a call: one summary line (how many wait, the top two unheard, how to open the page);
+  * after that: one line when a card newly appears.
+Nothing is said before the call's first exchange (the voice never speaks first), and every line goes through the
+call's one status budget (Call.take_status): never over Kevin or a reply, never inside STATUS_GAP of another status
+line. A line that cannot be said now waits for the next poll.
+"""
+import asyncio
+import json
+import logging
+import os
+import time
+from pathlib import Path
+
+from aiohttp import ClientTimeout
+
+LOG = logging.getLogger("hermes.mobile.needs_voice")
+URL = os.environ.get("Z0LIVE_NEEDS_URL", "http://127.0.0.1:8793/api/needs")
+POLL_S = float(os.environ.get("Z0LIVE_NEEDS_POLL_S", "20"))
+ON = os.environ.get("Z0LIVE_NEEDS_VOICE", "1") != "0"
+MEMORY = Path(os.environ.get("Z0LIVE_NEEDS_MEMORY", str(Path.home() / ".local/share/z0live/needs-voice.json")))
+REMEMBER_S = float(os.environ.get("Z0LIVE_NEEDS_REMEMBER_S", str(6 * 3600)))
+
+
+def _say(r):
+    return r.get("say") or r.get("what") or r["id"]
+
+
+def summary(rows, fresh):
+    n = len(rows)
+    head = f"While you're away from the TV: {n} card{'s' if n != 1 else ''} need{'s' if n == 1 else ''} you."
+    return " ".join([head, "Top: " + "; and ".join(_say(r) for r in fresh[:2]) + ".",
+                     "Say show me blockers when you're back at the TV."])
+
+
+def new_line(rows):
+    if len(rows) == 1:
+        return "New blocker for you: " + _say(rows[0]) + "."
+    return f"{len(rows)} new blockers for you. First: " + _say(rows[0]) + "."
+
+
+def _ids(rows):
+    return {i for r in rows for i in [r["id"]] + list(r.get("dups") or [])}
+
+
+class Watch:
+    """Pure state: feed it each /api/needs payload, get back (text, ids) to say now, or None.
+    memory = {card id: when Kevin last saw it on the TV or heard it}, shared across calls."""
+
+    def __init__(self, memory=None):
+        self.memory = memory if memory is not None else {}
+        self.summarised = False
+        self.dirty = False
+
+    def recent(self, now):
+        return {i for i, t in self.memory.items() if now - t < REMEMBER_S}
+
+    def mark(self, ids, now):
+        for i in ids:
+            self.memory[i] = now
+        if ids:
+            self.dirty = True
+
+    def step(self, payload, now=None):
+        now = time.time() if now is None else now
+        rows = [r for r in payload.get("rows") or [] if r.get("id")]
+        recent = self.recent(now)
+        if (payload.get("tv") or {}).get("present", True):
+            self.mark(_ids(rows) - recent, now)  # on the TV's NEEDS YOU band: he has them
+            return None
+        fresh = [r for r in rows if not ({r["id"]} | set(r.get("dups") or [])) <= recent]
+        if not fresh:
+            return None
+        if not self.summarised:
+            return summary(rows, fresh), _ids(fresh)
+        return new_line(fresh), _ids(fresh)
+
+    def said(self, ids, now=None):
+        self.mark(ids, time.time() if now is None else now)
+        self.summarised = True
+
+
+def load_memory(path=None):
+    try:
+        data = json.loads((path or MEMORY).read_text())
+        return {str(k): float(v) for k, v in data.items()}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def save_memory(memory, path=None, now=None):
+    now = time.time() if now is None else now
+    path = path or MEMORY
+    try:
+        keep = {k: v for k, v in memory.items() if now - v < 7 * 86400}
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(keep))
+        tmp.replace(path)
+    except OSError as exc:
+        LOG.warning("needs memory not saved: %s", type(exc).__name__)
+
+
+async def fetch(http):
+    try:
+        async with http.get(URL, timeout=ClientTimeout(total=5)) as r:
+            if r.status != 200:
+                return None
+            return await r.json()
+    except Exception:  # noqa: BLE001 - the TV server being down must never touch the call
+        return None
+
+
+async def speak(call, text):
+    if call.leg:
+        if not call.leg.ready or call.leg.ws is None or call.leg.ws.closed:
+            return False
+        await call.leg.note("Brief update from Hermes about blockers waiting on Kevin. Say this aloud: " + text,
+                            call.trace.turn_id)
+        await call.leg.raw({"type": "response.create"})
+        return True
+    if not call.provider_ready or call.provider_dc is None or call.provider_dc.readyState != "open":
+        return False
+    for event in call.protocol.from_mobile({"type": "session.commentary.append", "content": text}):
+        call.send(event, to_provider=True)
+    return True
+
+
+async def run(call):
+    """One per call, until it closes."""
+    if not ON:
+        return
+    w = Watch(load_memory())
+    while not call.closed:
+        await asyncio.sleep(POLL_S)
+        if not call.protocol.exchanges:
+            continue  # the voice never speaks first: wait for the call's first exchange
+        payload = await fetch(call.manager.http)
+        if not payload or call.closed:
+            continue
+        w.memory.update({k: v for k, v in load_memory().items() if v > w.memory.get(k, 0)})  # another call's marks
+        out = w.step(payload)
+        if w.dirty and not out:
+            save_memory(w.memory)
+            w.dirty = False
+        if not out:
+            continue
+        text, ids = out
+        if not call.take_status("needs"):
+            continue  # floor busy or inside the status gap: try again next poll
+        try:
+            ok = await speak(call, text)
+        except Exception as exc:  # noqa: BLE001
+            LOG.warning("needs line failed id=%s: %s", call.id, type(exc).__name__)
+            ok = False
+        if ok:
+            w.said(ids)
+            save_memory(w.memory)
+            w.dirty = False
+        call.trace("needs.spoken" if ok else "needs.dropped", cards=len(ids), why=(payload.get("tv") or {}).get("why"),
+                   text=text[:300])
