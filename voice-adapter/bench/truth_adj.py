@@ -13,7 +13,7 @@ from pathlib import Path
 import time
 
 from eval_local import LocalModel, local_args, rate
-from truth_eval import CONTROLS, DEFERRAL_PROMPTS, LABELS, RUBRIC, RUBRIC_VARIANTS, grade, grade_two_step
+from truth_eval import CONTROLS, LABELS, RUBRIC, RUBRIC_VARIANTS, grade
 
 HERE = Path(__file__).resolve().parent
 SET = HERE / 'truth_adj.json'
@@ -41,24 +41,14 @@ def load_set(path):
     return validate(json.loads(raw)), hashlib.sha256(raw).hexdigest()
 
 
-def _label(model, ask, reference, reply, rubric, mode, deferral):
-    """{'label': ...} in single mode (unchanged); {'label': ..., 'step1': YES|NO|ERROR} in opt-in two_step mode."""
-    if mode == 'single':
-        return {'label': grade(model, ask, reference, reply, rubric)}
-    if mode != 'two_step' or rubric is not RUBRIC:
-        raise ValueError('two_step mode uses the default RUBRIC only')
-    label, step1 = grade_two_step(model, ask, reference, reply, deferral)
-    return {'label': label, 'step1': step1}
-
-
-def grade_items(model, items, rubric=RUBRIC, mode='single', deferral=None):
+def grade_items(model, items, rubric=RUBRIC):
     return [{'id': i['id'], 'split': i['split'], 'category': i['category'], 'gold': i['gold'],
-             **_label(model, i['question'], i['hermes_reference'], i['lane_reply'], rubric, mode, deferral)}
+             'label': grade(model, i['question'], i['hermes_reference'], i['lane_reply'], rubric)}
             for i in items]
 
 
-def grade_controls(model, rubric=RUBRIC, mode='single', deferral=None):
-    controls = [{'expected': expected, **_label(model, ask, ref, reply, rubric, mode, deferral)}
+def grade_controls(model, rubric=RUBRIC):
+    controls = [{'expected': expected, 'label': grade(model, ask, ref, reply, rubric)}
                 for ask, ref, reply, expected in CONTROLS]
     return {'controls': controls, 'controls_passed': sum(c['label'] == c['expected'] for c in controls)}
 
@@ -67,14 +57,14 @@ def run(model, items, rubric=RUBRIC):
     return {'rows': grade_items(model, items, rubric), **grade_controls(model, rubric)}
 
 
-def grade_sets(model, sets, rubric=RUBRIC, mode='single', deferral=None):
+def grade_sets(model, sets, rubric=RUBRIC):
     """sets: [(name, doc), ...]. Rows carry their set name; item ids must be unique across sets. Controls once."""
     ids = [i['id'] for _, doc in sets for i in doc['items']]
     if len(ids) != len(set(ids)):
         raise ValueError('item ids repeat across sets')
     rows = [{'set': name, **row} for name, doc in sets
-            for row in grade_items(model, doc['items'], rubric, mode, deferral)]
-    return {'rows': rows, **grade_controls(model, rubric, mode, deferral)}
+            for row in grade_items(model, doc['items'], rubric)]
+    return {'rows': rows, **grade_controls(model, rubric)}
 
 
 def metrics(rows):
@@ -114,9 +104,6 @@ def build_parser():
     local_args(parser)
     parser.add_argument('--set', type=Path, action='append', help=f'set file (repeatable; default {SET.name})')
     parser.add_argument('--rubric-variant', default='default', choices=sorted(RUBRIC_VARIANTS))
-    parser.add_argument('--mode', default='single', choices=('single', 'two_step'),
-                        help='two_step (opt-in): YES/NO deferral detector first; YES -> CLEAN, NO -> default grade()')
-    parser.add_argument('--deferral-prompt', choices=sorted(DEFERRAL_PROMPTS), help='step-1 wording for two_step')
     parser.add_argument('--cpu', default='', help='runner CPU description for the receipt')
     parser.add_argument('--meta', default='{}', help='extra JSON metadata for the receipt')
     parser.add_argument('--out', type=Path)
@@ -126,24 +113,14 @@ def build_parser():
 def main():
     parser = build_parser()
     args = parser.parse_args()
-    if (args.mode == 'two_step') != (args.deferral_prompt is not None):
-        parser.error('--deferral-prompt is required with --mode two_step and only valid there')
-    if args.mode == 'two_step' and args.rubric_variant != 'default':
-        parser.error('--mode two_step uses the default rubric only')
     paths = args.set or [SET]
     loaded = [(path.name, *load_set(path)) for path in paths]
     rubric = RUBRIC_VARIANTS[args.rubric_variant]
     model = LocalModel(args.port, args.model)
     start = time.monotonic()
-    result = grade_sets(model, [(name, doc) for name, doc, _ in loaded], rubric, args.mode, args.deferral_prompt)
+    result = grade_sets(model, [(name, doc) for name, doc, _ in loaded], rubric)
     wall = time.monotonic() - start
-    extra = {}
-    if args.mode == 'two_step':
-        steps = [r['step1'] for r in result['rows']] + [c['step1'] for c in result['controls']]
-        extra = {'deferral_prompt': args.deferral_prompt,
-                 'deferral_sha256': hashlib.sha256(DEFERRAL_PROMPTS[args.deferral_prompt].encode()).hexdigest(),
-                 'step1_counts': dict(Counter(steps))}
-    output = {'harness': 'truth_adj/2', 'rubric_variant': args.rubric_variant, 'mode': args.mode, **extra,
+    output = {'harness': 'truth_adj/2', 'rubric_variant': args.rubric_variant, 'mode': 'single',
               'rubric_sha256': hashlib.sha256(rubric.encode()).hexdigest(),
               'sets': [{'name': name, 'format': doc['format'], 'sha256': sha, 'n': len(doc['items'])}
                        for name, doc, sha in loaded],

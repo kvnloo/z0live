@@ -99,7 +99,7 @@ jobs:
           setargs=""
           for s in $SETS; do setargs="$setargs --set $s"; done
           meta=$(python -c 'import json,os,sys;d={k.lower():os.environ[k] for k in ("PHASE","MODEL","QUANT","REPO","REV","FILE","SHA","REP","ARM","VARIANT","LLAMA_TAG")};d["load_s"]=float(sys.argv[1]);print(json.dumps(d))' "$load_s")
-          (cd voice-adapter/bench && python truth_adj.py --port 18087 --model "$MODEL" --mode single --rubric-variant "$VARIANT" $setargs \
+          (cd voice-adapter/bench && python truth_adj.py --port 18087 --model "$MODEL" --rubric-variant "$VARIANT" $setargs \
             --cpu "$CPU_MODEL" --meta "$meta" --out "$GITHUB_WORKSPACE/out/$PHASE-$ARM-$VARIANT-rep$REP.json" > /dev/null)
           echo "server VmHWM: $(grep VmHWM /proc/$spid/status || true)" | tee -a "$GITHUB_STEP_SUMMARY"
           python -c 'import json,sys;m=json.load(open(sys.argv[1]));x=m["metrics"];n=x["n"]+len(m["controls"]);v=sum(r["label"]!="ERROR" for r in m["rows"]+m["controls"]);print(m["meta"]["arm"],m["rubric_variant"],"calls",n,"valid",v,"errors",x["errors"],"wall",m["wall_s"],"s_per_call",round(m["wall_s"]/n,2),"load_s",m["meta"]["load_s"])' "out/$PHASE-$ARM-$VARIANT-rep$REP.json" | tee -a "$GITHUB_STEP_SUMMARY"
