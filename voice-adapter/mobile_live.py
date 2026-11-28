@@ -1788,6 +1788,9 @@ class Call:
                 text = turn.get("transcript", "")
                 if turn.get("role") == "user" and isinstance(text, str):
                     self.trace.finish_turn(text or self.protocol.turn_text["user"])
+                    said = text or self.protocol.turn_text["user"]
+                    if said and live_status.topics(said):  # N216: his own words; the voice may never delegate it
+                        self.spawn(self.status_answer(f"turn-{turn.get('id') or uuid.uuid4().hex[:8]}", said))
                 elif turn.get("role") == "assistant" and self.ack_due:  # the voice acked a request: the gap starts
                     self.ack_due = False
                     self.status_at = time.monotonic()
@@ -2309,6 +2312,15 @@ class Call:
         topics = live_status.topics(request)
         if not topics or self.profile == "guest" or not self.live_records:
             return False
+        # One utterance is one answer: Kevin's turn.done answers it at once, and the voice's delegation of the same
+        # question (if it sends one) within 20 s is swallowed. Probe 11-28 03:16: the voice said "Let me check.", sent
+        # no delegation, and 70 s later said "Three lanes are active right now." (0 TV lanes, 1 card were running).
+        now, key = time.monotonic(), " ".join(sorted(topics)) + "\0" + " ".join(live_status.CARD_ID.findall(request))
+        recent = self.__dict__.setdefault("status_done", {})
+        if now - recent.get(key, -99) < 20:
+            self.trace("status.repeat", did=did, topics=topics)
+            return True
+        recent[key] = now
         began = time.monotonic()
         self.ledger_open(did, request)
         try:

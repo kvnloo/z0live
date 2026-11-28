@@ -188,6 +188,31 @@ class Replay(unittest.IsolatedAsyncioTestCase):
         said, _ = await self.run_path("B", 160, AT_412, "It is 72 degrees outside.", "what's the weather")
         self.assertIn("It is 72 degrees outside.", said)
 
+    async def test_a_status_question_the_voice_never_delegates_is_answered_from_the_records(self):
+        # Live probe 11-28 03:16 (release 1a35311): the voice said "Let me check.", sent no delegation, and 70 s later
+        # said "Three lanes are active right now." with 0 TV lanes and 1 card running. Kevin's own words are enough.
+        call, sent = self.call_at(412, AT_412)
+        try:
+            user = {"type": "turn.done", "turn": {"id": "u1", "role": "user", "start_ms": 0, "end_ms": 2000,
+                                                  "transcript": " How many lanes are running right now"}}
+            call.message(json.dumps(user), True)
+            for _ in range(100):
+                await asyncio.sleep(0.01)
+                if self.spoken(sent):
+                    break
+            answer = self.spoken(sent)
+            self.assertIn("As of 23:49:19: 2 TV lanes running (2 gpt-6.2-sol).", answer)
+            with mock.patch.object(live, "run_hermes", side_effect=AssertionError("answered already")):
+                await call.host_delegate("d1", "How many lanes are running right now?")  # a late delegation: once
+            self.assertEqual(self.spoken(sent).count("As of"), 1)
+            sent.clear()
+            voice = {"type": "turn.done", "turn": {"id": "a1", "role": "assistant", "start_ms": 2000, "end_ms": 5000,
+                                                   "transcript": " Three lanes are active right now."}}
+            call.message(json.dumps(voice), True)
+            self.assertIn("Correction, from the records: As of 23:49:19: 2 TV lanes running", self.spoken(sent))
+        finally:
+            await call.close("test")
+
     async def test_a_named_card_contradicted_by_the_board_is_corrected(self):
         said, _ = await self.run_path("B", 992, AT_412, "t_47402876 hasn't started; no one picked it up.",
                                       "say more about that")
