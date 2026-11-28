@@ -25,6 +25,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import shlex
 import shutil
 import signal
@@ -37,6 +38,20 @@ HERE = Path(__file__).resolve().parent
 HOME = Path.home()
 HERMES_HOME_DEFAULT = HOME / ".hermes/profiles/tek"
 ASSIGNEE = "tek"
+# Another Hermes profile's gateway can run the job instead of tek ("@pc bot, check the drive"): its kanban dispatcher claims
+# tasks assigned to it and runs them with that bot's tools and outside tek's sandbox (pc on 11-28). guest never gets jobs.
+NO_BOT = {"guest"}
+
+
+def bot_ok(bot: str) -> str:
+    """'' if `bot` may own a job, else why not."""
+    if not bot or bot == ASSIGNEE:
+        return ""
+    if bot in NO_BOT or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,40}", bot):
+        return f"bot {bot!r} cannot take jobs"
+    if not (HOME / ".hermes/profiles" / bot / "config.yaml").is_file():
+        return f"no Hermes profile named {bot!r}"
+    return ""
 BY = "job"
 ENGINES = ("kanban", "pid")
 MAX_BRIEF = 20000
@@ -175,7 +190,7 @@ def _key(brief: str, item: str | None) -> str:
 
 def start(brief: str, title: str = "", engine: str = "kanban", model: str = "", provider: str = "", item: str = "",
           call: str = "", cmd: str = "", workspace: str = "", max_runtime: str = "8h", goal: bool = True,
-          by: str = BY) -> dict:
+          by: str = BY, bot: str = "") -> dict:
     """Start a job. Returns {ok, id, item, engine, receipt, ledger, ...}. Safe to call twice with the same item/brief:
     the second call returns the first job (kanban idempotency key) instead of starting another."""
     brief = str(brief or "").strip()
@@ -189,12 +204,18 @@ def start(brief: str, title: str = "", engine: str = "kanban", model: str = "", 
         return {"ok": False, "error": "provider needs model"}
     if "ultrafast" in (model + provider).lower():
         return {"ok": False, "error": "ultrafast is not allowed"}
+    bot = (bot or "").strip().lstrip("@").lower()
+    why = bot_ok(bot)
+    if why:
+        return {"ok": False, "error": why}
+    if bot and engine != "kanban":
+        return {"ok": False, "error": "a bot job runs on the kanban board (engine kanban)"}
     brief = brief[:MAX_BRIEF]
     title = (title or brief.split("\n", 1)[0])[:90]
     led_err = None
     with _Lock():
         # dedupe first, on a key that exists before any ledger write: the same ask said twice is one job
-        key = _key(brief, item or None)
+        key = _key(brief, item or None) + (f"-{bot}" if bot and bot != ASSIGNEE else "")
         for j in _all_jobs():
             if j.get("key") == key and j.get("state") not in ("dropped", "failed"):
                 return {"ok": True, "id": j["id"], "item": j.get("item"), "engine": j["engine"], "again": True,
@@ -223,7 +244,8 @@ def start(brief: str, title: str = "", engine: str = "kanban", model: str = "", 
             _, e = _led("claim", item, by, f"job: {title}")
             led_err = led_err or e
         if engine == "kanban":
-            jid, ref_err = _start_kanban(brief, title, model, provider, workspace, max_runtime, goal, key, by)
+            jid, ref_err = _start_kanban(brief, title, model, provider, workspace, max_runtime, goal, key, by,
+                                         bot or ASSIGNEE)
         else:
             jid, ref_err = _start_pid(brief, title, cmd, workspace, item)
         if ref_err:  # nothing started: the claim stays honest ("claimed, not started") and we say why
@@ -232,7 +254,7 @@ def start(brief: str, title: str = "", engine: str = "kanban", model: str = "", 
             return {"ok": False, "error": ref_err, "item": item}
         job = {"id": jid, "engine": engine, "title": title, "item": item, "call": call, "model": model,
                "provider": provider, "workspace": workspace, "created": now(), "by": by, "state": "waiting",
-               "synced": None, "ledger": led_ok, "receipt": None, "key": key}
+               "synced": None, "ledger": led_ok, "receipt": None, "key": key, "bot": bot or ASSIGNEE}
         kind = engine
         ref = jid
         if engine == "pid":
@@ -248,15 +270,16 @@ def start(brief: str, title: str = "", engine: str = "kanban", model: str = "", 
         d.mkdir(parents=True, exist_ok=True)
         (d / "brief.md").write_text(brief)  # private: stays on this machine, never in git
         _write(job)
-    out = {"ok": True, "id": jid, "item": item, "engine": engine, "receipt": job["receipt"], "ledger": led_ok}
+    out = {"ok": True, "id": jid, "item": item, "engine": engine, "receipt": job["receipt"], "ledger": led_ok,
+           "bot": bot or ASSIGNEE}
     if led_err:
         out["ledger_error"] = led_err
     return out
 
 
-def _start_kanban(brief, title, model, provider, workspace, max_runtime, goal, key, by):
+def _start_kanban(brief, title, model, provider, workspace, max_runtime, goal, key, by, assignee=ASSIGNEE):
     ws = workspace or "scratch"
-    argv = ["kanban", "create", title, "--assignee", ASSIGNEE, "--body", brief + WORKER_RULES, "--workspace", ws,
+    argv = ["kanban", "create", title, "--assignee", assignee, "--body", brief + WORKER_RULES, "--workspace", ws,
             "--max-runtime", max_runtime, "--idempotency-key", key, "--created-by", f"z0live-{by}"]
     if goal:
         argv.append("--goal")
@@ -463,6 +486,7 @@ def main(argv=None) -> int:
     s.add_argument("--workspace", default="", help="kanban: scratch | worktree | dir:<path>")
     s.add_argument("--max-runtime", default="8h")
     s.add_argument("--no-goal", action="store_true")
+    s.add_argument("--bot", default="", help="another Hermes profile runs it (e.g. pc); default tek")
     for name in ("status", "stop"):
         p = sub.add_parser(name)
         p.add_argument("id")
@@ -474,7 +498,7 @@ def main(argv=None) -> int:
     if a.verb == "start":
         brief = Path(a.brief_file).read_text() if a.brief_file else (sys.stdin.read() if a.brief == "-" else a.brief)
         out = start(brief, a.title, a.engine, a.model, a.provider, a.item, a.call, a.cmd, a.workspace, a.max_runtime,
-                    not a.no_goal)
+                    not a.no_goal, bot=a.bot)
     elif a.verb == "status":
         out = status(a.id)
     elif a.verb == "stop":
