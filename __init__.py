@@ -223,8 +223,11 @@ LANES_SCHEMA = {
 
 
 def register(ctx) -> None:  # noqa: D401 - entry point required by Hermes
+    from . import meetings
+
     def cfg(key: str) -> str:
-        return ctx.get_config(key, default=DEFAULTS[key])
+        defaults = {**DEFAULTS, **meetings.DEFAULTS}
+        return ctx.get_config(key, default=defaults[key])
 
     ctx.register_tool(name="z0live_status", toolset=TOOLSET, schema=STATUS_SCHEMA, handler=make_status(cfg),
                       description="z0live voice stack status (read only)", emoji="🎙️")
@@ -235,3 +238,4 @@ def register(ctx) -> None:  # noqa: D401 - entry point required by Hermes
     ctx.register_command("z0live-lanes", handler=lanes_command,
                          description="Show or set z0live voice lanes (fast/small/large/council)",
                          args_hint="[gimme 2 fast lanes, 2 small, 2 large, one council]")
+    meetings.register(ctx, cfg)

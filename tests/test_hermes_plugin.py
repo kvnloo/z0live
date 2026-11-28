@@ -1,11 +1,14 @@
 """The repo-root Hermes plugin: status reads the stack's files; configure validates before it writes. No network."""
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 _spec = importlib.util.spec_from_file_location("z0live_plugin", ROOT / "__init__.py")
+assert _spec is not None and _spec.loader is not None
 z = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = z
 _spec.loader.exec_module(z)
 
 
@@ -65,5 +68,5 @@ def test_register_declares_what_the_manifest_lists():
 
     z.register(Ctx())
     manifest = (ROOT / "plugin.yaml").read_text()
-    assert all(name in manifest for name in tools) and len(tools) == 3
+    assert all(name in manifest for name in tools) and len(tools) == 7
     assert commands == ["z0live-lanes"]

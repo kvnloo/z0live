@@ -16,5 +16,13 @@ config_schema:
   voices_file: {type: str, default: "~/.config/z0live/voices.json", label: "Second voice", description: "{\"guest\": \"grok\"} adds Grok to GPT-Live calls"}
   traces_dir: {type: str, default: "~/.local/share/z0live/voice-traces", label: "Call traces", description: "Per-call JSONL event traces written by the voice adapter"}
   lane_url: {type: str, default: "http://127.0.0.1:8646", label: "Lane server", description: "Loopback URL of z0live's lane_server.py"}
-provides_tools: ["z0live_status", "z0live_configure", "z0live_lanes"]
+  meetings_state_dir: {type: str, default: "", label: "Meeting state directory", description: "Private local state; defaults to meetings/ under the active Hermes profile"}
+  meetings_livekit_bin: {type: str, default: "/opt/homebrew/bin/livekit-server", label: "LiveKit binary"}
+  meetings_bot_python: {type: str, default: "", label: "Meetings media Python", description: "Separate interpreter with the dependencies in meetings/requirements.txt"}
+  meetings_voice_url: {type: str, default: "http://127.0.0.1:9168", label: "z0live voice adapter URL", description: "Use a dedicated development adapter for M1"}
+  meetings_voice_bearer_file: {type: str, default: "", label: "Voice bearer file path", description: "Path to a private file; never put the token itself in this setting"}
+  meetings_profile: {type: str, default: "", label: "Voice Hermes profile"}
+  meetings_guest_asr_url: {type: str, default: "", label: "Local guest transcription URL", description: "Optional loopback LFM2.5-Audio server; no guest audio or text goes to the owner voice session"}
+  meetings_meet_url: {type: str, default: "http://127.0.0.1:3000/custom", label: "Trusted LiveKit Meet custom page", description: "Use a self-hosted Meet client that is allowed to receive guest join tokens"}
+provides_tools: ["z0live_status", "z0live_configure", "z0live_lanes", "meetings_start", "meetings_invite", "meetings_status", "meetings_leave"]
 provides_hooks: []
