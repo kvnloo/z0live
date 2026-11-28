@@ -234,6 +234,35 @@ class CallTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("harbor", self.trace_text().lower())  # the phrase never reaches the trace
         self.assertIn('"approval.answer"', self.trace_text())
 
+    def user_streams(self, words):
+        """gpt-live's shape from the 11-28 probe: turn.created + turn.delta for a user turn, and no turn.done."""
+        self.call.message(json.dumps({"type": "input_transcript.added", "item": {"text": words[0]}}), True)
+        self.call.message(json.dumps({"type": "turn.created", "turn": {"id": "u7", "role": "user",
+                                                                       "transcript": words[0]}}), True)
+        for w in words[1:]:
+            self.call.message(json.dumps({"type": "input_transcript.added", "item": {"text": w}}), True)
+            self.call.message(json.dumps({"type": "turn.delta", "turn_id": "u7", "delta": w}), True)
+
+    async def test_phrase_without_turn_done_approves_at_once(self):
+        await self.raise_prompt()
+        self.user_streams([" Blue", " Harbor", " Lantern"])
+        await self.settle()
+        self.assertEqual(self.responded, [("run_1", "req_1", "once")])
+        self.assertNotIn("harbor", self.trace_text().lower())
+        self.assertNotIn("Harbor", json.dumps(self.sent))  # nothing sent to the app or the voice carries his words
+        self.call.message(json.dumps({"type": "turn.done", "turn": {"id": "u7", "role": "user",
+                                                                    "transcript": "Blue Harbor Lantern"}}), True)
+        await self.settle()
+        self.assertEqual(len(self.responded), 1)  # the late turn.done answers nothing twice
+
+    async def test_other_words_without_turn_done_deny_after_quiet(self):
+        await self.raise_prompt()
+        with mock.patch.object(self.live, "APPROVAL_QUIET_S", 0.05):
+            self.user_streams([" Silver", " Canyon", " Otter"])
+            await asyncio.sleep(0.3)
+        self.assertEqual(self.responded, [("run_1", "req_1", "deny")])
+        self.assertNotIn("canyon", self.trace_text().lower())
+
     async def test_wrong_words_deny(self):
         await self.raise_prompt()
         self.user_says("green mountain river")

@@ -416,6 +416,7 @@ HOST_MAX = 3
 # N230: an ask to another bot's host runs on its Runs API, so a Hermes approval prompt is spoken on the call and Kevin's
 # pass-phrase approves it once (voice_approvals.py). Z0LIVE_VOICE_APPROVALS=0 restores the plain chat-completions ask.
 VOICE_APPROVALS = os.environ.get("Z0LIVE_VOICE_APPROVALS", "1") != "0"
+APPROVAL_QUIET_S = 2.5  # words heard while a prompt waits, then this long with none: answered (deny unless the phrase)
 # The line past HOST_MAX (or past the chat turn plus SIDE_MAX): at most QUEUE_MAX requests wait, first in, first
 # out. Past that a request is refused out loud at once and never runs, so nothing waits without the caller knowing.
 QUEUE_MAX = max(0, int(os.environ.get("Z0LIVE_QUEUE_MAX", "3")))
@@ -1802,7 +1803,7 @@ class Call:
                     self.trace.finish_turn(text or self.protocol.turn_text["user"])
                     said = text or self.protocol.turn_text["user"]
                     if heard is not None:
-                        self.spawn(self.approval_answer(heard))
+                        pass  # N230: an approval answer (approval_mask decided it); never a status question
                     elif said and live_status.topics(said):  # N216: his own words; the voice may never delegate it
                         self.spawn(self.status_answer(f"turn-{turn.get('id') or uuid.uuid4().hex[:8]}", said))
                 elif turn.get("role") == "assistant" and self.ack_due:  # the voice acked a request: the gap starts
@@ -2373,24 +2374,54 @@ class Call:
         self.speak_for(head["did"], text)
 
     def approval_mask(self, kind, event):
-        """(event with Kevin's words replaced, his words) while a spoken prompt waits. Only his finished turn is an
-        answer; partials are masked too so the app, lanes and trace never get the phrase."""
+        """(event with Kevin's words replaced, True) for a user-words event while a spoken prompt waits, else (event,
+        None). His words come as turn.created/turn.delta of a user turn (the whole text) and input_transcript.added
+        (the same words again); all are masked so the app, lanes and trace never get the phrase. The answer is decided
+        at the first of: the phrase heard, the user turn's turn.done, or APPROVAL_QUIET_S with no new words. Live
+        probe 11-28 04:58: gpt-live held a bare 'copper meadow falcon' turn open with no turn.done for minutes."""
         if not self.approvals or self.approvals[0]["spoken_at"] is None:
             return event, None
-        if kind == "input_transcript.added" and isinstance(event.get("item"), dict) and event["item"].get("text"):
-            return {**event, "item": {**event["item"], "text": "[approval answer]"}}, None
-        turn = event.get("turn") if kind == "turn.done" else None
+        head, masked = self.approvals[0], "[approval answer]"
+        if kind == "input_transcript.added" and isinstance(event.get("item"), dict):
+            return {**event, "item": {**event["item"], "text": masked}}, True
+        turn = event.get("turn") if kind in ("turn.created", "turn.done") else None
         if isinstance(turn, dict) and turn.get("role") == "user":
-            heard = str(turn.get("transcript") or self.protocol.turn_text.get("user") or "")
-            self.protocol.turn_text["user"] = ""
-            return {**event, "turn": {**turn, "transcript": "[approval answer]"}}, heard
+            head.setdefault("turns", set()).add(turn.get("id"))
+            text = str(turn.get("transcript") or "")
+            if kind == "turn.done":
+                head["heard"] = text or head.get("heard", "") or str(self.protocol.turn_text.get("user") or "")
+                self.protocol.turn_text["user"] = ""
+                self.approval_decide(head, now=True)
+            else:
+                head["heard"] = (head.get("heard", "") + " " + text).strip()
+                self.approval_decide(head)
+            return {**event, "turn": {**turn, "transcript": masked}}, True
+        if kind == "turn.delta" and event.get("turn_id") in head.get("turns", ()):
+            head["heard"] = head.get("heard", "") + str(event.get("delta") or "")
+            self.approval_decide(head)
+            return {**event, "delta": " " + masked}, True
         return event, None
 
-    async def approval_answer(self, heard):
+    def approval_decide(self, head, now=False):
+        """Answer at once on turn.done or a heard phrase; otherwise after APPROVAL_QUIET_S without new words."""
+        timer = head.pop("timer", None)
+        if timer:
+            timer.cancel()
+        heard = head.get("heard", "")
+        if now or voice_approvals.matches(heard, voice_approvals.load_phrase(self.phrase_profile())):
+            self.spawn(self.approval_answer(heard, head))
+        elif heard.strip():
+            head["timer"] = asyncio.get_running_loop().call_later(
+                APPROVAL_QUIET_S, lambda: self.spawn(self.approval_answer(head.get("heard", ""), head)))
+
+    async def approval_answer(self, heard, head=None):
         """Answer the spoken prompt once: the pass-phrase approves it once, anything else denies it (fail closed)."""
-        if not self.approvals:
-            return
+        if not self.approvals or (head is not None and self.approvals[0] is not head):
+            return  # already answered (a late turn.done after the phrase was heard) or settled elsewhere
         head = self.approvals.pop(0)
+        timer = head.pop("timer", None)
+        if timer:
+            timer.cancel()
         self.approval_quiet_until = time.monotonic() + 30
         phrase = voice_approvals.load_phrase(self.phrase_profile())
         choice = voice_approvals.decide(heard, phrase)
