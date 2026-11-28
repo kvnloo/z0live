@@ -24,6 +24,12 @@ and the utterance continues; the unchanged --endpointer-silence-ms endpointer co
 the commit (no audible false starts): first audio = max(commit, speculative first audio ready). False cuts are decided
 by the commit alone, as in the wN control arm, which runs exactly the OD-slice-2b code path.
 --fake-stages STT,MODEL,TTS (ms) replaces the three local stages with fixed sleeps (dry runs; UNSCORED, no GPU).
+Early commit (OD-slice-4, --arm-modes spec150,spec150ec,spec150b): a specNec arm is specN plus one more way to
+commit: at the earliest moment the CURRENT speculative turn's STT transcript is available AND the endpointer has
+counted >= EC_SILENCE_MS (200 ms = 10 quiet frames) of trailing silence AND confident_turn_end(transcript) holds; the
+unchanged --endpointer-silence-ms commit still applies if that never happens. An early commit is final: the turn plays.
+If speech resumes after it (commit before the true speech end) the row is a false cut ('split before speech end'),
+exactly as the control's split. specN rows without 'ec' run the OD-slice-3 path unchanged.
 """
 import argparse
 import asyncio
@@ -58,6 +64,32 @@ QUESTIONS = (  # public, generic test prompts (no private content)
     'Who wrote Romeo and Juliet?', 'What is the boiling point of water in Celsius?', 'How many days are in a week?',
     'What is the largest planet in our solar system?', 'What do bees make?', 'How many minutes are in an hour?',
     'What is the opposite of hot?', 'Which ocean is the largest?', 'What gas do plants take in from the air?')
+
+
+EC_SILENCE_MS = 200  # early commit never fires before this much endpointer-counted trailing silence
+EC_RULE = 'ec1'  # the preregistered confident-turn-end rule below (OD-slice-4 PREREG.md); never tuned after freeze
+EC_CONTINUATION = frozenset(('and', 'but', 'so', 'or', 'because', 'um', 'uh', 'the', 'a', 'to', 'of'))
+
+
+def confident_turn_end(text):
+    """Rule ec1: after stripping whitespace the transcript ends in '?', '.' or '!', has >= 3 words (norm_words), and
+    its last word is not a continuation word (EC_CONTINUATION)."""
+    t = (text or '').strip()
+    if not t or t[-1] not in '?.!':
+        return False
+    words = norm_words(t)
+    return len(words) >= 3 and words[-1] not in EC_CONTINUATION
+
+
+async def first_of(*aws):
+    """Wait until the first of the awaitables finishes; cancel the rest."""
+    tasks = [asyncio.ensure_future(x) for x in aws]
+    try:
+        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 def pct(xs, q):
@@ -157,11 +189,15 @@ async def run_live_turn(stages, pcm, turn_id=0, db=VAD_DB, silence_ms=ENDPOINT_S
 
 
 async def run_arm_turn(stages, pcm, turn_id=0, db=VAD_DB, silence_ms=ENDPOINT_SILENCE_MS, spec_ms=None,
-                       clock=time.perf_counter_ns, sleep=asyncio.sleep):
-    """One arm turn: spec_ms None -> the OD-slice-2b endpointer turn unchanged; else a speculative-start turn."""
+                       clock=time.perf_counter_ns, sleep=asyncio.sleep, ec=None):
+    """One arm turn: spec_ms None -> the OD-slice-2b endpointer turn unchanged; else a speculative-start turn
+    (ec 'ec' -> with the OD-slice-4 early commit; None -> the OD-slice-3 SPEC path unchanged)."""
     if spec_ms is None:
         return await run_live_turn(stages, pcm, turn_id=turn_id, db=db, silence_ms=silence_ms, clock=clock,
                                    sleep=sleep)
+    if ec:
+        return await run_spec_turn(stages, pcm, turn_id=turn_id, db=db, silence_ms=silence_ms, spec_ms=spec_ms,
+                                   clock=clock, sleep=sleep, early_commit=True)
     return await run_spec_turn(stages, pcm, turn_id=turn_id, db=db, silence_ms=silence_ms, spec_ms=spec_ms,
                                clock=clock, sleep=sleep)
 
@@ -195,11 +231,22 @@ class StageTimer:
 
 class SpecTurn:
     """One speculative engine turn on a partial utterance. Audio is held until commit(), then played in order."""
-    def __init__(self, stages, pcm, turn_id, clock, on_play=None):
+    def __init__(self, stages, pcm, turn_id, clock, on_play=None, track_stt=False):
         self.clock, self.on_play = clock, on_play
         self.timer = StageTimer(stages, clock)
         self.held, self.played, self.commit_ns, self.ready_ns = [], [], None, None
-        self.task = asyncio.ensure_future(run_turn(self.timer.stages, pcm, turn_id=turn_id, clock=clock,
+        self.transcript, self.stt_done, self.ec_checked = None, asyncio.Event(), False
+        run_stages = self.timer.stages
+        if track_stt:  # early-commit arms only: expose the STT result the moment it returns (no extra clock reads)
+            t_stt, model, tts = run_stages
+
+            async def stt(audio):
+                text = await t_stt(audio)
+                self.transcript = text
+                self.stt_done.set()
+                return text
+            run_stages = (stt, model, tts)
+        self.task = asyncio.ensure_future(run_turn(run_stages, pcm, turn_id=turn_id, clock=clock,
                                                    on_audio=self._audio))
 
     def _play(self, ns, n):
@@ -231,25 +278,58 @@ class SpecTurn:
 
 
 async def run_spec_turn(stages, pcm, turn_id=0, db=VAD_DB, silence_ms=ENDPOINT_SILENCE_MS, spec_ms=150,
-                        clock=time.perf_counter_ns, sleep=asyncio.sleep, on_play=None):
+                        clock=time.perf_counter_ns, sleep=asyncio.sleep, on_play=None, early_commit=False):
     """Real-time paced like stream_endpoint, with a speculative engine turn started after spec_ms of trailing
-    silence, cancelled on resumed speech, committed when the (unchanged) silence_ms endpointer finalizes."""
+    silence, cancelled on resumed speech, committed when the (unchanged) silence_ms endpointer finalizes.
+    early_commit: also commit at the earliest moment the current speculative turn's transcript is known, the
+    endpointer has counted >= EC_SILENCE_MS of trailing silence and confident_turn_end(transcript) holds."""
     spec_frames = spec_ms // 20
     if not silence_ms or spec_frames < 1 or spec_frames >= silence_ms // 20:
         raise ValueError('need 20 <= spec_ms < silence_ms (endpointer on)')
+    ec_frames = EC_SILENCE_MS // 20
+    if early_commit and not spec_frames < ec_frames < silence_ms // 20:
+        raise ValueError('early commit needs spec_ms < EC_SILENCE_MS < silence_ms')
     ep, end = _endpointer(db, silence_ms), speech_end_sample(pcm, db)
     t0 = clock()
     speech_end_ns = None if end is None else t0 + (end + 1) * 1_000_000_000 // RATE
     counts = {'spec_started': 0, 'spec_cancelled': 0, 'spec_committed': 0}
     wasted = {'stt': 0, 'model': 0, 'tts': 0}
     spec, spec_t0, commit_ns, utt = None, None, None, None
+    ec = {'early_commit': 0, 'ec_rule_evals': 0, 'ec_last_transcript': None, 'ec_last_pass': None,
+          'ec_resumed': False, 'ec_commit_quiet_frames': None}
+
+    def try_early(now):
+        """Evaluate the rule once per speculative turn, when its transcript and >= ec_frames of silence both exist."""
+        nonlocal commit_ns
+        if (not early_commit or ec['early_commit'] or spec is None or spec.ec_checked or spec.transcript is None
+                or not ep.active or ep.quiet < ec_frames):
+            return
+        spec.ec_checked = True
+        passed = confident_turn_end(spec.transcript)
+        ec.update(ec_rule_evals=ec['ec_rule_evals'] + 1, ec_last_transcript=spec.transcript, ec_last_pass=passed)
+        if passed:
+            commit_ns = now
+            ec.update(early_commit=1, ec_commit_quiet_frames=ep.quiet)
+            spec.commit(now)
+
     try:
         for k, frame in enumerate(padded_frames(pcm, silence_ms)):
             due = t0 + (k + 1) * FRAME * 1_000_000_000 // RATE
-            if (wait := due - clock()) > 0:
+            while (wait := due - clock()) > 0:
+                if (early_commit and not ec['early_commit'] and spec is not None and spec.transcript is None
+                        and ep.active and ep.quiet >= ec_frames):  # wake the moment the STT result lands
+                    await first_of(sleep(wait / 1e9), spec.stt_done.wait())
+                    try_early(clock())
+                    continue
                 await sleep(wait / 1e9)
+                break
             _, out = ep.feed(frame, (k + 1) * FRAME / RATE)
             now = clock()
+            if ec['early_commit']:  # committed early: keep listening only to see whether speech resumes
+                if out is not None or not ep.active:
+                    break
+                ec['ec_resumed'] = ec['ec_resumed'] or ep.quiet == 0
+                continue
             if out is not None:  # the commit: the same decision the control arm's endpointer makes
                 commit_ns, utt = now, out.tobytes()
                 break
@@ -259,13 +339,17 @@ async def run_spec_turn(stages, pcm, turn_id=0, db=VAD_DB, silence_ms=ENDPOINT_S
                 counts['spec_cancelled'] += 1
                 spec = None
             if spec is None and ep.active and ep.quiet == spec_frames and ep.voiced >= 6:
-                spec, spec_t0 = SpecTurn(stages, np.concatenate(ep.active).tobytes(), turn_id, clock, on_play), now
+                spec, spec_t0 = SpecTurn(stages, np.concatenate(ep.active).tobytes(), turn_id, clock, on_play,
+                                         **({'track_stt': True} if early_commit else {})), now
                 counts['spec_started'] += 1
+            try_early(now)
     except BaseException:
         if spec is not None:
             await spec.cancel()
         raise
-    extra = dict(counts, **{f'wasted_{key}_ms': ns / 1e6 for key, ns in wasted.items()})
+    extra: dict = dict(counts, **{f'wasted_{key}_ms': ns / 1e6 for key, ns in wasted.items()})
+    if early_commit:
+        extra.update(ec, ec_rule=EC_RULE)
     if commit_ns is None or speech_end_ns is None:
         if spec is not None:
             await spec.cancel()
@@ -276,9 +360,14 @@ async def run_spec_turn(stages, pcm, turn_id=0, db=VAD_DB, silence_ms=ENDPOINT_S
         extra['spec_committed'] = 1
     if commit_ns < speech_end_ns:  # split: as in the control arm the committed turn would play; no latency row
         if spec is not None:
-            await spec.cancel()  # bench economy only; the split is the endpointer's decision, not the spec's
+            if ec['early_commit']:
+                await asyncio.gather(spec.task, return_exceptions=True)  # an early commit is final: it plays
+            else:
+                await spec.cancel()  # bench economy only; the split is the endpointer's decision, not the spec's
         row = {'turn_id': turn_id, 'ok': False, 'error_stage': 'endpointer', 'error': 'split before speech end',
                'endpointer_declared_ms': (commit_ns - speech_end_ns) / 1e6, 'transcript': None, 'reply': None}
+        if ec['early_commit'] and spec is not None:
+            row['transcript'] = spec.transcript
         row.update({k: None for k in METRICS}, **extra)
         return row
     if spec is None:  # e.g. the 15 s cap finalized mid-speech: no speculative turn to commit, run it plainly
@@ -288,7 +377,8 @@ async def run_spec_turn(stages, pcm, turn_id=0, db=VAD_DB, silence_ms=ENDPOINT_S
             row['endpointer_ms'] = (row['eos_ns'] - speech_end_ns) / 1e6
             row['speech_end_to_first_audio_ms'] = row['endpointer_ms'] + row['eos_to_first_audio_ms']
         return row
-    spec.commit(commit_ns)
+    if not ec['early_commit']:
+        spec.commit(commit_ns)
     row = await spec.task
     ms = (lambda ns: ns / 1e6)
     row.update(extra, commit_ns=commit_ns, endpointer_declared_ms=ms(commit_ns - speech_end_ns),
@@ -363,17 +453,27 @@ def mode_arms(spec, commit_ms):
     """'w500,spec150,w500b' -> [('W500', 500, None), ('SPEC150', 500, 150), ('W500b', 500, None)].
     wN = endpointer window N (control, the OD-slice-2b path); specN = speculative start after N ms of silence,
     committed by the --endpointer-silence-ms window. A trailing letter is an explicit replicate label (A/A); unlabeled
-    repeats get b, c, ... as in window_arms."""
+    repeats get b, c, ... as in window_arms.
+    specNec (OD-slice-4) = specN plus the early commit: ('SPEC150EC', 500, 150, 'ec'); only these are 4-tuples.
+    """
     arms, seen = [], {}
     for tok in (t.strip().lower() for t in spec.split(',') if t.strip()):
-        m = re.fullmatch(r'(w|spec)(\d+)([a-z]?)', tok)
-        if not m:
+        m = re.fullmatch(r'(w|spec)(\d+)(ec)?([a-z]?)', tok)
+        if not m or (m.group(3) and (m.group(1) != 'spec' or m.group(4))):
             raise ValueError(f'bad arm mode {tok!r}')
-        kind, ms, tag = m.group(1), int(m.group(2)), m.group(3)
+        kind, ms, ec, tag = m.group(1), int(m.group(2)), m.group(3), m.group(4)
         if kind == 'w' and (ms % 20 or not 80 <= ms <= 2000):
             raise ValueError(f'{tok}: window must be a multiple of 20 in 80..2000')
         if kind == 'spec' and (ms % 10 or not 20 <= ms < commit_ms):
             raise ValueError(f'{tok}: speculative start must be a multiple of 10 in 20..(commit window - 10)')
+        if ec:
+            if not ms // 20 < EC_SILENCE_MS // 20 < commit_ms // 20:
+                raise ValueError(f'{tok}: early commit needs spec start < {EC_SILENCE_MS} ms < commit window')
+            if f'SPEC{ms}EC' in seen:
+                raise ValueError(f'{tok}: repeated early-commit arm')
+            seen[f'SPEC{ms}EC'] = 1
+            arms.append((f'SPEC{ms}EC', commit_ms, ms, 'ec'))
+            continue
         base = f'W{ms}' if kind == 'w' else f'SPEC{ms}'
         k = seen.get(base, 0)
         seen[base] = k + 1
@@ -410,6 +510,14 @@ def _stats(rows):
         for k in ('spec_start_ms', 'first_audio_ready_ms', 'gate_hold_ms'):
             xs = [r[k] for r in ok if r.get(k) is not None]
             out[k] = {'p50': pct(xs, .5), 'p95': pct(xs, .95)}
+    if any('early_commit' in r for r in rows):  # early-commit arms: fire rate and the false cuts it caused
+        fired = [r for r in rows if r.get('early_commit')]
+        out['early_commits'] = len(fired)
+        out['ec_fire_rate'] = len(fired) / len(rows) if rows else None
+        out['ec_false_cuts'] = sum(r.get('error') == 'split before speech end' for r in fired)
+        out['ec_rule_evals'] = sum(r.get('ec_rule_evals') or 0 for r in rows)
+        xs = [r['endpointer_ms'] for r in ok if r.get('early_commit') and r.get('endpointer_ms') is not None]
+        out['ec_commit_ms'] = {'p50': pct(xs, .5), 'p95': pct(xs, .95)}
     for k in METRICS:
         xs = [r[k] for r in ok if r.get(k) is not None]
         out[k] = {'p50': pct(xs, .5), 'p95': pct(xs, .95), 'min': min(xs, default=None), 'max': max(xs, default=None)}
@@ -424,7 +532,8 @@ def summarize(rows):
     primary = ('speech_end_to_first_audio_ms' if pooled['speech_end_to_first_audio_ms']['p50'] is not None
                else 'eos_to_first_audio_ms')
     band = None
-    pair = next((p for p in (('A', 'A2'), ('W500', 'W500b')) if set(p) <= arms.keys()), None)
+    pair = next((p for p in (('A', 'A2'), ('W500', 'W500b'), ('SPEC150', 'SPEC150b')) if set(p) <= arms.keys()),
+                None)
     if pair and arms[pair[0]]['n'] and arms[pair[1]]['n']:
         a, b = arms[pair[0]][primary], arms[pair[1]][primary]
         band = {'p50': abs(a['p50'] - b['p50']), 'p95': abs(a['p95'] - b['p95'])}
@@ -487,7 +596,7 @@ def sleep_stages(stt_ms, model_ms, tts_ms):
     """Dry-run stages (UNSCORED): fixed asyncio sleeps, no model, no GPU; EOS -> first audio ~= the sum."""
     async def stt(pcm):
         await asyncio.sleep(stt_ms / 1000)
-        return 'fake transcript'
+        return 'Is this a fake transcript?'  # passes rule ec1, so dry runs exercise the early commit
 
     async def model(text):
         await asyncio.sleep(model_ms / 1000)
@@ -576,7 +685,7 @@ async def bench(a):
         for i in range(a.warmup):
             arm = arms[i % len(arms)] if arms else (None, a.endpointer_silence_ms, None)
             row = await run_arm_turn(stages, utts[i % len(utts)][1], turn_id=-1 - i, db=a.vad_db,
-                                     silence_ms=arm[1], spec_ms=arm[2])
+                                     silence_ms=arm[1], spec_ms=arm[2], ec=arm[3] if len(arm) > 3 else None)
             print(json.dumps({'warmup': i, 'ok': row['ok'], 'e2a': row['eos_to_first_audio_ms'],
                               'se2a': row['speech_end_to_first_audio_ms']}), file=sys.stderr)
         turn = 0
@@ -585,12 +694,13 @@ async def bench(a):
                 aborted = f'gate before run {p["run"]} {p["arm"]}'
                 break
             turns = p.get('turns') or [(idx, p['arm'], a.endpointer_silence_ms, None) for idx in p['order']]
-            for idx, arm, window, spec_ms in turns:
+            for idx, arm, window, spec_ms, *ec in turns:
                 if arms and not gate_ok(a.gate):  # sweep: gate before every arm turn
                     aborted = f'gate before run {p["run"]} {arm} turn {turn}'
                     break
                 m, pcm = utts[idx]
-                row = await run_arm_turn(stages, pcm, turn_id=turn, db=a.vad_db, silence_ms=window, spec_ms=spec_ms)
+                row = await run_arm_turn(stages, pcm, turn_id=turn, db=a.vad_db, silence_ms=window, spec_ms=spec_ms,
+                                         ec=ec[0] if ec else None)
                 turn += 1
                 if spec_ms is not None:
                     row['spec_ms'] = spec_ms
@@ -639,7 +749,8 @@ def parse_args(argv=None):
                          'interleaved per utterance; overrides --endpointer-silence-ms; default off')
     ap.add_argument('--arm-modes', default='',
                     help='speculative-start arms, e.g. w500,spec150,w500b: wN = endpointer window N (control), specN '
-                         '= speculative start after N ms of silence committed by --endpointer-silence-ms; '
+                         '= speculative start after N ms of silence committed by --endpointer-silence-ms; specNec = '
+                         'specN plus the early commit on a confident turn end (rule ec1, >= 200 ms silence); '
                          'interleaved per utterance like --arm-windows (exclusive with it); default off')
     ap.add_argument('--fake-stages', default='',
                     help='STT,MODEL,TTS fixed sleeps in ms (dry run, UNSCORED): no Whisper / llama.cpp / Lure')
