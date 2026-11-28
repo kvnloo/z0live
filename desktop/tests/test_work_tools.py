@@ -138,20 +138,34 @@ class VoiceToolsTests(unittest.TestCase):
             self.assertEqual(self.store.inbox(self.device)["messages"], [])
 
     def test_slow_lookup_returns_partial_then_exact_device_inbox(self):
+        entered, release = threading.Event(), threading.Event()
+
         def slow(**kw):
-            time.sleep(0.25)
+            entered.set()
+            if not release.wait(timeout=5):
+                raise TimeoutError("test did not release the slow source")
             return {
                 "items": [
                     {**FIXTURE["items"][0], "citation": "fixture:slow", "source": "ctx"}
                 ]
             }
+        tick = self.work.tick
+
+        def started_tick():
+            tick()
+            self.assertTrue(entered.wait(timeout=2))
 
         with patch.multiple(
             sources, z0=lambda **kw: FIXTURE, hermes=lambda **kw: FIXTURE, ctx=slow
-        ):
-            start = time.monotonic()
-            result = self.call("work_search", {"query": "screenshot"})
-            self.assertLess(time.monotonic() - start, 0.24)
+        ), patch.object(self.work, "tick", side_effect=started_tick):
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(self.call, "work_search", {"query": "screenshot"})
+                try:
+                    self.assertTrue(entered.wait(timeout=2))
+                    result = future.result(timeout=2)
+                    self.assertFalse(release.is_set())
+                finally:
+                    release.set()
             self.assertTrue(result["partial"])
             self.assertEqual(len(result["items"]), 1)
             self.wait(result["id"])
@@ -245,13 +259,25 @@ class VoiceToolsTests(unittest.TestCase):
                 "Verified fixture answer",
             )
         # A second request completes while its caller is waiting: inline only.
-        with ThreadPoolExecutor(max_workers=1) as pool:
+        waiting = threading.Event()
+
+        def observed_wait(seconds):
+            # The caller reaches its wait loop only after committing admission.
+            waiting.set()
+            time.sleep(seconds)
+
+        with patch.dict(os.environ, Z0LIVE_ASK_SECONDS="5"), patch(
+            "z0live_desktop.work_tools.time"
+        ) as clock, ThreadPoolExecutor(max_workers=1) as pool:
+            clock.monotonic.side_effect = time.monotonic
+            clock.time.side_effect = time.time
+            clock.sleep.side_effect = observed_wait
             future = pool.submit(
                 self.call, "ask_hermes", {"question": "second fixture"}
             )
-            time.sleep(0.03)
+            self.assertTrue(waiting.wait(timeout=2))
             worker.tick()
-            inline = future.result(timeout=2)
+            inline = future.result(timeout=10)
         self.assertEqual(inline["say"], "Verified fixture answer")
         self.assertEqual(len(self.store.inbox(self.device)["messages"]), 1)
 
