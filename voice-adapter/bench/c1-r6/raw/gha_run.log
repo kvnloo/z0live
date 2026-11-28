@@ -1,0 +1,411 @@
+replay	Set up job	﻿2026-11-28T21:15:41.1479391Z Current runner version: '2.338.2'
+replay	Set up job	2026-11-28T21:15:41.1498816Z ##[group]Runner Image Provisioner
+replay	Set up job	2026-11-28T21:15:41.1499477Z Hosted Compute Agent
+replay	Set up job	2026-11-28T21:15:41.1499993Z Version: 20261111.635
+replay	Set up job	2026-11-28T21:15:41.1500490Z Commit: b8a594ea514ff44cadb5342986c68b1eac6e22ed
+replay	Set up job	2026-11-28T21:15:41.1501031Z Build Date: 2026-11-11T01:49:01Z
+replay	Set up job	2026-11-28T21:15:41.1501572Z Worker ID: {6e345887-1a74-4140-982f-53efdd79323d}
+replay	Set up job	2026-11-28T21:15:41.1502076Z Region: us-east-1
+replay	Set up job	2026-11-28T21:15:41.1502479Z Cloud: AWS
+replay	Set up job	2026-11-28T21:15:41.1502868Z ##[endgroup]
+replay	Set up job	2026-11-28T21:15:41.1503769Z ##[group]Operating System
+replay	Set up job	2026-11-28T21:15:41.1504201Z Ubuntu
+replay	Set up job	2026-11-28T21:15:41.1504557Z 24.04.5
+replay	Set up job	2026-11-28T21:15:41.1505026Z LTS
+replay	Set up job	2026-11-28T21:15:41.1505407Z ##[endgroup]
+replay	Set up job	2026-11-28T21:15:41.1506290Z ##[group]Runner Image
+replay	Set up job	2026-11-28T21:15:41.1506725Z Image: ubuntu-24.04
+replay	Set up job	2026-11-28T21:15:41.1507108Z Version: 20261122.23.1
+replay	Set up job	2026-11-28T21:15:41.1507884Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261122.23/images/ubuntu/Ubuntu2404-Readme.md
+replay	Set up job	2026-11-28T21:15:41.1509188Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261122.23
+replay	Set up job	2026-11-28T21:15:41.1509891Z ##[endgroup]
+replay	Set up job	2026-11-28T21:15:41.1510729Z ##[group]GITHUB_TOKEN Permissions
+replay	Set up job	2026-11-28T21:15:41.1512552Z Contents: read
+replay	Set up job	2026-11-28T21:15:41.1512962Z Metadata: read
+replay	Set up job	2026-11-28T21:15:41.1513405Z ##[endgroup]
+replay	Set up job	2026-11-28T21:15:41.1514900Z Secret source: Actions
+replay	Set up job	2026-11-28T21:15:41.1515867Z Cache mode: write
+replay	Set up job	2026-11-28T21:15:41.1516392Z Prepare workflow directory
+replay	Set up job	2026-11-28T21:15:41.1749847Z Prepare all required actions
+replay	Set up job	2026-11-28T21:15:41.1801315Z Getting action download info
+replay	Set up job	2026-11-28T21:15:41.3432206Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+replay	Set up job	2026-11-28T21:15:42.5589675Z Download action repository 'actions/setup-python@v5' (SHA:a26af69be951a213d495a4c3e4e4022e16d87065)
+replay	Set up job	2026-11-28T21:15:42.6655000Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+replay	Set up job	2026-11-28T21:15:42.9055419Z Complete job name: replay
+replay	Run actions/checkout@v4	﻿2026-11-28T21:15:42.9658315Z ##[group]Run actions/checkout@v4
+replay	Run actions/checkout@v4	2026-11-28T21:15:42.9658958Z with:
+replay	Run actions/checkout@v4	2026-11-28T21:15:42.9659233Z   persist-credentials: false
+replay	Run actions/checkout@v4	2026-11-28T21:15:42.9659548Z   repository: kvnloo/z0live
+replay	Run actions/checkout@v4	2026-11-28T21:15:42.9661593Z   token: ***
+replay	Run actions/checkout@v4	2026-11-28T21:15:42.9661860Z   ssh-strict: true
+replay	Run actions/checkout@v4	2026-11-28T21:15:42.9662132Z   ssh-user: git
+replay	Run actions/checkout@v4	2026-11-28T21:15:42.9662384Z   clean: true
+replay	Run actions/checkout@v4	2026-11-28T21:15:42.9662667Z   sparse-checkout-cone-mode: true
+replay	Run actions/checkout@v4	2026-11-28T21:15:42.9662991Z   fetch-depth: 1
+replay	Run actions/checkout@v4	2026-11-28T21:15:42.9663286Z   fetch-tags: false
+replay	Run actions/checkout@v4	2026-11-28T21:15:42.9663563Z   show-progress: true
+replay	Run actions/checkout@v4	2026-11-28T21:15:42.9663839Z   lfs: false
+replay	Run actions/checkout@v4	2026-11-28T21:15:42.9664087Z   submodules: false
+replay	Run actions/checkout@v4	2026-11-28T21:15:42.9664378Z   set-safe-directory: true
+replay	Run actions/checkout@v4	2026-11-28T21:15:42.9664675Z   allow-unsafe-pr-checkout: false
+replay	Run actions/checkout@v4	2026-11-28T21:15:42.9665062Z ##[endgroup]
+replay	Run actions/checkout@v4	2026-11-28T21:15:45.8181837Z Syncing repository: kvnloo/z0live
+replay	Run actions/checkout@v4	2026-11-28T21:15:45.8183200Z ##[group]Getting Git version info
+replay	Run actions/checkout@v4	2026-11-28T21:15:45.8183629Z Working directory is '/home/runner/work/z0live/z0live'
+replay	Run actions/checkout@v4	2026-11-28T21:15:45.8184386Z [command]/usr/bin/git version
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1179974Z git version 2.56.1
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1194880Z ##[endgroup]
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1205839Z Temporarily overriding HOME='/home/runner/work/_temp/4bcc4a5b-6523-449e-a2fd-0c5dc6d2be18' before making global git config changes
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1207033Z Adding repository directory to the temporary git global config as a safe directory
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1209598Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/z0live/z0live
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1258810Z Deleting the contents of '/home/runner/work/z0live/z0live'
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1261368Z ##[group]Initializing the repository
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1264548Z [command]/usr/bin/git init /home/runner/work/z0live/z0live
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1411291Z hint: Using 'master' as the name for the initial branch. This default branch name
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1412292Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1412842Z hint: to use in all of your new repositories, which will suppress this warning,
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1413301Z hint: call:
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1413544Z hint:
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1413892Z hint: 	git config --global init.defaultBranch <name>
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1414186Z hint:
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1414471Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1414943Z hint: 'development'. The just-created branch can be renamed via this command:
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1415311Z hint:
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1416080Z hint: 	git branch -m <name>
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1416341Z hint:
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1416645Z hint: Disable this message with "git config set advice.defaultBranchName false"
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1418314Z Initialized empty Git repository in /home/runner/work/z0live/z0live/.git/
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1425852Z [command]/usr/bin/git remote add origin https://github.com/kvnloo/z0live
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1473273Z ##[endgroup]
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1473752Z ##[group]Disabling automatic garbage collection
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1475731Z [command]/usr/bin/git config --local gc.auto 0
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1497748Z ##[endgroup]
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1498182Z ##[group]Setting up auth
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1502207Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.1528826Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.5777243Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.5791870Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.5943114Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.5967771Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.6116297Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.6142682Z ##[endgroup]
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.6143311Z ##[group]Fetching the repository
+replay	Run actions/checkout@v4	2026-11-28T21:15:46.6155463Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +fb354822ac92333aa3279bd0a32dcf5ab4550672:refs/remotes/origin/ci/c1-r6
+replay	Run actions/checkout@v4	2026-11-28T21:15:47.0796699Z From https://github.com/kvnloo/z0live
+replay	Run actions/checkout@v4	2026-11-28T21:15:47.0797246Z  * [new ref]         fb354822ac92333aa3279bd0a32dcf5ab4550672 -> origin/ci/c1-r6
+replay	Run actions/checkout@v4	2026-11-28T21:15:47.0801216Z ##[endgroup]
+replay	Run actions/checkout@v4	2026-11-28T21:15:47.0801939Z ##[group]Determining the checkout info
+replay	Run actions/checkout@v4	2026-11-28T21:15:47.0803021Z ##[endgroup]
+replay	Run actions/checkout@v4	2026-11-28T21:15:47.0808396Z [command]/usr/bin/git sparse-checkout disable
+replay	Run actions/checkout@v4	2026-11-28T21:15:47.0872435Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+replay	Run actions/checkout@v4	2026-11-28T21:15:47.0897643Z ##[group]Checking out the ref
+replay	Run actions/checkout@v4	2026-11-28T21:15:47.0900956Z [command]/usr/bin/git checkout --progress --force -B ci/c1-r6 refs/remotes/origin/ci/c1-r6
+replay	Run actions/checkout@v4	2026-11-28T21:15:47.1273079Z Switched to a new branch 'ci/c1-r6'
+replay	Run actions/checkout@v4	2026-11-28T21:15:47.1282777Z branch 'ci/c1-r6' set up to track 'origin/ci/c1-r6'.
+replay	Run actions/checkout@v4	2026-11-28T21:15:47.1287786Z ##[endgroup]
+replay	Run actions/checkout@v4	2026-11-28T21:15:47.1322089Z [command]/usr/bin/git log -1 --format=%H
+replay	Run actions/checkout@v4	2026-11-28T21:15:47.1340869Z fb354822ac92333aa3279bd0a32dcf5ab4550672
+replay	Run actions/checkout@v4	2026-11-28T21:15:47.1348984Z ##[group]Removing auth
+replay	Run actions/checkout@v4	2026-11-28T21:15:47.1352584Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+replay	Run actions/checkout@v4	2026-11-28T21:15:47.1377772Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+replay	Run actions/checkout@v4	2026-11-28T21:15:47.1535693Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+replay	Run actions/checkout@v4	2026-11-28T21:15:47.1557093Z http.https://github.com/.extraheader
+replay	Run actions/checkout@v4	2026-11-28T21:15:47.1562195Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+replay	Run actions/checkout@v4	2026-11-28T21:15:47.1584424Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+replay	Run actions/checkout@v4	2026-11-28T21:15:47.1731046Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+replay	Run actions/checkout@v4	2026-11-28T21:15:47.1753188Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+replay	Run actions/checkout@v4	2026-11-28T21:15:47.1894839Z ##[endgroup]
+replay	Run actions/setup-python@v5	﻿2026-11-28T21:15:47.2095434Z ##[group]Run actions/setup-python@v5
+replay	Run actions/setup-python@v5	2026-11-28T21:15:47.2096174Z with:
+replay	Run actions/setup-python@v5	2026-11-28T21:15:47.2096443Z   python-version: 3.12
+replay	Run actions/setup-python@v5	2026-11-28T21:15:47.2096683Z   check-latest: false
+replay	Run actions/setup-python@v5	2026-11-28T21:15:47.2098480Z   token: ***
+replay	Run actions/setup-python@v5	2026-11-28T21:15:47.2098712Z   update-environment: true
+replay	Run actions/setup-python@v5	2026-11-28T21:15:47.2099036Z   allow-prereleases: false
+replay	Run actions/setup-python@v5	2026-11-28T21:15:47.2099288Z   freethreaded: false
+replay	Run actions/setup-python@v5	2026-11-28T21:15:47.2099513Z ##[endgroup]
+replay	Run actions/setup-python@v5	2026-11-28T21:15:47.3149208Z ##[group]Installed versions
+replay	Run actions/setup-python@v5	2026-11-28T21:15:47.6431393Z (node:2234) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+replay	Run actions/setup-python@v5	2026-11-28T21:15:47.6432222Z (Use `node --trace-deprecation ...` to show where the warning was created)
+replay	Run actions/setup-python@v5	2026-11-28T21:15:47.6432616Z Successfully set up CPython (3.12.16)
+replay	Run actions/setup-python@v5	2026-11-28T21:15:47.6434166Z ##[endgroup]
+replay	Verify frozen inputs (sha256)	﻿2026-11-28T21:15:47.6558146Z ##[group]Run set -euo pipefail
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:47.6558678Z ^[[36;1mset -euo pipefail^[[0m
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:47.6559142Z ^[[36;1mmkdir -p out^[[0m
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:47.6559531Z ^[[36;1mgit rev-parse HEAD | tee out/head.txt^[[0m
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:47.6559995Z ^[[36;1mpython3 --version | tee out/python.txt^[[0m
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:47.6560468Z ^[[36;1mcd voice-adapter/bench/c1-r6^[[0m
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:47.6560999Z ^[[36;1msha256sum -c FREEZE.txt | tee "$GITHUB_WORKSPACE/out/freeze_check.txt"^[[0m
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.2714087Z shell: /usr/bin/bash -e {0}
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.2714460Z env:
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.2714757Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.16/x64
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.2715195Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.16/x64/lib/pkgconfig
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.2715875Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.16/x64
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.2716246Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.16/x64
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.2716599Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.16/x64
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.2717101Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.16/x64/lib
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.2717435Z ##[endgroup]
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.3160720Z fb354822ac92333aa3279bd0a32dcf5ab4550672
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.7080459Z Python 3.12.16
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.7440466Z PREREG.md: OK
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.7441238Z c1_r6.py: OK
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.7441525Z fixtures.json: OK
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.7441763Z author_merged.json: OK
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.7442533Z author/author_output_p1.txt: OK
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.7442799Z author/author_output_p2.txt: OK
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.7443095Z author/author_output_p3.txt: OK
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.7443393Z author/author_output_p4.txt: OK
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.7443646Z author/author_output_p5.txt: OK
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.7444003Z author/author_prompt.md: OK
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.7444323Z author/prompt_p1.txt: OK
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.7444631Z author/prompt_p2.txt: OK
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.7444937Z author/prompt_p3.txt: OK
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.7445216Z author/prompt_p4.txt: OK
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.7445787Z author/prompt_p5.txt: OK
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.7446103Z vendor/baseline_r4.py: OK
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.7446420Z vendor/brief_compress.py: OK
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.7446828Z vendor/brief_compress_sem.py: OK
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.7447525Z vendor/brief_compress_sem2.py: OK
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.7447844Z vendor/brief_compress_sem3.py: OK
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.7448096Z vendor/c1_trim_r5_harness.py: OK
+replay	Verify frozen inputs (sha256)	2026-11-28T21:15:48.7448372Z vendor/oracle.py: OK
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	﻿2026-11-28T21:15:48.7479173Z ##[group]Run set -euo pipefail
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:48.7479550Z ^[[36;1mset -euo pipefail^[[0m
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:48.7479827Z ^[[36;1mcd voice-adapter/bench/c1-r6^[[0m
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:48.7480280Z ^[[36;1mpython3 -I c1_r6.py replay fixtures.json "$GITHUB_WORKSPACE/out" | tee "$GITHUB_WORKSPACE/out/replay.stdout"^[[0m
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:48.7480861Z ^[[36;1mgrep -E '"(verdict|gate)"' "$GITHUB_WORKSPACE/out/replay.stdout" >> "$GITHUB_STEP_SUMMARY" || true^[[0m
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:48.7504657Z shell: /usr/bin/bash -e {0}
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:48.7504945Z env:
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:48.7505235Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.16/x64
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:48.7505799Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.16/x64/lib/pkgconfig
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:48.7506173Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.16/x64
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:48.7506707Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.16/x64
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:48.7507115Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.16/x64
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:48.7507470Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.16/x64/lib
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:48.7507895Z ##[endgroup]
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6598208Z {
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6598976Z   "a_r4_current_present_per_state": 112,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6599751Z   "arms": {
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6600224Z     "B0": {
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6600618Z       "flips": {
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6601098Z         "key-miss": 0,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6601547Z         "warm": 0
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6601951Z       },
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6602444Z       "keymiss_equals_r4": 17,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6602778Z       "loss_class_counts": {
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6603103Z         "non-digit": 8
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6603403Z       },
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6603651Z       "losses": [
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6603970Z         {
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6604281Z           "class": "non-digit",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6604606Z           "id": "R6/03/p03",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6604913Z           "kind": "N7",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6605189Z           "mode": "warm",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6605731Z           "value": "Luca"
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6606055Z         },
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6606284Z         {
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6606567Z           "class": "non-digit",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6606880Z           "id": "R6/06/p01",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6607244Z           "kind": "N7",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6607531Z           "mode": "warm",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6607809Z           "value": "Santiago"
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6608127Z         },
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6608372Z         {
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6608654Z           "class": "non-digit",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6608964Z           "id": "R6/06/p02",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6609257Z           "kind": "N2",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6609551Z           "mode": "warm",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6609856Z           "value": "Marta"
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6610173Z         },
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6610425Z         {
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6610685Z           "class": "non-digit",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6611009Z           "id": "R6/08/p03",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6611308Z           "kind": "N7",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6611722Z           "mode": "warm",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6612058Z           "value": "Kofi"
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6612342Z         },
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6612596Z         {
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6612902Z           "class": "non-digit",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6613210Z           "id": "R6/10/p04",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6613555Z           "kind": "N3p",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6613847Z           "mode": "warm",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6614146Z           "value": "Berlin"
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6614442Z         },
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6614723Z         {
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6614974Z           "class": "non-digit",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6615302Z           "id": "R6/13/p02",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6615791Z           "kind": "N1",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6616168Z           "mode": "warm",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6616770Z           "value": "Hana"
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6617756Z         },
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6618021Z         {
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6618268Z           "class": "non-digit",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6618617Z           "id": "R6/14/p04",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6619115Z           "kind": "N7",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6619407Z           "mode": "warm",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6619715Z           "value": "Nikolai"
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6620009Z         },
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6620323Z         {
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6620584Z           "class": "non-digit",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6620878Z           "id": "R6/15/p01",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6621401Z           "kind": "N3p",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6621708Z           "mode": "warm",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6622041Z           "value": "Istanbul"
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6622341Z         }
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6622617Z       ],
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6622889Z       "new_losses_key_miss": 0,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6623196Z       "new_losses_warm": 8,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6623566Z       "scenarios_with_trim": 16,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6623904Z       "strata": {
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6624181Z         "key-miss": {
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6624602Z           "added_stale_exposures": 0,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6625235Z           "b_current_present": 112,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6625947Z           "cases": 17,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6626451Z           "changed_briefs": 0,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6626915Z           "new_evidence_losses": 0,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6627383Z           "probes": 112,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6627777Z           "r4_current_present": 112,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6628277Z           "sync_key_attempts": 0,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6628687Z           "sync_pair_attempts": 0
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6629010Z         },
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6629428Z         "warm": {
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6629927Z           "added_stale_exposures": 0,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6630512Z           "b_current_present": 104,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6631174Z           "cases": 17,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6631510Z           "changed_briefs": 16,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6631902Z           "new_evidence_losses": 8,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6632265Z           "probes": 112,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6632583Z           "r4_current_present": 112,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6632961Z           "sync_key_attempts": 0,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6633313Z           "sync_pair_attempts": 0
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6633815Z         }
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6634208Z       },
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6634653Z       "sync_attempts_total": 0,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6635137Z       "warm_changed_vs_r4": 16,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6635482Z       "warm_kept_strict": 16,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6636058Z       "warm_over_budget": 0
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6636385Z     },
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6636677Z     "B1": {
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6636971Z       "flips": {
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6637270Z         "key-miss": 0,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6637550Z         "warm": 0
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6637858Z       },
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6638161Z       "keymiss_equals_r4": 17,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6638553Z       "loss_class_counts": {},
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6638877Z       "losses": [],
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6639192Z       "new_losses_key_miss": 0,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6639561Z       "new_losses_warm": 0,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6639919Z       "scenarios_with_trim": 16,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6640251Z       "strata": {
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6640561Z         "key-miss": {
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6640902Z           "added_stale_exposures": 0,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6641310Z           "b_current_present": 112,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6641753Z           "cases": 17,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6642097Z           "changed_briefs": 0,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6642448Z           "new_evidence_losses": 0,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6642834Z           "probes": 112,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6643208Z           "r4_current_present": 112,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6643620Z           "sync_key_attempts": 0,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6643963Z           "sync_pair_attempts": 0
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6644333Z         },
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6644599Z         "warm": {
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6644993Z           "added_stale_exposures": 0,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6645711Z           "b_current_present": 112,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6646418Z           "cases": 17,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6646877Z           "changed_briefs": 16,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6647322Z           "new_evidence_losses": 0,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6647762Z           "probes": 112,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6648255Z           "r4_current_present": 112,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6648611Z           "sync_key_attempts": 0,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6649049Z           "sync_pair_attempts": 0
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6649455Z         }
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6649807Z       },
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6650118Z       "sync_attempts_total": 0,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6650454Z       "warm_changed_vs_r4": 16,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6650804Z       "warm_kept_strict": 16,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6651137Z       "warm_over_budget": 0
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6651528Z     }
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6651873Z   },
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6652139Z   "controls": {
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6652452Z     "known_loss_eligible": 16,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6652798Z     "known_loss_fired": 16,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6653170Z     "min_exercised": 8,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6653590Z     "min_warm_kept": 12,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6653977Z     "trim_branch_exercised_B0": 16,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6654707Z     "v1_block_sha256": "e0ec860bb0abefdc1496013661a69093d11a049fa38defb3b4cd7a8f2abdf220"
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6655252Z   },
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6655690Z   "dev": false,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6656201Z   "fixtures_sha256": "497416834c9bb8b7ce9040661a7080d990266dfcfd37b35c0c250e2a09915547",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6656730Z   "gate": "PASS(no-loss)",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6657033Z   "model_called": false,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6657400Z   "network": false,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6657722Z   "non_digit_current_probes": 85,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6658068Z   "probes": 112,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6658359Z   "scenarios": 17,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6658660Z   "verdict": "PASS(no-loss) BENEFIT-FAIL"
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6659046Z }
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6659303Z {
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6659644Z   "mean_reduction_chars": -78.3125,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6660001Z   "median_reduction_chars": -58.5,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6660493Z   "rule": "median(a_chars - b1_chars) > 0 AND count(b1 smaller OR fewer stale) >= 10 of 16",
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6661041Z   "scenarios": 16,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6661353Z   "scenarios_better": 16,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6661672Z   "scenarios_fewer_stale": 16,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6662022Z   "scenarios_larger": 15,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6662353Z   "scenarios_more_stale": 0,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6662714Z   "scenarios_smaller": 1,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6663038Z   "scenarios_worse_report_only": 15,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6663395Z   "total_a_chars": 41536,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6663712Z   "total_b1_chars": 42789,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6664035Z   "total_stale_a": 66,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6664343Z   "total_stale_b1": 5,
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6664668Z   "verdict": "BENEFIT-FAIL"
+replay	Scored replay (arms A, B1, B0; warm and key-miss; benefit metric)	2026-11-28T21:15:50.6664950Z }
+replay	Run actions/upload-artifact@v4	﻿2026-11-28T21:15:50.6781611Z ##[group]Run actions/upload-artifact@v4
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:50.6781954Z with:
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:50.6782172Z   name: c1-r6
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:50.6782385Z   path: out/
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:50.6782623Z   if-no-files-found: warn
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:50.6782861Z   retention-days: 30
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:50.6783166Z   compression-level: 6
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:50.6783411Z   overwrite: false
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:50.6783631Z   include-hidden-files: false
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:50.6783867Z env:
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:50.6784130Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.16/x64
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:50.6784532Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.16/x64/lib/pkgconfig
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:50.6784903Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.16/x64
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:50.6785237Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.16/x64
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:50.6785787Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.16/x64
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:50.6786210Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.16/x64/lib
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:50.6786626Z ##[endgroup]
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:50.8017810Z (node:2255) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:50.8018846Z (Use `node --trace-deprecation ...` to show where the warning was created)
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:50.8099985Z With the provided path, there will be 5 files uploaded
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:50.8100638Z Artifact name is valid!
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:50.8100911Z Root directory input is valid!
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:51.1214008Z Beginning upload of artifact content to blob storage
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:51.2222106Z (node:2255) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:51.2542180Z Uploaded bytes 7453
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:51.2699607Z Finished uploading artifact content to blob storage!
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:51.2700588Z SHA256 digest of uploaded artifact zip is 6b251a3743fc5ef4710db8c380327857e3d13208bc1ec0e9e43b12b38536c182
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:51.2701214Z Finalizing artifact upload
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:51.5727695Z Artifact c1-r6.zip successfully finalized. Artifact ID 15281313129
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:51.5728535Z Artifact c1-r6 has been successfully uploaded! Final size is 7453 bytes. Artifact ID is 15281313129
+replay	Run actions/upload-artifact@v4	2026-11-28T21:15:51.5733606Z Artifact download URL: https://github.com/kvnloo/z0live/actions/runs/46190662480/artifacts/15281313129
+replay	Post Run actions/setup-python@v5	﻿2026-11-28T21:15:51.5868805Z Post job cleanup.
+replay	Post Run actions/setup-python@v5	2026-11-28T21:15:51.6760291Z (node:2267) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+replay	Post Run actions/setup-python@v5	2026-11-28T21:15:51.6761004Z (Use `node --trace-deprecation ...` to show where the warning was created)
+replay	Post Run actions/checkout@v4	﻿2026-11-28T21:15:51.6892290Z Post job cleanup.
+replay	Post Run actions/checkout@v4	2026-11-28T21:15:51.7606824Z [command]/usr/bin/git version
+replay	Post Run actions/checkout@v4	2026-11-28T21:15:51.7642693Z git version 2.56.1
+replay	Post Run actions/checkout@v4	2026-11-28T21:15:51.7671592Z Temporarily overriding HOME='/home/runner/work/_temp/658c0ee0-8d98-4c77-9651-6e9af75cb5e5' before making global git config changes
+replay	Post Run actions/checkout@v4	2026-11-28T21:15:51.7672750Z Adding repository directory to the temporary git global config as a safe directory
+replay	Post Run actions/checkout@v4	2026-11-28T21:15:51.7674956Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/z0live/z0live
+replay	Post Run actions/checkout@v4	2026-11-28T21:15:51.7713450Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+replay	Post Run actions/checkout@v4	2026-11-28T21:15:51.7748098Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+replay	Post Run actions/checkout@v4	2026-11-28T21:15:51.7994241Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+replay	Post Run actions/checkout@v4	2026-11-28T21:15:51.8022824Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+replay	Post Run actions/checkout@v4	2026-11-28T21:15:51.8255736Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+replay	Post Run actions/checkout@v4	2026-11-28T21:15:51.8278190Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+replay	Complete job	﻿2026-11-28T21:15:51.8537864Z Cleaning up orphan processes
+replay	Complete job	2026-11-28T21:15:51.8789257Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-python@v5, actions/upload-artifact@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

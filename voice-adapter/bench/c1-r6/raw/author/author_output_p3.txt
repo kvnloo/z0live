@@ -1,0 +1,60 @@
+{
+  "statics": {
+    "S1": [
+      "The tag code for the {thing} is {V}.",
+      "I've logged the {thing} under reference {V}.",
+      "Tag {V} belongs to the {thing}.",
+      "You'll find the {thing} filed under code {V}.",
+      "The {thing} carries identifier {V}.",
+      "Reference {V} is assigned to the {thing}."
+    ],
+    "S2": [
+      "{V} looks after the {thing} and checks it every {n} days.",
+      "The {thing} is {V}'s responsibility, reviewed each {n} days.",
+      "{V} maintains the {thing} on a {n}-day cycle.",
+      "Every {n} days {V} inspects the {thing}.",
+      "{V} is the caretaker for the {thing}, schedule {n} days.",
+      "The {thing} falls to {V}, with a {n}-day check interval."
+    ],
+    "S3": [
+      "The {thing} is {V}.",
+      "Colour of the {thing}: {V}.",
+      "You'll see the {thing} in {V}.",
+      "The {thing} comes in {V}.",
+      "{V} is the shade of the {thing}.",
+      "I'd call the {thing} {V}."
+    ],
+    "S4": [
+      "Codeword for the {thing} is {V}, valid {n} days.",
+      "The {thing} uses codeword {V}, expires in {n} days.",
+      "{V} unlocks the {thing}, good for {n} days.",
+      "Access the {thing} with {V}, {n} day window.",
+      "The {thing}'s keyword is {V}, lasts {n} days.",
+      "{V} flags the {thing}, active {n} days."
+    ],
+    "S5": [
+      "The {thing} sits in {V}, row {n}.",
+      "You'll find the {thing} at {V}, row {n}.",
+      "{V} stores the {thing} on row {n}.",
+      "Row {n} in {V} holds the {thing}.",
+      "The {thing} is kept in {V}, row {n}.",
+      "Location {V}, row {n} for the {thing}."
+    ]
+  },
+  "ask_update": [
+    "What's the current status of the {thing}?",
+    "Where does the {thing} stand now?",
+    "What's the latest on the {thing}?",
+    "How's the {thing} looking at the moment?",
+    "Give me the up-to-date info on the {thing}.",
+    "What's the {thing} set to right now?"
+  ],
+  "ask_static": [
+    "Remind me what you said about the {thing}.",
+    "What was the note on the {thing}?",
+    "Can you recap the {thing} details?",
+    "What did we log for the {thing}?",
+    "Refresh my memory on the {thing}.",
+    "What's the standing info for the {thing}?"
+  ]
+}

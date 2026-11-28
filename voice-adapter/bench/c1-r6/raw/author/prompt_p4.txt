@@ -1,0 +1,55 @@
+You are writing synthetic, non-private text for a test set of short chat messages. Output ONE JSON object and nothing else (no markdown fence, no commentary).
+
+Each test scenario is a chat where a user states some facts about their belongings and appointments, and later restates some of them with a changed value (the old value is superseded). Each fact is ONE line of chat text said by the user (no newlines). Write natural, varied, casual spoken-chat phrasing, the way real people actually type or dictate: different registers, some terse, some chatty, some with a lead-in or an aside, some polite. Vary sentence openings between templates; do not reuse one pattern across templates. Never mention that this is a test.
+
+Placeholders you must use inside templates (exact spelling, curly braces):
+  {thing}  the object or event noun phrase (e.g. "bike lock", "dental check")
+  {V}      the key value of that statement (the thing a later question will ask about)
+  {X}      a second, different person's first name (only where stated below)
+  {day}    a weekday name, {time} a clock time like "3pm", {n} a small integer written with digits
+Each template is one line. {V} must appear exactly once in each template. Never put the value of one template into another.
+
+Pairs: each pair has an "old" template and a "new" template. The "new" one restates the same {thing} with a different {V} (the two get different values), phrased as a genuine change/correction/update. Write 8 distinct pairs for each kind below (kinds differ only in what {V} is and where it sits):
+
+  D1   {V} is a reference code containing digits (e.g. "Harbour-42"); one sentence, no {day}/{time}.
+  D2   the line STARTS with the code {V} and a colon, followed by a sentence about {thing} on {day} at {time}.
+  D3   {V} is a number-like code for the {thing}; one sentence.
+  N1   the line STARTS with a person's first name {V} and a colon, followed by a sentence about {thing} on {day} at {time}.
+  N2   {V} is a person's first name that appears inside the sentence, in a clause BEFORE the clause that gives {day} and {time}.
+  N3p  {V} is a place name (a city) mentioned before a clause that includes a bay/slot/row number {n}.
+  N3c  {V} is a lowercase codeword mentioned before a clause that includes a validity/expiry of {n} days.
+  N4   {V} is a colour word, mentioned before a clause that includes a model/size number {n}.
+  N5   no digits anywhere. Old: {V} is a colour of the {thing}. New: the {thing} was handed to a person whose first name is {V}.
+  N6   the line STARTS with a different person's first name {X} and a colon (that name is NOT the value), then says where the {thing} is: {V} is a city, followed by a clause with {day} and {time}.
+  N7   exactly TWO sentences. Sentence 1 contains the person's first name {V} and has NO digits and no {day}/{time}/{n}. Sentence 2 is a separate sentence that contains {day} and {time}.
+
+Statics (facts that are never changed): write 6 distinct single-sentence templates for each kind:
+  S1  {V} is a tag code containing digits for the {thing}.
+  S2  {V} is the first name of the person who looks after the {thing}, and the sentence also contains {n} written as digits.
+  S3  {V} is the colour of the {thing}.
+  S4  {V} is a lowercase codeword for the {thing}, and the sentence also contains {n} days (digits).
+  S5  {V} is a city where the {thing} is stored, and the sentence also contains {n} (a row number, digits).
+
+Questions (one per probe): "ask_update": 6 different ways of asking what the {thing} is currently/now (contain {thing}); "ask_static": 6 different ways of asking to be reminded what was said about the {thing} (contain {thing}).
+
+Also provide the lists:
+  "topics": 17 items, each {"noun": a short two-word workshop/shop/yard name in Title case, "items": 7 distinct single lowercase words naming tools or materials of that place}. All 17 nouns different.
+  "things_objects": 26 distinct short object noun phrases people own (1-3 words, lowercase).
+  "things_events": 20 distinct short appointment/event noun phrases (1-3 words, lowercase).
+  "names": 36 distinct first names, one capitalised word each, internationally varied.
+  "places": 20 distinct city names, one capitalised word each.
+  "colours": 18 distinct colour words, one lowercase word each, including some unusual ones.
+  "codewords": 20 distinct lowercase single common words usable as a codeword (animals, spices, plants, weather...).
+  "stems": 34 distinct capitalised single words (nouns about houses, sea, hills, etc.); each will later be joined with a number as Word-NN.
+
+JSON shape:
+{"topics":[{"noun":"...","items":["..."]}],
+ "things_objects":["..."],"things_events":["..."],
+ "names":["..."],"places":["..."],"colours":["..."],"codewords":["..."],"stems":["..."],
+ "pairs":{"D1":[{"old":"...","new":"..."}],"D2":[...],"D3":[...],"N1":[...],"N2":[...],"N3p":[...],"N3c":[...],"N4":[...],"N5":[...],"N6":[...],"N7":[...]},
+ "statics":{"S1":["..."],"S2":["..."],"S3":["..."],"S4":["..."],"S5":["..."]},
+ "ask_update":["..."],"ask_static":["..."]}
+
+
+PART OF THE JSON TO PRODUCE NOW: the keys "topics", "things_objects", "things_events", "names", "places", "colours", "codewords", "stems"
+Output one JSON object containing only those keys, same shapes as above.

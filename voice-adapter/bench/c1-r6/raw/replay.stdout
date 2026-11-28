@@ -1,0 +1,178 @@
+{
+  "a_r4_current_present_per_state": 112,
+  "arms": {
+    "B0": {
+      "flips": {
+        "key-miss": 0,
+        "warm": 0
+      },
+      "keymiss_equals_r4": 17,
+      "loss_class_counts": {
+        "non-digit": 8
+      },
+      "losses": [
+        {
+          "class": "non-digit",
+          "id": "R6/03/p03",
+          "kind": "N7",
+          "mode": "warm",
+          "value": "Luca"
+        },
+        {
+          "class": "non-digit",
+          "id": "R6/06/p01",
+          "kind": "N7",
+          "mode": "warm",
+          "value": "Santiago"
+        },
+        {
+          "class": "non-digit",
+          "id": "R6/06/p02",
+          "kind": "N2",
+          "mode": "warm",
+          "value": "Marta"
+        },
+        {
+          "class": "non-digit",
+          "id": "R6/08/p03",
+          "kind": "N7",
+          "mode": "warm",
+          "value": "Kofi"
+        },
+        {
+          "class": "non-digit",
+          "id": "R6/10/p04",
+          "kind": "N3p",
+          "mode": "warm",
+          "value": "Berlin"
+        },
+        {
+          "class": "non-digit",
+          "id": "R6/13/p02",
+          "kind": "N1",
+          "mode": "warm",
+          "value": "Hana"
+        },
+        {
+          "class": "non-digit",
+          "id": "R6/14/p04",
+          "kind": "N7",
+          "mode": "warm",
+          "value": "Nikolai"
+        },
+        {
+          "class": "non-digit",
+          "id": "R6/15/p01",
+          "kind": "N3p",
+          "mode": "warm",
+          "value": "Istanbul"
+        }
+      ],
+      "new_losses_key_miss": 0,
+      "new_losses_warm": 8,
+      "scenarios_with_trim": 16,
+      "strata": {
+        "key-miss": {
+          "added_stale_exposures": 0,
+          "b_current_present": 112,
+          "cases": 17,
+          "changed_briefs": 0,
+          "new_evidence_losses": 0,
+          "probes": 112,
+          "r4_current_present": 112,
+          "sync_key_attempts": 0,
+          "sync_pair_attempts": 0
+        },
+        "warm": {
+          "added_stale_exposures": 0,
+          "b_current_present": 104,
+          "cases": 17,
+          "changed_briefs": 16,
+          "new_evidence_losses": 8,
+          "probes": 112,
+          "r4_current_present": 112,
+          "sync_key_attempts": 0,
+          "sync_pair_attempts": 0
+        }
+      },
+      "sync_attempts_total": 0,
+      "warm_changed_vs_r4": 16,
+      "warm_kept_strict": 16,
+      "warm_over_budget": 0
+    },
+    "B1": {
+      "flips": {
+        "key-miss": 0,
+        "warm": 0
+      },
+      "keymiss_equals_r4": 17,
+      "loss_class_counts": {},
+      "losses": [],
+      "new_losses_key_miss": 0,
+      "new_losses_warm": 0,
+      "scenarios_with_trim": 16,
+      "strata": {
+        "key-miss": {
+          "added_stale_exposures": 0,
+          "b_current_present": 112,
+          "cases": 17,
+          "changed_briefs": 0,
+          "new_evidence_losses": 0,
+          "probes": 112,
+          "r4_current_present": 112,
+          "sync_key_attempts": 0,
+          "sync_pair_attempts": 0
+        },
+        "warm": {
+          "added_stale_exposures": 0,
+          "b_current_present": 112,
+          "cases": 17,
+          "changed_briefs": 16,
+          "new_evidence_losses": 0,
+          "probes": 112,
+          "r4_current_present": 112,
+          "sync_key_attempts": 0,
+          "sync_pair_attempts": 0
+        }
+      },
+      "sync_attempts_total": 0,
+      "warm_changed_vs_r4": 16,
+      "warm_kept_strict": 16,
+      "warm_over_budget": 0
+    }
+  },
+  "controls": {
+    "known_loss_eligible": 16,
+    "known_loss_fired": 16,
+    "min_exercised": 8,
+    "min_warm_kept": 12,
+    "trim_branch_exercised_B0": 16,
+    "v1_block_sha256": "e0ec860bb0abefdc1496013661a69093d11a049fa38defb3b4cd7a8f2abdf220"
+  },
+  "dev": false,
+  "fixtures_sha256": "497416834c9bb8b7ce9040661a7080d990266dfcfd37b35c0c250e2a09915547",
+  "gate": "PASS(no-loss)",
+  "model_called": false,
+  "network": false,
+  "non_digit_current_probes": 85,
+  "probes": 112,
+  "scenarios": 17,
+  "verdict": "PASS(no-loss) BENEFIT-FAIL"
+}
+{
+  "mean_reduction_chars": -78.3125,
+  "median_reduction_chars": -58.5,
+  "rule": "median(a_chars - b1_chars) > 0 AND count(b1 smaller OR fewer stale) >= 10 of 16",
+  "scenarios": 16,
+  "scenarios_better": 16,
+  "scenarios_fewer_stale": 16,
+  "scenarios_larger": 15,
+  "scenarios_more_stale": 0,
+  "scenarios_smaller": 1,
+  "scenarios_worse_report_only": 15,
+  "total_a_chars": 41536,
+  "total_b1_chars": 42789,
+  "total_stale_a": 66,
+  "total_stale_b1": 5,
+  "verdict": "BENEFIT-FAIL"
+}

@@ -1,0 +1,2573 @@
+{
+  "a_r4_current_present_per_state": 112,
+  "arms": {
+    "B0": {
+      "flips": {
+        "key-miss": 0,
+        "warm": 0
+      },
+      "keymiss_equals_r4": 17,
+      "loss_class_counts": {
+        "non-digit": 8
+      },
+      "losses": [
+        {
+          "class": "non-digit",
+          "id": "R6/03/p03",
+          "kind": "N7",
+          "mode": "warm",
+          "value": "Luca"
+        },
+        {
+          "class": "non-digit",
+          "id": "R6/06/p01",
+          "kind": "N7",
+          "mode": "warm",
+          "value": "Santiago"
+        },
+        {
+          "class": "non-digit",
+          "id": "R6/06/p02",
+          "kind": "N2",
+          "mode": "warm",
+          "value": "Marta"
+        },
+        {
+          "class": "non-digit",
+          "id": "R6/08/p03",
+          "kind": "N7",
+          "mode": "warm",
+          "value": "Kofi"
+        },
+        {
+          "class": "non-digit",
+          "id": "R6/10/p04",
+          "kind": "N3p",
+          "mode": "warm",
+          "value": "Berlin"
+        },
+        {
+          "class": "non-digit",
+          "id": "R6/13/p02",
+          "kind": "N1",
+          "mode": "warm",
+          "value": "Hana"
+        },
+        {
+          "class": "non-digit",
+          "id": "R6/14/p04",
+          "kind": "N7",
+          "mode": "warm",
+          "value": "Nikolai"
+        },
+        {
+          "class": "non-digit",
+          "id": "R6/15/p01",
+          "kind": "N3p",
+          "mode": "warm",
+          "value": "Istanbul"
+        }
+      ],
+      "new_losses_key_miss": 0,
+      "new_losses_warm": 8,
+      "scenarios_with_trim": 16,
+      "strata": {
+        "key-miss": {
+          "added_stale_exposures": 0,
+          "b_current_present": 112,
+          "cases": 17,
+          "changed_briefs": 0,
+          "new_evidence_losses": 0,
+          "probes": 112,
+          "r4_current_present": 112,
+          "sync_key_attempts": 0,
+          "sync_pair_attempts": 0
+        },
+        "warm": {
+          "added_stale_exposures": 0,
+          "b_current_present": 104,
+          "cases": 17,
+          "changed_briefs": 16,
+          "new_evidence_losses": 8,
+          "probes": 112,
+          "r4_current_present": 112,
+          "sync_key_attempts": 0,
+          "sync_pair_attempts": 0
+        }
+      },
+      "sync_attempts_total": 0,
+      "warm_changed_vs_r4": 16,
+      "warm_kept_strict": 16,
+      "warm_over_budget": 0
+    },
+    "B1": {
+      "flips": {
+        "key-miss": 0,
+        "warm": 0
+      },
+      "keymiss_equals_r4": 17,
+      "loss_class_counts": {},
+      "losses": [],
+      "new_losses_key_miss": 0,
+      "new_losses_warm": 0,
+      "scenarios_with_trim": 16,
+      "strata": {
+        "key-miss": {
+          "added_stale_exposures": 0,
+          "b_current_present": 112,
+          "cases": 17,
+          "changed_briefs": 0,
+          "new_evidence_losses": 0,
+          "probes": 112,
+          "r4_current_present": 112,
+          "sync_key_attempts": 0,
+          "sync_pair_attempts": 0
+        },
+        "warm": {
+          "added_stale_exposures": 0,
+          "b_current_present": 112,
+          "cases": 17,
+          "changed_briefs": 16,
+          "new_evidence_losses": 0,
+          "probes": 112,
+          "r4_current_present": 112,
+          "sync_key_attempts": 0,
+          "sync_pair_attempts": 0
+        }
+      },
+      "sync_attempts_total": 0,
+      "warm_changed_vs_r4": 16,
+      "warm_kept_strict": 16,
+      "warm_over_budget": 0
+    }
+  },
+  "benefit": {
+    "mean_reduction_chars": -78.3125,
+    "median_reduction_chars": -58.5,
+    "per_scenario": [
+      {
+        "a_chars": 2490,
+        "b1_chars": 2561,
+        "id": "R6/01",
+        "reduction_chars": -71,
+        "stale_a": 4,
+        "stale_b1": 0
+      },
+      {
+        "a_chars": 2573,
+        "b1_chars": 2614,
+        "id": "R6/02",
+        "reduction_chars": -41,
+        "stale_a": 4,
+        "stale_b1": 0
+      },
+      {
+        "a_chars": 2635,
+        "b1_chars": 2696,
+        "id": "R6/03",
+        "reduction_chars": -61,
+        "stale_a": 4,
+        "stale_b1": 0
+      },
+      {
+        "a_chars": 2652,
+        "b1_chars": 2707,
+        "id": "R6/04",
+        "reduction_chars": -55,
+        "stale_a": 4,
+        "stale_b1": 0
+      },
+      {
+        "a_chars": 2524,
+        "b1_chars": 2657,
+        "id": "R6/05",
+        "reduction_chars": -133,
+        "stale_a": 4,
+        "stale_b1": 1
+      },
+      {
+        "a_chars": 2626,
+        "b1_chars": 2788,
+        "id": "R6/06",
+        "reduction_chars": -162,
+        "stale_a": 4,
+        "stale_b1": 1
+      },
+      {
+        "a_chars": 2620,
+        "b1_chars": 2638,
+        "id": "R6/07",
+        "reduction_chars": -18,
+        "stale_a": 4,
+        "stale_b1": 0
+      },
+      {
+        "a_chars": 2590,
+        "b1_chars": 2646,
+        "id": "R6/08",
+        "reduction_chars": -56,
+        "stale_a": 4,
+        "stale_b1": 0
+      },
+      {
+        "a_chars": 2660,
+        "b1_chars": 2692,
+        "id": "R6/09",
+        "reduction_chars": -32,
+        "stale_a": 4,
+        "stale_b1": 0
+      },
+      {
+        "a_chars": 2510,
+        "b1_chars": 2709,
+        "id": "R6/10",
+        "reduction_chars": -199,
+        "stale_a": 4,
+        "stale_b1": 1
+      },
+      {
+        "a_chars": 2519,
+        "b1_chars": 2646,
+        "id": "R6/11",
+        "reduction_chars": -127,
+        "stale_a": 4,
+        "stale_b1": 0
+      },
+      {
+        "a_chars": 2630,
+        "b1_chars": 2667,
+        "id": "R6/12",
+        "reduction_chars": -37,
+        "stale_a": 4,
+        "stale_b1": 0
+      },
+      {
+        "a_chars": 2648,
+        "b1_chars": 2760,
+        "id": "R6/13",
+        "reduction_chars": -112,
+        "stale_a": 4,
+        "stale_b1": 1
+      },
+      {
+        "a_chars": 2603,
+        "b1_chars": 2641,
+        "id": "R6/14",
+        "reduction_chars": -38,
+        "stale_a": 4,
+        "stale_b1": 0
+      },
+      {
+        "a_chars": 2714,
+        "b1_chars": 2702,
+        "id": "R6/15",
+        "reduction_chars": 12,
+        "stale_a": 5,
+        "stale_b1": 0
+      },
+      {
+        "a_chars": 2542,
+        "b1_chars": 2665,
+        "id": "R6/16",
+        "reduction_chars": -123,
+        "stale_a": 5,
+        "stale_b1": 1
+      }
+    ],
+    "rule": "median(a_chars - b1_chars) > 0 AND count(b1 smaller OR fewer stale) >= 10 of 16",
+    "scenarios": 16,
+    "scenarios_better": 16,
+    "scenarios_fewer_stale": 16,
+    "scenarios_larger": 15,
+    "scenarios_more_stale": 0,
+    "scenarios_smaller": 1,
+    "scenarios_worse_report_only": 15,
+    "total_a_chars": 41536,
+    "total_b1_chars": 42789,
+    "total_stale_a": 66,
+    "total_stale_b1": 5,
+    "verdict": "BENEFIT-FAIL"
+  },
+  "controls": {
+    "known_loss_eligible": 16,
+    "known_loss_fired": 16,
+    "min_exercised": 8,
+    "min_warm_kept": 12,
+    "trim_branch_exercised_B0": 16,
+    "v1_block_sha256": "e0ec860bb0abefdc1496013661a69093d11a049fa38defb3b4cd7a8f2abdf220"
+  },
+  "details": {
+    "R6/01": {
+      "arms": {
+        "B0": {
+          "a_chars": 2490,
+          "key-miss": {
+            "a_sha256": "dbfac7160b58ec74b42eda26cf74d4a02b959ef3b8d132f516acb0194ce726a6",
+            "added_stale_ids": [],
+            "b_sha256": "dbfac7160b58ec74b42eda26cf74d4a02b959ef3b8d132f516acb0194ce726a6",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 0,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 47,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 15,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 5,
+              "slot_chars": 44
+            },
+            {
+              "chars": 41,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 16,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 6,
+              "slot_chars": 44
+            },
+            {
+              "chars": 64,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 3,
+              "slot_chars": 68
+            }
+          ],
+          "untrimmed": 1,
+          "warm": {
+            "a_sha256": "dbfac7160b58ec74b42eda26cf74d4a02b959ef3b8d132f516acb0194ce726a6",
+            "added_stale_ids": [],
+            "b_sha256": "cbe9d6af5d011ec40de0000a31d43576f1c8c4107eaa1c035e86d5c67c13bd01",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2588
+        },
+        "B1": {
+          "a_chars": 2490,
+          "key-miss": {
+            "a_sha256": "dbfac7160b58ec74b42eda26cf74d4a02b959ef3b8d132f516acb0194ce726a6",
+            "added_stale_ids": [],
+            "b_sha256": "dbfac7160b58ec74b42eda26cf74d4a02b959ef3b8d132f516acb0194ce726a6",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 0,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 47,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 15,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 5,
+              "slot_chars": 44
+            },
+            {
+              "chars": 41,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 16,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 6,
+              "slot_chars": 44
+            },
+            {
+              "chars": 52,
+              "dropped_words": [
+                "Actually",
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 17,
+              "level": 3,
+              "lost_labelled_values": [],
+              "slot": 1,
+              "slot_chars": 51
+            },
+            {
+              "chars": 64,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 3,
+              "slot_chars": 68
+            }
+          ],
+          "untrimmed": 0,
+          "warm": {
+            "a_sha256": "dbfac7160b58ec74b42eda26cf74d4a02b959ef3b8d132f516acb0194ce726a6",
+            "added_stale_ids": [],
+            "b_sha256": "f7f1f3a1ba1c41d4d4f94d5495d2f4bc784a353704dc1c06c7eeccb8d42c1bc7",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2561
+        }
+      },
+      "known_loss_control": 7,
+      "name": "r6-01-car-wash",
+      "unguarded_sync_key_attempts": 1
+    },
+    "R6/02": {
+      "arms": {
+        "B0": {
+          "a_chars": 2573,
+          "key-miss": {
+            "a_sha256": "7ec239a8fc9b03e32b95e7ec733f8151d31d000ba963259fcc5dfe568eb4aa50",
+            "added_stale_ids": [],
+            "b_sha256": "7ec239a8fc9b03e32b95e7ec733f8151d31d000ba963259fcc5dfe568eb4aa50",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 0,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 58,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 15,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 0,
+              "slot_chars": 59
+            },
+            {
+              "chars": 45,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 16,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 4,
+              "slot_chars": 52
+            },
+            {
+              "chars": 62,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 17,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 2,
+              "slot_chars": 69
+            },
+            {
+              "chars": 74,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 6,
+              "slot_chars": 75
+            }
+          ],
+          "untrimmed": 0,
+          "warm": {
+            "a_sha256": "7ec239a8fc9b03e32b95e7ec733f8151d31d000ba963259fcc5dfe568eb4aa50",
+            "added_stale_ids": [],
+            "b_sha256": "736145ebeb312e218c7d481ba9fa5688de9639d2ab1fa6b6081af0e8a1f9800c",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2614
+        },
+        "B1": {
+          "a_chars": 2573,
+          "key-miss": {
+            "a_sha256": "7ec239a8fc9b03e32b95e7ec733f8151d31d000ba963259fcc5dfe568eb4aa50",
+            "added_stale_ids": [],
+            "b_sha256": "7ec239a8fc9b03e32b95e7ec733f8151d31d000ba963259fcc5dfe568eb4aa50",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 0,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 58,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 15,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 0,
+              "slot_chars": 59
+            },
+            {
+              "chars": 45,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 16,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 4,
+              "slot_chars": 52
+            },
+            {
+              "chars": 62,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 17,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 2,
+              "slot_chars": 69
+            },
+            {
+              "chars": 74,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 6,
+              "slot_chars": 75
+            }
+          ],
+          "untrimmed": 0,
+          "warm": {
+            "a_sha256": "7ec239a8fc9b03e32b95e7ec733f8151d31d000ba963259fcc5dfe568eb4aa50",
+            "added_stale_ids": [],
+            "b_sha256": "736145ebeb312e218c7d481ba9fa5688de9639d2ab1fa6b6081af0e8a1f9800c",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2614
+        }
+      },
+      "known_loss_control": 7,
+      "name": "r6-02-tool-shed",
+      "unguarded_sync_key_attempts": 1
+    },
+    "R6/03": {
+      "arms": {
+        "B0": {
+          "a_chars": 2635,
+          "key-miss": {
+            "a_sha256": "d58cce38f390dc8d825e10abff6e6687a927fcc432aef31417a12f5042bd5cb2",
+            "added_stale_ids": [],
+            "b_sha256": "d58cce38f390dc8d825e10abff6e6687a927fcc432aef31417a12f5042bd5cb2",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 0,
+          "trim_lost_labelled": 1,
+          "trims": [
+            {
+              "chars": 53,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 15,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 1,
+              "slot_chars": 48
+            },
+            {
+              "chars": 82,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 16,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 6,
+              "slot_chars": 89
+            },
+            {
+              "chars": 53,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 17,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 3,
+              "slot_chars": 48
+            },
+            {
+              "chars": 52,
+              "dropped_words": [
+                "Luca",
+                "discussed",
+                "gym",
+                "session",
+                "the"
+              ],
+              "exchange": 18,
+              "level": 1,
+              "lost_labelled_values": [
+                {
+                  "class": "non-digit",
+                  "value": "Luca"
+                }
+              ],
+              "slot": 4,
+              "slot_chars": 69
+            }
+          ],
+          "untrimmed": 0,
+          "warm": {
+            "a_sha256": "d58cce38f390dc8d825e10abff6e6687a927fcc432aef31417a12f5042bd5cb2",
+            "added_stale_ids": [],
+            "b_sha256": "c351ba9a5521065d79097a86339918ccea2180d644286f63d3b105ddb35bdbc9",
+            "new_loss_ids": [
+              "R6/03/p03"
+            ]
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2664
+        },
+        "B1": {
+          "a_chars": 2635,
+          "key-miss": {
+            "a_sha256": "d58cce38f390dc8d825e10abff6e6687a927fcc432aef31417a12f5042bd5cb2",
+            "added_stale_ids": [],
+            "b_sha256": "d58cce38f390dc8d825e10abff6e6687a927fcc432aef31417a12f5042bd5cb2",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 0,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 53,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 15,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 1,
+              "slot_chars": 48
+            },
+            {
+              "chars": 82,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 16,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 6,
+              "slot_chars": 89
+            },
+            {
+              "chars": 53,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 17,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 3,
+              "slot_chars": 48
+            }
+          ],
+          "untrimmed": 1,
+          "warm": {
+            "a_sha256": "d58cce38f390dc8d825e10abff6e6687a927fcc432aef31417a12f5042bd5cb2",
+            "added_stale_ids": [],
+            "b_sha256": "7f27356c301e1ef5e298375c1064b5438f2f6129a653f6248aca30424b92527c",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2696
+        }
+      },
+      "known_loss_control": 7,
+      "name": "r6-03-paint-studio",
+      "unguarded_sync_key_attempts": 1
+    },
+    "R6/04": {
+      "arms": {
+        "B0": {
+          "a_chars": 2652,
+          "key-miss": {
+            "a_sha256": "38bc5f97cd49b72d65fbafff787ee8c366077eec9d08248337d73e190427e13a",
+            "added_stale_ids": [],
+            "b_sha256": "38bc5f97cd49b72d65fbafff787ee8c366077eec9d08248337d73e190427e13a",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 0,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 52,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 15,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 2,
+              "slot_chars": 44
+            },
+            {
+              "chars": 83,
+              "dropped_words": [],
+              "exchange": 16,
+              "level": 1,
+              "lost_labelled_values": [],
+              "slot": 3,
+              "slot_chars": 76
+            },
+            {
+              "chars": 97,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 17,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 4,
+              "slot_chars": 94
+            },
+            {
+              "chars": 52,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 0,
+              "slot_chars": 49
+            }
+          ],
+          "untrimmed": 0,
+          "warm": {
+            "a_sha256": "38bc5f97cd49b72d65fbafff787ee8c366077eec9d08248337d73e190427e13a",
+            "added_stale_ids": [],
+            "b_sha256": "a39dd136a729c42eb49cc1ea10f84b85850fb41dbf4c733d8fb434ea95fcaa6e",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2707
+        },
+        "B1": {
+          "a_chars": 2652,
+          "key-miss": {
+            "a_sha256": "38bc5f97cd49b72d65fbafff787ee8c366077eec9d08248337d73e190427e13a",
+            "added_stale_ids": [],
+            "b_sha256": "38bc5f97cd49b72d65fbafff787ee8c366077eec9d08248337d73e190427e13a",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 0,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 52,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 15,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 2,
+              "slot_chars": 44
+            },
+            {
+              "chars": 83,
+              "dropped_words": [],
+              "exchange": 16,
+              "level": 1,
+              "lost_labelled_values": [],
+              "slot": 3,
+              "slot_chars": 76
+            },
+            {
+              "chars": 97,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 17,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 4,
+              "slot_chars": 94
+            },
+            {
+              "chars": 52,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 0,
+              "slot_chars": 49
+            }
+          ],
+          "untrimmed": 0,
+          "warm": {
+            "a_sha256": "38bc5f97cd49b72d65fbafff787ee8c366077eec9d08248337d73e190427e13a",
+            "added_stale_ids": [],
+            "b_sha256": "a39dd136a729c42eb49cc1ea10f84b85850fb41dbf4c733d8fb434ea95fcaa6e",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2707
+        }
+      },
+      "known_loss_control": 7,
+      "name": "r6-04-bicycle-repair",
+      "unguarded_sync_key_attempts": 1
+    },
+    "R6/05": {
+      "arms": {
+        "B0": {
+          "a_chars": 2524,
+          "key-miss": {
+            "a_sha256": "dff0a17647fa29316c07fbed0a7db59eeed95ec52325163a7fd17f883ea41bb4",
+            "added_stale_ids": [],
+            "b_sha256": "dff0a17647fa29316c07fbed0a7db59eeed95ec52325163a7fd17f883ea41bb4",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 1,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 51,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 16,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 5,
+              "slot_chars": 55
+            },
+            {
+              "chars": 62,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 17,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 2,
+              "slot_chars": 65
+            },
+            {
+              "chars": 64,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 1,
+              "slot_chars": 59
+            }
+          ],
+          "untrimmed": 0,
+          "warm": {
+            "a_sha256": "dff0a17647fa29316c07fbed0a7db59eeed95ec52325163a7fd17f883ea41bb4",
+            "added_stale_ids": [],
+            "b_sha256": "5a1e56da50a368f57e3773779043c42b877887be4f29b5a60b068dbd4cf084a0",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2657
+        },
+        "B1": {
+          "a_chars": 2524,
+          "key-miss": {
+            "a_sha256": "dff0a17647fa29316c07fbed0a7db59eeed95ec52325163a7fd17f883ea41bb4",
+            "added_stale_ids": [],
+            "b_sha256": "dff0a17647fa29316c07fbed0a7db59eeed95ec52325163a7fd17f883ea41bb4",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 1,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 51,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 16,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 5,
+              "slot_chars": 55
+            },
+            {
+              "chars": 62,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 17,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 2,
+              "slot_chars": 65
+            },
+            {
+              "chars": 64,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 1,
+              "slot_chars": 59
+            }
+          ],
+          "untrimmed": 0,
+          "warm": {
+            "a_sha256": "dff0a17647fa29316c07fbed0a7db59eeed95ec52325163a7fd17f883ea41bb4",
+            "added_stale_ids": [],
+            "b_sha256": "5a1e56da50a368f57e3773779043c42b877887be4f29b5a60b068dbd4cf084a0",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2657
+        }
+      },
+      "known_loss_control": 7,
+      "name": "r6-05-garden-shed",
+      "unguarded_sync_key_attempts": 1
+    },
+    "R6/06": {
+      "arms": {
+        "B0": {
+          "a_chars": 2626,
+          "key-miss": {
+            "a_sha256": "9865a57a267b80d6c2566c3c6cc1cf79169a205de9f9b51f4c385309e22edbf8",
+            "added_stale_ids": [],
+            "b_sha256": "9865a57a267b80d6c2566c3c6cc1cf79169a205de9f9b51f4c385309e22edbf8",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 1,
+          "trim_lost_labelled": 2,
+          "trims": [
+            {
+              "chars": 69,
+              "dropped_words": [],
+              "exchange": 15,
+              "level": 1,
+              "lost_labelled_values": [],
+              "slot": 5,
+              "slot_chars": 62
+            },
+            {
+              "chars": 47,
+              "dropped_words": [
+                "I",
+                "Marta",
+                "Noted",
+                "assistant",
+                "filing",
+                "for",
+                "plan",
+                "tax",
+                "the",
+                "told"
+              ],
+              "exchange": 16,
+              "level": 3,
+              "lost_labelled_values": [
+                {
+                  "class": "non-digit",
+                  "value": "Marta"
+                }
+              ],
+              "slot": 1,
+              "slot_chars": 78
+            },
+            {
+              "chars": 50,
+              "dropped_words": [
+                "Santiago",
+                "noted",
+                "the",
+                "trip",
+                "vacation"
+              ],
+              "exchange": 18,
+              "level": 1,
+              "lost_labelled_values": [
+                {
+                  "class": "non-digit",
+                  "value": "Santiago"
+                }
+              ],
+              "slot": 0,
+              "slot_chars": 68
+            }
+          ],
+          "untrimmed": 0,
+          "warm": {
+            "a_sha256": "9865a57a267b80d6c2566c3c6cc1cf79169a205de9f9b51f4c385309e22edbf8",
+            "added_stale_ids": [],
+            "b_sha256": "11ee4b33d606c379e3581377f3388c69d784bd93f77211b6e7238728b5fca930",
+            "new_loss_ids": [
+              "R6/06/p01",
+              "R6/06/p02"
+            ]
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2694
+        },
+        "B1": {
+          "a_chars": 2626,
+          "key-miss": {
+            "a_sha256": "9865a57a267b80d6c2566c3c6cc1cf79169a205de9f9b51f4c385309e22edbf8",
+            "added_stale_ids": [],
+            "b_sha256": "9865a57a267b80d6c2566c3c6cc1cf79169a205de9f9b51f4c385309e22edbf8",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 1,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 69,
+              "dropped_words": [],
+              "exchange": 15,
+              "level": 1,
+              "lost_labelled_values": [],
+              "slot": 5,
+              "slot_chars": 62
+            }
+          ],
+          "untrimmed": 2,
+          "warm": {
+            "a_sha256": "9865a57a267b80d6c2566c3c6cc1cf79169a205de9f9b51f4c385309e22edbf8",
+            "added_stale_ids": [],
+            "b_sha256": "2809e669d0dd14cc5c303cde75790b892c767b65857d89ae59e499b805621294",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2788
+        }
+      },
+      "known_loss_control": 7,
+      "name": "r6-06-wood-workshop",
+      "unguarded_sync_key_attempts": 1
+    },
+    "R6/07": {
+      "arms": {
+        "B0": {
+          "a_chars": 2620,
+          "key-miss": {
+            "a_sha256": "d70d4b72343fc0a2721dd21a6d96134907dc5dd2b18f28e8beec47025dfa4448",
+            "added_stale_ids": [],
+            "b_sha256": "d70d4b72343fc0a2721dd21a6d96134907dc5dd2b18f28e8beec47025dfa4448",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 0,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 63,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 15,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 2,
+              "slot_chars": 62
+            },
+            {
+              "chars": 68,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 16,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 1,
+              "slot_chars": 68
+            },
+            {
+              "chars": 52,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 17,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 5,
+              "slot_chars": 57
+            },
+            {
+              "chars": 84,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 6,
+              "slot_chars": 90
+            }
+          ],
+          "untrimmed": 0,
+          "warm": {
+            "a_sha256": "d70d4b72343fc0a2721dd21a6d96134907dc5dd2b18f28e8beec47025dfa4448",
+            "added_stale_ids": [],
+            "b_sha256": "5e6292878e5ed3a70c35a88338ab4e4cd397b228609db1d4d5e53ea58c6f0ad4",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2638
+        },
+        "B1": {
+          "a_chars": 2620,
+          "key-miss": {
+            "a_sha256": "d70d4b72343fc0a2721dd21a6d96134907dc5dd2b18f28e8beec47025dfa4448",
+            "added_stale_ids": [],
+            "b_sha256": "d70d4b72343fc0a2721dd21a6d96134907dc5dd2b18f28e8beec47025dfa4448",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 0,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 63,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 15,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 2,
+              "slot_chars": 62
+            },
+            {
+              "chars": 68,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 16,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 1,
+              "slot_chars": 68
+            },
+            {
+              "chars": 52,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 17,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 5,
+              "slot_chars": 57
+            },
+            {
+              "chars": 84,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 6,
+              "slot_chars": 90
+            }
+          ],
+          "untrimmed": 0,
+          "warm": {
+            "a_sha256": "d70d4b72343fc0a2721dd21a6d96134907dc5dd2b18f28e8beec47025dfa4448",
+            "added_stale_ids": [],
+            "b_sha256": "5e6292878e5ed3a70c35a88338ab4e4cd397b228609db1d4d5e53ea58c6f0ad4",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2638
+        }
+      },
+      "known_loss_control": 7,
+      "name": "r6-07-metal-forge",
+      "unguarded_sync_key_attempts": 1
+    },
+    "R6/08": {
+      "arms": {
+        "B0": {
+          "a_chars": 2590,
+          "key-miss": {
+            "a_sha256": "d423c959b7981a337dc1e5c89f754effba6228528057837031e2472c6d93f72b",
+            "added_stale_ids": [],
+            "b_sha256": "d423c959b7981a337dc1e5c89f754effba6228528057837031e2472c6d93f72b",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 0,
+          "trim_lost_labelled": 1,
+          "trims": [
+            {
+              "chars": 62,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 15,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 5,
+              "slot_chars": 61
+            },
+            {
+              "chars": 54,
+              "dropped_words": [
+                "Kofi",
+                "appointment",
+                "dentist",
+                "noted",
+                "the"
+              ],
+              "exchange": 16,
+              "level": 1,
+              "lost_labelled_values": [
+                {
+                  "class": "non-digit",
+                  "value": "Kofi"
+                }
+              ],
+              "slot": 6,
+              "slot_chars": 83
+            },
+            {
+              "chars": 63,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 17,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 4,
+              "slot_chars": 62
+            },
+            {
+              "chars": 70,
+              "dropped_words": [],
+              "exchange": 18,
+              "level": 1,
+              "lost_labelled_values": [],
+              "slot": 1,
+              "slot_chars": 66
+            }
+          ],
+          "untrimmed": 0,
+          "warm": {
+            "a_sha256": "d423c959b7981a337dc1e5c89f754effba6228528057837031e2472c6d93f72b",
+            "added_stale_ids": [],
+            "b_sha256": "55b9bc5c13497384a4c151a48f680fa96255f8c578d7c0df559fc9a2e514d230",
+            "new_loss_ids": [
+              "R6/08/p03"
+            ]
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2610
+        },
+        "B1": {
+          "a_chars": 2590,
+          "key-miss": {
+            "a_sha256": "d423c959b7981a337dc1e5c89f754effba6228528057837031e2472c6d93f72b",
+            "added_stale_ids": [],
+            "b_sha256": "d423c959b7981a337dc1e5c89f754effba6228528057837031e2472c6d93f72b",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 0,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 62,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 15,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 5,
+              "slot_chars": 61
+            },
+            {
+              "chars": 63,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 17,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 4,
+              "slot_chars": 62
+            },
+            {
+              "chars": 70,
+              "dropped_words": [],
+              "exchange": 18,
+              "level": 1,
+              "lost_labelled_values": [],
+              "slot": 1,
+              "slot_chars": 66
+            }
+          ],
+          "untrimmed": 1,
+          "warm": {
+            "a_sha256": "d423c959b7981a337dc1e5c89f754effba6228528057837031e2472c6d93f72b",
+            "added_stale_ids": [],
+            "b_sha256": "d50219802bdc20fe661a80e6d1b54d16f3ad41026984493f4445b2988598a1c5",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2646
+        }
+      },
+      "known_loss_control": 7,
+      "name": "r6-08-carpet-shop",
+      "unguarded_sync_key_attempts": 1
+    },
+    "R6/09": {
+      "arms": {
+        "B0": {
+          "a_chars": 2660,
+          "key-miss": {
+            "a_sha256": "8e63ade0442903c83701dc2f21b0ce0ff768a099f454b562165277795bbd1076",
+            "added_stale_ids": [],
+            "b_sha256": "8e63ade0442903c83701dc2f21b0ce0ff768a099f454b562165277795bbd1076",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 0,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 72,
+              "dropped_words": [],
+              "exchange": 15,
+              "level": 1,
+              "lost_labelled_values": [],
+              "slot": 0,
+              "slot_chars": 68
+            },
+            {
+              "chars": 75,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 16,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 4,
+              "slot_chars": 76
+            },
+            {
+              "chars": 85,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 17,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 1,
+              "slot_chars": 90
+            },
+            {
+              "chars": 55,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 3,
+              "slot_chars": 51
+            }
+          ],
+          "untrimmed": 0,
+          "warm": {
+            "a_sha256": "8e63ade0442903c83701dc2f21b0ce0ff768a099f454b562165277795bbd1076",
+            "added_stale_ids": [],
+            "b_sha256": "3b30e5b019ce917c60cf0dbbe938cc92d3a5e85f7ca8d0048a550c3b75849066",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2692
+        },
+        "B1": {
+          "a_chars": 2660,
+          "key-miss": {
+            "a_sha256": "8e63ade0442903c83701dc2f21b0ce0ff768a099f454b562165277795bbd1076",
+            "added_stale_ids": [],
+            "b_sha256": "8e63ade0442903c83701dc2f21b0ce0ff768a099f454b562165277795bbd1076",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 0,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 72,
+              "dropped_words": [],
+              "exchange": 15,
+              "level": 1,
+              "lost_labelled_values": [],
+              "slot": 0,
+              "slot_chars": 68
+            },
+            {
+              "chars": 75,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 16,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 4,
+              "slot_chars": 76
+            },
+            {
+              "chars": 85,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 17,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 1,
+              "slot_chars": 90
+            },
+            {
+              "chars": 55,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 3,
+              "slot_chars": 51
+            }
+          ],
+          "untrimmed": 0,
+          "warm": {
+            "a_sha256": "8e63ade0442903c83701dc2f21b0ce0ff768a099f454b562165277795bbd1076",
+            "added_stale_ids": [],
+            "b_sha256": "3b30e5b019ce917c60cf0dbbe938cc92d3a5e85f7ca8d0048a550c3b75849066",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2692
+        }
+      },
+      "known_loss_control": 7,
+      "name": "r6-09-kitchen-depot",
+      "unguarded_sync_key_attempts": 1
+    },
+    "R6/10": {
+      "arms": {
+        "B0": {
+          "a_chars": 2510,
+          "key-miss": {
+            "a_sha256": "4aba4497c52e5ddf8accf8371f05f0e9526cfbcab33ac436f3cb818c2c7d8cbb",
+            "added_stale_ids": [],
+            "b_sha256": "4aba4497c52e5ddf8accf8371f05f0e9526cfbcab33ac436f3cb818c2c7d8cbb",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 1,
+          "trim_lost_labelled": 1,
+          "trims": [
+            {
+              "chars": 40,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 16,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 2,
+              "slot_chars": 44
+            },
+            {
+              "chars": 36,
+              "dropped_words": [
+                "Berlin",
+                "Noted",
+                "When",
+                "assistant",
+                "at",
+                "was"
+              ],
+              "exchange": 17,
+              "level": 3,
+              "lost_labelled_values": [
+                {
+                  "class": "non-digit",
+                  "value": "Berlin"
+                }
+              ],
+              "slot": 5,
+              "slot_chars": 47
+            },
+            {
+              "chars": 54,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 3,
+              "slot_chars": 56
+            }
+          ],
+          "untrimmed": 0,
+          "warm": {
+            "a_sha256": "4aba4497c52e5ddf8accf8371f05f0e9526cfbcab33ac436f3cb818c2c7d8cbb",
+            "added_stale_ids": [],
+            "b_sha256": "b96eac64760821d094a978b973b68e562a25fb2e7f3cae37c2f147012c421815",
+            "new_loss_ids": [
+              "R6/10/p04"
+            ]
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2669
+        },
+        "B1": {
+          "a_chars": 2510,
+          "key-miss": {
+            "a_sha256": "4aba4497c52e5ddf8accf8371f05f0e9526cfbcab33ac436f3cb818c2c7d8cbb",
+            "added_stale_ids": [],
+            "b_sha256": "4aba4497c52e5ddf8accf8371f05f0e9526cfbcab33ac436f3cb818c2c7d8cbb",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 1,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 40,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 16,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 2,
+              "slot_chars": 44
+            },
+            {
+              "chars": 54,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 3,
+              "slot_chars": 56
+            }
+          ],
+          "untrimmed": 1,
+          "warm": {
+            "a_sha256": "4aba4497c52e5ddf8accf8371f05f0e9526cfbcab33ac436f3cb818c2c7d8cbb",
+            "added_stale_ids": [],
+            "b_sha256": "e6d82d336ccd4f6bc6c4989ef1fbf811fcdd548870dbb758c405c1c8f9233cdb",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2709
+        }
+      },
+      "known_loss_control": 7,
+      "name": "r6-10-clothing-boutique",
+      "unguarded_sync_key_attempts": 1
+    },
+    "R6/11": {
+      "arms": {
+        "B0": {
+          "a_chars": 2519,
+          "key-miss": {
+            "a_sha256": "810efa2afeca95158c2f1f1d7b24b2385038ca72545cb71ce8fca49f5f6c5310",
+            "added_stale_ids": [],
+            "b_sha256": "810efa2afeca95158c2f1f1d7b24b2385038ca72545cb71ce8fca49f5f6c5310",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 0,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 55,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 15,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 0,
+              "slot_chars": 51
+            },
+            {
+              "chars": 46,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 16,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 6,
+              "slot_chars": 40
+            },
+            {
+              "chars": 44,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 17,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 1,
+              "slot_chars": 47
+            },
+            {
+              "chars": 47,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 5,
+              "slot_chars": 41
+            }
+          ],
+          "untrimmed": 0,
+          "warm": {
+            "a_sha256": "810efa2afeca95158c2f1f1d7b24b2385038ca72545cb71ce8fca49f5f6c5310",
+            "added_stale_ids": [],
+            "b_sha256": "202cc3a178456e72a7cb1f1a6f0c7397a9c5bdcc8f6ee7759a8963891868b828",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2646
+        },
+        "B1": {
+          "a_chars": 2519,
+          "key-miss": {
+            "a_sha256": "810efa2afeca95158c2f1f1d7b24b2385038ca72545cb71ce8fca49f5f6c5310",
+            "added_stale_ids": [],
+            "b_sha256": "810efa2afeca95158c2f1f1d7b24b2385038ca72545cb71ce8fca49f5f6c5310",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 0,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 55,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 15,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 0,
+              "slot_chars": 51
+            },
+            {
+              "chars": 46,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 16,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 6,
+              "slot_chars": 40
+            },
+            {
+              "chars": 44,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 17,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 1,
+              "slot_chars": 47
+            },
+            {
+              "chars": 47,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 5,
+              "slot_chars": 41
+            }
+          ],
+          "untrimmed": 0,
+          "warm": {
+            "a_sha256": "810efa2afeca95158c2f1f1d7b24b2385038ca72545cb71ce8fca49f5f6c5310",
+            "added_stale_ids": [],
+            "b_sha256": "202cc3a178456e72a7cb1f1a6f0c7397a9c5bdcc8f6ee7759a8963891868b828",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2646
+        }
+      },
+      "known_loss_control": 7,
+      "name": "r6-11-electronics-hub",
+      "unguarded_sync_key_attempts": 1
+    },
+    "R6/12": {
+      "arms": {
+        "B0": {
+          "a_chars": 2630,
+          "key-miss": {
+            "a_sha256": "18e50bd70fbda6bcdae4abcdc6f9a18d369c588d6ff4aa4097e357ae98fc9a80",
+            "added_stale_ids": [],
+            "b_sha256": "18e50bd70fbda6bcdae4abcdc6f9a18d369c588d6ff4aa4097e357ae98fc9a80",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 0,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 41,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 15,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 6,
+              "slot_chars": 47
+            },
+            {
+              "chars": 91,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 16,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 2,
+              "slot_chars": 85
+            },
+            {
+              "chars": 73,
+              "dropped_words": [],
+              "exchange": 17,
+              "level": 1,
+              "lost_labelled_values": [],
+              "slot": 1,
+              "slot_chars": 66
+            },
+            {
+              "chars": 78,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 0,
+              "slot_chars": 79
+            }
+          ],
+          "untrimmed": 0,
+          "warm": {
+            "a_sha256": "18e50bd70fbda6bcdae4abcdc6f9a18d369c588d6ff4aa4097e357ae98fc9a80",
+            "added_stale_ids": [],
+            "b_sha256": "d54bbaa5007eda0fc94da05fe87071f1a76992ff1d223772fce65eef3b621f82",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2667
+        },
+        "B1": {
+          "a_chars": 2630,
+          "key-miss": {
+            "a_sha256": "18e50bd70fbda6bcdae4abcdc6f9a18d369c588d6ff4aa4097e357ae98fc9a80",
+            "added_stale_ids": [],
+            "b_sha256": "18e50bd70fbda6bcdae4abcdc6f9a18d369c588d6ff4aa4097e357ae98fc9a80",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 0,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 41,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 15,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 6,
+              "slot_chars": 47
+            },
+            {
+              "chars": 91,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 16,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 2,
+              "slot_chars": 85
+            },
+            {
+              "chars": 73,
+              "dropped_words": [],
+              "exchange": 17,
+              "level": 1,
+              "lost_labelled_values": [],
+              "slot": 1,
+              "slot_chars": 66
+            },
+            {
+              "chars": 78,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 0,
+              "slot_chars": 79
+            }
+          ],
+          "untrimmed": 0,
+          "warm": {
+            "a_sha256": "18e50bd70fbda6bcdae4abcdc6f9a18d369c588d6ff4aa4097e357ae98fc9a80",
+            "added_stale_ids": [],
+            "b_sha256": "d54bbaa5007eda0fc94da05fe87071f1a76992ff1d223772fce65eef3b621f82",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2667
+        }
+      },
+      "known_loss_control": 7,
+      "name": "r6-12-pet-supplies",
+      "unguarded_sync_key_attempts": 1
+    },
+    "R6/13": {
+      "arms": {
+        "B0": {
+          "a_chars": 2648,
+          "key-miss": {
+            "a_sha256": "b354ef822cf5d4eacf27718875276a806c1e00378c7815e552020bbb660a85cb",
+            "added_stale_ids": [],
+            "b_sha256": "b354ef822cf5d4eacf27718875276a806c1e00378c7815e552020bbb660a85cb",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 1,
+          "trim_lost_labelled": 1,
+          "trims": [
+            {
+              "chars": 66,
+              "dropped_words": [
+                "Hana",
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 15,
+              "level": 3,
+              "lost_labelled_values": [
+                {
+                  "class": "non-digit",
+                  "value": "Hana"
+                }
+              ],
+              "slot": 0,
+              "slot_chars": 59
+            },
+            {
+              "chars": 77,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 17,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 3,
+              "slot_chars": 82
+            },
+            {
+              "chars": 89,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 6,
+              "slot_chars": 83
+            }
+          ],
+          "untrimmed": 0,
+          "warm": {
+            "a_sha256": "b354ef822cf5d4eacf27718875276a806c1e00378c7815e552020bbb660a85cb",
+            "added_stale_ids": [],
+            "b_sha256": "e84b9f8c3e3fc939fb23ef9399857d14910cfb547c151d5145d964ab7e288c9a",
+            "new_loss_ids": [
+              "R6/13/p02"
+            ]
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2736
+        },
+        "B1": {
+          "a_chars": 2648,
+          "key-miss": {
+            "a_sha256": "b354ef822cf5d4eacf27718875276a806c1e00378c7815e552020bbb660a85cb",
+            "added_stale_ids": [],
+            "b_sha256": "b354ef822cf5d4eacf27718875276a806c1e00378c7815e552020bbb660a85cb",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 1,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 77,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 17,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 3,
+              "slot_chars": 82
+            },
+            {
+              "chars": 89,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 6,
+              "slot_chars": 83
+            }
+          ],
+          "untrimmed": 1,
+          "warm": {
+            "a_sha256": "b354ef822cf5d4eacf27718875276a806c1e00378c7815e552020bbb660a85cb",
+            "added_stale_ids": [],
+            "b_sha256": "edcc26d4e8f9b2a3f1c16c2f3bfcd8977df45ba4d47532c1882b7ae948376916",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2760
+        }
+      },
+      "known_loss_control": 7,
+      "name": "r6-13-office-supply",
+      "unguarded_sync_key_attempts": 1
+    },
+    "R6/14": {
+      "arms": {
+        "B0": {
+          "a_chars": 2603,
+          "key-miss": {
+            "a_sha256": "de2ec0f1837fe2e6a2a5975dd859d961ecb502402e102917e3a085a480b25cd6",
+            "added_stale_ids": [],
+            "b_sha256": "de2ec0f1837fe2e6a2a5975dd859d961ecb502402e102917e3a085a480b25cd6",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 0,
+          "trim_lost_labelled": 1,
+          "trims": [
+            {
+              "chars": 51,
+              "dropped_words": [
+                "Nikolai",
+                "baby",
+                "out",
+                "pointed",
+                "shower",
+                "the"
+              ],
+              "exchange": 15,
+              "level": 1,
+              "lost_labelled_values": [
+                {
+                  "class": "non-digit",
+                  "value": "Nikolai"
+                }
+              ],
+              "slot": 3,
+              "slot_chars": 67
+            },
+            {
+              "chars": 74,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 16,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 1,
+              "slot_chars": 66
+            },
+            {
+              "chars": 67,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 17,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 2,
+              "slot_chars": 62
+            },
+            {
+              "chars": 77,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 4,
+              "slot_chars": 75
+            }
+          ],
+          "untrimmed": 0,
+          "warm": {
+            "a_sha256": "de2ec0f1837fe2e6a2a5975dd859d961ecb502402e102917e3a085a480b25cd6",
+            "added_stale_ids": [],
+            "b_sha256": "05288fc3ed794a8c26954ab76fe0f16bd55cb2375a9beb83ee89d08cf97a219d",
+            "new_loss_ids": [
+              "R6/14/p04"
+            ]
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2604
+        },
+        "B1": {
+          "a_chars": 2603,
+          "key-miss": {
+            "a_sha256": "de2ec0f1837fe2e6a2a5975dd859d961ecb502402e102917e3a085a480b25cd6",
+            "added_stale_ids": [],
+            "b_sha256": "de2ec0f1837fe2e6a2a5975dd859d961ecb502402e102917e3a085a480b25cd6",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 4,
+          "stale_exposed_warm": 0,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 74,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 16,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 1,
+              "slot_chars": 66
+            },
+            {
+              "chars": 67,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 17,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 2,
+              "slot_chars": 62
+            },
+            {
+              "chars": 77,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 4,
+              "slot_chars": 75
+            }
+          ],
+          "untrimmed": 1,
+          "warm": {
+            "a_sha256": "de2ec0f1837fe2e6a2a5975dd859d961ecb502402e102917e3a085a480b25cd6",
+            "added_stale_ids": [],
+            "b_sha256": "e6a7b8b24b083b438aece144adda64b7ee48f64f068c13cce81d6ee53cba8b46",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2641
+        }
+      },
+      "known_loss_control": 7,
+      "name": "r6-14-ski-lodge",
+      "unguarded_sync_key_attempts": 1
+    },
+    "R6/15": {
+      "arms": {
+        "B0": {
+          "a_chars": 2714,
+          "key-miss": {
+            "a_sha256": "63e2c0e3361d83c8ad2ac92c41be18c87d66cd4a2df4b41b15ca413ba2915ef4",
+            "added_stale_ids": [],
+            "b_sha256": "63e2c0e3361d83c8ad2ac92c41be18c87d66cd4a2df4b41b15ca413ba2915ef4",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 5,
+          "stale_exposed_warm": 0,
+          "trim_lost_labelled": 1,
+          "trims": [
+            {
+              "chars": 40,
+              "dropped_words": [
+                "Istanbul",
+                "Noted",
+                "When",
+                "assistant",
+                "at",
+                "was"
+              ],
+              "exchange": 15,
+              "level": 3,
+              "lost_labelled_values": [
+                {
+                  "class": "non-digit",
+                  "value": "Istanbul"
+                }
+              ],
+              "slot": 2,
+              "slot_chars": 55
+            },
+            {
+              "chars": 59,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 17,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 4,
+              "slot_chars": 66
+            },
+            {
+              "chars": 65,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 1,
+              "slot_chars": 71
+            },
+            {
+              "chars": 90,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 19,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 3,
+              "slot_chars": 86
+            }
+          ],
+          "untrimmed": 1,
+          "warm": {
+            "a_sha256": "63e2c0e3361d83c8ad2ac92c41be18c87d66cd4a2df4b41b15ca413ba2915ef4",
+            "added_stale_ids": [],
+            "b_sha256": "a7516d8f826d98ae747e6c86fc6f7d0fa23c9c73220367ceb5c8b2e5e017704b",
+            "new_loss_ids": [
+              "R6/15/p01"
+            ]
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2660
+        },
+        "B1": {
+          "a_chars": 2714,
+          "key-miss": {
+            "a_sha256": "63e2c0e3361d83c8ad2ac92c41be18c87d66cd4a2df4b41b15ca413ba2915ef4",
+            "added_stale_ids": [],
+            "b_sha256": "63e2c0e3361d83c8ad2ac92c41be18c87d66cd4a2df4b41b15ca413ba2915ef4",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 5,
+          "stale_exposed_warm": 0,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 59,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 17,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 4,
+              "slot_chars": 66
+            },
+            {
+              "chars": 65,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 1,
+              "slot_chars": 71
+            },
+            {
+              "chars": 90,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 19,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 3,
+              "slot_chars": 86
+            }
+          ],
+          "untrimmed": 2,
+          "warm": {
+            "a_sha256": "63e2c0e3361d83c8ad2ac92c41be18c87d66cd4a2df4b41b15ca413ba2915ef4",
+            "added_stale_ids": [],
+            "b_sha256": "ae9c4b4b86e409de90c61d2f912e82c7877b6bcda1807ae18ecd3b3b1b9735dc",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2702
+        }
+      },
+      "known_loss_control": 7,
+      "name": "r6-15-toy-factory",
+      "unguarded_sync_key_attempts": 1
+    },
+    "R6/16": {
+      "arms": {
+        "B0": {
+          "a_chars": 2542,
+          "key-miss": {
+            "a_sha256": "4726f8a09fc83193d1b670360d1102d3a2716f870bbc72ce4c38fcb3605d441d",
+            "added_stale_ids": [],
+            "b_sha256": "4726f8a09fc83193d1b670360d1102d3a2716f870bbc72ce4c38fcb3605d441d",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 5,
+          "stale_exposed_warm": 1,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 45,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 15,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 0,
+              "slot_chars": 41
+            },
+            {
+              "chars": 48,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 16,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 6,
+              "slot_chars": 55
+            },
+            {
+              "chars": 53,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 1,
+              "slot_chars": 49
+            }
+          ],
+          "untrimmed": 1,
+          "warm": {
+            "a_sha256": "4726f8a09fc83193d1b670360d1102d3a2716f870bbc72ce4c38fcb3605d441d",
+            "added_stale_ids": [],
+            "b_sha256": "a68cb72cab93f01419a6b274a4f83edb25fc69a6dad3a13cbed47a56048a6c0a",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2665
+        },
+        "B1": {
+          "a_chars": 2542,
+          "key-miss": {
+            "a_sha256": "4726f8a09fc83193d1b670360d1102d3a2716f870bbc72ce4c38fcb3605d441d",
+            "added_stale_ids": [],
+            "b_sha256": "4726f8a09fc83193d1b670360d1102d3a2716f870bbc72ce4c38fcb3605d441d",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 5,
+          "stale_exposed_warm": 1,
+          "trim_lost_labelled": 0,
+          "trims": [
+            {
+              "chars": 45,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 15,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 0,
+              "slot_chars": 41
+            },
+            {
+              "chars": 48,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 16,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 6,
+              "slot_chars": 55
+            },
+            {
+              "chars": 53,
+              "dropped_words": [
+                "Noted",
+                "assistant"
+              ],
+              "exchange": 18,
+              "level": 2,
+              "lost_labelled_values": [],
+              "slot": 1,
+              "slot_chars": 49
+            }
+          ],
+          "untrimmed": 1,
+          "warm": {
+            "a_sha256": "4726f8a09fc83193d1b670360d1102d3a2716f870bbc72ce4c38fcb3605d441d",
+            "added_stale_ids": [],
+            "b_sha256": "a68cb72cab93f01419a6b274a4f83edb25fc69a6dad3a13cbed47a56048a6c0a",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": true,
+          "warm_chars": 2665
+        }
+      },
+      "known_loss_control": 7,
+      "name": "r6-16-book-store",
+      "unguarded_sync_key_attempts": 1
+    },
+    "R6/17": {
+      "arms": {
+        "B0": {
+          "a_chars": 2485,
+          "key-miss": {
+            "a_sha256": "786af336b60186d4f2acdddbdc58ba6712c6f9e6a5e39105907c460a2af10335",
+            "added_stale_ids": [],
+            "b_sha256": "786af336b60186d4f2acdddbdc58ba6712c6f9e6a5e39105907c460a2af10335",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 0,
+          "stale_exposed_warm": 0,
+          "trim_lost_labelled": 0,
+          "trims": [],
+          "untrimmed": 0,
+          "warm": {
+            "a_sha256": "786af336b60186d4f2acdddbdc58ba6712c6f9e6a5e39105907c460a2af10335",
+            "added_stale_ids": [],
+            "b_sha256": "786af336b60186d4f2acdddbdc58ba6712c6f9e6a5e39105907c460a2af10335",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": false,
+          "warm_chars": 2485
+        },
+        "B1": {
+          "a_chars": 2485,
+          "key-miss": {
+            "a_sha256": "786af336b60186d4f2acdddbdc58ba6712c6f9e6a5e39105907c460a2af10335",
+            "added_stale_ids": [],
+            "b_sha256": "786af336b60186d4f2acdddbdc58ba6712c6f9e6a5e39105907c460a2af10335",
+            "new_loss_ids": []
+          },
+          "stale_exposed_a": 0,
+          "stale_exposed_warm": 0,
+          "trim_lost_labelled": 0,
+          "trims": [],
+          "untrimmed": 0,
+          "warm": {
+            "a_sha256": "786af336b60186d4f2acdddbdc58ba6712c6f9e6a5e39105907c460a2af10335",
+            "added_stale_ids": [],
+            "b_sha256": "786af336b60186d4f2acdddbdc58ba6712c6f9e6a5e39105907c460a2af10335",
+            "new_loss_ids": []
+          },
+          "warm_changed_vs_r4": false,
+          "warm_chars": 2485
+        }
+      },
+      "known_loss_control": null,
+      "name": "r6-17-music-studio",
+      "unguarded_sync_key_attempts": 1
+    }
+  },
+  "dev": false,
+  "fixtures_sha256": "497416834c9bb8b7ce9040661a7080d990266dfcfd37b35c0c250e2a09915547",
+  "gate": "PASS(no-loss)",
+  "model_called": false,
+  "network": false,
+  "non_digit_current_probes": 85,
+  "probes": 112,
+  "scenarios": 17,
+  "verdict": "PASS(no-loss) BENEFIT-FAIL"
+}

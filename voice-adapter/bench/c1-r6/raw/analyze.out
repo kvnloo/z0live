@@ -1,0 +1,9 @@
+B0 losses_warm 8 classes {'non-digit': 8} kinds {'N7': 4, 'N2': 1, 'N3p': 2, 'N1': 1} trims 58 levels {2: 45, 1: 9, 3: 4} trim_lost_labelled 8 untrimmed_lines 3 changed 16 kept_strict 16 trim_scen 16 scen_with_loss 7
+B1 losses_warm 0 classes {} kinds {} trims 51 levels {2: 45, 3: 1, 1: 5} trim_lost_labelled 0 untrimmed_lines 10 changed 16 kept_strict 16 trim_scen 16 scen_with_loss 0
+stale_added {'B0': {'warm': 0, 'key-miss': 0}, 'B1': {'warm': 0, 'key-miss': 0}}
+chars {'B0': 44996, 'B1': 45274}
+B0 stale 5
+kinds in B1 trims dropped words sample [('Noted', 46), ('assistant', 46), ('Actually', 1)]
+{'known_loss_eligible': 16, 'known_loss_fired': 16, 'min_exercised': 8, 'min_warm_kept': 12, 'trim_branch_exercised_B0': 16, 'v1_block_sha256': 'e0ec860bb0abefdc1496013661a69093d11a049fa38defb3b4cd7a8f2abdf220'} probes 112 nondigit 85
+per-scenario reduction [('01', -71, 4, 0), ('02', -41, 4, 0), ('03', -61, 4, 0), ('04', -55, 4, 0), ('05', -133, 4, 1), ('06', -162, 4, 1), ('07', -18, 4, 0), ('08', -56, 4, 0), ('09', -32, 4, 0), ('10', -199, 4, 1), ('11', -127, 4, 0), ('12', -37, 4, 0), ('13', -112, 4, 1), ('14', -38, 4, 0), ('15', 12, 5, 0), ('16', -123, 5, 1)]
+range a_chars 2490 2714 b1 2561 2788

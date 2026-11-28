@@ -1,0 +1,64 @@
+{
+  "pairs": {
+    "D1": [
+      {"old":"I recorded the {thing} with reference {V}.","new":"Correction: the {thing} should be under code {V} now."},
+      {"old":"My notes show the {thing} tagged as {V}.","new":"Actually I switched the {thing} to identifier {V}."},
+      {"old":"The {thing} is listed under code {V} in my spreadsheet.","new":"Updated: the {thing} is now recorded as {V}."},
+      {"old":"Got the {thing} logged with identifier {V}.","new":"I changed the {thing}'s tag to {V}."},
+      {"old":"I attached the {thing} to the file named {V}.","new":"The {thing} has been relabeled with {V}."},
+      {"old":"The {thing} currently bears the reference {V}.","new":"Now the {thing} appears as {V} in my list."},
+      {"old":"For the {thing}, I used the tag {V}.","new":"I've updated the {thing} to use code {V}."},
+      {"old":"The system shows the {thing} as {V}.","new":"The {thing} is currently marked as {V}."}
+    ],
+    "D2": [
+      {"old":"{V}: I'll drop off the {thing} this {day} around {time}.","new":"{V}: Change of plans, the {thing} will be dropped off on {day} at {time}."},
+      {"old":"{V}: Got to pick up the {thing} on {day} at {time}, don't be late.","new":"{V}: Actually the {thing} pickup is shifted to {day} at {time}."},
+      {"old":"{V}: Meeting about the {thing} scheduled for {day} at {time}.","new":"{V}: Updated meeting for the {thing} now on {day} at {time}."},
+      {"old":"{V}: Reminder: {thing} needs attention this {day} at {time}.","new":"{V}: Heads up, the {thing} is now set for {day} at {time}."},
+      {"old":"{V}: I'm planning to service the {thing} on {day} at {time}.","new":"{V}: Service for the {thing} moved to {day} at {time}."},
+      {"old":"{V}: Quick note – {thing} appointment this {day} at {time}.","new":"{V}: Quick update – {thing} now at {day} at {time}."},
+      {"old":"{V}: Don't forget the {thing} on {day} at {time}.","new":"{V}: FYI the {thing} got rescheduled to {day} at {time}."},
+      {"old":"{V}: Got a slot for the {thing} this {day} around {time}.","new":"{V}: Slot changed for the {thing} to {day} at {time}."}
+    ],
+    "D3": [
+      {"old":"The {thing} carries the code {V}.","new":"Actually, the {thing} now uses code {V}."},
+      {"old":"I noted {V} as the identifier for my {thing}.","new":"I've updated the {thing}'s identifier to {V}."},
+      {"old":"My {thing} is associated with the reference {V}.","new":"The {thing} should be referenced as {V} now."},
+      {"old":"The tag {V} belongs to the {thing}.","new":"New tag for the {thing} is {V}."},
+      {"old":"For the {thing}, I use the numeric code {V}.","new":"The {thing} has been re‑coded to {V}."},
+      {"old":"The {thing} is marked with {V} in my inventory.","new":"Current listing shows the {thing} as {V}."},
+      {"old":"I assigned {V} to the {thing}.","new":"I've switched the {thing} to code {V}."},
+      {"old":"The {thing} shows up under {V}.","new":"The {thing} is presently logged under {V}."}
+    ],
+    "N1": [
+      {"old":"Alex: I'll have the {thing} ready on {day} at {time}.","new":"Sam: Actually the {thing} will be ready on {day} at {time}."},
+      {"old":"Maya: Expect the {thing} to arrive this {day} around {time}.","new":"Olivia: Change – the {thing} arrives this {day} at {time}."},
+      {"old":"Liam: Got the {thing} scheduled for {day} at {time}.","new":"Jacob: Updated, the {thing} is now slated for {day} at {time}."},
+      {"old":"Sara: Planning to bring the {thing} on {day} at {time}.","new":"Grace: Heads up, the {thing} will come on {day} at {time}."},
+      {"old":"Noah: The {thing} will be with you this {day} at {time}.","new":"Aiden: FYI the {thing} is shifted to {day} at {time}."},
+      {"old":"Zoe: I'll drop the {thing} off on {day} at {time}.","new":"Mia: Just so you know, the {thing} lands on {day} at {time}."},
+      {"old":"Ethan: The {thing} is set for {day} at {time}.","new":"Lucas: Note the {thing} now scheduled for {day} at {time}."},
+      {"old":"Leah: Count on the {thing} this {day} at {time}.","new":"Emma: Quick update, the {thing} will be there on {day} at {time}."}
+    ],
+    "N2": [
+      {"old":"I mentioned the {thing} to {V} before we set the meeting on {day} at {time}.","new":"I checked with {V} about the {thing} and then we decided on {day} at {time}."},
+      {"old":"After consulting {V} about the {thing}, we booked it for {day} at {time}.","new":"After a quick chat with {V} on the {thing}, we agreed to meet on {day} at {time}."},
+      {"old":"I ran the {thing} past {V}, then confirmed the slot on {day} at {time}.","new":"I told {V} the plan for the {thing}, after which we penciled in {day} at {time}."},
+      {"old":"Discussed the {thing} with {V} earlier, and later chose {day} at {time}.","new":"I looped {V} in about the {thing} before finalizing {day} at {time}."},
+      {"old":"I asked {V} regarding the {thing} and later arranged it on {day} at {time}.","new":"I consulted {V} regarding the {thing} and later chose {day} at {time}."},
+      {"old":"I briefed {V} on the {thing} and then set the date for {day} at {time}.","new":"I updated {V} on the {thing} then set the appointment for {day} at {time}."},
+      {"old":"I shared the {thing} details with {V} before locking in {day} at {time}.","new":"I ran the details of the {thing} by {V} before confirming {day} at {time}."},
+      {"old":"I got {V}'s input on the {thing}, then we settled on {day} at {time}.","new":"I mentioned the {thing} to {V}, then we locked the time for {day} at {time}."}
+    ],
+    "N3p": [
+      {"old":"{V}, I stored the {thing} in bay {n}.","new":"{V} was where I logged the {thing} in bay {n}."},
+      {"old":"After arriving at {V}, I placed the {thing} into slot {n}.","new":"Having reached {V}, I assigned the {thing} to slot {n}."},
+      {"old":"In {V} I left the {thing} at row {n}.","new":"Once in {V}, the {thing} went to row {n}."},
+      {"old":"When I got to {V}, I tucked the {thing} into bay {n}.","new":"After landing at {V}, I put the {thing} into bay {n}."},
+      {"old":"At {V} I set the {thing} down in slot {n}.","new":"When I was at {V}, I placed the {thing} in slot {n}."},
+      {"old":"From {V} I moved the {thing} to row {n}.","new":"From {V} I recorded the {thing} in row {n}."},
+      {"old":"Landing in {V}, I secured the {thing} in bay {n}.","new":"Upon arriving at {V}, I stowed the {thing} in bay {n}."},
+      {"old":"Touching down at {V}, I filed the {thing} under slot {n}.","new":"In {V}, I filed the {thing} under slot {n}."}
+    ]
+  }
+}
