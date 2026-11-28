@@ -92,6 +92,9 @@ def parse(text: str) -> tuple[str, str] | None:
     forms = (
         _LEAD + r"(?:ask|tell|message|ping)\s+" + _name(False) + r"\s*(?:,|:|-|\s)\s*(?:to\s+)?(?P<m>.+)$",
         _LEAD + _name(True) + r"\s*[,:-]?\s+(?P<m>.+)$",
+        # ASR hears "At PC bot," as "That PC bot," (11-28 real-voice probe). Only with "bot" and a , or : after it,
+        # so "that PC bot is slow" stays a remark, not an ask.
+        _LEAD + r"that\s+(?P<p>" + _names() + r")\s*bot\s*[,:]\s*(?P<m>.+)$",
     )
     for form in forms:
         m = re.match(form, t, re.I)

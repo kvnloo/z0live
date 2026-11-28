@@ -67,11 +67,14 @@ class AskBotTest(unittest.TestCase):
             "At PCBot, list the WD drive, which volumes are mounted": ("pc", "list the WD drive, which volumes are mounted"),
             "At PC bot, list the WD drive": ("pc", "list the WD drive"),
             "ask the PCbot to list the drive": ("pc", "list the drive"),
+            # ASR heard "At PC bot," as "That PC bot," in the 11-28 real-voice probe.
+            "That PC bot, list the WD drive": ("pc", "list the WD drive"),
         }
         for text, want in cases.items():
             self.assertEqual(ask_bot.parse(text), want, text)
         for text in ("ask the team to list the drive", "ask him", "ask @guest to do x", "ask pcs what", "what's at pc?",
-                     "list the drive", "what did the PC bot say", "ask pcbots what"):
+                     "list the drive", "what did the PC bot say", "ask pcbots what",
+                     "that PC bot is slow", "that pc, list the drive", "that PC bot"):
             self.assertIsNone(ask_bot.parse(text), text)
 
     def test_guest_never(self):
