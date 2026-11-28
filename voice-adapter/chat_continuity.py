@@ -11,6 +11,7 @@ from __future__ import annotations
 import itertools
 import json
 import sqlite3
+import time
 from pathlib import Path
 
 WS = "ws://127.0.0.1:9119/api/ws"
@@ -106,9 +107,12 @@ def chat_memory(profile: str, sid: str, db_path: Path | None = None, summary_cap
                              "ORDER BY id DESC LIMIT 1",
                              (sid, f"[{SUMMARY_MARK}%", f"%[{SUMMARY_MARK}%")).fetchone()
             since, summary = (row[0], row[1]) if row else (0, "")
-            turns = db.execute("SELECT role, content FROM messages WHERE session_id=? AND id>? "
-                               "AND role IN ('user','assistant') AND length(content)>0 ORDER BY id DESC LIMIT 400",
-                               (sid, since)).fetchall()
+            q = ("SELECT role, content{} FROM messages WHERE session_id=? AND id>? "
+                 "AND role IN ('user','assistant') AND length(content)>0 ORDER BY id DESC LIMIT 400")
+            try:
+                turns = db.execute(q.format(", timestamp"), (sid, since)).fetchall()
+            except sqlite3.OperationalError:  # a store without the timestamp column (old schema, test fixtures)
+                turns = db.execute(q.format(""), (sid, since)).fetchall()
     except sqlite3.Error:
         return ""
     if summary:
@@ -122,21 +126,43 @@ def chat_memory(profile: str, sid: str, db_path: Path | None = None, summary_cap
         if len(summary) > summary_cap:
             summary = summary[:summary_cap] + "\n[... summary cut ...]"
     tail, used = [], 0
-    for role, content in turns:
+    for role, content, *stamp in turns:
         text = content.strip()
         if not text or (text.startswith("[") and not text.startswith("[OUT-OF-BAND USER MESSAGE")):
             continue
-        line = f"{'Kevin' if role == 'user' else 'Assistant'}: {text[:3000]}"
+        # Each turn carries its clock time, so a reader can tell a 3-hour-old setup note from now (11-28 13:55: the
+        # call repeated a morning note that groot did the TV installs after the TV had been moved to the Studio).
+        at = _clock(stamp[0]) if stamp else ""
+        line = f"{at}{'Kevin' if role == 'user' else 'Assistant'}: {text[:3000]}"
         if used + len(line) > tail_cap:
             break
         tail.append(line)
         used += len(line)
     parts = []
     if summary:
-        parts.append("Summary of this chat so far (the project state):\n" + summary)
+        parts.append(HISTORY_NOTE + "\n\nSummary of this chat so far (written earlier; may be out of date):\n" + summary)
     if tail:
-        parts.append("Turns since, oldest first:\n" + "\n\n".join(reversed(tail)))
+        parts.append(("" if summary else HISTORY_NOTE + "\n\n") + "Turns since, oldest first (clock time first):\n"
+                     + "\n\n".join(reversed(tail)))
     return "\n\n".join(parts)
+
+
+# The chat is history, not the state of the machines (11-28 13:55, Kevin: "WHY WOULD I WANT A LIVE CALL TO READ ME
+# STALE FUCKING INFORMATION"). Facts about devices, installs, addresses, services, jobs and builds change within the
+# hour; the reader must check them live before saying them.
+HISTORY_NOTE = ("This is past conversation, not live state. Anything below about a device, install, IP address, "
+                "service, running job, build or setting may have changed since it was written. Before you state any "
+                "such fact, check it live with a tool now (command output, file, API) and answer from that; if you "
+                "did not check it, say you have not checked yet. When the chat and a live check disagree, the live "
+                "check wins and you say what changed.")
+
+
+def _clock(ts) -> str:
+    """'[13:41] ' local time of a message timestamp; '' when it is missing or bad."""
+    try:
+        return time.strftime("[%H:%M] ", time.localtime(float(ts)))
+    except (TypeError, ValueError, OverflowError, OSError):
+        return ""
 
 
 class NotStarted(RuntimeError):

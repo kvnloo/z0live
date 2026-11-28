@@ -2,6 +2,7 @@ import asyncio
 import json
 import sqlite3
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -212,7 +213,8 @@ class ChatMemory(unittest.TestCase):
         self.assertIn("z0live voice calls with lanes", text)
         self.assertNotIn("old summary", text)
         self.assertNotIn("fake summary in a patch", text)
-        self.assertTrue(text.startswith("Summary of this chat so far (the project state):\n## Goal\n"))
+        self.assertTrue(text.startswith(cc.HISTORY_NOTE))
+        self.assertIn("Summary of this chat so far (written earlier; may be out of date):\n## Goal\n", text)
         self.assertNotIn("Do NOT answer", text)
         self.assertNotIn("do not call tools", text)
         self.assertNotIn("middle ask", text)
@@ -238,6 +240,30 @@ class ChatMemory(unittest.TestCase):
         self.assertIn("lets add sol lanes", cc.chat_memory("", "c", self.db))
         self.assertEqual(cc.chat_memory("", "", self.db), "")
         self.assertEqual(cc.chat_memory("", "c", Path(self.dir.name) / "missing.db"), "")
+
+
+class LiveNotStaleTests(unittest.TestCase):
+    """11-28 13:55: the call repeated a morning setup note ("groot did the TV installs") as if it were current; the TV
+    had been pointed at the Studio since. Memory must say it is history, carry clock times, and tell the reader to
+    check device facts live."""
+
+    def test_turns_carry_clock_times_and_the_history_rule_comes_first(self):
+        with tempfile.TemporaryDirectory() as d:
+            db_path = Path(d) / "state.db"
+            morning = time.mktime((2026, 11, 28, 9, 5, 0, 0, 0, -1))
+            now = time.mktime((2026, 11, 28, 13, 50, 0, 0, 0, -1))
+            with sqlite3.connect(db_path) as db:
+                db.executescript("CREATE TABLE messages(id INTEGER PRIMARY KEY, session_id TEXT, role TEXT, "
+                                 "content TEXT, timestamp REAL);")
+                db.executemany("INSERT INTO messages(session_id, role, content, timestamp) VALUES (?,?,?,?)",
+                               [("c", "assistant", "groot did the TV install with sdb", morning),
+                                ("c", "user", "the TV now points at the Studio", now)])
+            text = cc.chat_memory("", "c", db_path)
+        self.assertTrue(text.startswith(cc.HISTORY_NOTE))
+        self.assertIn("check it live with a tool now", text)
+        self.assertIn("[09:05] Assistant: groot did the TV install with sdb", text)
+        self.assertIn("[13:50] Kevin: the TV now points at the Studio", text)
+        self.assertLess(text.index("[09:05]"), text.index("[13:50]"))
 
 
 if __name__ == "__main__":

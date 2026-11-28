@@ -2971,7 +2971,7 @@ class Call:
                      f"wrote). With no proof line, say what you could not start and why.")
         return text
 
-    def host_context(self, did=None, ledger: bool = True) -> str:
+    def host_context(self, did=None, ledger: bool = True, chat_snapshot: bool = True) -> str:
         """What a Hermes that starts without the call's chat needs to place a request: the chat the call opened from
         and the call's recent words. Tek's Hermes got only the words to it, so "the glass crash in PR 28" was looked
         up in the wrong repo (11-22 film call, take 7)."""
@@ -2982,7 +2982,7 @@ class Call:
         # chat's lines do not ("PR 28" is kvnloo/hermes-android#28). Without one, the primary's brief is a digest of
         # the same chat lines, which follow in full.
         note = f"\n\nBrief for this call:\n{self.call_note}" if self.call_note else ""
-        chat = f"\n\n{self.context_text[-6000:]}" if self.context_text else ""
+        chat = f"\n\n{self.context_text[-6000:]}" if self.context_text and chat_snapshot else ""
         said = "\n".join(f"{'Caller' if role == 'user' else 'Voice'}: {' '.join(text.split())[:400]}"
                          for role, text in list(self.protocol.exchanges)[-6:])
         return (f"{CALL_CONTEXT}{note}{chat}"
@@ -2999,7 +2999,9 @@ class Call:
         chat_continuity.chat_memory), the call's brief, the chat it opened from and the call's recent words with the
         request (host_context), or at least the call's recent words. The call's request ledger (earlier answers,
         promises, proof) comes last, next to the request: the call's memory of its own work."""
-        context = self.host_context(did, ledger=False)
+        # With fresh chat memory (read now, timestamped), drop host_context's chat snapshot: it was copied when the call
+        # opened and is minutes to an hour stale on a long call (11-28 13:55). The call's own recent words stay.
+        context = self.host_context(did, ledger=False, chat_snapshot=not memory)
         led = self.ledger_brief(did)
         if memory:
             look = (f" For anything older or not covered here, search that chat first (session_search with "
