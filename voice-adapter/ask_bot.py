@@ -173,9 +173,29 @@ def _post(profile: str, port: int, session: str, messages: list, timeout: float)
     return answer.strip(), str(body.get("id") or ""), echoed
 
 
+def _run(profile: str, port: int, session: str, messages: list, timeout: float, on_approval) -> tuple[str, str, str]:
+    """N230: the same ask as a Runs API run, so a Hermes approval prompt reaches the caller (on_approval) instead of
+    being denied for having nobody to answer. (answer, run id, session). Raises RuntimeError with a short reason."""
+    import voice_approvals  # sibling module
+    client = voice_approvals.RunsClient.for_profile(profile, port)
+    try:
+        run_id, output, failed, _ = voice_approvals.run(
+            client, messages[-1]["content"], session, messages[0]["content"],
+            lambda rid, event: on_approval(client, rid, event), timeout)
+    except RuntimeError as exc:
+        raise RuntimeError(f"{profile}'s {exc}") from None
+    if failed and not output.strip():
+        raise RuntimeError(f"{profile}'s run ended without an answer ({failed[:120]})")
+    if not output.strip():
+        raise RuntimeError(f"{profile} returned no answer")
+    return output.strip(), run_id, session
+
+
 def ask(profile: str, message: str, call: str = "", item: str = "", by: str = BY, via: str = "chat",
-        caller: str = "", timeout: float = TIMEOUT_S) -> dict:
-    """Send message to profile's Hermes host and wait for its answer. Never raises. ok=True only with a delivery id."""
+        caller: str = "", timeout: float = TIMEOUT_S, on_approval=None) -> dict:
+    """Send message to profile's Hermes host and wait for its answer. Never raises. ok=True only with a delivery id.
+    on_approval(client, run_id, event): when given, the ask runs on the host's Runs API and each approval event is
+    handed to it (it must not block; the caller answers through client.respond)."""
     profile = (profile or "").strip().lstrip("@").lower()
     message = " ".join(str(message or "").split())[:MAX_MESSAGE]
     caller = caller or caller_profile() or "tek"
@@ -202,7 +222,10 @@ def ask(profile: str, message: str, call: str = "", item: str = "", by: str = BY
                 {"role": "user", "content": message}]
     began = time.monotonic()
     try:
-        answer, cid, echoed = _post(profile, table[profile], session, messages, timeout)
+        if on_approval is not None:
+            answer, cid, echoed = _run(profile, table[profile], session, messages, timeout, on_approval)
+        else:
+            answer, cid, echoed = _post(profile, table[profile], session, messages, timeout)
     except RuntimeError as exc:
         if led_ok:
             _led("result", item, by, f"ask @{profile} failed: {exc}", False)
