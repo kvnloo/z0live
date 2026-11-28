@@ -52,6 +52,11 @@ if not args.native:
         API_SERVER_KEY=KEY.read_text().strip(),
         TERMINAL_CWD=str(ROOT),
         HERMES_DASHBOARD="0",
+        # N230: a /v1/runs client can answer approvals (approval.request -> POST /v1/runs/{id}/approval), the same
+        # flag Hermes' own start_gateway() sets. Without it a native APIServerAdapter host treats every flagged
+        # command as unattended and denies it before any client sees it. Plain /v1/chat/completions turns register no
+        # approval notifier, so they still resolve from approvals.unattended_mode exactly as before.
+        HERMES_EXEC_ASK="1",
     )
     os.chdir(ROOT)
     runtime = json.loads(

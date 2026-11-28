@@ -744,7 +744,7 @@ class IntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         async def hermes(did, request):
             await release.wait()
-            return 'The deploy finished cleanly.'
+            return 'The deploy log shows a clean exit.'
 
         async def no_lanes(did, request):
             return None
@@ -772,7 +772,7 @@ class IntegrationTests(unittest.IsolatedAsyncioTestCase):
                     spoken.append(json.dumps(await self.received.get()))
         except TimeoutError:
             pass
-        self.assertTrue(any('The deploy finished cleanly.' in s for s in spoken), 'dropped after the renewal swap')
+        self.assertTrue(any('The deploy log shows a clean exit.' in s for s in spoken), 'dropped after the renewal swap')
 
     @patch.object(live, 'HOST_DELEGATION', False)
     async def test_real_webrtc_audio_and_bidirectional_protocol_translation(self):
