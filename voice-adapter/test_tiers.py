@@ -59,6 +59,8 @@ class Call:
     tier_claims_work = live.Call.tier_claims_work
     ledger_call = live.Call.ledger_call
     claims_work = live.Call.claims_work
+    recall_start = live.Call.recall_start  # call_recall is unset here: no lookup (test_call_recall covers it)
+    recall_text = live.Call.recall_text
 
     def __init__(self):
         self.id, self.item_of = "call-x", {}
