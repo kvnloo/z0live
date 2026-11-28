@@ -1,0 +1,16 @@
+# C1-ctx-compress freeze, AMEND-1 rerun (original freeze for run 45892622241 = this file at 91fb7dd) 2026-11-26T15:20:38-0600
+# 740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8  gemma-4-E2B-it-Q4_K_M.gguf (unsloth/gemma-4-E2B-it-GGUF rev 0314792d7f1f7e229411f620751375812bb9faf2)
+# c2758c87b9dd41293653e665fa3b06f5853d69243443d5d06d930683a55e35e4  llama-b12527-bin-ubuntu-arm64.tar.gz
+d9abb7b673b27e29cb181dbd3b1457841ecdd50f89630d54573e4a4aab39b6b8  voice-adapter/bench/context_eval.py
+60c63f30d8ce48f129c77378a9aae35f5c4d44a95507a331728d787bf0219d15  voice-adapter/bench/eval_local.py
+f464f58202edbdc380372994212e9b544c3ebbd49e3d92e9569ec1cbef85bb6b  voice-adapter/bench/ctx_compress_eval.py
+61b499d621005f3fe299eb96354f790fdb6b035a0b04d65328cba671b4bee4b6  voice-adapter/bench/ctx_compress_verdict.py
+a5cbd6119a252d52e46b1e02ec53e6a87f397b758982e992d5b5452fcf18fb7d  voice-adapter/test_ctx_compress_eval.py
+5db899160040b42cec426aa628750f4be994a0c2cf657c9ef648f9e97abc4ed3  voice-adapter/brief_compress.py
+ba25028dcd41b4f8b109bd330310126dac3f5b9fd5f93a0e4d8a03e462e76753  voice-adapter/test_brief_compress.py
+8496ab2c47683c0d6b4fe2d929a8534be6a1e06581063a7e275a53a15205230c  voice-adapter/tiers.py
+805a2518e6e58d6f2f55e666af6bea7b2a41dbb298aa2edb94e59cb00bd5a4c0  voice-adapter/slm_bench.py
+02bd44d65f7b1bf7a3ece3f592ab1a1cbd5c4cd32c974f67ef593bf6835fa477  voice-adapter/bench/lanespeed.py
+63f8b4c6ecc9acc3a44b4f68b4bad6a80fdeffd72b12a927a44b96f551580b69  voice-adapter/bench/ctx-compress-c1-PREREG.md
+76c6e742995c5286c126d5d2ffeba2faaeffa8fa550e1d157dd017d0fde71a22  voice-adapter/bench/ctx-compress-c1-PREREG-AMEND-1.md
+90f591043a81ed3fcf4b2bcfddba4028dcef68813a2c0797ca28f9b6a6eb09ba  .github/workflows/ctx-compress-c1.yml

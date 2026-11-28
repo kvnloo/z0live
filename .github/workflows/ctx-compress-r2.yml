@@ -1,0 +1,139 @@
+name: z0live C1-ctx-compress-r2 planted brief-region recall, full brief vs compress_brief r2 (2810) on gemma4-e2b Q4_K_M (CPU)
+# C1-ctx-compress-r2 (C1/C2 context, track E). ONE change under test (production): brief_compress.compress_brief
+# detects speaker labels case-insensitively. Harness fix (frozen before scoring): bench/ctx_compress_r2_eval.py
+# context_eval variant with the full chat brief under tiers.snapshot's 6000 cap, planted studio/locker/vendor in the
+# region a tail cut drops. Arms A (full) / B (r2 compressor) ABAB + O1 (pre-r2 compressor, report-only).
+# Timeouts qualified by unscored dev run 45905721236 (scenario 2 hi, A+B blocks = 652 s; 5 blocks ~1600 s).
+# One scenario probe half per matrix job (6 jobs). Synthetic text only. Prereg: voice-adapter/bench/ctx-compress-r2-PREREG.md
+on:
+  # dispatch by file name 404s while the file is not on the default branch; the push that adds this file is the trigger
+  push:
+    branches: [ci/ctx-compress-r2]
+    paths: [".github/workflows/ctx-compress-r2.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ctx-compress-r2-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  LLAMA_TAG: b12527
+  LLAMA_SHA256: c2758c87b9dd41293653e665fa3b06f5853d69243443d5d06d930683a55e35e4   # llama-b12527-bin-ubuntu-arm64.tar.gz
+  REPO: unsloth/gemma-4-E2B-it-GGUF
+  REV: 0314792d7f1f7e229411f620751375812bb9faf2
+  FILE: gemma-4-E2B-it-Q4_K_M.gguf
+  SHA: 740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8   # = HF LFS oid at REV
+  BLOCKS: "A,B,A,B,O"
+jobs:
+  abab:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [0, 1, 2]
+        half: [lo, hi]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Runner CPU / RAM / disk
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          lscpu | tee lscpu.txt
+          cpu=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)
+          echo "CPU_MODEL=${cpu:-unknown} ($(uname -m), $(nproc) cpus)" >> "$GITHUB_ENV"
+          echo "runner CPU: ${cpu:-unknown} ($(uname -m), $(nproc) cpus)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: llama.cpp ${{ env.LLAMA_TAG }} (prebuilt ubuntu arm64 CPU)
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/llama" && cd "$RUNNER_TEMP/llama"
+          curl -fsSL --retry 5 --retry-all-errors -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_TAG}/llama-${LLAMA_TAG}-bin-ubuntu-arm64.tar.gz"
+          echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
+          tar xzf llama.tgz
+          server=$(find "$RUNNER_TEMP/llama" -type f -name llama-server | head -1)
+          test -x "$server"
+          echo "LLAMA_SERVER=$server" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$(dirname "$server")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+      - name: Restore GGUF cache
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/models/${{ env.FILE }}
+          key: gguf-${{ env.SHA }}
+      - name: Download GGUF (pinned by sha256, 3 attempts)
+        if: steps.cache.outputs.cache-hit != 'true'
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/models"
+          for i in 1 2 3; do
+            if curl -fsSL --retry 5 --retry-all-errors --speed-limit 2000000 --speed-time 60 -o "$RUNNER_TEMP/models/$FILE" "https://huggingface.co/$REPO/resolve/$REV/$FILE" \
+               && echo "$SHA  $RUNNER_TEMP/models/$FILE" | sha256sum -c -; then exit 0; fi
+            echo "download attempt $i failed"; rm -f "$RUNNER_TEMP/models/$FILE"; sleep $((20 * i))
+          done
+          exit 1
+      - name: Save GGUF cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/models/${{ env.FILE }}
+          key: gguf-${{ env.SHA }}
+      - name: Verify frozen inputs
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          echo "$SHA  $RUNNER_TEMP/models/$FILE" | sha256sum -c -
+          grep -E '^[0-9a-f]{64}  (voice-adapter|\.github)/' voice-adapter/bench/ctx-compress-r2-FREEZE.sha256 | sha256sum -c -
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: ABABO recall bench (scenario ${{ matrix.scenario }} ${{ matrix.half }})
+        timeout-minutes: 46
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet "aiohttp>=3.9,<4"   # tiers.py imports aiohttp
+          (cd voice-adapter && python -m unittest -v test_ctx_compress_r2_eval test_brief_compress_r2 test_brief_compress)   # no model
+          mkdir -p out
+          cp lscpu.txt out/
+          python voice-adapter/bench/ctx_compress_r2_eval.py --dry --scenarios "${{ matrix.scenario }}" | tee out/dry.json
+          meta=$(python -c 'import json,os;print(json.dumps({k.lower():os.environ[k] for k in ("REPO","REV","FILE","SHA","LLAMA_TAG","CPU_MODEL","BLOCKS")}))')
+          python voice-adapter/bench/ctx_compress_r2_eval.py --gguf "$RUNNER_TEMP/models/$FILE" --blocks "$BLOCKS" \
+            --scenarios "${{ matrix.scenario }}" --probes "${{ matrix.half == 'lo' && '0,1,2,3' || '4,5,6,7' }}" --deadline-s 2580 --meta "$meta" \
+            --out "out/ctx-compress-r2-s${{ matrix.scenario }}-${{ matrix.half }}.json" --logdir out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ctx-compress-r2-s${{ matrix.scenario }}-${{ matrix.half }}
+          path: out/
+          if-no-files-found: warn
+          retention-days: 30
+  verdict:
+    needs: abab
+    if: always()
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ctx-compress-r2-s*
+          path: jobs
+      - name: Frozen verdict
+        run: |
+          set -euo pipefail
+          grep -E '^[0-9a-f]{64}  voice-adapter/bench/ctx_compress_r2_verdict.py$' voice-adapter/bench/ctx-compress-r2-FREEZE.sha256 | sha256sum -c -
+          mkdir -p out
+          python3 voice-adapter/bench/ctx_compress_r2_verdict.py $(find jobs -name 'ctx-compress-r2-s*.json' | sort) | tee out/verdict.json
+          { echo '```'; cat out/verdict.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ctx-compress-r2-verdict
+          path: out/
+          retention-days: 30
