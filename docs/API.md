@@ -160,6 +160,8 @@ Builtins available in every session:
 New Realtime session responses also include `builtin_tools:["tell_hermes","get_context","summarize","ask_z0","cancel_work","relay_status"]` (persona v4: the legacy work tools in the table stay executable and reserved but are no longer offered to the model). Route these names to the
 broker; execute declared app tools locally. Clients with a static allowlist must dispatch all returned builtins, including `what_changed`, `ask_z0` and `cancel_work`. No new pairing/permission is required; reconnect to mint them.
 
+While a God's Eye View display is connected, mint also returns `globe` (`{action, args?}`) and `globe_context` (`{}`). Route both to `POST /v1/tools/<name>` like the others. The display routes (`/v1/displays/...`) and the agent CLI (`bin/z0live globe`) are in [DISPLAYS.md](DISPLAYS.md).
+
 `relay_status` uses `{session_id,arguments:{limit?}}` and checks session ownership. It returns
 `{relays,gaps,reply_note}`. Each relay includes exact `text`, `target_session_id`, `current_title`,
 `latest_topic`, `delivery_state` (`delivered`, `accepted by gateway`, `failed`, or explicit `unknown`

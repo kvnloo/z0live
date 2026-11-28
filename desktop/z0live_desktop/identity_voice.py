@@ -57,4 +57,4 @@ def voice_route(method, path):
     """Voice enrollment never authorizes gesture/device administration routes."""
     if method == "GET":
         return path in {"/v1/health", "/v1/inbox", "/v1/stream", "/v1/context", "/v1/trace", "/v1/live/trace", "/v1/sessions", "/v1/devices/self"}
-    return method == "POST" and (path in {"/v1/realtime/session", "/v1/live/calls", "/v1/events", "/v1/cancel"} or bool(re.fullmatch(r"/v1/sessions/[A-Za-z0-9_-]+/end", path)) or path in {"/v1/tools/ask_z0", "/v1/tools/cancel_work", "/v1/tools/tell_hermes", "/v1/tools/get_context", "/v1/tools/summarize", "/v1/tools/relay_status"})
+    return method == "POST" and (path in {"/v1/realtime/session", "/v1/live/calls", "/v1/events", "/v1/cancel"} or bool(re.fullmatch(r"/v1/sessions/[A-Za-z0-9_-]+/end", path)) or path in {"/v1/tools/ask_z0", "/v1/tools/cancel_work", "/v1/tools/tell_hermes", "/v1/tools/get_context", "/v1/tools/summarize", "/v1/tools/relay_status", "/v1/tools/globe", "/v1/tools/globe_context"})
