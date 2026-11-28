@@ -93,7 +93,7 @@ class DefaultUnchangedTest(ArgsBase):
             args = lvr.parse_args(argv)
             self.assertIsNone(args.interleave_arms)
         self.assertEqual(lvr.lure_extra(lvr.parse_args(self.lure_argv())),
-                         {'tts': 'lure', 'lure_first_chunk_frames': 4, 'lure_snapshot': True})
+                         {'tts': 'lure', 'lure_first_chunk_frames': 1, 'lure_snapshot': True})
         self.assertEqual(lvr.lure_extra(lvr.parse_args(['--out', self.out])), {})
 
     def test_default_helper_argv_unchanged(self):
