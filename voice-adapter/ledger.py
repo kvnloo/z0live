@@ -39,8 +39,9 @@ from pathlib import Path
 
 KINDS = ("action", "question", "research")
 OWNERS = ("voice", "background", "conductor", "job")
-RECEIPT_KINDS = ("pid", "kanban", "cron", "commit", "file", "lane")
-PROOF_KINDS = ("pid", "kanban", "cron", "commit", "file")  # what proves an ACTION started
+RECEIPT_KINDS = ("pid", "kanban", "cron", "commit", "file", "lane", "dm")
+# What proves an ACTION started. dm: a Bot Mode delivery id the target bot's own gateway admitted (bot_dm.py).
+PROOF_KINDS = ("pid", "kanban", "cron", "commit", "file", "dm")
 STATES = ("open", "running", "done", "blocked", "failed", "dropped")
 TERMINAL = ("done", "failed", "dropped")
 NOT_STARTED_SECONDS = 120.0

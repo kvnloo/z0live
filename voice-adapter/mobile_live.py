@@ -47,6 +47,7 @@ import lane_layout  # noqa: E402 - sibling module (the lanes attached to the con
 import ledger as request_ledger  # noqa: E402 - sibling module (the request ledger: asks, promises, proof, results)
 import guest_voice  # noqa: E402
 import answer_delivery  # noqa: E402 - sibling module (what each voice has actually said)
+import bot_dm  # noqa: E402 - sibling module (voice @-mentions of another bot profile, via Bot Mode delivery)
 from subscription_leg import Speaker, SubscriptionLeg  # noqa: E402
 import av  # noqa: E402
 from aiortc.contrib.media import MediaRelay  # noqa: E402
@@ -2017,6 +2018,8 @@ class Call:
         # Before delegation.start: the TV conductor turns every delegation.start into worker lanes.
         if self.lane_command(did, request):  # "add two opus lanes": the layout changes here, Hermes never runs
             return
+        if self.bot_mention(did, request):  # "at PC bot list the WD drive": that bot's Bot Chat answers, not Hermes
+            return
         # passthru=True marks a delegation made while z0 sat in a meeting (this leg still hears the phone alone).
         self.trace("delegation.start", did=did, request=(request or "")[:4000],
                    **({"passthru": True} if self.passthru and self.passthru.active else {}))
@@ -2234,6 +2237,54 @@ class Call:
         if not self.closed:
             self.speak_for(did, result.get("say") or "")
         return True
+
+    def bot_mention(self, did, request):
+        """Kevin @-mentions another bot ("at PC bot list the WD drive", "ask the PC bot to ..."): the message goes into
+        that profile's Bot Chat through Hermes Bot Mode's own delivery runner (bot_dm.py, the transport message_agent
+        uses in chat), its reply is spoken, and the ledger item gets the delivery id and the target's Bot Chat session
+        as proof. The guest profile never relays: it hears that out loud and nothing is sent. True when handled."""
+        user = str(self.protocol.turn_text.get("user") or "") if hasattr(self.protocol, "turn_text") else ""
+        me = self.profile or ""
+        hit = bot_dm.parse(request, me=me)
+        if not hit and user and re.search(r"\bbot\b|@", request or "", re.I):  # the voice paraphrased Kevin's words
+            hit = bot_dm.parse(user, me=me)
+        if not hit:
+            return False
+        target, message = hit
+        label = f"the {target.upper() if len(target) <= 3 else target} bot"
+        self.trace("botdm.start", did=did, target=target, sender=me, request=(request or "")[:500])
+        self.ledger_open(did, request)
+        item = self.item_of.get(did)
+        if me in bot_dm.DENY_SENDERS or not me:
+            self.counts["botdm_refused"] += 1
+            self.trace("botdm.refused", did=did, target=target, sender=me)
+            self.ledger_do(request_ledger.state, item, "blocked", "voice", f"{me or 'no'} profile may not message other bots")
+            self.speak_for(did, f"I can't message {label} from this call: messaging other bots isn't available here.")
+            return True
+        self.spawn(self.bot_dm_run(did, target, message, label))
+        return True
+
+    async def bot_dm_run(self, did, target, message, label):
+        began, item = time.monotonic(), self.item_of.get(did)
+        self.counts["botdm_sent"] += 1
+        res = await asyncio.to_thread(bot_dm.send, target, message, self.profile, self.ledger_call,
+                                      DELEGATION_TIMEOUT_SECONDS)
+        self.trace("botdm.done", did=did, target=target, ok=res.get("ok"), status=res.get("status"),
+                   delivery_id=res.get("delivery_id"), session=res.get("session_id"), error=(res.get("error") or "")[:300],
+                   reply=(res.get("reply") or "")[:2000], s=round(time.monotonic() - began, 3))
+        if res.get("delivery_id"):  # admitted into the target's Bot Chat: the proof, whatever the outcome
+            self.ledger_do(request_ledger.receipt, item, "voice", "dm", res["delivery_id"],
+                           f"{target} Bot Chat {res.get('session_id') or '?'} ({res.get('status') or '?'})")
+        if res.get("ok"):
+            self.counts["botdm_ok"] += 1
+            self.ledger_do(request_ledger.result, item, f"bot:{target}", res.get("reply") or "(empty reply)", True,
+                           [f"dm:{res['delivery_id']}"] + ([f"session:{res['session_id']}"] if res.get("session_id") else []))
+        else:
+            self.counts["botdm_failed"] += 1
+            self.ledger_do(request_ledger.result, item, "voice", f"{target}: {res.get('error') or res.get('status')}",
+                           False, [f"dm:{res['delivery_id']}"] if res.get("delivery_id") else [])
+        text = bot_dm.spoken(res, label[0].upper() + label[1:])
+        self.speak_for(did, text[:1500])
 
     async def tier_lanes(self, did, request):
         """Fast, medium and slow lanes race within each tier; tiers run at once. The first answer from any tier
