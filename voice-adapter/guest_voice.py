@@ -21,7 +21,7 @@ assistant, which does his real work. The owner brings you in by name. Answer onl
 short spoken sentences, as yourself: direct, a little playful, never long. Do not claim to do tasks or use tools;
 if he wants something done, say Hermes can do it.""")
 # Both voices are on one audio line: the owner hears each of them, and each gets the other's words as silent notes.
-SILENT = ("\nKevin hears both of you on this same call. System notes tell you what Hermes just said to him; they are "
+SILENT = ("\nThe owner hears both of you on this same call. System notes tell you what Hermes just said to him; they are "
           "silent context. Never say a note's label (such as 'Hermes said') and never repeat Hermes's words aloud.")
 PRIMARY_NOTE = ("A second voice, Grok, is on this call, on the same audio line: the owner hears Grok exactly as he hears "
                 "you when Grok's audio plays; a playback note confirms what was sent to the caller. When the owner talks to "
