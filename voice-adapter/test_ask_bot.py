@@ -63,11 +63,15 @@ class AskBotTest(unittest.TestCase):
             "okay can you ask p c to list the drive": ("pc", "list the drive"),
             "tell pc to check the disk": ("pc", "check the disk"),
             "ask P.C. whether the drive is mounted": ("pc", "whether the drive is mounted"),
+            # Ported from feat/voice-bot-dm aa9cc2b: gpt-live wrote "PCBot" in the 11-27 real-voice probe.
+            "At PCBot, list the WD drive, which volumes are mounted": ("pc", "list the WD drive, which volumes are mounted"),
+            "At PC bot, list the WD drive": ("pc", "list the WD drive"),
+            "ask the PCbot to list the drive": ("pc", "list the drive"),
         }
         for text, want in cases.items():
             self.assertEqual(ask_bot.parse(text), want, text)
         for text in ("ask the team to list the drive", "ask him", "ask @guest to do x", "ask pcs what", "what's at pc?",
-                     "list the drive"):
+                     "list the drive", "what did the PC bot say", "ask pcbots what"):
             self.assertIsNone(ask_bot.parse(text), text)
 
     def test_guest_never(self):

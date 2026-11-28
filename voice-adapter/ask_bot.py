@@ -72,7 +72,9 @@ def _names() -> str:
 
 def _name(at: bool) -> str:
     lead = r"(?:@\s*|at\s+)" if at else r"(?:the\s+)?(?:@\s*|at\s+)?"
-    return lead + r"(?P<p>" + _names() + r")(?![a-z0-9_-])(?:\s+(?:bot|profile|agent))?"
+    # "PCBot": the speech model glues the suffix on (seen in the 11-27 real-voice probe), so allow it with no space.
+    return (lead + r"(?P<p>" + _names() + r")"
+            r"(?:\s*(?:bot|profile|agent)(?![a-z0-9_-])|(?![a-z0-9_-]))")
 
 
 def _profile(word: str) -> str | None:
