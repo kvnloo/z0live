@@ -4,7 +4,7 @@
 Harness cross-check, not a keep/revert of product code. Offline, CPU only, no audio device, service or network.
 
 Pipeline per trial (fixed seeds, deterministic):
-  1. bench/bargein_replay.py (pinned copy of exp/bargein-ae-rho-veto @ 132b2b4, bargein_replay/25, unmodified)
+  1. The local bench/bargein_replay.py (identified by its source digest in the JSON receipt)
      generates the trial with the realistic opt-in acoustics: --echo-model residual --echo-continuous
      --bot-render recorded (seeded room echo of a LibriSpeech bot render in every uplink sample while the speaker
      plays, near-end noise, caller clip at the labelled onset). The sim's own `replay` runs with arm "none": a
@@ -45,6 +45,7 @@ Output: JSON, schema levels_xcheck/1 (sorted keys, deterministic).
 import argparse
 from contextlib import contextmanager
 from dataclasses import asdict
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -56,7 +57,6 @@ import numpy as np
 
 HERE = Path(__file__).resolve().parent
 SCHEMA = "levels_xcheck/1"
-SIM_PIN = "exp/bargein-ae-rho-veto@132b2b4 (bargein_replay/25)"
 SIM_FLAGS = ("--echo-model", "residual", "--echo-continuous", "--bot-render", "recorded")
 SEEDS = (39, 40)
 TRIALS = 30
@@ -80,6 +80,7 @@ def _imports():
 
 
 br, call_trace, lr, live = _imports()
+SIM_PIN = "sha256:" + hashlib.sha256(Path(br.__file__).read_bytes()).hexdigest()
 import av  # noqa: E402  (after mobile_live: same PyAV the adapter decodes with)
 
 
